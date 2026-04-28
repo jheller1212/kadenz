@@ -23,9 +23,20 @@ function formatSeconds(s: number): string {
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+function nextMonday(): string {
+  const date = new Date();
+  const day = date.getDay(); // 0=Sun
+  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
+  date.setDate(date.getDate() + daysUntilMonday);
+  return date.toISOString().split("T")[0];
+}
+
 function isoDateOffset(weeksFromToday: number): string {
   const date = new Date();
-  date.setDate(date.getDate() + weeksFromToday * 7);
+  // Snap to next Monday first
+  const day = date.getDay();
+  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
+  date.setDate(date.getDate() + daysUntilMonday + weeksFromToday * 7);
   return date.toISOString().split("T")[0];
 }
 
@@ -257,7 +268,7 @@ function StepGoal({
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Dates</span>
         <div className="flex flex-col gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-sm text-text-2">Plan start date</span>
+            <span className="text-sm text-text-2">Plan start date (Monday)</span>
             <input
               type="date"
               value={startDate}
