@@ -164,6 +164,29 @@ function StepRace({
 
 // ── Step 2: Goal Time ─────────────────────────────────────────────────────────
 
+// Realistic goal time ranges per distance (seconds) [world record … slow recreational]
+const GOAL_TIME_RANGES: Record<RaceDistance, { wr: number; elite: number; fast: number; slow: number; label: string }> = {
+  "5k":      { wr: 755,   elite: 900,   fast: 1200,  slow: 2700,  label: "5K" },
+  "10k":     { wr: 1577,  elite: 1920,  fast: 2700,  slow: 5400,  label: "10K" },
+  "half":    { wr: 3456,  elite: 4200,  fast: 5700,  slow: 12600, label: "Half Marathon" },
+  "marathon": { wr: 7260, elite: 8700,  fast: 11400, slow: 25200, label: "Marathon" },
+};
+
+function getGoalTimeWarning(raceDistance: RaceDistance | null, totalSeconds: number): string | null {
+  if (!raceDistance || totalSeconds <= 0) return null;
+  const range = GOAL_TIME_RANGES[raceDistance];
+  if (totalSeconds < range.wr) {
+    return `That's faster than the world record for ${range.label}. Please enter a realistic goal time.`;
+  }
+  if (totalSeconds < range.elite) {
+    return `That's an elite-level time. This app is designed for recreational runners — pacing may not suit sub-elite athletes.`;
+  }
+  if (totalSeconds > range.slow) {
+    return `That's quite slow for a ${range.label}. Consider walking intervals or a run/walk plan instead.`;
+  }
+  return null;
+}
+
 function StepGoal({
   hours,
   minutes,
@@ -175,6 +198,7 @@ function StepGoal({
   onRaceDate,
   startDate,
   onStartDate,
+  raceDistance,
 }: {
   hours: number;
   minutes: number;
@@ -186,8 +210,10 @@ function StepGoal({
   onRaceDate: (v: string) => void;
   startDate: string;
   onStartDate: (v: string) => void;
+  raceDistance: RaceDistance | null;
 }) {
   const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+  const warning = getGoalTimeWarning(raceDistance, totalSeconds);
 
   return (
     <div className="flex flex-col gap-6">
@@ -284,6 +310,11 @@ function StepGoal({
         </div>
         {totalSeconds > 0 && (
           <p className="text-xs text-text-3 text-center">Goal: {formatSeconds(totalSeconds)}</p>
+        )}
+        {warning && (
+          <div className="rounded-[var(--radius-input)] bg-warn/10 border border-warn/30 px-4 py-3 text-xs text-warn leading-relaxed">
+            {warning}
+          </div>
         )}
       </div>
 
@@ -718,7 +749,9 @@ export default function CreatePlanPage() {
       case 1: {
         const goalValid = goalTimeSeconds > 0;
         const datesValid = startDate !== "" && raceDate !== "" && raceDate > startDate;
-        return goalValid && datesValid;
+        // Block if goal time is below world record (unrealistic)
+        const timeRealistic = !raceDistance || goalTimeSeconds >= GOAL_TIME_RANGES[raceDistance].wr;
+        return goalValid && datesValid && timeRealistic;
       }
       case 2: return true;
       case 3: return false;
@@ -842,6 +875,7 @@ export default function CreatePlanPage() {
             onRaceDate={setRaceDate}
             startDate={startDate}
             onStartDate={setStartDate}
+            raceDistance={raceDistance}
           />
         )}
         {step === 2 && (
