@@ -490,12 +490,11 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
         {[
           { label: "Weeks", value: String(plan.planLengthWeeks) },
           { label: "Total km", value: String(Math.round(totalKm)) },
           { label: "Days/wk", value: String(plan.daysPerWeek) },
-          { label: "VDOT", value: plan.vdot.toFixed(1) },
         ].map(({ label, value }) => (
           <div
             key={label}

@@ -545,8 +545,8 @@ function StepPreview({ plan }: { plan: GeneratedPlan }) {
           <span className="text-2xl font-extrabold text-accent">{plan.planLengthWeeks}</span>
         </div>
         <div className="rounded-[var(--radius-card)] bg-surface border border-hairline p-4 flex flex-col gap-1">
-          <span className="text-xs text-text-3 uppercase tracking-wider">VDOT</span>
-          <span className="text-2xl font-extrabold text-accent">{plan.vdot}</span>
+          <span className="text-xs text-text-3 uppercase tracking-wider">Race pace</span>
+          <span className="text-lg font-extrabold text-accent">{formatPace(paces.E.targetPaceSecKm > paces.M.targetPaceSecKm ? Math.round(plan.goalTimeSeconds / (plan.raceDistance === "5k" ? 5 : plan.raceDistance === "10k" ? 10 : plan.raceDistance === "half" ? 21.1 : 42.2)) : paces.M.targetPaceSecKm)}/km</span>
         </div>
         <div className="rounded-[var(--radius-card)] bg-surface border border-hairline p-4 flex flex-col gap-1">
           <span className="text-xs text-text-3 uppercase tracking-wider">Days/wk</span>
@@ -558,9 +558,9 @@ function StepPreview({ plan }: { plan: GeneratedPlan }) {
       <div className="rounded-[var(--radius-card)] bg-surface border border-hairline p-4 flex flex-col gap-1">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-2">Pace zones</span>
         <PaceRow label="Easy / Long" pace={formatPace(paces.E.targetPaceSecKm)} />
-        <PaceRow label="Marathon" pace={formatPace(paces.M.targetPaceSecKm)} />
+        <PaceRow label="Steady (M pace)" pace={formatPace(paces.M.targetPaceSecKm)} />
         <PaceRow label="Tempo / Threshold" pace={formatPace(paces.T.targetPaceSecKm)} />
-        <PaceRow label="Interval (VO2max)" pace={formatPace(paces.I.targetPaceSecKm)} />
+        <PaceRow label="Intervals" pace={formatPace(paces.I.targetPaceSecKm)} />
       </div>
 
       {/* Phase breakdown */}
