@@ -99,25 +99,49 @@ function StepRace({
   value: RaceDistance | null;
   onChange: (d: RaceDistance) => void;
 }) {
+  const distances = RACE_OPTIONS.map((o) => o.distance);
+
+  function handleKeyDown(e: React.KeyboardEvent, current: RaceDistance) {
+    const idx = distances.indexOf(current);
+    let next = idx;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      next = (idx + 1) % distances.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      next = (idx - 1 + distances.length) % distances.length;
+    } else {
+      return;
+    }
+    onChange(distances[next]);
+    // Focus the newly selected button
+    const container = (e.target as HTMLElement).closest("[role=radiogroup]");
+    const buttons = container?.querySelectorAll<HTMLElement>("[role=radio]");
+    buttons?.[next]?.focus();
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="text-2xl font-extrabold text-text-1 tracking-tight">Pick your race</h2>
         <p className="text-sm text-text-2 mt-1">What distance are you training for?</p>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Race distance">
         {RACE_OPTIONS.map(({ distance, label, sublabel }) => {
           const selected = value === distance;
           return (
             <button
               key={distance}
+              role="radio"
+              aria-checked={selected}
+              tabIndex={selected || (value === null && distance === "5k") ? 0 : -1}
               onClick={() => onChange(distance)}
-              className={`flex flex-col items-start p-4 rounded-[var(--radius-card)] border transition-all active:scale-[0.97] ${
+              onKeyDown={(e) => handleKeyDown(e, distance)}
+              className={`flex flex-col items-start p-4 rounded-[var(--radius-card)] border transition-all active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
                 selected
                   ? "border-accent bg-accent/10"
                   : "border-hairline bg-surface"
               }`}
-              aria-pressed={selected}
             >
               <span className={`text-2xl font-extrabold tracking-tight ${selected ? "text-accent" : "text-text-1"}`}>
                 {label}
