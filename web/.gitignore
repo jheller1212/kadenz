@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Google Calendar OAuth tokens (sensitive, do not commit)
+.gcal-tokens.json
+
 # vercel
 .vercel
 

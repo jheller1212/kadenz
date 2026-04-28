@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0A0A0B"/>
+  <text
+    x="256"
+    y="360"
+    font-family="Inter, system-ui, -apple-system, sans-serif"
+    font-size="320"
+    font-weight="800"
+    text-anchor="middle"
+    fill="#C8FF3C"
+    letter-spacing="-8"
+  >K</text>
+</svg>
