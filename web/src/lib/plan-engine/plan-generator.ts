@@ -544,7 +544,12 @@ function pickTrainingDays(
     selected.add(d);
   }
 
-  return Array.from(selected).sort((a, b) => a - b);
+  // Sort Monday-first: Mon(1), Tue(2), ..., Sat(6), Sun(0)
+  return Array.from(selected).sort((a, b) => {
+    const ma = a === 0 ? 7 : a;
+    const mb = b === 0 ? 7 : b;
+    return ma - mb;
+  });
 }
 
 /**
@@ -723,13 +728,13 @@ function buildWeek(
   const workouts: GeneratedWorkout[] = [];
   let sortOrder = 0;
 
-  // weekStartDate is always Monday (weekStartDay=1).
-  // Map dayOfWeek (0=Sun…6=Sat) to offset from Monday.
-  const weekStartDay = 1; // Monday
+  // weekStartDate is always Monday.
+  // Iterate Mon(1), Tue(2), ..., Sat(6), Sun(0) so week starts on Monday.
+  const dayOrder = [1, 2, 3, 4, 5, 6, 0]; // Mon-first
 
   // Generate all 7 days
-  for (let dow = 0; dow < 7; dow++) {
-    const dayOffset = (dow - weekStartDay + 7) % 7;
+  for (const dow of dayOrder) {
+    const dayOffset = dow === 0 ? 6 : dow - 1; // Mon=0 offset, Tue=1, ..., Sun=6
     const date = addDays(weekStartDate, dayOffset);
     const workoutType = typeMap.get(dow);
 
