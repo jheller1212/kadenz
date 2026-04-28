@@ -44,8 +44,9 @@ export interface VdotResult {
 
 // ── Plan Generator Types ──────────────────────────────────────────────────────
 
-export type TrainingVolume = "low" | "medium" | "high";
+export type TrainingVolume = "beginner" | "low" | "medium" | "high" | "elite";
 export type TrainingDifficulty = "easy" | "moderate" | "hard";
+export type RaceElevation = "flat" | "rolling" | "hilly" | "mountainous";
 export type WeekPhase = "base" | "build" | "peak" | "taper";
 export type WeekType = "normal" | "deload" | "race";
 export type WorkoutType =
@@ -77,10 +78,14 @@ export interface PlanConfig {
   preferredLongRunDay: number;
   /** Whether the athlete trains in a hilly area */
   hillyArea: boolean;
+  /** Race elevation profile */
+  raceElevation: RaceElevation;
   /** Current weekly mileage (km) — baseline for ramp-up */
   currentWeeklyKm: number;
   /** Hard cap on long-run distance (km); 0 = no cap */
   longRunCapKm: number;
+  /** Minimum easy run distance (km); 0 = no minimum */
+  easyRunMinKm: number;
 }
 
 export interface GeneratedBlock {

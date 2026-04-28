@@ -29,16 +29,31 @@ import type {
 
 /** Base weekly km targets per volume tier (starting point for first full week) */
 const BASE_KM: Record<string, number> = {
-  low: 25,
-  medium: 40,
-  high: 55,
+  beginner: 10,
+  low: 20,
+  medium: 35,
+  high: 50,
+  elite: 70,
 };
 
 /** Peak weekly km caps per volume tier */
 const PEAK_KM: Record<string, number> = {
-  low: 55,
-  medium: 80,
-  high: 110,
+  beginner: 30,
+  low: 45,
+  medium: 70,
+  high: 100,
+  elite: 140,
+};
+
+/** Max weekly km increase rate (fraction, e.g. 0.10 = 10%) */
+const MAX_WEEKLY_INCREASE = 0.10;
+
+/** Pace adjustment factor per race elevation category */
+const ELEVATION_PACE_FACTOR: Record<string, number> = {
+  flat: 1.0,
+  rolling: 1.04,
+  hilly: 1.08,
+  mountainous: 1.14,
 };
 
 /** Quality-session frequency adjustments per difficulty */
@@ -49,7 +64,7 @@ const QUALITY_DAYS: Record<string, number> = {
 };
 
 /** Hilly area pace adjustment factor (slower on uphills, treat as +8% effort) */
-const HILLY_PACE_FACTOR = 1.08;
+const HILLY_PACE_FACTOR = 1.08; // legacy, used as fallback
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -96,8 +111,23 @@ function raceLabel(d: string): string {
  * Returns array of WeekPhase, one per week (1-indexed access via [i-1]).
  */
 function buildPhaseMap(totalWeeks: number): WeekPhase[] {
-  // At minimum 4 weeks we need at least 1 week per phase
   const taperWeeks = Math.max(1, Math.round(totalWeeks * 0.1));
+
+  if (totalWeeks <= 9) {
+    // Short plans: minimal base (1 week), jump to build quickly
+    const baseWeeks = 1;
+    const peakWeeks = Math.max(1, Math.round(totalWeeks * 0.15));
+    const buildWeeks = totalWeeks - baseWeeks - peakWeeks - taperWeeks;
+    const phases: WeekPhase[] = [];
+    for (let i = 0; i < baseWeeks; i++) phases.push("base");
+    for (let i = 0; i < buildWeeks; i++) phases.push("build");
+    for (let i = 0; i < peakWeeks; i++) phases.push("peak");
+    for (let i = 0; i < taperWeeks; i++) phases.push("taper");
+    while (phases.length < totalWeeks) phases.splice(phases.length - taperWeeks, 0, "build");
+    return phases.slice(0, totalWeeks);
+  }
+
+  // Standard plans (10+ weeks)
   const peakWeeks = Math.max(1, Math.round(totalWeeks * 0.2));
   const buildWeeks = Math.max(1, Math.round(totalWeeks * 0.4));
   const baseWeeks = totalWeeks - buildWeeks - peakWeeks - taperWeeks;
@@ -168,9 +198,12 @@ function buildVolumeProgression(
       continue;
     }
 
-    // Ramp within base/build/peak
+    // Ramp within base/build/peak, capped at MAX_WEEKLY_INCREASE per week
     const progress = rampWeeks > 1 ? i / (rampWeeks - 1) : 1;
-    const targetKm = startKm + (peakKm - startKm) * progress;
+    const uncappedKm = startKm + (peakKm - startKm) * progress;
+    // Cap: don't increase more than MAX_WEEKLY_INCREASE over last normal week
+    const maxAllowed = lastNormalKm * (1 + MAX_WEEKLY_INCREASE);
+    const targetKm = Math.min(uncappedKm, maxAllowed, peakKm);
 
     if (type === "deload") {
       volumes.push(Math.round(targetKm * 0.7));
@@ -185,7 +218,10 @@ function buildVolumeProgression(
 
 // ── Block builders ───────────────────────────────────────────────────────────
 
-function applyHilly(pace: number, hillyArea: boolean): number {
+function applyHilly(pace: number, hillyArea: boolean, raceElevation?: string): number {
+  if (raceElevation && raceElevation !== "flat") {
+    return Math.round(pace * (ELEVATION_PACE_FACTOR[raceElevation] ?? 1));
+  }
   return hillyArea ? Math.round(pace * HILLY_PACE_FACTOR) : pace;
 }
 
@@ -587,7 +623,8 @@ function distributeVolume(
   weeklyKm: number,
   typeMap: Map<number, WorkoutType>,
   longRunCapKm: number,
-  raceDistance: string
+  raceDistance: string,
+  easyRunMinKm: number = 0
 ): Map<number, number> {
   const distMap = new Map<number, number>();
   const raceLenKm = raceDistanceKm(raceDistance);
@@ -626,7 +663,8 @@ function distributeVolume(
   remainingKm -=
     tempoCount * tempoTotalKm + intervalCount * intervalTotalKm;
 
-  const easyKm = easyCount > 0 ? Math.max(4, Math.round(remainingKm / easyCount)) : 0;
+  const minEasy = easyRunMinKm > 0 ? easyRunMinKm : 4;
+  const easyKm = easyCount > 0 ? Math.max(minEasy, Math.round(remainingKm / easyCount)) : 0;
 
   for (const [day, type] of typeMap) {
     if (type === "long") {
@@ -678,7 +716,8 @@ function buildWeek(
     targetKm,
     typeMap,
     config.longRunCapKm,
-    config.raceDistance
+    config.raceDistance,
+    config.easyRunMinKm ?? 0
   );
 
   const workouts: GeneratedWorkout[] = [];

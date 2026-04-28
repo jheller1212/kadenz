@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PlanConfig, RaceDistance, TrainingVolume, TrainingDifficulty, GeneratedPlan } from "@/lib/plan-engine/types";
+import type { PlanConfig, RaceDistance, TrainingVolume, TrainingDifficulty, RaceElevation, GeneratedPlan } from "@/lib/plan-engine/types";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import { getPaceZones, formatPace } from "@/lib/plan-engine/pace-zones";
 
@@ -326,12 +326,14 @@ function StepPreferences({
   onDifficulty,
   preferredLongRunDay,
   onLongRunDay,
-  hillyArea,
-  onHillyArea,
+  raceElevation,
+  onRaceElevation,
   currentWeeklyKm,
   onCurrentWeeklyKm,
   longRunCapKm,
   onLongRunCapKm,
+  easyRunMinKm,
+  onEasyRunMinKm,
 }: {
   daysPerWeek: number;
   onDaysPerWeek: (v: number) => void;
@@ -341,12 +343,14 @@ function StepPreferences({
   onDifficulty: (v: TrainingDifficulty) => void;
   preferredLongRunDay: number;
   onLongRunDay: (v: number) => void;
-  hillyArea: boolean;
-  onHillyArea: (v: boolean) => void;
+  raceElevation: RaceElevation;
+  onRaceElevation: (v: RaceElevation) => void;
   currentWeeklyKm: number;
   onCurrentWeeklyKm: (v: number) => void;
   longRunCapKm: number;
   onLongRunCapKm: (v: number) => void;
+  easyRunMinKm: number;
+  onEasyRunMinKm: (v: number) => void;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -396,17 +400,25 @@ function StepPreferences({
       {/* Volume */}
       <div className="flex flex-col gap-2">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Training volume</span>
-        <div className="flex gap-2">
-          {(["low", "medium", "high"] as TrainingVolume[]).map((v) => (
-            <OptionPill key={v} selected={trainingVolume === v} onClick={() => onVolume(v)}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
+        <div className="flex gap-2 flex-wrap">
+          {([
+            { value: "beginner" as TrainingVolume, label: "Beginner" },
+            { value: "low" as TrainingVolume, label: "Low" },
+            { value: "medium" as TrainingVolume, label: "Medium" },
+            { value: "high" as TrainingVolume, label: "High" },
+            { value: "elite" as TrainingVolume, label: "Elite" },
+          ]).map(({ value, label }) => (
+            <OptionPill key={value} selected={trainingVolume === value} onClick={() => onVolume(value)}>
+              {label}
             </OptionPill>
           ))}
         </div>
         <p className="text-xs text-text-3">
-          {trainingVolume === "low" && "25–55 km/week peak. Good for first-timers."}
-          {trainingVolume === "medium" && "40–80 km/week peak. Balanced approach."}
-          {trainingVolume === "high" && "55–110 km/week peak. For experienced runners."}
+          {trainingVolume === "beginner" && "10–30 km/week peak. New to running or <10 km/week."}
+          {trainingVolume === "low" && "20–45 km/week peak. Casual runner, building up."}
+          {trainingVolume === "medium" && "35–70 km/week peak. Balanced approach."}
+          {trainingVolume === "high" && "50–100 km/week peak. Experienced runner."}
+          {trainingVolume === "elite" && "70–140 km/week peak. Competitive / high mileage."}
         </p>
       </div>
 
@@ -492,24 +504,49 @@ function StepPreferences({
         </div>
       </div>
 
-      {/* Hilly area */}
-      <div className="flex items-center justify-between rounded-[var(--radius-card)] bg-surface border border-hairline px-4 py-4">
-        <div>
-          <p className="text-sm font-semibold text-text-1">Hilly area</p>
-          <p className="text-xs text-text-3 mt-0.5">Adjusts paces for elevation (+8% effort)</p>
+      {/* Race elevation */}
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Race elevation</span>
+        <div className="flex gap-2 flex-wrap">
+          {([
+            { value: "flat" as const, label: "Flat", desc: "<10m/km" },
+            { value: "rolling" as const, label: "Rolling", desc: "10–20m/km" },
+            { value: "hilly" as const, label: "Hilly", desc: "20–40m/km" },
+            { value: "mountainous" as const, label: "Mountain", desc: ">40m/km" },
+          ]).map(({ value, label }) => (
+            <OptionPill key={value} selected={raceElevation === value} onClick={() => onRaceElevation(value)}>
+              {label}
+            </OptionPill>
+          ))}
         </div>
-        <button
-          role="switch"
-          aria-checked={hillyArea}
-          onClick={() => onHillyArea(!hillyArea)}
-          className={`relative w-12 h-6 rounded-full transition-colors ${hillyArea ? "bg-accent" : "bg-elevated"}`}
-        >
-          <div
-            className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-              hillyArea ? "translate-x-7" : "translate-x-1"
-            }`}
-          />
-        </button>
+        <p className="text-xs text-text-3">
+          {raceElevation === "flat" && "Less than 10m elevation per km. Paces unadjusted."}
+          {raceElevation === "rolling" && "10–20m per km. Paces adjusted +4%."}
+          {raceElevation === "hilly" && "20–40m per km. Paces adjusted +8%."}
+          {raceElevation === "mountainous" && "40m+ per km. Paces adjusted +14%."}
+        </p>
+      </div>
+
+      {/* Easy run minimum */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Easy run minimum</span>
+          <span className="text-sm font-bold text-accent">{easyRunMinKm === 0 ? "No min" : `${easyRunMinKm} km`}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={15}
+          step={1}
+          value={easyRunMinKm}
+          onChange={(e) => onEasyRunMinKm(Number(e.target.value))}
+          className="w-full accent-[#C8FF3C]"
+          aria-label={`Easy run minimum: ${easyRunMinKm === 0 ? "none" : easyRunMinKm + " km"}`}
+        />
+        <div className="flex justify-between text-[10px] text-text-3">
+          <span>No min</span>
+          <span>15 km</span>
+        </div>
       </div>
     </div>
   );
@@ -636,6 +673,8 @@ export default function CreatePlanPage() {
   // Step 3
   const [daysPerWeek, setDaysPerWeek] = useState(4);
   const [trainingVolume, setTrainingVolume] = useState<TrainingVolume>("medium");
+  const [raceElevation, setRaceElevation] = useState<RaceElevation>("flat");
+  const [easyRunMinKm, setEasyRunMinKm] = useState(0);
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>("moderate");
   const [preferredLongRunDay, setPreferredLongRunDay] = useState(6); // Saturday
   const [hillyArea, setHillyArea] = useState(false);
@@ -677,8 +716,10 @@ export default function CreatePlanPage() {
           trainingDifficulty,
           preferredLongRunDay,
           hillyArea,
+          raceElevation,
           currentWeeklyKm,
           longRunCapKm,
+          easyRunMinKm,
         };
         const plan = generatePlan(config);
         setGeneratedPlan(plan);
@@ -711,8 +752,10 @@ export default function CreatePlanPage() {
         trainingDifficulty,
         preferredLongRunDay,
         hillyArea,
+        raceElevation,
         currentWeeklyKm,
         longRunCapKm,
+        easyRunMinKm,
       };
 
       const res = await fetch("/api/plans", {
@@ -787,12 +830,14 @@ export default function CreatePlanPage() {
             onDifficulty={setTrainingDifficulty}
             preferredLongRunDay={preferredLongRunDay}
             onLongRunDay={setPreferredLongRunDay}
-            hillyArea={hillyArea}
-            onHillyArea={setHillyArea}
+            raceElevation={raceElevation}
+            onRaceElevation={setRaceElevation}
             currentWeeklyKm={currentWeeklyKm}
             onCurrentWeeklyKm={setCurrentWeeklyKm}
             longRunCapKm={longRunCapKm}
             onLongRunCapKm={setLongRunCapKm}
+            easyRunMinKm={easyRunMinKm}
+            onEasyRunMinKm={setEasyRunMinKm}
           />
         )}
         {step === 3 && generatedPlan && (

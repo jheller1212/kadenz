@@ -28,9 +28,11 @@ export const planStatusEnum = pgEnum("plan_status", [
 ]);
 
 export const trainingVolumeEnum = pgEnum("training_volume", [
+  "beginner",
   "low",
   "medium",
   "high",
+  "elite",
 ]);
 
 export const trainingDifficultyEnum = pgEnum("training_difficulty", [

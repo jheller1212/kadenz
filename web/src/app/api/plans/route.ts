@@ -14,12 +14,14 @@ const PlanConfigSchema = z.object({
   startDate: z.string().datetime(),
   raceDate: z.string().datetime(),
   daysPerWeek: z.number().int().min(3).max(6),
-  trainingVolume: z.enum(["low", "medium", "high"]),
+  trainingVolume: z.enum(["beginner", "low", "medium", "high", "elite"]),
   trainingDifficulty: z.enum(["easy", "moderate", "hard"]),
   preferredLongRunDay: z.number().int().min(0).max(6),
   hillyArea: z.boolean(),
+  raceElevation: z.enum(["flat", "rolling", "hilly", "mountainous"]).default("flat"),
   currentWeeklyKm: z.number().nonnegative(),
   longRunCapKm: z.number().nonnegative(),
+  easyRunMinKm: z.number().nonnegative().default(0),
 });
 
 // ── POST /api/plans ───────────────────────────────────────────────────────────
