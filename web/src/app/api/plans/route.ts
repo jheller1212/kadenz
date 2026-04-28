@@ -88,58 +88,65 @@ export async function POST(request: NextRequest) {
 
     const planId = insertedPlan.id;
 
-    // Insert weeks, workouts, blocks in sequence
-    for (const week of generatedPlan.weeks) {
-      const [insertedWeek] = await db
-        .insert(weeks)
-        .values({
-          planId,
-          weekNumber: week.weekNumber,
-          phase: week.phase,
-          type: week.type,
-          targetKm: week.targetKm,
-        })
-        .returning();
+    // Batch insert all weeks at once
+    const weekValues = generatedPlan.weeks.map((week) => ({
+      planId,
+      weekNumber: week.weekNumber,
+      phase: week.phase,
+      type: week.type,
+      targetKm: week.targetKm,
+    }));
+    const insertedWeeks = await db.insert(weeks).values(weekValues).returning();
 
-      const weekId = insertedWeek.id;
+    // Build a map of weekNumber → weekId
+    const weekIdMap = new Map<number, string>();
+    for (const w of insertedWeeks) {
+      weekIdMap.set(w.weekNumber, w.id);
+    }
 
-      for (const workout of week.workouts) {
-        const [insertedWorkout] = await db
-          .insert(workouts)
-          .values({
-            weekId,
-            planId,
-            dayOfWeek: workout.dayOfWeek,
-            date: workout.date,
-            type: workout.type,
-            title: workout.title,
-            description: workout.description ?? null,
-            targetKm: workout.targetKm ?? null,
-            targetDurationMinutes: workout.targetDurationMinutes ?? null,
-            sortOrder: workout.sortOrder,
-          })
-          .returning();
+    // Batch insert all workouts at once
+    const workoutValues = generatedPlan.weeks.flatMap((week) =>
+      week.workouts.map((workout) => ({
+        weekId: weekIdMap.get(week.weekNumber)!,
+        planId,
+        dayOfWeek: workout.dayOfWeek,
+        date: workout.date,
+        type: workout.type,
+        title: workout.title,
+        description: workout.description ?? null,
+        targetKm: workout.targetKm ?? null,
+        targetDurationMinutes: workout.targetDurationMinutes ?? null,
+        sortOrder: workout.sortOrder,
+      }))
+    );
+    const insertedWorkouts = await db.insert(workouts).values(workoutValues).returning();
 
-        const workoutId = insertedWorkout.id;
+    // Build a map of (weekId + sortOrder) → workoutId for block assignment
+    const workoutIdMap = new Map<string, string>();
+    for (const wo of insertedWorkouts) {
+      workoutIdMap.set(`${wo.weekId}:${wo.sortOrder}`, wo.id);
+    }
 
-        if (workout.blocks.length > 0) {
-          await db.insert(blocks).values(
-            workout.blocks.map((block) => ({
-              workoutId,
-              sortOrder: block.sortOrder,
-              type: block.type,
-              durationMinutes: block.durationMinutes ?? null,
-              distanceKm: block.distanceKm ?? null,
-              targetPaceSecKm: block.targetPaceSecKm ?? null,
-              minPaceSecKm: block.minPaceSecKm ?? null,
-              maxPaceSecKm: block.maxPaceSecKm ?? null,
-              reps: block.reps ?? null,
-              repDistanceKm: block.repDistanceKm ?? null,
-              repRestSeconds: block.repRestSeconds ?? null,
-            }))
-          );
-        }
-      }
+    // Batch insert all blocks at once
+    const blockValues = generatedPlan.weeks.flatMap((week) =>
+      week.workouts.flatMap((workout) =>
+        workout.blocks.map((block) => ({
+          workoutId: workoutIdMap.get(`${weekIdMap.get(week.weekNumber)!}:${workout.sortOrder}`)!,
+          sortOrder: block.sortOrder,
+          type: block.type,
+          durationMinutes: block.durationMinutes ?? null,
+          distanceKm: block.distanceKm ?? null,
+          targetPaceSecKm: block.targetPaceSecKm ?? null,
+          minPaceSecKm: block.minPaceSecKm ?? null,
+          maxPaceSecKm: block.maxPaceSecKm ?? null,
+          reps: block.reps ?? null,
+          repDistanceKm: block.repDistanceKm ?? null,
+          repRestSeconds: block.repRestSeconds ?? null,
+        }))
+      )
+    );
+    if (blockValues.length > 0) {
+      await db.insert(blocks).values(blockValues);
     }
 
     // Queue gcal sync if connected (fire-and-forget — don't fail plan creation if sync fails)

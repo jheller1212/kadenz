@@ -43,3 +43,6 @@ Desktop.ini
 *.seed
 coverage/
 .cache/
+
+# Local Netlify folder
+.netlify
