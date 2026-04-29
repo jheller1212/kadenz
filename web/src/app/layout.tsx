@@ -41,15 +41,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `
           try {
             var s = JSON.parse(localStorage.getItem('kadenz_settings') || '{}');
-            var t = s.theme || 'light';
-            var h = document.documentElement;
-            if (t === 'light') {
-              h.classList.add('light');
-              var v = {"--color-bg":"#F5F5F7","--color-surface":"#FFFFFF","--color-elevated":"#EEEEF0","--color-hairline":"#D8D8DC","--color-text-1":"#1A1A1A","--color-text-2":"#6B6B70","--color-text-3":"#9A9AA0","--color-accent":"#6C3AE0","--color-on-accent":"#FFFFFF","--color-warn":"#E8850A","--color-danger":"#E03A3A"};
-              for (var k in v) h.style.setProperty(k, v[k]);
-            } else {
-              h.classList.remove('light');
-            }
+            if ((s.theme || 'light') === 'dark') document.documentElement.classList.remove('light');
           } catch(e) {}
         `}} />
       </head>

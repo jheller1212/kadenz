@@ -1,31 +1,60 @@
 @import "tailwindcss";
 
-@theme inline {
-  --color-bg: #0A0A0B;
-  --color-surface: #161618;
-  --color-elevated: #1F1F22;
-  --color-hairline: #2A2A2E;
-  --color-text-1: #FAFAFA;
-  --color-text-2: #9A9A9F;
-  --color-text-3: #5C5C61;
-  --color-accent: #C8FF3C;
-  --color-on-accent: #0A0A0B;
-  --color-warn: #FFB547;
-  --color-danger: #FF4D4D;
-
+@theme {
   --font-sans: "Inter", system-ui, sans-serif;
-
   --radius-card: 16px;
   --radius-input: 12px;
+
+  /* Colors reference CSS vars so they can be swapped at runtime */
+  --color-bg: var(--k-bg);
+  --color-surface: var(--k-surface);
+  --color-elevated: var(--k-elevated);
+  --color-hairline: var(--k-hairline);
+  --color-text-1: var(--k-text-1);
+  --color-text-2: var(--k-text-2);
+  --color-text-3: var(--k-text-3);
+  --color-accent: var(--k-accent);
+  --color-on-accent: var(--k-on-accent);
+  --color-warn: var(--k-warn);
+  --color-danger: var(--k-danger);
+}
+
+/* Dark theme (default) */
+:root {
+  --k-bg: #0A0A0B;
+  --k-surface: #161618;
+  --k-elevated: #1F1F22;
+  --k-hairline: #2A2A2E;
+  --k-text-1: #FAFAFA;
+  --k-text-2: #9A9A9F;
+  --k-text-3: #5C5C61;
+  --k-accent: #C8FF3C;
+  --k-on-accent: #0A0A0B;
+  --k-warn: #FFB547;
+  --k-danger: #FF4D4D;
+}
+
+/* Light theme */
+html.light {
+  --k-bg: #F5F5F7;
+  --k-surface: #FFFFFF;
+  --k-elevated: #EEEEF0;
+  --k-hairline: #D8D8DC;
+  --k-text-1: #1A1A1A;
+  --k-text-2: #6B6B70;
+  --k-text-3: #9A9AA0;
+  --k-accent: #6C3AE0;
+  --k-on-accent: #FFFFFF;
+  --k-warn: #E8850A;
+  --k-danger: #E03A3A;
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text-1);
+  background: var(--k-bg);
+  color: var(--k-text-1);
   font-family: var(--font-sans);
   font-feature-settings: "tnum" "ss01";
 }
-
 
 /* Slide-up animation for bottom sheets */
 @keyframes slide-up {
