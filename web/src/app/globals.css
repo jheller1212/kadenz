@@ -26,6 +26,21 @@ body {
   font-feature-settings: "tnum" "ss01";
 }
 
+/* Light theme — Benchmark-inspired clean whites */
+html.light {
+  --color-bg: #F5F5F7;
+  --color-surface: #FFFFFF;
+  --color-elevated: #EEEEF0;
+  --color-hairline: #D8D8DC;
+  --color-text-1: #1A1A1A;
+  --color-text-2: #6B6B70;
+  --color-text-3: #9A9AA0;
+  --color-accent: #6C3AE0;
+  --color-on-accent: #FFFFFF;
+  --color-warn: #E8850A;
+  --color-danger: #E03A3A;
+}
+
 /* Slide-up animation for bottom sheets */
 @keyframes slide-up {
   from { transform: translateY(100%); opacity: 0; }

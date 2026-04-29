@@ -143,6 +143,25 @@ export default function SettingsPage() {
           <h1 className="text-xl font-extrabold text-text-1">Settings</h1>
         </header>
 
+        {/* Appearance */}
+        <SectionHeader title="Appearance" />
+        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4">
+          <OptionGroup
+            label="Theme"
+            options={[
+              { value: "light" as const, label: "Light", sublabel: "Clean white, Benchmark-inspired" },
+              { value: "dark" as const, label: "Dark", sublabel: "Dark mode, easy on the eyes" },
+            ]}
+            value={settings.theme}
+            onChange={(v) => {
+              update({ theme: v });
+              // Apply immediately
+              if (v === "light") document.documentElement.classList.add("light");
+              else document.documentElement.classList.remove("light");
+            }}
+          />
+        </div>
+
         {/* Pace Targets */}
         <SectionHeader title="Pace Targets" />
         <div className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4 divide-y divide-hairline">

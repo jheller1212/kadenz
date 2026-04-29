@@ -11,6 +11,8 @@ export interface UserSettings {
   tempUnit: "celsius" | "fahrenheit";
   /** Workout target mode: "pace" or "rpe" */
   workoutTargetMode: "pace" | "rpe";
+  /** Theme: "dark" or "light" */
+  theme: "dark" | "light";
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -19,6 +21,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   units: "km",
   tempUnit: "celsius",
   workoutTargetMode: "pace",
+  theme: "light",
 };
 
 const STORAGE_KEY = "kadenz_settings";
