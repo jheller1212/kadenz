@@ -25,3 +25,12 @@ body {
   font-family: var(--font-sans);
   font-feature-settings: "tnum" "ss01";
 }
+
+/* Hide scrollbar for scroll pickers */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PlanConfig, RaceDistance, TrainingVolume, TrainingDifficulty, RaceElevation, GeneratedPlan } from "@/lib/plan-engine/types";
+import { ScrollPicker } from "@/components/ScrollPicker";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import { getPaceZones, formatPace } from "@/lib/plan-engine/pace-zones";
 
@@ -222,91 +223,30 @@ function StepGoal({
         <p className="text-sm text-text-2 mt-1">Enter your target finish time and race date.</p>
       </div>
 
-      {/* Goal time picker */}
+      {/* Goal time picker — scroll wheels */}
       <div className="flex flex-col gap-3">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Goal finish time</span>
-        <div className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface border border-hairline p-5">
-          {/* Hours */}
-          <div className="flex flex-col items-center gap-1 flex-1">
-            <button
-              onClick={() => onHours(Math.min(hours + 1, 9))}
-              className="w-8 h-8 rounded-full bg-elevated flex items-center justify-center text-text-2 active:scale-90 transition-transform"
-              aria-label="Increase hours"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-              </svg>
-            </button>
-            <span className="text-3xl font-bold text-text-1 tabular-nums w-12 text-center">
-              {hours.toString().padStart(2, "0")}
-            </span>
-            <button
-              onClick={() => onHours(Math.max(hours - 1, 0))}
-              className="w-8 h-8 rounded-full bg-elevated flex items-center justify-center text-text-2 active:scale-90 transition-transform"
-              aria-label="Decrease hours"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <span className="text-[10px] text-text-3 uppercase tracking-wider">hrs</span>
-          </div>
-
-          <span className="text-3xl font-bold text-text-3 mb-6">:</span>
-
-          {/* Minutes */}
-          <div className="flex flex-col items-center gap-1 flex-1">
-            <button
-              onClick={() => onMinutes(minutes === 59 ? 0 : minutes + 1)}
-              className="w-8 h-8 rounded-full bg-elevated flex items-center justify-center text-text-2 active:scale-90 transition-transform"
-              aria-label="Increase minutes"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-              </svg>
-            </button>
-            <span className="text-3xl font-bold text-text-1 tabular-nums w-12 text-center">
-              {minutes.toString().padStart(2, "0")}
-            </span>
-            <button
-              onClick={() => onMinutes(minutes === 0 ? 59 : minutes - 1)}
-              className="w-8 h-8 rounded-full bg-elevated flex items-center justify-center text-text-2 active:scale-90 transition-transform"
-              aria-label="Decrease minutes"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <span className="text-[10px] text-text-3 uppercase tracking-wider">min</span>
-          </div>
-
-          <span className="text-3xl font-bold text-text-3 mb-6">:</span>
-
-          {/* Seconds */}
-          <div className="flex flex-col items-center gap-1 flex-1">
-            <button
-              onClick={() => onSeconds(seconds === 59 ? 0 : seconds + 1)}
-              className="w-8 h-8 rounded-full bg-elevated flex items-center justify-center text-text-2 active:scale-90 transition-transform"
-              aria-label="Increase seconds"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-              </svg>
-            </button>
-            <span className="text-3xl font-bold text-text-1 tabular-nums w-12 text-center">
-              {seconds.toString().padStart(2, "0")}
-            </span>
-            <button
-              onClick={() => onSeconds(seconds === 0 ? 59 : seconds - 1)}
-              className="w-8 h-8 rounded-full bg-elevated flex items-center justify-center text-text-2 active:scale-90 transition-transform"
-              aria-label="Decrease seconds"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <span className="text-[10px] text-text-3 uppercase tracking-wider">sec</span>
-          </div>
+        <div className="flex items-center justify-center gap-1 rounded-[var(--radius-card)] bg-surface border border-hairline py-4 px-2">
+          <ScrollPicker
+            values={Array.from({ length: 10 }, (_, i) => i)}
+            selected={hours}
+            onChange={onHours}
+            label="hrs"
+          />
+          <span className="text-2xl font-bold text-text-3 mb-5">:</span>
+          <ScrollPicker
+            values={Array.from({ length: 60 }, (_, i) => i)}
+            selected={minutes}
+            onChange={onMinutes}
+            label="min"
+          />
+          <span className="text-2xl font-bold text-text-3 mb-5">:</span>
+          <ScrollPicker
+            values={Array.from({ length: 60 }, (_, i) => i)}
+            selected={seconds}
+            onChange={onSeconds}
+            label="sec"
+          />
         </div>
         {totalSeconds > 0 && (
           <p className="text-xs text-text-3 text-center">Goal: {formatSeconds(totalSeconds)}</p>
