@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 
@@ -261,47 +262,29 @@ function DayStrip({
 
 function WorkoutCard({
   workout,
-  onComplete,
-  completing,
 }: {
   workout: TodayApiWorkout;
   onComplete: () => void;
   completing: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const router = useRouter();
   const isCompleted = workout.status === "completed";
   const color = typeColors[workout.type] ?? "#FAFAFA";
+  const dateStr = new Date(workout.date).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" });
 
   return (
-    <div
-      className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden"
+    <button
+      className="w-full text-left rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden active:bg-elevated/30 transition-colors"
       style={{ borderLeftWidth: 4, borderLeftColor: color }}
+      onClick={() => router.push(`/workout/${workout.id}`)}
     >
-      {/* Tappable header */}
-      <button
-        className="w-full text-left px-4 py-4 flex items-start gap-3 active:bg-elevated/30 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-      >
+      <div className="px-4 py-4 flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-base font-bold text-text-1">{workout.title}</p>
-          {workout.description && (
-            <p className="text-xs text-text-3 mt-0.5 line-clamp-1">{workout.description}</p>
-          )}
-          <div className="flex gap-4 mt-2.5">
-            {workout.targetKm != null && (
-              <div>
-                <p className="text-[10px] text-text-3 uppercase tracking-wide">Distance</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{workout.targetKm} km</p>
-              </div>
-            )}
-            {workout.targetDurationMinutes != null && (
-              <div>
-                <p className="text-[10px] text-text-3 uppercase tracking-wide">Time</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">~{workout.targetDurationMinutes} min</p>
-              </div>
-            )}
-          </div>
+          <p className="text-xs text-text-3 mt-0.5">{dateStr} · {workout.targetDurationMinutes ? `${workout.targetDurationMinutes - 5}m - ${workout.targetDurationMinutes + 5}m` : ""}</p>
+          <p className="text-xs text-text-2 mt-1.5">
+            {workout.type.charAt(0).toUpperCase() + workout.type.slice(1)} · {workout.targetKm ?? "—"}km
+          </p>
         </div>
 
         {/* Completion circle */}
@@ -314,50 +297,8 @@ function WorkoutCard({
         ) : (
           <div className="w-7 h-7 rounded-full border-2 border-hairline shrink-0 mt-0.5" />
         )}
-      </button>
-
-      {/* Expanded blocks */}
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-hairline pt-3">
-          {workout.blocks.length > 0 && (
-            <div className="flex flex-col gap-0.5">
-              {workout.blocks.map((block, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className={`w-2 h-2 rounded-full ${block.type === "work" ? "bg-accent" : "bg-hairline"}`} />
-                    {i < workout.blocks.length - 1 && <div className="w-px h-5 bg-hairline mt-0.5" />}
-                  </div>
-                  <div className="flex-1 flex items-center justify-between py-0.5">
-                    <div>
-                      <span className="text-sm font-medium text-text-1">{BLOCK_LABEL[block.type] ?? block.type}</span>
-                      {block.reps != null && block.repDistanceKm != null && (
-                        <span className="text-xs text-text-3 ml-2">{block.reps}×{Math.round(block.repDistanceKm * 1000)}m</span>
-                      )}
-                      {block.distanceKm != null && (
-                        <span className="text-xs text-text-3 ml-2">{block.distanceKm} km</span>
-                      )}
-                    </div>
-                    {block.targetPaceSecKm != null && (
-                      <span className="text-xs font-semibold text-text-2 tabular-nums">{formatPace(block.targetPaceSecKm)}/km</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!isCompleted && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onComplete(); }}
-              disabled={completing}
-              className="mt-4 w-full rounded-[var(--radius-input)] bg-accent text-on-accent font-bold text-sm py-3 active:scale-[0.98] transition-transform disabled:opacity-60"
-            >
-              {completing ? "Saving..." : "Complete Workout"}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+      </div>
+    </button>
   );
 }
 
