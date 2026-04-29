@@ -441,7 +441,7 @@ function StepPreferences({
           <input
             type="range"
             min={0}
-            max={80}
+            max={100}
             step={5}
             value={currentWeeklyKm}
             onChange={(e) => onCurrentWeeklyKm(Number(e.target.value))}
@@ -450,9 +450,17 @@ function StepPreferences({
           />
           <div className="flex justify-between text-[10px] text-text-3 mt-1">
             <span>0 km</span>
-            <span>80 km</span>
+            <span>100 km</span>
           </div>
         </div>
+        {currentWeeklyKm === 0 && (
+          <div className="rounded-[var(--radius-input)] bg-warn/10 border border-warn/30 px-4 py-3 text-xs text-warn leading-relaxed">
+            No worries! We&apos;ll start you at ~10 km/week with short, easy runs and build up slowly. Consistency is more important than volume — your body needs time to adapt to the impact of running.
+          </div>
+        )}
+        {currentWeeklyKm > 0 && currentWeeklyKm <= 15 && (
+          <p className="text-xs text-text-3">We&apos;ll start gently and increase by no more than 10% per week.</p>
+        )}
       </div>
 
       {/* Long run cap */}
