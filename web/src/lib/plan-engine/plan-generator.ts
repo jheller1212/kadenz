@@ -27,23 +27,31 @@ import type {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Base weekly km targets per volume tier (starting point for first full week) */
-const BASE_KM: Record<string, number> = {
-  beginner: 10,
-  low: 20,
-  medium: 35,
-  high: 50,
-  elite: 70,
+/**
+ * Compute peak weekly km from current weekly km and race distance.
+ * Peak is typically 1.4–2x starting volume depending on race distance.
+ * Minimum peaks ensure enough volume for the race distance.
+ */
+const MIN_PEAK_KM: Record<string, number> = {
+  "5k": 25,
+  "10k": 35,
+  "half": 45,
+  "marathon": 55,
 };
 
-/** Peak weekly km caps per volume tier */
-const PEAK_KM: Record<string, number> = {
-  beginner: 30,
-  low: 45,
-  medium: 70,
-  high: 100,
-  elite: 140,
-};
+function computePeakKm(currentWeeklyKm: number, raceDistance: string): number {
+  // Multiplier: longer races need higher peak relative to start
+  const multiplier: Record<string, number> = {
+    "5k": 1.4,
+    "10k": 1.5,
+    "half": 1.6,
+    "marathon": 1.8,
+  };
+  const mult = multiplier[raceDistance] ?? 1.5;
+  const computed = Math.round(currentWeeklyKm * mult);
+  const minPeak = MIN_PEAK_KM[raceDistance] ?? 30;
+  return Math.max(computed, minPeak);
+}
 
 /** Max weekly km increase rate (fraction, e.g. 0.10 = 10%) */
 const MAX_WEEKLY_INCREASE = 0.10;
@@ -170,9 +178,8 @@ function buildVolumeProgression(
   phases: WeekPhase[],
   totalWeeks: number
 ): number[] {
-  const volKey = config.trainingVolume;
-  const startKm = Math.max(config.currentWeeklyKm, BASE_KM[volKey]);
-  const peakKm = PEAK_KM[volKey];
+  const startKm = Math.max(config.currentWeeklyKm, 10); // minimum 10km/week start
+  const peakKm = computePeakKm(config.currentWeeklyKm, config.raceDistance);
 
   // Count non-taper, non-race weeks to spread the ramp over
   const taperStart = phases.indexOf("taper");

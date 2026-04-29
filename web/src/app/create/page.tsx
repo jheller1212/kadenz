@@ -22,7 +22,16 @@ function formatSeconds(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Monday-first day names, value = JS dayOfWeek (0=Sun...6=Sat)
+const DAY_OPTIONS = [
+  { name: "Mon", value: 1 },
+  { name: "Tue", value: 2 },
+  { name: "Wed", value: 3 },
+  { name: "Thu", value: 4 },
+  { name: "Fri", value: 5 },
+  { name: "Sat", value: 6 },
+  { name: "Sun", value: 0 },
+];
 
 function nextMonday(): string {
   const date = new Date();
@@ -313,16 +322,14 @@ function OptionPill({
 }
 
 function StepPreferences({
-  daysPerWeek,
-  onDaysPerWeek,
-  trainingVolume,
-  onVolume,
   trainingDifficulty,
   onDifficulty,
   preferredLongRunDay,
   onLongRunDay,
   raceElevation,
   onRaceElevation,
+  availableDays,
+  onAvailableDays,
   currentWeeklyKm,
   onCurrentWeeklyKm,
   longRunCapKm,
@@ -330,16 +337,14 @@ function StepPreferences({
   easyRunMinKm,
   onEasyRunMinKm,
 }: {
-  daysPerWeek: number;
-  onDaysPerWeek: (v: number) => void;
-  trainingVolume: TrainingVolume;
-  onVolume: (v: TrainingVolume) => void;
   trainingDifficulty: TrainingDifficulty;
   onDifficulty: (v: TrainingDifficulty) => void;
   preferredLongRunDay: number;
   onLongRunDay: (v: number) => void;
   raceElevation: RaceElevation;
   onRaceElevation: (v: RaceElevation) => void;
+  availableDays: number[];
+  onAvailableDays: (v: number[]) => void;
   currentWeeklyKm: number;
   onCurrentWeeklyKm: (v: number) => void;
   longRunCapKm: number;
@@ -352,69 +357,6 @@ function StepPreferences({
       <div>
         <h2 className="text-2xl font-extrabold text-text-1 tracking-tight">Training preferences</h2>
         <p className="text-sm text-text-2 mt-1">Customize your plan to fit your lifestyle.</p>
-      </div>
-
-      {/* Days per week */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Days per week</span>
-          <span className="text-sm font-bold text-accent">{daysPerWeek} days</span>
-        </div>
-        <div className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface border border-hairline px-4 py-4">
-          <button
-            onClick={() => onDaysPerWeek(Math.max(3, daysPerWeek - 1))}
-            disabled={daysPerWeek <= 3}
-            className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center text-text-2 disabled:opacity-30 active:scale-90 transition-transform"
-            aria-label="Decrease days"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-            </svg>
-          </button>
-          <div className="flex-1 flex gap-1 justify-center">
-            {[3, 4, 5, 6].map((d) => (
-              <div
-                key={d}
-                className={`h-2 flex-1 rounded-full transition-colors ${d <= daysPerWeek ? "bg-accent" : "bg-hairline"}`}
-              />
-            ))}
-          </div>
-          <button
-            onClick={() => onDaysPerWeek(Math.min(6, daysPerWeek + 1))}
-            disabled={daysPerWeek >= 6}
-            className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center text-text-2 disabled:opacity-30 active:scale-90 transition-transform"
-            aria-label="Increase days"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Volume */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Training volume</span>
-        <div className="flex gap-2 flex-wrap">
-          {([
-            { value: "beginner" as TrainingVolume, label: "Beginner" },
-            { value: "low" as TrainingVolume, label: "Low" },
-            { value: "medium" as TrainingVolume, label: "Medium" },
-            { value: "high" as TrainingVolume, label: "High" },
-            { value: "elite" as TrainingVolume, label: "Elite" },
-          ]).map(({ value, label }) => (
-            <OptionPill key={value} selected={trainingVolume === value} onClick={() => onVolume(value)}>
-              {label}
-            </OptionPill>
-          ))}
-        </div>
-        <p className="text-xs text-text-3">
-          {trainingVolume === "beginner" && "10–30 km/week peak. New to running or <10 km/week."}
-          {trainingVolume === "low" && "20–45 km/week peak. Casual runner, building up."}
-          {trainingVolume === "medium" && "35–70 km/week peak. Balanced approach."}
-          {trainingVolume === "high" && "50–100 km/week peak. Experienced runner."}
-          {trainingVolume === "elite" && "70–140 km/week peak. Competitive / high mileage."}
-        </p>
       </div>
 
       {/* Difficulty */}
@@ -434,17 +376,49 @@ function StepPreferences({
         </p>
       </div>
 
+      {/* Available training days */}
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Available days</span>
+        <p className="text-xs text-text-3">Select the days you can train. We&apos;ll schedule workouts only on these days.</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {DAY_OPTIONS.map(({ name, value }) => {
+            const isAvailable = availableDays.includes(value);
+            return (
+              <button
+                key={value}
+                onClick={() => {
+                  if (isAvailable && availableDays.length > 3) {
+                    onAvailableDays(availableDays.filter((d) => d !== value));
+                  } else if (!isAvailable && availableDays.length < 7) {
+                    onAvailableDays([...availableDays, value]);
+                  }
+                }}
+                aria-pressed={isAvailable}
+                className={`w-10 h-10 rounded-full text-sm font-semibold border transition-all active:scale-95 ${
+                  isAvailable
+                    ? "bg-accent text-on-accent border-accent"
+                    : "bg-surface text-text-3 border-hairline"
+                }`}
+              >
+                {name.charAt(0)}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-text-3">{availableDays.length} days selected · min 3</p>
+      </div>
+
       {/* Preferred long run day */}
       <div className="flex flex-col gap-2">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Long run day</span>
         <div className="flex gap-1.5 flex-wrap">
-          {DAY_NAMES.map((name, i) => (
+          {DAY_OPTIONS.map(({ name, value }) => (
             <button
-              key={name}
-              onClick={() => onLongRunDay(i)}
-              aria-pressed={preferredLongRunDay === i}
+              key={value}
+              onClick={() => onLongRunDay(value)}
+              aria-pressed={preferredLongRunDay === value}
               className={`w-10 h-10 rounded-full text-sm font-semibold border transition-all active:scale-95 ${
-                preferredLongRunDay === i
+                preferredLongRunDay === value
                   ? "bg-accent text-on-accent border-accent"
                   : "bg-surface text-text-2 border-hairline"
               }`}
@@ -666,8 +640,8 @@ export default function CreatePlanPage() {
   const [raceDate, setRaceDate] = useState(() => isoDateOffset(16));
 
   // Step 3
-  const [daysPerWeek, setDaysPerWeek] = useState(4);
-  const [trainingVolume, setTrainingVolume] = useState<TrainingVolume>("medium");
+  const [availableDays, setAvailableDays] = useState<number[]>([1, 3, 5, 0]); // Mon, Wed, Fri, Sun
+  const daysPerWeek = availableDays.length;
   const [raceElevation, setRaceElevation] = useState<RaceElevation>("flat");
   const [easyRunMinKm, setEasyRunMinKm] = useState(0);
   const [useMiles, setUseMiles] = useState(false);
@@ -710,7 +684,7 @@ export default function CreatePlanPage() {
           startDate: new Date(startDate),
           raceDate: new Date(raceDate),
           daysPerWeek,
-          trainingVolume,
+          trainingVolume: "medium" as TrainingVolume,
           trainingDifficulty,
           preferredLongRunDay,
           hillyArea,
@@ -746,7 +720,7 @@ export default function CreatePlanPage() {
         startDate: new Date(startDate).toISOString(),
         raceDate: new Date(raceDate).toISOString(),
         daysPerWeek,
-        trainingVolume,
+        trainingVolume: "medium",
         trainingDifficulty,
         preferredLongRunDay,
         hillyArea,
@@ -829,16 +803,14 @@ export default function CreatePlanPage() {
         )}
         {step === 2 && (
           <StepPreferences
-            daysPerWeek={daysPerWeek}
-            onDaysPerWeek={setDaysPerWeek}
-            trainingVolume={trainingVolume}
-            onVolume={setTrainingVolume}
             trainingDifficulty={trainingDifficulty}
             onDifficulty={setTrainingDifficulty}
             preferredLongRunDay={preferredLongRunDay}
             onLongRunDay={setPreferredLongRunDay}
             raceElevation={raceElevation}
             onRaceElevation={setRaceElevation}
+            availableDays={availableDays}
+            onAvailableDays={setAvailableDays}
             currentWeeklyKm={currentWeeklyKm}
             onCurrentWeeklyKm={setCurrentWeeklyKm}
             longRunCapKm={longRunCapKm}

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
@@ -66,6 +67,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Archive all existing active plans
+    await db
+      .update(plans)
+      .set({ status: "archived", updatedAt: new Date() })
+      .where(eq(plans.status, "active"));
+
     // Insert plan
     const [insertedPlan] = await db
       .insert(plans)
