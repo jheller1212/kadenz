@@ -128,15 +128,15 @@ function TopHeader({
 
   return (
     <header className="flex items-center justify-between px-1">
-      {/* User icon */}
-      <div className="flex items-center gap-2">
+      {/* User icon → settings */}
+      <Link href="/settings" className="flex items-center gap-2" aria-label="Settings">
         <div className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center">
           <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
             <circle cx="12" cy="8" r="4" />
             <path strokeLinecap="round" d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
           </svg>
         </div>
-      </div>
+      </Link>
 
       {/* Week selector */}
       <Link href="/plan" className="flex items-center gap-1.5 active:opacity-70 transition-opacity">
