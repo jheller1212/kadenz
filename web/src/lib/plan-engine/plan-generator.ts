@@ -669,13 +669,23 @@ function assignWorkoutTypes(
   const map = new Map<number, WorkoutType>();
 
   if (weekType === "race") {
-    // Race week: long run day becomes the race, rest are easy/rest
+    // Race week: race is the LAST workout. Only light easy runs before it.
+    // Race day is determined by raceDate in the week builder, not here.
+    // We use preferredLongRunDay as race day placeholder.
+    const raceDow = preferredLongRunDay;
+
     for (const day of trainingDays) {
-      if (day === preferredLongRunDay) {
+      // Monday-first ordering: Mon=1..Sat=6,Sun=0 → normalize for comparison
+      const dayNorm = day === 0 ? 7 : day;
+      const raceNorm = raceDow === 0 ? 7 : raceDow;
+
+      if (day === raceDow) {
         map.set(day, "race");
-      } else {
+      } else if (dayNorm < raceNorm) {
+        // Before race: light easy run
         map.set(day, "easy");
       }
+      // After race: no workout (rest)
     }
     return map;
   }
@@ -820,11 +830,22 @@ function buildWeek(
   );
 
   const qualityDays = QUALITY_DAYS[config.trainingDifficulty];
+  // For race week, use the actual race date's day of week
+  const raceDayOfWeek = config.raceDate.getDay(); // 0=Sun...6=Sat
+  const longOrRaceDay = type === "race" ? raceDayOfWeek : config.preferredLongRunDay;
+
+  // For race week, ensure the race day is in the training days
+  let effectiveTrainingDays = trainingDays;
+  if (type === "race" && !trainingDays.includes(raceDayOfWeek)) {
+    effectiveTrainingDays = [...trainingDays.filter((d) => d !== trainingDays[trainingDays.length - 1]), raceDayOfWeek];
+    effectiveTrainingDays.sort((a, b) => { const ma = a === 0 ? 7 : a; const mb = b === 0 ? 7 : b; return ma - mb; });
+  }
+
   const typeMap = assignWorkoutTypes(
-    trainingDays,
+    effectiveTrainingDays,
     phase,
     type,
-    config.preferredLongRunDay,
+    longOrRaceDay,
     qualityDays,
     config.trainingDifficulty
   );
