@@ -704,6 +704,7 @@ function PlanPageInner() {
   const [loading, setLoading] = useState(true);
   const [selectedWeekNum, setSelectedWeekNum] = useState<number>(1);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null);
 
   // Swipe refs
   const touchStartX = React.useRef(0);
@@ -889,8 +890,8 @@ function PlanPageInner() {
                   <WorkoutRow
                     key={wId}
                     workout={workout}
-                    expanded={false}
-                    onToggle={() => {}}
+                    expanded={expandedWorkout === wId}
+                    onToggle={() => setExpandedWorkout(expandedWorkout === wId ? null : wId)}
                     dimmed={isPastWeek(selectedWeek)}
                   />
                 );
