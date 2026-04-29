@@ -119,59 +119,104 @@ function TopHeader({
   totalWeeks,
   viewingToday,
   onBackToToday,
+  onSelectWeek,
 }: {
   currentWeek: number;
   totalWeeks: number;
   viewingToday: boolean;
   onBackToToday: () => void;
+  onSelectWeek: (week: number) => void;
 }) {
   const todayDate = new Date().getDate();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   return (
-    <header className="flex items-center justify-between px-1">
-      {/* User icon → settings */}
-      <Link href="/settings" className="flex items-center gap-2" aria-label="Settings">
-        <div className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center">
-          <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <circle cx="12" cy="8" r="4" />
-            <path strokeLinecap="round" d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-          </svg>
-        </div>
-      </Link>
-
-      {/* Week selector */}
-      <Link href="/plan" className="flex items-center gap-1.5 active:opacity-70 transition-opacity">
-        <span className="text-sm font-bold text-text-1">
-          Week {currentWeek}/{totalWeeks}
-        </span>
-        <svg className="w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </Link>
-
-      {/* Right side: calendar icon + back-to-today */}
-      <div className="flex items-center gap-2">
-        {!viewingToday && (
-          <button
-            onClick={onBackToToday}
-            className="w-8 h-8 rounded-lg bg-elevated border border-hairline flex items-center justify-center relative"
-            aria-label="Back to today"
-          >
-            <span className="text-[10px] font-extrabold text-accent">{todayDate}</span>
-          </button>
-        )}
-        <Link
-          href="/plan"
-          className="w-8 h-8 rounded-lg bg-elevated border border-hairline flex items-center justify-center"
-          aria-label="Training calendar"
-        >
-          <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
+    <>
+      <header className="flex items-center justify-between px-1">
+        {/* User icon → settings */}
+        <Link href="/settings" className="flex items-center gap-2" aria-label="Settings">
+          <div className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center">
+            <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <circle cx="12" cy="8" r="4" />
+              <path strokeLinecap="round" d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+            </svg>
+          </div>
         </Link>
-      </div>
-    </header>
+
+        {/* Week selector — opens dropdown */}
+        <button
+          onClick={() => setDropdownOpen(true)}
+          className="flex items-center gap-1.5 active:opacity-70 transition-opacity"
+        >
+          <span className="text-sm font-bold text-text-1">
+            Week {currentWeek}/{totalWeeks}
+          </span>
+          <svg className={`w-3 h-3 text-text-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {/* Right side: back-to-today + calendar */}
+        <div className="flex items-center gap-2">
+          {!viewingToday && (
+            <button
+              onClick={onBackToToday}
+              className="w-8 h-8 rounded-lg bg-elevated border border-hairline flex items-center justify-center"
+              aria-label="Back to today"
+            >
+              <span className="text-[10px] font-extrabold text-accent">{todayDate}</span>
+            </button>
+          )}
+          <Link
+            href="/plan"
+            className="w-8 h-8 rounded-lg bg-elevated border border-hairline flex items-center justify-center"
+            aria-label="Training calendar"
+          >
+            <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+          </Link>
+        </div>
+      </header>
+
+      {/* Week dropdown overlay */}
+      {dropdownOpen && (
+        <div className="fixed inset-0 z-50" onClick={() => setDropdownOpen(false)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="absolute top-14 left-0 right-0 max-w-md mx-auto px-4" onClick={(e) => e.stopPropagation()}>
+            <div className="rounded-[var(--radius-card)] border border-hairline bg-surface shadow-xl max-h-[50vh] overflow-y-auto animate-slide-up">
+              <div className="p-2">
+                {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((weekNum) => {
+                  const isSelected = weekNum === currentWeek;
+                  const isCurrentActual = weekNum === (currentWeek - (currentWeek - weekNum)); // simplified: just highlight selected
+                  return (
+                    <button
+                      key={weekNum}
+                      onClick={() => { onSelectWeek(weekNum); setDropdownOpen(false); }}
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-[var(--radius-input)] text-left transition-colors ${
+                        isSelected ? "bg-accent/10" : "active:bg-elevated"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>
+                          Week {weekNum}
+                        </span>
+                      </div>
+                      {isSelected && (
+                        <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -524,6 +569,12 @@ export default function Home() {
           totalWeeks={totalWeeks}
           viewingToday={viewingToday}
           onBackToToday={handleBackToToday}
+          onSelectWeek={(week) => {
+            const offset = week - currentWeek;
+            setWeekOffset(offset);
+            setSelectedDate(null);
+            setSelectedWorkout(null);
+          }}
         />
 
         {/* Swipeable day selector */}
