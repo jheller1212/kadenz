@@ -27,8 +27,17 @@ function speedToPace(speedMperMin: number): number {
   return (1000 / speedMperMin) * 60;
 }
 
+// Absolute fastest realistic paces (sec/km) — nobody runs faster than these
+const MIN_PACE: Record<string, number> = {
+  E: 240, // 4:00/km easy (elite easy pace)
+  M: 175, // 2:55/km marathon WR pace
+  T: 165, // 2:45/km threshold
+  I: 145, // 2:25/km interval
+  R: 130, // 2:10/km reps
+};
+
 /** Build a PaceZone from a %VO2max range [lo, hi] and VDOT */
-function zone(vdot: number, loFraction: number, hiFraction: number): PaceZone {
+function zone(vdot: number, loFraction: number, hiFraction: number, zoneKey?: string): PaceZone {
   const targetFraction = (loFraction + hiFraction) / 2;
 
   // Higher fraction = faster = lower pace value
@@ -36,10 +45,12 @@ function zone(vdot: number, loFraction: number, hiFraction: number): PaceZone {
   const slowSpeed = speedAtVO2(loFraction * vdot); // slowest (lo %)
   const targetSpeed = speedAtVO2(targetFraction * vdot);
 
+  const floor = zoneKey ? (MIN_PACE[zoneKey] ?? 120) : 120;
+
   return {
-    minPaceSecKm: Math.round(speedToPace(fastSpeed)), // fastest = min pace number
-    targetPaceSecKm: Math.round(speedToPace(targetSpeed)),
-    maxPaceSecKm: Math.round(speedToPace(slowSpeed)), // slowest = max pace number
+    minPaceSecKm: Math.max(floor, Math.round(speedToPace(fastSpeed))),
+    targetPaceSecKm: Math.max(floor, Math.round(speedToPace(targetSpeed))),
+    maxPaceSecKm: Math.max(floor, Math.round(speedToPace(slowSpeed))),
   };
 }
 
@@ -52,18 +63,25 @@ export function getPaceZones(vdot: number): PaceZones {
   if (vdot <= 0) throw new Error("vdot must be positive");
 
   return {
-    E: zone(vdot, 0.59, 0.74),
-    M: zone(vdot, 0.75, 0.84),
-    T: zone(vdot, 0.86, 0.88),
-    I: zone(vdot, 0.95, 1.0),
+    E: zone(vdot, 0.59, 0.74, "E"),
+    M: zone(vdot, 0.75, 0.84, "M"),
+    T: zone(vdot, 0.86, 0.88, "T"),
+    I: zone(vdot, 0.95, 1.0, "I"),
     // R zone: 105-120% VO2max (supra-maximal)
-    R: zone(vdot, 1.05, 1.2),
+    R: zone(vdot, 1.05, 1.2, "R"),
   };
 }
 
-/** Format pace (sec/km) as "mm:ss" string */
-export function formatPace(secPerKm: number): string {
-  const mins = Math.floor(secPerKm / 60);
-  const secs = Math.round(secPerKm % 60);
+/** Format pace (sec/km) as "mm:ss" string. If miles=true, converts to sec/mile. */
+export function formatPace(secPerKm: number, miles?: boolean): string {
+  const pace = miles ? secPerKm * 1.60934 : secPerKm;
+  const mins = Math.floor(pace / 60);
+  const secs = Math.round(pace % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** Format distance — km or miles */
+export function formatDistance(km: number, miles?: boolean): string {
+  if (miles) return `${(km * 0.621371).toFixed(1)} mi`;
+  return `${km.toFixed(1)} km`;
 }

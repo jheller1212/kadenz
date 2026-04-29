@@ -277,13 +277,42 @@ function tempoBlocks(
   hillyArea: boolean,
   workKm: number
 ): GeneratedBlock[] {
+  // Benchmark-style: alternating tempo/steady segments instead of one flat block
+  // e.g. 2km warm-up, 1km @ tempo, 1km @ steady, 1km @ tempo, 1km @ steady, 1km cool-down
+  const tempoPace = applyHilly(paces.T.targetPaceSecKm, hillyArea);
+  const steadyPace = applyHilly(paces.M.targetPaceSecKm, hillyArea);
+
+  if (workKm >= 6) {
+    // Progressive alternating: tempo/steady segments
+    const segmentKm = 1;
+    const numSegments = Math.floor(workKm / segmentKm);
+    const blocks: GeneratedBlock[] = [warmupBlock(paces, hillyArea)];
+    let order = 1;
+
+    for (let i = 0; i < numSegments; i++) {
+      const isTempo = i % 2 === 0;
+      blocks.push({
+        sortOrder: order++,
+        type: "work",
+        distanceKm: segmentKm,
+        targetPaceSecKm: isTempo ? tempoPace : steadyPace,
+        minPaceSecKm: isTempo ? applyHilly(paces.T.minPaceSecKm, hillyArea) : applyHilly(paces.M.minPaceSecKm, hillyArea),
+        maxPaceSecKm: isTempo ? applyHilly(paces.T.maxPaceSecKm, hillyArea) : applyHilly(paces.M.maxPaceSecKm, hillyArea),
+      });
+    }
+
+    blocks.push({ ...cooldownBlock(paces, hillyArea), sortOrder: order });
+    return blocks;
+  }
+
+  // Short tempo: single sustained block
   return [
     warmupBlock(paces, hillyArea),
     {
       sortOrder: 1,
       type: "work",
       distanceKm: workKm,
-      targetPaceSecKm: applyHilly(paces.T.targetPaceSecKm, hillyArea),
+      targetPaceSecKm: tempoPace,
       minPaceSecKm: applyHilly(paces.T.minPaceSecKm, hillyArea),
       maxPaceSecKm: applyHilly(paces.T.maxPaceSecKm, hillyArea),
     },
@@ -297,25 +326,66 @@ function intervalBlocks(
   reps: number,
   repDistanceKm: number
 ): GeneratedBlock[] {
-  return [
-    warmupBlock(paces, hillyArea),
-    {
-      sortOrder: 1,
+  // Benchmark-style: varied rep distances (descending ladder or mixed)
+  const intervalPace = applyHilly(paces.I.targetPaceSecKm, hillyArea);
+  const blocks: GeneratedBlock[] = [warmupBlock(paces, hillyArea)];
+  let order = 1;
+
+  if (reps >= 6) {
+    // Ladder: e.g. 1000m, 800m, 600m, 600m, 800m, 1000m
+    const ladder = buildLadder(reps, repDistanceKm);
+    for (const dist of ladder) {
+      blocks.push({
+        sortOrder: order++,
+        type: "work",
+        reps: 1,
+        repDistanceKm: dist,
+        repRestSeconds: Math.round(dist >= 0.8 ? 90 : 60),
+        targetPaceSecKm: intervalPace,
+        minPaceSecKm: applyHilly(paces.I.minPaceSecKm, hillyArea),
+        maxPaceSecKm: applyHilly(paces.I.maxPaceSecKm, hillyArea),
+      });
+      // Recovery jog between reps
+      blocks.push({
+        sortOrder: order++,
+        type: "recovery",
+        durationMinutes: dist >= 0.8 ? 2 : 1,
+      });
+    }
+  } else {
+    // Standard reps
+    blocks.push({
+      sortOrder: order++,
       type: "work",
       reps,
       repDistanceKm,
       repRestSeconds: 90,
-      targetPaceSecKm: applyHilly(paces.I.targetPaceSecKm, hillyArea),
+      targetPaceSecKm: intervalPace,
       minPaceSecKm: applyHilly(paces.I.minPaceSecKm, hillyArea),
       maxPaceSecKm: applyHilly(paces.I.maxPaceSecKm, hillyArea),
-    },
-    {
-      sortOrder: 2,
+    });
+    blocks.push({
+      sortOrder: order++,
       type: "recovery",
       durationMinutes: Math.round((reps * 90) / 60),
-    },
-    cooldownBlock(paces, hillyArea),
-  ];
+    });
+  }
+
+  blocks.push({ ...cooldownBlock(paces, hillyArea), sortOrder: order });
+  return blocks;
+}
+
+/** Build a descending/ascending ladder of distances for interval sessions */
+function buildLadder(reps: number, baseDistKm: number): number[] {
+  // Pyramid: 1000, 800, 600, 600, 800, 1000 (adjusted to rep count)
+  const half = Math.ceil(reps / 2);
+  const descending: number[] = [];
+  for (let i = 0; i < half; i++) {
+    const factor = 1 - (i * 0.2); // 1.0, 0.8, 0.6, ...
+    descending.push(Math.round(baseDistKm * Math.max(factor, 0.4) * 1000) / 1000);
+  }
+  const ascending = descending.slice(0, reps - half).reverse();
+  return [...descending, ...ascending];
 }
 
 function longRunBlocks(

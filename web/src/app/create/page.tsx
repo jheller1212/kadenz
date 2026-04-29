@@ -620,12 +620,12 @@ function PaceRow({ label, pace }: { label: string; pace: string }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-hairline last:border-b-0">
       <span className="text-sm text-text-2">{label}</span>
-      <span className="text-sm font-semibold text-text-1 tabular-nums">{pace} /km</span>
+      <span className="text-sm font-semibold text-text-1 tabular-nums">{pace}</span>
     </div>
   );
 }
 
-function StepPreview({ plan }: { plan: GeneratedPlan }) {
+function StepPreview({ plan, useMiles }: { plan: GeneratedPlan; useMiles: boolean }) {
   const paces = getPaceZones(plan.vdot);
 
   // Summarize phase distribution
@@ -660,10 +660,10 @@ function StepPreview({ plan }: { plan: GeneratedPlan }) {
       {/* Pace zones */}
       <div className="rounded-[var(--radius-card)] bg-surface border border-hairline p-4 flex flex-col gap-1">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-2">Pace zones</span>
-        <PaceRow label="Easy / Long" pace={formatPace(paces.E.targetPaceSecKm)} />
-        <PaceRow label="Steady (M pace)" pace={formatPace(paces.M.targetPaceSecKm)} />
-        <PaceRow label="Tempo / Threshold" pace={formatPace(paces.T.targetPaceSecKm)} />
-        <PaceRow label="Intervals" pace={formatPace(paces.I.targetPaceSecKm)} />
+        <PaceRow label="Easy / Long" pace={`${formatPace(paces.E.targetPaceSecKm, useMiles)} /${useMiles ? "mi" : "km"}`} />
+        <PaceRow label="Steady (M pace)" pace={`${formatPace(paces.M.targetPaceSecKm, useMiles)} /${useMiles ? "mi" : "km"}`} />
+        <PaceRow label="Tempo / Threshold" pace={`${formatPace(paces.T.targetPaceSecKm, useMiles)} /${useMiles ? "mi" : "km"}`} />
+        <PaceRow label="Intervals" pace={`${formatPace(paces.I.targetPaceSecKm, useMiles)} /${useMiles ? "mi" : "km"}`} />
       </div>
 
       {/* Phase breakdown */}
@@ -730,6 +730,7 @@ export default function CreatePlanPage() {
   const [trainingVolume, setTrainingVolume] = useState<TrainingVolume>("medium");
   const [raceElevation, setRaceElevation] = useState<RaceElevation>("flat");
   const [easyRunMinKm, setEasyRunMinKm] = useState(0);
+  const [useMiles, setUseMiles] = useState(false);
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>("moderate");
   const [preferredLongRunDay, setPreferredLongRunDay] = useState(6); // Saturday
   const [hillyArea, setHillyArea] = useState(false);
@@ -857,6 +858,14 @@ export default function CreatePlanPage() {
           <div className="flex-1">
             <StepIndicator current={step} />
           </div>
+          {/* km / miles toggle */}
+          <button
+            onClick={() => setUseMiles(!useMiles)}
+            className="rounded-full bg-elevated border border-hairline px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-2 active:scale-95 transition-transform"
+            aria-label={`Switch to ${useMiles ? "kilometers" : "miles"}`}
+          >
+            {useMiles ? "mi" : "km"}
+          </button>
         </div>
 
         {/* Step content */}
@@ -899,7 +908,7 @@ export default function CreatePlanPage() {
           />
         )}
         {step === 3 && generatedPlan && (
-          <StepPreview plan={generatedPlan} />
+          <StepPreview plan={generatedPlan} useMiles={useMiles} />
         )}
 
         {/* Error */}
