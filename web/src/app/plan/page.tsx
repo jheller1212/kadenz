@@ -708,6 +708,11 @@ function PlanPageInner() {
   // Swipe refs
   const touchStartX = React.useRef(0);
 
+  // DnD sensors — must be at top level (hooks rules)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
   useEffect(() => {
     async function loadPlan() {
       try {
@@ -873,7 +878,7 @@ function PlanPageInner() {
         {/* Workout list for this week */}
         <div className="flex flex-col gap-2">
           <DndContext
-            sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))}
+            sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={() => {}}
           >

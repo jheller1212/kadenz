@@ -35,7 +35,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className="h-full antialiased light">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            var s = JSON.parse(localStorage.getItem('kadenz_settings') || '{}');
+            if (s.theme === 'dark') document.documentElement.classList.remove('light');
+          } catch(e) {}
+        `}} />
+      </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider />
         <ServiceWorkerRegistration />
