@@ -277,7 +277,7 @@ function tempoBlocks(
   hillyArea: boolean,
   workKm: number
 ): GeneratedBlock[] {
-  // Benchmark-style: alternating tempo/steady segments instead of one flat block
+  // Alternating tempo/steady segments for variety
   // e.g. 2km warm-up, 1km @ tempo, 1km @ steady, 1km @ tempo, 1km @ steady, 1km cool-down
   const tempoPace = applyHilly(paces.T.targetPaceSecKm, hillyArea);
   const steadyPace = applyHilly(paces.M.targetPaceSecKm, hillyArea);
@@ -326,7 +326,7 @@ function intervalBlocks(
   reps: number,
   repDistanceKm: number
 ): GeneratedBlock[] {
-  // Benchmark-style: varied rep distances (descending ladder or mixed)
+  // Varied rep distances (descending ladder or mixed)
   const intervalPace = applyHilly(paces.I.targetPaceSecKm, hillyArea);
   const blocks: GeneratedBlock[] = [warmupBlock(paces, hillyArea)];
   let order = 1;

@@ -1,26 +1,35 @@
 "use client";
 
 import { useEffect } from "react";
-import { loadSettings } from "@/lib/settings";
 
 export function ThemeProvider() {
   useEffect(() => {
     function applyTheme() {
-      const settings = loadSettings();
-      const html = document.documentElement;
-      if (settings.theme === "light") {
-        html.classList.add("light");
-      } else {
-        html.classList.remove("light");
+      try {
+        const raw = localStorage.getItem("kadenz_settings");
+        const settings = raw ? JSON.parse(raw) : {};
+        // Default to light if no theme set
+        const theme = settings.theme ?? "light";
+        if (theme === "light") {
+          document.documentElement.classList.add("light");
+        } else {
+          document.documentElement.classList.remove("light");
+        }
+      } catch {
+        // Default to light
+        document.documentElement.classList.add("light");
       }
     }
 
+    // Apply immediately
     applyTheme();
 
-    // Re-apply when localStorage changes (e.g. settings page updates)
+    // Listen for storage changes (cross-tab)
     window.addEventListener("storage", applyTheme);
-    // Also poll for same-tab changes
-    const interval = setInterval(applyTheme, 500);
+
+    // MutationObserver on localStorage for same-tab changes
+    // (storage event doesn't fire for same-tab)
+    const interval = setInterval(applyTheme, 300);
 
     return () => {
       window.removeEventListener("storage", applyTheme);

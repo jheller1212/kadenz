@@ -149,8 +149,8 @@ export default function SettingsPage() {
           <OptionGroup
             label="Theme"
             options={[
-              { value: "light" as const, label: "Light", sublabel: "Clean white, Benchmark-inspired" },
-              { value: "dark" as const, label: "Dark", sublabel: "Dark mode, easy on the eyes" },
+              { value: "light" as const, label: "Light", sublabel: "Clean, bright interface" },
+              { value: "dark" as const, label: "Dark", sublabel: "Easy on the eyes" },
             ]}
             value={settings.theme}
             onChange={(v) => {
