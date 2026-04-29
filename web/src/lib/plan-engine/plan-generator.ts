@@ -581,6 +581,18 @@ function buildRaceWorkout(
  * - Fill remaining days spread across the week, leaving rest days in between.
  * - Avoid back-to-back quality sessions.
  */
+/**
+ * Predefined optimal day patterns that spread workouts evenly with rest between.
+ * Days are Mon=1...Sat=6, Sun=0. Long run day is placed at preferredLongRunDay.
+ * These patterns maximize spacing between workouts.
+ */
+const DAY_PATTERNS: Record<number, number[][]> = {
+  3: [[1, 3, 6]], // Mon, Wed, Sat — 1 rest between each
+  4: [[1, 3, 5, 0]], // Mon, Wed, Fri, Sun — alternating
+  5: [[1, 2, 4, 5, 0]], // Mon, Tue, Thu, Fri, Sun — 2 on, 1 off pattern
+  6: [[1, 2, 3, 4, 5, 0]], // Mon-Fri + Sun
+};
+
 function pickTrainingDays(
   daysPerWeek: number,
   preferredLongRunDay: number
@@ -589,33 +601,53 @@ function pickTrainingDays(
     throw new Error("daysPerWeek must be between 1 and 7");
   }
 
-  // Default patterns for 3–6 days/week (Mon=1 based, with long on preferred day)
-  // We build a generic spread and then ensure the long run day is included.
-  const allDays = [0, 1, 2, 3, 4, 5, 6];
-  const selected = new Set<number>([preferredLongRunDay]);
-
-  // Candidate days excluding preferred: spread evenly
-  const candidates = allDays.filter((d) => d !== preferredLongRunDay);
-  // Sort by distance from preferred day in circular fashion to spread them out
-  candidates.sort((a, b) => {
-    const distA = Math.min(
-      Math.abs(a - preferredLongRunDay),
-      7 - Math.abs(a - preferredLongRunDay)
-    );
-    const distB = Math.min(
-      Math.abs(b - preferredLongRunDay),
-      7 - Math.abs(b - preferredLongRunDay)
-    );
-    return distB - distA; // furthest first = most spread
-  });
-
-  for (const d of candidates) {
-    if (selected.size >= daysPerWeek) break;
-    selected.add(d);
+  if (daysPerWeek === 7) {
+    return [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun
   }
 
-  // Sort Monday-first: Mon(1), Tue(2), ..., Sat(6), Sun(0)
-  return Array.from(selected).sort((a, b) => {
+  // Use predefined pattern, then rotate to include preferred long run day
+  const patterns = DAY_PATTERNS[daysPerWeek];
+  if (!patterns) {
+    // Fallback: evenly space days
+    const result: number[] = [];
+    const gap = 7 / daysPerWeek;
+    for (let i = 0; i < daysPerWeek; i++) {
+      result.push(Math.round((preferredLongRunDay + i * gap) % 7));
+    }
+    return result.sort((a, b) => {
+      const ma = a === 0 ? 7 : a;
+      const mb = b === 0 ? 7 : b;
+      return ma - mb;
+    });
+  }
+
+  const base = patterns[0];
+
+  // Check if preferred long run day is already in the pattern
+  if (base.includes(preferredLongRunDay)) {
+    return [...base].sort((a, b) => {
+      const ma = a === 0 ? 7 : a;
+      const mb = b === 0 ? 7 : b;
+      return ma - mb;
+    });
+  }
+
+  // Swap: replace the day closest to preferred long run day with it
+  const result = [...base];
+  let bestIdx = 0;
+  let bestDist = 99;
+  for (let i = 0; i < result.length; i++) {
+    const d = result[i];
+    const dist = Math.min(Math.abs(d - preferredLongRunDay), 7 - Math.abs(d - preferredLongRunDay));
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  result[bestIdx] = preferredLongRunDay;
+
+  // Sort Monday-first
+  return result.sort((a, b) => {
     const ma = a === 0 ? 7 : a;
     const mb = b === 0 ? 7 : b;
     return ma - mb;
@@ -893,6 +925,14 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   }
   if (config.raceDate <= config.startDate) {
     throw new Error("raceDate must be after startDate");
+  }
+
+  // Force startDate to Monday
+  const startDay = config.startDate.getDay(); // 0=Sun
+  if (startDay !== 1) {
+    // Snap to next Monday
+    const daysToMonday = startDay === 0 ? 1 : 8 - startDay;
+    config = { ...config, startDate: addDays(config.startDate, daysToMonday) };
   }
 
   // Calculate VDOT
