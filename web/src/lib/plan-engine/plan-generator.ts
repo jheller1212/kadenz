@@ -795,11 +795,33 @@ function distributeVolume(
     Math.round(longRunKm * 0.55),
     longRunKm - 3
   );
-  const rawEasyKm = easyCount > 0 ? Math.round(remainingKm / easyCount) : 0;
-  const easyKm = Math.max(minEasy, Math.min(rawEasyKm, Math.max(maxEasy, minEasy)));
+  const effectiveMaxEasy = Math.max(maxEasy, minEasy);
+
+  // Only reduce easy run count in extreme cases: when the user's minimum
+  // easy run makes it impossible to distribute volume at all
+  // (e.g. 15km week with minEasy=10 and 3 easy runs = 30km needed, impossible)
+  let actualEasyCount = easyCount;
+  if (easyRunMinKm > 0 && easyCount > 0 && remainingKm > 0) {
+    const totalMinNeeded = easyRunMinKm * easyCount;
+    if (totalMinNeeded > remainingKm * 1.5) {
+      // Extreme: minimum exceeds 150% of available — drop runs
+      actualEasyCount = Math.max(1, Math.floor(remainingKm / easyRunMinKm));
+      let toRemove = easyCount - actualEasyCount;
+      for (const [day, type] of typeMap) {
+        if (toRemove <= 0) break;
+        if (type === "easy" || type === "recovery") {
+          typeMap.set(day, "rest");
+          toRemove--;
+        }
+      }
+    }
+  }
+
+  const rawEasyKm = actualEasyCount > 0 ? Math.round(remainingKm / actualEasyCount) : 0;
+  const easyKm = Math.max(minEasy, Math.min(rawEasyKm, effectiveMaxEasy));
 
   // If capping easy runs frees up km, add it to the long run (up to cap)
-  const freedKm = easyCount > 0 ? Math.max(0, rawEasyKm - easyKm) * easyCount : 0;
+  const freedKm = actualEasyCount > 0 ? Math.max(0, rawEasyKm - easyKm) * actualEasyCount : 0;
   if (freedKm > 0) {
     const newLong = longRunKm + freedKm;
     longRunKm = longRunCapKm > 0 ? Math.min(newLong, longRunCapKm) : newLong;
