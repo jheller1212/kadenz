@@ -189,7 +189,6 @@ function TopHeader({
               <div className="p-2">
                 {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((weekNum) => {
                   const isSelected = weekNum === currentWeek;
-                  const isCurrentActual = weekNum === (currentWeek - (currentWeek - weekNum)); // simplified: just highlight selected
                   return (
                     <button
                       key={weekNum}
@@ -211,6 +210,19 @@ function TopHeader({
                     </button>
                   );
                 })}
+                {/* New plan link */}
+                <div className="border-t border-hairline mt-1 pt-1">
+                  <Link
+                    href="/create"
+                    onClick={() => setDropdownOpen(false)}
+                    className="w-full flex items-center gap-2 px-4 py-3 rounded-[var(--radius-input)] text-left active:bg-elevated transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span className="text-sm font-semibold text-text-2">New plan</span>
+                  </Link>
+                </div>
               </div>
             </div>
           </div>

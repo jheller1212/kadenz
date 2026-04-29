@@ -232,6 +232,23 @@ export default function SettingsPage() {
           )}
         </div>
 
+        {/* Plan management */}
+        <SectionHeader title="Plan" />
+        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden">
+          <Link
+            href="/create"
+            className="flex items-center gap-3 px-4 py-4 active:bg-elevated transition-colors"
+          >
+            <svg className="w-5 h-5 text-text-2 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-text-1">Create new plan</p>
+              <p className="text-xs text-text-3">Start a fresh training plan</p>
+            </div>
+          </Link>
+        </div>
+
         {/* App info */}
         <div className="mt-8 text-center">
           <p className="text-xs text-text-3">Kadenz · Version 1.0</p>
