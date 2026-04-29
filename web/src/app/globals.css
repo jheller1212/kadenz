@@ -34,7 +34,7 @@
   --k-danger: #FF4D4D;
 }
 
-/* Light theme */
+/* Light theme — clean monochrome like Benchmark */
 html.light {
   --k-bg: #F5F5F7;
   --k-surface: #FFFFFF;
@@ -43,7 +43,7 @@ html.light {
   --k-text-1: #1A1A1A;
   --k-text-2: #6B6B70;
   --k-text-3: #9A9AA0;
-  --k-accent: #6C3AE0;
+  --k-accent: #1A1A1A;
   --k-on-accent: #FFFFFF;
   --k-warn: #E8850A;
   --k-danger: #E03A3A;
