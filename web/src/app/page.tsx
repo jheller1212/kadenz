@@ -481,16 +481,34 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<TodayApiWorkout | null>(null);
 
+  // All workouts from the full plan (for week switching)
+  const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
+
   const loadData = useCallback(async () => {
     try {
       const res = await fetch("/api/today");
       if (!res.ok) throw new Error("Failed to fetch");
       const json: TodayApiResponse = await res.json();
       setData(json);
+
+      // Also fetch full plan workouts for week switching
+      if (json.activePlan && json.planId) {
+        const planRes = await fetch(`/api/plans/${json.planId}`);
+        if (planRes.ok) {
+          const plan = await planRes.json();
+          const allWo: TodayApiWorkout[] = [];
+          for (const week of plan.weeks ?? []) {
+            for (const wo of week.workouts ?? []) {
+              allWo.push(wo);
+            }
+          }
+          setAllWorkouts(allWo);
+        }
+      }
+
       if (json.activePlan && json.weekWorkouts) {
         const monday = getMondayOfWeek(new Date());
         setDays(buildWeekDaysForDate(monday, json.weekWorkouts));
-        // Set today's workout as selected
         if (json.todayWorkout) {
           setSelectedWorkout(json.todayWorkout);
           setSelectedDate(new Date());
@@ -505,18 +523,30 @@ export default function Home() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // When week offset changes, rebuild the day strip
+  // When week offset changes, rebuild the day strip from all workouts
   useEffect(() => {
-    if (!data?.weekWorkouts) return;
+    if (allWorkouts.length === 0 && !data?.weekWorkouts) return;
     const today = new Date();
     const monday = getMondayOfWeek(today);
     monday.setDate(monday.getDate() + weekOffset * 7);
-    setDays(buildWeekDaysForDate(monday, data.weekWorkouts));
-  }, [weekOffset, data]);
+    const source = allWorkouts.length > 0 ? allWorkouts : (data?.weekWorkouts ?? []);
+    setDays(buildWeekDaysForDate(monday, source));
+  }, [weekOffset, allWorkouts, data]);
 
   function handleSelectDate(day: DayInfo) {
     setSelectedDate(day.date);
-    setSelectedWorkout(day.workout);
+    // Find workout from allWorkouts for that date
+    if (day.workout) {
+      setSelectedWorkout(day.workout);
+    } else {
+      const found = allWorkouts.find((wo) => {
+        const d = new Date(wo.date);
+        return d.getFullYear() === day.date.getFullYear() &&
+          d.getMonth() === day.date.getMonth() &&
+          d.getDate() === day.date.getDate();
+      });
+      setSelectedWorkout(found ?? null);
+    }
   }
 
   function handleBackToToday() {
@@ -551,7 +581,17 @@ export default function Home() {
 
   const activeWorkout = selectedWorkout ?? data.todayWorkout;
   const isRestDay = !activeWorkout || activeWorkout.type === "rest";
-  const stats = data.stats ?? { plannedKm: 0, completedKm: 0, daysCompleted: 0, totalDays: 0 };
+
+  // Compute stats for the currently viewed week
+  const viewedWeekWorkouts = days.filter((d) => d.workout).map((d) => d.workout!);
+  const stats: TodayStats = weekOffset === 0
+    ? (data.stats ?? { plannedKm: 0, completedKm: 0, daysCompleted: 0, totalDays: 0 })
+    : {
+        plannedKm: Math.round(viewedWeekWorkouts.reduce((s, w) => s + (w.targetKm ?? 0), 0) * 10) / 10,
+        completedKm: Math.round(viewedWeekWorkouts.filter((w) => w.status === "completed").reduce((s, w) => s + (w.targetKm ?? 0), 0) * 10) / 10,
+        daysCompleted: viewedWeekWorkouts.filter((w) => w.status === "completed").length,
+        totalDays: viewedWeekWorkouts.filter((w) => w.type !== "rest").length,
+      };
   const currentWeek = data.currentWeek ?? 1;
   const totalWeeks = data.totalWeeks ?? 1;
   const viewingToday = weekOffset === 0 && (

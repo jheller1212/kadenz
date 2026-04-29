@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./light-theme.css";
 import { ServiceWorkerRegistration } from "./sw-register";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
