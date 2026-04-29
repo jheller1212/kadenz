@@ -431,23 +431,27 @@ function StepPreferences({
 
       {/* Current weekly km */}
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Current weekly km</span>
-          <span className="text-sm font-bold text-accent">{currentWeeklyKm} km</span>
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={120}
-          step={5}
-          value={currentWeeklyKm}
-          onChange={(e) => onCurrentWeeklyKm(Number(e.target.value))}
-          className="w-full accent-[#C8FF3C]"
-          aria-label={`Current weekly km: ${currentWeeklyKm}`}
-        />
-        <div className="flex justify-between text-[10px] text-text-3">
-          <span>0 km</span>
-          <span>120 km</span>
+        <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">How many km did you run last week?</span>
+        <p className="text-xs text-text-3">Your plan will start near this volume and build up gradually.</p>
+        <div className="rounded-[var(--radius-card)] bg-surface border border-hairline px-4 py-4">
+          <div className="text-center mb-3">
+            <span className="text-3xl font-extrabold text-text-1 tabular-nums">{currentWeeklyKm}</span>
+            <span className="text-sm text-text-3 ml-1">km/week</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={80}
+            step={5}
+            value={currentWeeklyKm}
+            onChange={(e) => onCurrentWeeklyKm(Number(e.target.value))}
+            className="w-full accent-[var(--k-accent)]"
+            aria-label={`Current weekly km: ${currentWeeklyKm}`}
+          />
+          <div className="flex justify-between text-[10px] text-text-3 mt-1">
+            <span>0 km</span>
+            <span>80 km</span>
+          </div>
         </div>
       </div>
 
