@@ -753,11 +753,12 @@ function distributeVolume(
   const distMap = new Map<number, number>();
   const raceLenKm = raceDistanceKm(raceDistance);
 
-  let longRunKm = Math.round(weeklyKm * 0.32);
+  // Long run gets 35-40% of weekly volume — it must be the distinctly longest run
+  let longRunKm = Math.round(weeklyKm * 0.38);
   if (longRunCapKm > 0) {
     longRunKm = Math.min(longRunKm, longRunCapKm);
   }
-  // Long run should not exceed 120% of race distance for shorter races
+  // Long run should not exceed 2.5x race distance for shorter races
   if (["5k", "10k"].includes(raceDistance)) {
     longRunKm = Math.min(longRunKm, Math.round(raceLenKm * 2.5));
   }
@@ -787,14 +788,18 @@ function distributeVolume(
   remainingKm -=
     tempoCount * tempoTotalKm + intervalCount * intervalTotalKm;
 
-  const minEasy = easyRunMinKm > 0 ? easyRunMinKm : 4;
-  // Easy runs capped at 60% of long run distance — they must feel distinctly shorter
-  const maxEasy = Math.round(longRunKm * 0.6);
+  const minEasy = easyRunMinKm > 0 ? easyRunMinKm : 3;
+  // Easy runs capped at 55% of long run — must feel distinctly shorter
+  // At minimum, easy must be at least 3km shorter than long run
+  const maxEasy = Math.min(
+    Math.round(longRunKm * 0.55),
+    longRunKm - 3
+  );
   const rawEasyKm = easyCount > 0 ? Math.round(remainingKm / easyCount) : 0;
-  const easyKm = Math.max(minEasy, Math.min(rawEasyKm, Math.max(maxEasy, 12)));
+  const easyKm = Math.max(minEasy, Math.min(rawEasyKm, Math.max(maxEasy, minEasy)));
 
   // If capping easy runs frees up km, add it to the long run (up to cap)
-  const freedKm = easyCount > 0 ? (rawEasyKm - easyKm) * easyCount : 0;
+  const freedKm = easyCount > 0 ? Math.max(0, rawEasyKm - easyKm) * easyCount : 0;
   if (freedKm > 0) {
     const newLong = longRunKm + freedKm;
     longRunKm = longRunCapKm > 0 ? Math.min(newLong, longRunCapKm) : newLong;
