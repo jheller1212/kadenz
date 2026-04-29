@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
-import { formatPace } from "@/lib/plan-engine/pace-zones";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,9 +47,9 @@ interface TodayApiResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const DAY_LABELS_SHORT = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
-const typeColors: Record<string, string> = {
+const workoutDotColor: Record<string, string> = {
   easy: "#4ADE80",
   recovery: "#4ADE80",
   tempo: "#FFB547",
@@ -59,11 +58,13 @@ const typeColors: Record<string, string> = {
   race: "#FF4D4D",
 };
 
-const BLOCK_LABEL: Record<string, string> = {
-  warmup: "Warm-up",
-  work: "Work",
-  recovery: "Recovery",
-  cooldown: "Cool-down",
+const workoutBarColor: Record<string, string> = {
+  easy: "#4ADE80",
+  recovery: "#4ADE80",
+  tempo: "#FFB547",
+  interval: "#C084FC",
+  long: "#60A5FA",
+  race: "#FF4D4D",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -84,157 +85,86 @@ function getMondayOfWeek(date: Date): Date {
   return d;
 }
 
-function buildWeekDaysForDate(weekMonday: Date, weekWorkouts: TodayApiWorkout[]): DayInfo[] {
+function buildWeekDaysForDate(weekMonday: Date, allWorkouts: TodayApiWorkout[]): DayInfo[] {
   const now = new Date();
-
   return Array.from({ length: 7 }, (_, i) => {
     const date = new Date(weekMonday);
     date.setDate(weekMonday.getDate() + i);
-
-    const workout = weekWorkouts.find((wo) => {
+    const workout = allWorkouts.find((wo) => {
       const d = new Date(wo.date);
-      return (
-        d.getFullYear() === date.getFullYear() &&
-        d.getMonth() === date.getMonth() &&
-        d.getDate() === date.getDate()
-      );
+      return d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
     }) ?? null;
-
     return {
       date,
       dayNum: date.getDate(),
-      isToday:
-        date.getDate() === now.getDate() &&
-        date.getMonth() === now.getMonth() &&
-        date.getFullYear() === now.getFullYear(),
+      isToday: date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear(),
       workout,
     };
   });
 }
 
-// ── Top Header (user icon, week selector, calendar) ─────────────────────────
+// ── 1. Top App Bar ──────────────────────────────────────────────────────────
 
-function TopHeader({
+function TopAppBar({
   currentWeek,
   totalWeeks,
+  onWeekDropdown,
   viewingToday,
   onBackToToday,
-  onSelectWeek,
 }: {
   currentWeek: number;
   totalWeeks: number;
+  onWeekDropdown: () => void;
   viewingToday: boolean;
   onBackToToday: () => void;
-  onSelectWeek: (week: number) => void;
 }) {
   const todayDate = new Date().getDate();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
   return (
-    <>
-      <header className="flex items-center justify-between px-1">
-        {/* User icon → settings */}
-        <Link href="/settings" className="flex items-center gap-2" aria-label="Settings">
-          <div className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center">
-            <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <circle cx="12" cy="8" r="4" />
-              <path strokeLinecap="round" d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-            </svg>
-          </div>
+    <header className="flex items-center justify-between">
+      {/* Left: Profile + notifications */}
+      <div className="flex items-center gap-2.5">
+        <Link href="/settings" className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center" aria-label="Profile">
+          <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <circle cx="12" cy="8" r="4" />
+            <path strokeLinecap="round" d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+          </svg>
         </Link>
-
-        {/* Week selector — opens dropdown */}
-        <button
-          onClick={() => setDropdownOpen(true)}
-          className="flex items-center gap-1.5 active:opacity-70 transition-opacity"
-        >
-          <span className="text-sm font-bold text-text-1">
-            Week {currentWeek}/{totalWeeks}
-          </span>
-          <svg className={`w-3 h-3 text-text-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        <button className="w-9 h-9 rounded-full flex items-center justify-center" aria-label="Notifications">
+          <svg className="w-5 h-5 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
         </button>
+      </div>
 
-        {/* Right side: back-to-today + calendar */}
-        <div className="flex items-center gap-2">
-          {!viewingToday && (
-            <button
-              onClick={onBackToToday}
-              className="w-8 h-8 rounded-lg bg-elevated border border-hairline flex items-center justify-center"
-              aria-label="Back to today"
-            >
-              <span className="text-[10px] font-extrabold text-accent">{todayDate}</span>
-            </button>
-          )}
-          <Link
-            href="/plan"
-            className="w-8 h-8 rounded-lg bg-elevated border border-hairline flex items-center justify-center"
-            aria-label="Training calendar"
-          >
-            <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18" />
-            </svg>
-          </Link>
-        </div>
-      </header>
+      {/* Center: Week selector */}
+      <button onClick={onWeekDropdown} className="flex items-center gap-1.5 active:opacity-70 transition-opacity">
+        <span className="text-base font-bold text-text-1">Week {currentWeek}/{totalWeeks}</span>
+        <svg className="w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-      {/* Week dropdown overlay */}
-      {dropdownOpen && (
-        <div className="fixed inset-0 z-50" onClick={() => setDropdownOpen(false)}>
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          <div className="absolute top-14 left-0 right-0 max-w-md mx-auto px-4" onClick={(e) => e.stopPropagation()}>
-            <div className="rounded-[var(--radius-card)] border border-hairline bg-surface shadow-xl max-h-[50vh] overflow-y-auto animate-slide-up">
-              <div className="p-2">
-                {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((weekNum) => {
-                  const isSelected = weekNum === currentWeek;
-                  return (
-                    <button
-                      key={weekNum}
-                      onClick={() => { onSelectWeek(weekNum); setDropdownOpen(false); }}
-                      className={`w-full flex items-center justify-between px-4 py-3 rounded-[var(--radius-input)] text-left transition-colors ${
-                        isSelected ? "bg-accent/10" : "active:bg-elevated"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>
-                          Week {weekNum}
-                        </span>
-                      </div>
-                      {isSelected && (
-                        <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-                  );
-                })}
-                {/* New plan link */}
-                <div className="border-t border-hairline mt-1 pt-1">
-                  <Link
-                    href="/create"
-                    onClick={() => setDropdownOpen(false)}
-                    className="w-full flex items-center gap-2 px-4 py-3 rounded-[var(--radius-input)] text-left active:bg-elevated transition-colors"
-                  >
-                    <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span className="text-sm font-semibold text-text-2">New plan</span>
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+      {/* Right: Back-to-today + Calendar */}
+      <div className="flex items-center gap-2">
+        {!viewingToday && (
+          <button onClick={onBackToToday} className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center" aria-label="Back to today">
+            <span className="text-[10px] font-extrabold text-accent">{todayDate}</span>
+          </button>
+        )}
+        <Link href="/plan" className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center" aria-label="Calendar">
+          <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <path d="M16 2v4M8 2v4M3 10h18" />
+          </svg>
+        </Link>
+      </div>
+    </header>
   );
 }
 
-// ── Day Selector Strip (swipeable) ──────────────────────────────────────────
+// ── 2. Horizontal Calendar Strip ────────────────────────────────────────────
 
-function DayStrip({
+function CalendarStrip({
   days,
   selectedDate,
   onSelectDate,
@@ -248,65 +178,32 @@ function DayStrip({
   onSwipeRight: () => void;
 }) {
   const touchStartX = useRef(0);
-
-  function handleTouchStart(e: React.TouchEvent) {
-    touchStartX.current = e.touches[0].clientX;
-  }
-
+  function handleTouchStart(e: React.TouchEvent) { touchStartX.current = e.touches[0].clientX; }
   function handleTouchEnd(e: React.TouchEvent) {
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) onSwipeLeft();  // swiped left → next week
-      else onSwipeRight();           // swiped right → prev week
-    }
+    if (Math.abs(diff) > 50) { diff > 0 ? onSwipeLeft() : onSwipeRight(); }
   }
 
   return (
-    <div
-      className="flex justify-between px-1 py-2"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      role="list"
-      aria-label="Week days"
-    >
+    <div className="flex justify-between" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {days.map((day, i) => {
         const hasWorkout = day.workout && day.workout.type !== "rest";
         const completed = day.workout?.status === "completed";
-        const color = day.workout?.type ? typeColors[day.workout.type] : null;
-        const isSelected = selectedDate &&
-          day.date.getDate() === selectedDate.getDate() &&
-          day.date.getMonth() === selectedDate.getMonth();
+        const dotColor = day.workout?.type ? workoutDotColor[day.workout.type] : null;
+        const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth();
 
         return (
-          <button
-            key={i}
-            className="flex flex-col items-center gap-1 w-11"
-            onClick={() => onSelectDate(day)}
-            role="listitem"
-            aria-label={`${DAY_LABELS_SHORT[i]} ${day.dayNum}`}
-          >
-            <span className={`text-[10px] font-semibold ${day.isToday ? "text-accent" : "text-text-3"}`}>
-              {DAY_LABELS_SHORT[i]}
+          <button key={i} onClick={() => onSelectDate(day)} className="flex flex-col items-center gap-1 w-11 py-1">
+            <span className={`text-[10px] font-semibold tracking-wide ${day.isToday ? "text-text-1" : "text-text-3"}`}>
+              {DAY_LABELS[i]}
             </span>
-            <div
-              className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
-                day.isToday
-                  ? "bg-text-1 text-bg"
-                  : isSelected
-                  ? "bg-elevated text-text-1"
-                  : "text-text-2"
-              }`}
-            >
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+              day.isToday ? "bg-text-1 text-bg" : isSelected ? "bg-elevated text-text-1" : "text-text-2"
+            }`}>
               {day.dayNum}
             </div>
-            {/* Workout dot */}
-            <div className="h-2 flex items-center justify-center">
-              {hasWorkout && completed && (
-                <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-              )}
-              {hasWorkout && !completed && (
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color ?? "#FAFAFA" }} />
-              )}
+            <div className="h-2 flex items-center">
+              {hasWorkout && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: completed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)") }} />}
             </div>
           </button>
         );
@@ -315,99 +212,139 @@ function DayStrip({
   );
 }
 
-// ── Today's Workout Card ────────────────────────────────────────────────────
+// ── 3+4. Today's Workout Section + Main Card ────────────────────────────────
 
-function WorkoutCard({
-  workout,
-}: {
-  workout: TodayApiWorkout;
-  onComplete: () => void;
-  completing: boolean;
-}) {
+function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
   const router = useRouter();
   const isCompleted = workout.status === "completed";
-  const color = typeColors[workout.type] ?? "#FAFAFA";
+  const barColor = workoutBarColor[workout.type] ?? "#999";
   const dateStr = new Date(workout.date).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" });
 
   return (
     <button
-      className="w-full text-left rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden active:bg-elevated/30 transition-colors"
-      style={{ borderLeftWidth: 4, borderLeftColor: color }}
       onClick={() => router.push(`/workout/${workout.id}`)}
+      className="w-full text-left rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden active:opacity-80 transition-opacity"
     >
-      <div className="px-4 py-4 flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-base font-bold text-text-1">{workout.title}</p>
-          <p className="text-xs text-text-3 mt-0.5">{dateStr} · {workout.targetDurationMinutes ? `${workout.targetDurationMinutes - 5}m - ${workout.targetDurationMinutes + 5}m` : ""}</p>
-          <p className="text-xs text-text-2 mt-1.5">
-            {workout.type.charAt(0).toUpperCase() + workout.type.slice(1)} · {workout.targetKm ?? "—"}km
-          </p>
-        </div>
+      <div className="flex">
+        {/* Colored left strip */}
+        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
 
-        {/* Completion circle */}
-        {isCompleted ? (
-          <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 mt-0.5">
-            <svg className="w-4 h-4 text-on-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+        <div className="flex-1 p-4">
+          {/* Title row */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-bold text-text-1">{workout.title}</p>
+              <p className="text-xs text-text-3 mt-0.5">{dateStr} · {workout.targetDurationMinutes ? `${Math.max(0, workout.targetDurationMinutes - 5)}m - ${workout.targetDurationMinutes + 5}m` : ""}</p>
+            </div>
+            {/* Checkbox */}
+            <div className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center shrink-0 ${isCompleted ? "bg-text-1 border-text-1" : "border-hairline"}`}>
+              {isCompleted && (
+                <svg className="w-4 h-4 text-bg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="w-7 h-7 rounded-full border-2 border-hairline shrink-0 mt-0.5" />
-        )}
+
+          {/* Metrics row */}
+          <div className="flex gap-6 mt-3">
+            {workout.targetKm != null && (
+              <div>
+                <p className="text-[10px] text-text-3 uppercase tracking-wide">Distance</p>
+                <p className="text-sm font-bold text-text-1 tabular-nums">{workout.targetKm} km</p>
+              </div>
+            )}
+            {workout.targetDurationMinutes != null && (
+              <div>
+                <p className="text-[10px] text-text-3 uppercase tracking-wide">Time</p>
+                <p className="text-sm font-bold text-text-1 tabular-nums">~{workout.targetDurationMinutes} min</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </button>
   );
 }
 
-// ── Week Overview Link ──────────────────────────────────────────────────────
+// ── 5. Week Overview Progress Card ──────────────────────────────────────────
 
-function WeekOverviewLink({ stats, currentWeek }: { stats: TodayStats; currentWeek: number }) {
+function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodayStats; currentWeek: number; weekWorkouts: DayInfo[] }) {
+  const workoutTypes = weekWorkouts.filter((d) => d.workout && d.workout.type !== "rest").map((d) => d.workout!);
+
   return (
-    <Link
-      href="/plan"
-      className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4 py-3.5 flex items-center justify-between active:bg-elevated/50 transition-colors"
-    >
-      <div>
+    <Link href="/plan" className="block rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity">
+      <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-text-1">Week {currentWeek} Overview</p>
-        <p className="text-xs text-text-3 mt-0.5">
-          Workouts: <span className="font-semibold text-text-2">{stats.daysCompleted}/{stats.totalDays}</span>
-          <span className="mx-2">·</span>
-          Distance: <span className="font-semibold text-text-2">{stats.completedKm}/{stats.plannedKm}km</span>
-        </p>
+        <svg className="w-5 h-5 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
       </div>
-      <svg className="w-5 h-5 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-      </svg>
+
+      {/* Segmented progress bar */}
+      <div className="flex gap-1 mt-3 h-2">
+        {workoutTypes.map((wo, i) => {
+          const completed = wo.status === "completed";
+          const color = workoutBarColor[wo.type] ?? "#999";
+          return (
+            <div
+              key={i}
+              className="flex-1 rounded-full"
+              style={{ backgroundColor: completed ? color : "var(--k-elevated)", border: completed ? "none" : `1.5px solid ${color}` }}
+            />
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between mt-2.5 text-xs text-text-3">
+        <span>Workouts: <span className="font-semibold text-text-1">{stats.daysCompleted}/{stats.totalDays}</span></span>
+        <span>Distance: <span className="font-semibold text-text-1">{stats.completedKm}/{stats.plannedKm}KM</span></span>
+      </div>
     </Link>
   );
 }
 
-// ── Insights Cards ──────────────────────────────────────────────────────────
+// ── 7. My Insights Section ──────────────────────────────────────────────────
 
-function InsightsCards({ stats }: { stats: TodayStats }) {
+function InsightsSection({ stats }: { stats: TodayStats }) {
+  const [collapsed, setCollapsed] = useState(false);
   const pct = stats.plannedKm > 0 ? Math.round((stats.completedKm / stats.plannedKm) * 100) : 0;
 
   return (
     <div>
-      <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-3">My insights</p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
-          <p className="text-sm font-semibold text-text-1">Mileage</p>
-          <p className="text-xs text-text-3 mt-1">{pct}% · {stats.completedKm}/{stats.plannedKm} km</p>
-          <div className="mt-2 h-1.5 rounded-full bg-elevated overflow-hidden">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
-          <p className="text-sm font-semibold text-text-1">Workouts</p>
-          <p className="text-xs text-text-3 mt-1">{stats.daysCompleted}/{stats.totalDays} done</p>
-          <div className="mt-2 flex gap-1">
-            {Array.from({ length: stats.totalDays }).map((_, i) => (
-              <div key={i} className={`h-1.5 flex-1 rounded-full ${i < stats.daysCompleted ? "bg-accent" : "bg-elevated"}`} />
-            ))}
-          </div>
-        </div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-base font-bold text-text-1">My insights</p>
+        <button onClick={() => setCollapsed(!collapsed)} className="flex items-center gap-1 text-xs font-semibold text-text-3 uppercase tracking-wide active:opacity-70">
+          {collapsed ? "Expand" : "Collapse"}
+          <svg className={`w-3 h-3 transition-transform ${collapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
       </div>
+
+      {!collapsed && (
+        <div className="grid grid-cols-2 gap-3">
+          {/* Mileage card */}
+          <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <p className="text-sm font-bold text-text-1">Mileage on track</p>
+            <p className="text-xs text-text-3 mt-1">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
+            <div className="mt-3 flex gap-1 h-2">
+              <div className="rounded-full bg-[#4ADE80]" style={{ flex: stats.completedKm }} />
+              <div className="rounded-full bg-elevated" style={{ flex: Math.max(0, stats.plannedKm - stats.completedKm) }} />
+            </div>
+          </div>
+          {/* Pace card */}
+          <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <p className="text-sm font-bold text-text-1">Pace on point</p>
+            <p className="text-xs text-text-3 mt-1">Next speed workout: soon</p>
+            <div className="mt-3 flex items-center justify-center h-2">
+              <div className="w-full h-1.5 rounded-full bg-elevated overflow-hidden">
+                <div className="h-full rounded-full bg-[#4ADE80]" style={{ width: `${Math.min(100, pct)}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -428,27 +365,61 @@ function RestDayCard() {
   );
 }
 
+// ── Week Dropdown ───────────────────────────────────────────────────────────
+
+function WeekDropdown({
+  open,
+  onClose,
+  totalWeeks,
+  currentWeek,
+  onSelectWeek,
+}: {
+  open: boolean;
+  onClose: () => void;
+  totalWeeks: number;
+  currentWeek: number;
+  onSelectWeek: (w: number) => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute top-14 left-0 right-0 max-w-md mx-auto px-4" onClick={(e) => e.stopPropagation()}>
+        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface shadow-xl max-h-[50vh] overflow-y-auto animate-slide-up">
+          <div className="p-2">
+            {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((w) => {
+              const isSelected = w === currentWeek;
+              return (
+                <button key={w} onClick={() => { onSelectWeek(w); onClose(); }}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-[var(--radius-input)] text-left transition-colors ${isSelected ? "bg-accent/10" : "active:bg-elevated"}`}>
+                  <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>Week {w}</span>
+                  {isSelected && <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                </button>
+              );
+            })}
+            <div className="border-t border-hairline mt-1 pt-1">
+              <Link href="/create" onClick={onClose} className="w-full flex items-center gap-2 px-4 py-3 rounded-[var(--radius-input)] text-left active:bg-elevated transition-colors">
+                <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                <span className="text-sm font-semibold text-text-2">New plan</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton() {
   return (
-    <div className="min-h-screen flex flex-col bg-bg">
-      <main className="flex-1 flex flex-col max-w-md mx-auto w-full px-4 pt-8 pb-28 gap-4">
-        <div className="flex justify-between">
-          <div className="w-8 h-8 rounded-full bg-elevated animate-pulse" />
-          <div className="h-5 w-24 rounded bg-elevated animate-pulse" />
-          <div className="w-8 h-8 rounded-lg bg-elevated animate-pulse" />
-        </div>
-        <div className="flex justify-between px-1">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <div className="h-3 w-6 rounded bg-elevated animate-pulse" />
-              <div className="w-9 h-9 rounded-full bg-elevated animate-pulse" />
-            </div>
-          ))}
-        </div>
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface h-36 animate-pulse" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface h-16 animate-pulse" />
+    <div className="min-h-screen bg-bg">
+      <main className="max-w-md mx-auto w-full px-4 pt-8 pb-28 flex flex-col gap-4">
+        <div className="flex justify-between"><div className="w-20 h-9 rounded-full bg-elevated animate-pulse" /><div className="w-24 h-5 rounded bg-elevated animate-pulse" /><div className="w-9 h-9 rounded-lg bg-elevated animate-pulse" /></div>
+        <div className="flex justify-between">{Array.from({ length: 7 }).map((_, i) => <div key={i} className="flex flex-col items-center gap-1"><div className="h-3 w-6 rounded bg-elevated animate-pulse" /><div className="w-9 h-9 rounded-full bg-elevated animate-pulse" /></div>)}</div>
+        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface h-32 animate-pulse" />
+        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface h-20 animate-pulse" />
       </main>
       <BottomNav active="today" />
     </div>
@@ -459,20 +430,13 @@ function Skeleton() {
 
 function NoPlanCTA() {
   return (
-    <div className="min-h-screen flex flex-col bg-bg">
-      <main className="flex-1 flex flex-col max-w-md mx-auto w-full px-4 pt-12 pb-28 items-center justify-center">
+    <div className="min-h-screen bg-bg">
+      <main className="max-w-md mx-auto w-full px-4 pt-12 pb-28 flex flex-col items-center justify-center min-h-[80vh]">
         <section className="w-full rounded-[var(--radius-card)] border border-hairline bg-surface p-8 text-center">
           <h1 className="text-2xl font-extrabold text-accent">Kadenz</h1>
           <h2 className="mt-3 text-xl font-extrabold text-text-1">Ready to train?</h2>
-          <p className="mt-2 text-sm text-text-2 leading-relaxed">
-            Create a personalised race plan to see your workouts here.
-          </p>
-          <Link
-            href="/create"
-            className="mt-6 inline-flex rounded-full bg-accent px-6 py-3 text-sm font-bold text-on-accent active:scale-95 transition-transform"
-          >
-            Create plan
-          </Link>
+          <p className="mt-2 text-sm text-text-2 leading-relaxed">Create a personalised race plan to see your workouts here.</p>
+          <Link href="/create" className="mt-6 inline-flex rounded-full bg-accent px-6 py-3 text-sm font-bold text-on-accent active:scale-95 transition-transform">Create plan</Link>
         </section>
       </main>
       <BottomNav active="today" />
@@ -483,38 +447,31 @@ function NoPlanCTA() {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Home() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TodayApiResponse | null>(null);
   const [days, setDays] = useState<DayInfo[]>([]);
+  const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
   const [completing, setCompleting] = useState(false);
-
-  // Track which week we're viewing (offset from current week)
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<TodayApiWorkout | null>(null);
-
-  // All workouts from the full plan (for week switching)
-  const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
       const res = await fetch("/api/today");
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error("Failed");
       const json: TodayApiResponse = await res.json();
       setData(json);
 
-      // Also fetch full plan workouts for week switching
       if (json.activePlan && json.planId) {
         const planRes = await fetch(`/api/plans/${json.planId}`);
         if (planRes.ok) {
           const plan = await planRes.json();
-          const allWo: TodayApiWorkout[] = [];
-          for (const week of plan.weeks ?? []) {
-            for (const wo of week.workouts ?? []) {
-              allWo.push(wo);
-            }
-          }
-          setAllWorkouts(allWo);
+          const wo: TodayApiWorkout[] = [];
+          for (const week of plan.weeks ?? []) for (const w of week.workouts ?? []) wo.push(w);
+          setAllWorkouts(wo);
         }
       }
 
@@ -535,38 +492,25 @@ export default function Home() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // When week offset changes, rebuild the day strip from all workouts
   useEffect(() => {
     if (allWorkouts.length === 0 && !data?.weekWorkouts) return;
-    const today = new Date();
-    const monday = getMondayOfWeek(today);
+    const monday = getMondayOfWeek(new Date());
     monday.setDate(monday.getDate() + weekOffset * 7);
-    const source = allWorkouts.length > 0 ? allWorkouts : (data?.weekWorkouts ?? []);
-    setDays(buildWeekDaysForDate(monday, source));
+    setDays(buildWeekDaysForDate(monday, allWorkouts.length > 0 ? allWorkouts : (data?.weekWorkouts ?? [])));
   }, [weekOffset, allWorkouts, data]);
 
   function handleSelectDate(day: DayInfo) {
     setSelectedDate(day.date);
-    // Find workout from allWorkouts for that date
-    if (day.workout) {
-      setSelectedWorkout(day.workout);
-    } else {
-      const found = allWorkouts.find((wo) => {
-        const d = new Date(wo.date);
-        return d.getFullYear() === day.date.getFullYear() &&
-          d.getMonth() === day.date.getMonth() &&
-          d.getDate() === day.date.getDate();
-      });
-      setSelectedWorkout(found ?? null);
-    }
+    setSelectedWorkout(day.workout ?? allWorkouts.find((wo) => {
+      const d = new Date(wo.date);
+      return d.getFullYear() === day.date.getFullYear() && d.getMonth() === day.date.getMonth() && d.getDate() === day.date.getDate();
+    }) ?? null);
   }
 
   function handleBackToToday() {
     setWeekOffset(0);
     setSelectedDate(new Date());
-    if (data?.todayWorkout) {
-      setSelectedWorkout(data.todayWorkout);
-    }
+    setSelectedWorkout(data?.todayWorkout ?? null);
   }
 
   async function handleComplete() {
@@ -574,18 +518,9 @@ export default function Home() {
     if (!wo || completing) return;
     setCompleting(true);
     try {
-      const res = await fetch(`/api/workouts/${wo.id}/complete`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      if (!res.ok) throw new Error("Failed");
-      await loadData();
-    } catch {
-      // silent
-    } finally {
-      setCompleting(false);
-    }
+      const res = await fetch(`/api/workouts/${wo.id}/complete`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (res.ok) await loadData();
+    } catch { /* silent */ } finally { setCompleting(false); }
   }
 
   if (loading) return <Skeleton />;
@@ -593,8 +528,10 @@ export default function Home() {
 
   const activeWorkout = selectedWorkout ?? data.todayWorkout;
   const isRestDay = !activeWorkout || activeWorkout.type === "rest";
+  const currentWeek = data.currentWeek ?? 1;
+  const totalWeeks = data.totalWeeks ?? 1;
+  const viewingToday = weekOffset === 0 && (!selectedDate || (selectedDate.getDate() === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth()));
 
-  // Compute stats for the currently viewed week
   const viewedWeekWorkouts = days.filter((d) => d.workout).map((d) => d.workout!);
   const stats: TodayStats = weekOffset === 0
     ? (data.stats ?? { plannedKm: 0, completedKm: 0, daysCompleted: 0, totalDays: 0 })
@@ -604,33 +541,23 @@ export default function Home() {
         daysCompleted: viewedWeekWorkouts.filter((w) => w.status === "completed").length,
         totalDays: viewedWeekWorkouts.filter((w) => w.type !== "rest").length,
       };
-  const currentWeek = data.currentWeek ?? 1;
-  const totalWeeks = data.totalWeeks ?? 1;
-  const viewingToday = weekOffset === 0 && (
-    !selectedDate ||
-    (selectedDate.getDate() === new Date().getDate() &&
-     selectedDate.getMonth() === new Date().getMonth())
-  );
+
+  const displayedWeek = currentWeek + weekOffset;
 
   return (
-    <div className="min-h-screen flex flex-col bg-bg">
-      <main className="flex-1 flex flex-col max-w-md mx-auto w-full px-4 pt-8 pb-28 gap-4">
-        {/* Top header: user icon, Week X/Y, calendar */}
-        <TopHeader
-          currentWeek={currentWeek + weekOffset}
+    <div className="min-h-screen bg-bg">
+      <main className="max-w-md mx-auto w-full px-4 pt-8 pb-36 flex flex-col gap-4">
+        {/* 1. Top App Bar */}
+        <TopAppBar
+          currentWeek={displayedWeek}
           totalWeeks={totalWeeks}
+          onWeekDropdown={() => setDropdownOpen(true)}
           viewingToday={viewingToday}
           onBackToToday={handleBackToToday}
-          onSelectWeek={(week) => {
-            const offset = week - currentWeek;
-            setWeekOffset(offset);
-            setSelectedDate(null);
-            setSelectedWorkout(null);
-          }}
         />
 
-        {/* Swipeable day selector */}
-        <DayStrip
+        {/* 2. Calendar Strip */}
+        <CalendarStrip
           days={days}
           selectedDate={selectedDate}
           onSelectDate={handleSelectDate}
@@ -639,32 +566,57 @@ export default function Home() {
         />
 
         {/* Divider */}
-        <div className="h-px bg-hairline -mt-2" />
+        <div className="h-px bg-hairline" />
 
-        {/* Today's workout section label */}
+        {/* 3. Section header */}
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">
-            {viewingToday ? "Today\u2019s workout" : selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-          </span>
+          <p className="text-base font-bold text-text-1">
+            {viewingToday ? "Today\u2019s workouts" : new Date(selectedDate ?? new Date()).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+          </p>
         </div>
 
-        {/* Workout card */}
-        {isRestDay ? (
-          <RestDayCard />
-        ) : (
-          <WorkoutCard
-            workout={activeWorkout!}
-            onComplete={handleComplete}
-            completing={completing}
-          />
-        )}
+        {/* 4. Main Workout Card */}
+        {isRestDay ? <RestDayCard /> : <WorkoutCard workout={activeWorkout!} />}
 
-        {/* Week overview link */}
-        <WeekOverviewLink stats={stats} currentWeek={currentWeek + weekOffset} />
+        {/* 5. Week Overview */}
+        <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
 
-        {/* Insights */}
-        <InsightsCards stats={stats} />
+        {/* 6. Sources */}
+        <p className="text-xs text-text-3">Sources: Kadenz Plan Engine</p>
+
+        {/* Divider */}
+        <div className="h-px bg-hairline" />
+
+        {/* 7. My Insights */}
+        <InsightsSection stats={stats} />
       </main>
+
+      {/* 8. Sticky Bottom Button */}
+      {!isRestDay && activeWorkout && activeWorkout.status !== "completed" && (
+        <div className="fixed bottom-16 left-0 right-0 z-40 px-4 pb-4">
+          <div className="max-w-md mx-auto">
+            <button
+              onClick={handleComplete}
+              disabled={completing}
+              className="w-full rounded-full bg-text-1 text-bg font-bold text-sm py-4 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60 shadow-lg"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {completing ? "Saving..." : "Record workout"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Week Dropdown */}
+      <WeekDropdown
+        open={dropdownOpen}
+        onClose={() => setDropdownOpen(false)}
+        totalWeeks={totalWeeks}
+        currentWeek={displayedWeek}
+        onSelectWeek={(week) => { setWeekOffset(week - currentWeek); setSelectedDate(null); setSelectedWorkout(null); }}
+      />
 
       <BottomNav active="today" />
     </div>
