@@ -771,7 +771,17 @@ function distributeVolume(
     tempoCount * tempoTotalKm + intervalCount * intervalTotalKm;
 
   const minEasy = easyRunMinKm > 0 ? easyRunMinKm : 4;
-  const easyKm = easyCount > 0 ? Math.max(minEasy, Math.round(remainingKm / easyCount)) : 0;
+  // Easy runs capped at 60% of long run distance — they must feel distinctly shorter
+  const maxEasy = Math.round(longRunKm * 0.6);
+  const rawEasyKm = easyCount > 0 ? Math.round(remainingKm / easyCount) : 0;
+  const easyKm = Math.max(minEasy, Math.min(rawEasyKm, Math.max(maxEasy, 12)));
+
+  // If capping easy runs frees up km, add it to the long run (up to cap)
+  const freedKm = easyCount > 0 ? (rawEasyKm - easyKm) * easyCount : 0;
+  if (freedKm > 0) {
+    const newLong = longRunKm + freedKm;
+    longRunKm = longRunCapKm > 0 ? Math.min(newLong, longRunCapKm) : newLong;
+  }
 
   for (const [day, type] of typeMap) {
     if (type === "long") {
