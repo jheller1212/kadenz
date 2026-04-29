@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect, Suspense } from "react";
+import React, { useMemo, useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -624,12 +624,89 @@ function LoadingSkeleton() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// ── Week selector dropdown ──────────────────────────────────────────────────
+
+function WeekDropdown({
+  weeks,
+  selectedWeek,
+  onSelect,
+  open,
+  onClose,
+}: {
+  weeks: GeneratedWeek[];
+  selectedWeek: number;
+  onSelect: (n: number) => void;
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="absolute top-0 left-0 right-0 max-w-md mx-auto mt-16 mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="m-4 rounded-[var(--radius-card)] border border-hairline bg-surface max-h-[60vh] overflow-y-auto">
+          <div className="p-3">
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-widest px-2 mb-2">Select week</p>
+            {weeks.map((week) => {
+              const isCurrent = isCurrentWeek(week);
+              const isSelected = week.weekNumber === selectedWeek;
+              const firstDate = week.workouts[0]?.date;
+              const lastDate = week.workouts[week.workouts.length - 1]?.date;
+
+              return (
+                <button
+                  key={week.weekNumber}
+                  onClick={() => { onSelect(week.weekNumber); onClose(); }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-[var(--radius-input)] text-left transition-colors ${
+                    isSelected ? "bg-accent/10" : "active:bg-elevated"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>
+                      Week {week.weekNumber}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[week.phase]}`}>
+                      {week.phase}
+                    </span>
+                    {isCurrent && (
+                      <span className="text-[9px] font-bold text-accent uppercase">Now</span>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {firstDate && lastDate && (
+                      <p className="text-[10px] text-text-3">
+                        {formatDate(firstDate)} – {formatDate(lastDate)}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-text-3">{week.targetKm} km</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main plan page (week-focused) ────────────────────────────────────────────
+
 function PlanPageInner() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("id");
 
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedWeekNum, setSelectedWeekNum] = useState<number>(1);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // Swipe refs
+  const touchStartX = React.useRef(0);
 
   useEffect(() => {
     async function loadPlan() {
@@ -638,105 +715,201 @@ function PlanPageInner() {
         if (planId) {
           url = `/api/plans/${planId}`;
         } else {
-          // Find active plan from list
           const listRes = await fetch("/api/plans");
           if (!listRes.ok) throw new Error("Failed to fetch plans");
           const plans = await listRes.json();
           const active = (plans as { id: string; status: string }[]).find(
             (p) => p.status === "active"
           );
-          if (!active) {
-            setLoading(false);
-            return;
-          }
+          if (!active) { setLoading(false); return; }
           url = `/api/plans/${active.id}`;
         }
 
         const res = await fetch(url);
-        if (!res.ok) {
-          setLoading(false);
-          return;
-        }
+        if (!res.ok) { setLoading(false); return; }
 
         const raw = await res.json();
-        setPlan(adaptApiPlan(raw));
-      } catch {
-        // Fall back to sessionStorage if available (offline support)
-        if (typeof window !== "undefined") {
-          const stored = window.sessionStorage.getItem("kadenz_plan");
-          if (stored) {
-            try {
-              const p = JSON.parse(stored) as Record<string, unknown>;
-              setPlan(adaptApiPlan(p));
-            } catch {
-              window.sessionStorage.removeItem("kadenz_plan");
-            }
-          }
+        const adapted = adaptApiPlan(raw);
+        setPlan(adapted);
+
+        // Default to current week
+        const currentIdx = adapted.weeks.findIndex((w) => isCurrentWeek(w));
+        if (currentIdx >= 0) {
+          setSelectedWeekNum(adapted.weeks[currentIdx].weekNumber);
         }
+      } catch {
+        // silent
       } finally {
         setLoading(false);
       }
     }
-
     loadPlan();
   }, [planId]);
-
-  // Group consecutive weeks by phase for section dividers
-  const weekGroups = useMemo(() => {
-    if (!plan) return [];
-    const groups: { phase: WeekPhase; weeks: GeneratedWeek[] }[] = [];
-    for (const week of plan.weeks) {
-      const last = groups[groups.length - 1];
-      if (last && last.phase === week.phase) {
-        last.weeks.push(week);
-      } else {
-        groups.push({ phase: week.phase, weeks: [week] });
-      }
-    }
-    return groups;
-  }, [plan]);
 
   if (loading) return <LoadingSkeleton />;
   if (!plan) return <EmptyState />;
 
+  const selectedWeek = plan.weeks.find((w) => w.weekNumber === selectedWeekNum) ?? plan.weeks[0];
+  const totalWeeks = plan.weeks.length;
+
+  function goToWeek(n: number) {
+    setSelectedWeekNum(Math.max(1, Math.min(n, totalWeeks)));
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX;
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    const diff = touchStartX.current - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) goToWeek(selectedWeekNum + 1); // swipe left → next
+      else goToWeek(selectedWeekNum - 1);           // swipe right → prev
+    }
+  }
+
+  const firstDate = selectedWeek.workouts[0]?.date;
+  const lastDate = selectedWeek.workouts[selectedWeek.workouts.length - 1]?.date;
+  const nonRest = selectedWeek.workouts.filter((w) => w.type !== "rest");
+  const isCurrent = isCurrentWeek(selectedWeek);
+
   return (
     <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pb-28 pt-10">
-        {/* Header */}
+      <main
+        className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-28 pt-8"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Top header: back + week selector + nav arrows */}
         <header className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
-              Kadenz
-            </p>
-            <h1 className="text-2xl font-extrabold text-text-1">
-              Training plan
-            </h1>
-          </div>
           <Link
-            href="/create"
-            className="rounded-full border border-hairline bg-surface px-3 py-2 text-xs font-semibold text-text-2 active:scale-95 transition-transform"
+            href="/"
+            className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center"
+            aria-label="Back"
           >
-            New plan
+            <svg className="w-5 h-5 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
           </Link>
+
+          {/* Week selector with dropdown */}
+          <button
+            onClick={() => setDropdownOpen(true)}
+            className="flex items-center gap-1.5 active:opacity-70 transition-opacity"
+          >
+            <span className="text-base font-bold text-text-1">
+              Week {selectedWeekNum}
+            </span>
+            <svg className="w-3.5 h-3.5 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {/* Nav arrows */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => goToWeek(selectedWeekNum - 1)}
+              disabled={selectedWeekNum <= 1}
+              className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center disabled:opacity-30"
+              aria-label="Previous week"
+            >
+              <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={() => goToWeek(selectedWeekNum + 1)}
+              disabled={selectedWeekNum >= totalWeeks}
+              className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center disabled:opacity-30"
+              aria-label="Next week"
+            >
+              <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
         </header>
 
-        <PlanHeader plan={plan} />
-
-        {/* Weeks, grouped by phase with dividers */}
-        {weekGroups.map(({ phase, weeks }, groupIdx) => (
-          <div key={`${phase}-${groupIdx}`} className="flex flex-col gap-4">
-            <PhaseDivider phase={phase} />
-            {weeks.map((week) => (
-              <WeekCard
-                key={week.weekNumber}
-                week={week}
-                isCurrent={isCurrentWeek(week)}
-                isPast={isPastWeek(week)}
-              />
-            ))}
+        {/* Week info bar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {firstDate && lastDate && (
+              <span className="text-xs text-text-3">
+                {formatDate(firstDate)} – {formatDate(lastDate)}
+              </span>
+            )}
+            <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[selectedWeek.phase]}`}>
+              {selectedWeek.phase}
+            </span>
+            {selectedWeek.type !== "normal" && (
+              <span className="rounded-full bg-elevated border border-hairline px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-text-2">
+                {selectedWeek.type}
+              </span>
+            )}
           </div>
-        ))}
+          <span className="text-xs font-semibold text-text-2">{selectedWeek.targetKm} km</span>
+        </div>
+
+        {/* Coloured volume bar */}
+        <div className="flex gap-0.5 h-1.5">
+          {nonRest.map((w, i) => (
+            <div
+              key={i}
+              className="flex-1 rounded-full"
+              style={{ backgroundColor: WORKOUT_BAR_COLOR[w.type] }}
+            />
+          ))}
+        </div>
+
+        {/* Week summary */}
+        <div className="flex items-center justify-between text-xs text-text-3">
+          <span>{nonRest.length} workouts</span>
+          <span>
+            {isCurrent && <span className="text-accent font-semibold mr-1">Current week</span>}
+            {selectedWeekNum} of {totalWeeks}
+          </span>
+        </div>
+
+        {/* Workout list for this week */}
+        <div className="flex flex-col gap-2">
+          <DndContext
+            sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))}
+            collisionDetection={closestCenter}
+            onDragEnd={() => {}}
+          >
+            <SortableContext
+              items={selectedWeek.workouts.map((w) => w.sortOrder.toString())}
+              strategy={verticalListSortingStrategy}
+            >
+              {selectedWeek.workouts.map((workout) => {
+                const wId = workout.sortOrder.toString();
+                return (
+                  <WorkoutRow
+                    key={wId}
+                    workout={workout}
+                    expanded={false}
+                    onToggle={() => {}}
+                    dimmed={isPastWeek(selectedWeek)}
+                  />
+                );
+              })}
+            </SortableContext>
+          </DndContext>
+        </div>
+
+        {/* Plan overview link */}
+        <div className="h-px bg-hairline mt-2" />
+        <PlanHeader plan={plan} />
       </main>
+
+      {/* Week dropdown */}
+      <WeekDropdown
+        weeks={plan.weeks}
+        selectedWeek={selectedWeekNum}
+        onSelect={setSelectedWeekNum}
+        open={dropdownOpen}
+        onClose={() => setDropdownOpen(false)}
+      />
 
       <BottomNav active="plan" />
     </div>
