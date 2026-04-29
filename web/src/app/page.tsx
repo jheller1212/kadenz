@@ -526,11 +526,16 @@ export default function Home() {
   if (loading) return <Skeleton />;
   if (!data?.activePlan) return <NoPlanCTA />;
 
-  const activeWorkout = selectedWorkout ?? data.todayWorkout;
-  const isRestDay = !activeWorkout || activeWorkout.type === "rest";
   const currentWeek = data.currentWeek ?? 1;
   const totalWeeks = data.totalWeeks ?? 1;
   const viewingToday = weekOffset === 0 && (!selectedDate || (selectedDate.getDate() === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth()));
+
+  // When viewing a different week, show the first workout of that week if nothing selected
+  const activeWorkout = selectedWorkout
+    ?? (viewingToday ? data.todayWorkout : null)
+    ?? days.find((d) => d.workout && d.workout.type !== "rest")?.workout
+    ?? null;
+  const isRestDay = !activeWorkout || activeWorkout.type === "rest";
 
   const viewedWeekWorkouts = days.filter((d) => d.workout).map((d) => d.workout!);
   const stats: TodayStats = weekOffset === 0

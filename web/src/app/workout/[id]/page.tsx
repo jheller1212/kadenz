@@ -3,6 +3,23 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
+import { useSettings } from "@/lib/useSettings";
+
+// RPE mapping per workout zone
+const ZONE_RPE: Record<string, string> = {
+  warmup: "RPE 2-3",
+  cooldown: "RPE 2-3",
+  recovery: "RPE 2-3",
+  work: "RPE 7-8",
+};
+const TYPE_RPE: Record<string, string> = {
+  easy: "RPE 3-4",
+  recovery: "RPE 2-3",
+  long: "RPE 3-4",
+  tempo: "RPE 7-8",
+  interval: "RPE 8-9",
+  race: "RPE 9-10",
+};
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -170,6 +187,11 @@ function ActionSheet({
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const settings = useSettings();
+  const useMiles = settings.units === "miles";
+  const showPace = settings.paceTargets;
+  const showEasyPace = settings.paceTargetsEasyRuns;
+  const useRpe = settings.workoutTargetMode === "rpe";
   const [workout, setWorkout] = useState<WorkoutDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"outdoor" | "treadmill">("outdoor");
@@ -305,7 +327,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
             {workout.targetKm != null && (
               <div>
                 <p className="text-xs text-text-3 uppercase tracking-wide">Distance</p>
-                <p className="text-xl font-extrabold text-text-1">{workout.targetKm}km</p>
+                <p className="text-xl font-extrabold text-text-1">{useMiles ? `${(workout.targetKm! * 0.621371).toFixed(1)}mi` : `${workout.targetKm}km`}</p>
               </div>
             )}
             {workout.targetDurationMinutes != null && (
@@ -381,26 +403,41 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                         {block.reps && block.repDistanceKm
                           ? `${block.reps}×${Math.round(block.repDistanceKm * 1000)}m`
                           : block.distanceKm
-                          ? `${block.distanceKm}km`
+                          ? `${useMiles ? `${(block.distanceKm * 0.621371).toFixed(1)}mi` : `${block.distanceKm}km`}`
                           : ""
                         }
-                        {block.targetPaceSecKm && (
-                          <span className="font-normal text-text-2">
-                            {mode === "treadmill"
-                              ? ` at ${paceToSpeed(block.targetPaceSecKm)} km/h`
-                              : ` at ${formatPace(block.targetPaceSecKm)}/km`
-                            }
-                          </span>
-                        )}
-                      </p>
-                      {block.minPaceSecKm && block.maxPaceSecKm && (
-                        <p className="text-xs text-text-3 mt-0.5">
-                          {mode === "treadmill"
-                            ? `Speed: ${paceToSpeed(block.maxPaceSecKm)} – ${paceToSpeed(block.minPaceSecKm)} km/h`
-                            : `Pace range: ${formatPace(block.minPaceSecKm)} – ${formatPace(block.maxPaceSecKm)}/km`
+                        {(() => {
+                          const isEasy = workout.type === "easy" || workout.type === "recovery";
+                          const shouldShowPace = showPace && (isEasy ? showEasyPace : true);
+                          if (useRpe && block.targetPaceSecKm) {
+                            return <span className="font-normal text-text-2"> at {ZONE_RPE[block.type] ?? TYPE_RPE[workout.type] ?? "RPE 5-6"}</span>;
                           }
-                        </p>
-                      )}
+                          if (shouldShowPace && block.targetPaceSecKm) {
+                            const unit = useMiles ? "/mi" : "/km";
+                            return <span className="font-normal text-text-2">
+                              {mode === "treadmill"
+                                ? ` at ${paceToSpeed(block.targetPaceSecKm)} km/h`
+                                : ` at ${formatPace(block.targetPaceSecKm, useMiles)}${unit}`
+                              }
+                            </span>;
+                          }
+                          return null;
+                        })()}
+                      </p>
+                      {(() => {
+                        const isEasy = workout.type === "easy" || workout.type === "recovery";
+                        const shouldShowPace = showPace && (isEasy ? showEasyPace : true) && !useRpe;
+                        if (!shouldShowPace || !block.minPaceSecKm || !block.maxPaceSecKm) return null;
+                        const unit = useMiles ? "/mi" : "/km";
+                        return (
+                          <p className="text-xs text-text-3 mt-0.5">
+                            {mode === "treadmill"
+                              ? `Speed: ${paceToSpeed(block.maxPaceSecKm)} – ${paceToSpeed(block.minPaceSecKm)} km/h`
+                              : `Pace range: ${formatPace(block.minPaceSecKm, useMiles)} – ${formatPace(block.maxPaceSecKm, useMiles)}${unit}`
+                            }
+                          </p>
+                        );
+                      })()}
                       {block.repRestSeconds != null && (
                         <p className="text-xs text-text-3 mt-0.5">{block.repRestSeconds}s rest between reps</p>
                       )}
