@@ -20,6 +20,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { BottomNav } from "@/components/BottomNav";
 import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
+import { PaceChart } from "@/components/PaceChart";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import type {
   GeneratedPlan,
@@ -315,16 +316,26 @@ function WorkoutRow({
             </p>
           )}
           {workout.blocks.length > 0 && (
-            <div className="flex flex-col">
-              {workout.blocks.map((block, i) => (
-                <BlockRow
-                  key={i}
-                  block={block}
-                  index={i}
-                  total={workout.blocks.length}
+            <>
+              <div className="mb-3">
+                <PaceChart
+                  blocks={workout.blocks}
+                  workoutType={workout.type}
+                  variant="full"
+                  color={WORKOUT_BAR_COLOR[workout.type]}
                 />
-              ))}
-            </div>
+              </div>
+              <div className="flex flex-col">
+                {workout.blocks.map((block, i) => (
+                  <BlockRow
+                    key={i}
+                    block={block}
+                    index={i}
+                    total={workout.blocks.length}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}

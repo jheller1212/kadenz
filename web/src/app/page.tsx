@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
+import { PaceChart, PaceBadge } from "@/components/PaceChart";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -246,8 +247,20 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
             </div>
           </div>
 
+          {/* Pace structure chart */}
+          {workout.blocks.length > 0 && (
+            <div className="mt-3">
+              <PaceChart
+                blocks={workout.blocks}
+                workoutType={workout.type}
+                variant="compact"
+                color={barColor}
+              />
+            </div>
+          )}
+
           {/* Metrics row */}
-          <div className="flex gap-6 mt-3">
+          <div className="flex items-center gap-4 mt-3">
             {workout.targetKm != null && (
               <div>
                 <p className="text-[10px] text-text-3 uppercase tracking-wide">Distance</p>
@@ -260,6 +273,9 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
                 <p className="text-sm font-bold text-text-1 tabular-nums">~{workout.targetDurationMinutes} min</p>
               </div>
             )}
+            <div className="ml-auto">
+              <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={barColor} />
+            </div>
           </div>
         </div>
       </div>
