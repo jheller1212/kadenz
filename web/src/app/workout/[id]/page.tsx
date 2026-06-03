@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { useSettings } from "@/lib/useSettings";
+import { PaceChart, PaceBadge } from "@/components/PaceChart";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -323,7 +324,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           </div>
 
           {/* Stats row */}
-          <div className="flex gap-6 mt-5">
+          <div className="flex items-end gap-6 mt-5">
             {workout.targetKm != null && (
               <div>
                 <p className="text-xs text-text-3 uppercase tracking-wide">Distance</p>
@@ -340,7 +341,23 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                 </p>
               </div>
             )}
+            <div className="ml-auto">
+              <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={color} useMiles={useMiles} />
+            </div>
           </div>
+
+          {/* Pace structure visualization */}
+          {workout.blocks.length > 0 && (
+            <div className="mt-5">
+              <PaceChart
+                blocks={workout.blocks}
+                workoutType={workout.type}
+                variant="full"
+                color={color}
+                useMiles={useMiles}
+              />
+            </div>
+          )}
         </div>
       </div>
 
