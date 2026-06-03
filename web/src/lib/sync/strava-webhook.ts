@@ -1,5 +1,7 @@
-// TODO: Strava webhook verification (GET handler for subscription validation)
-// TODO: Inbound activity handler (POST handler for activity.create events)
-// TODO: Fetch full activity details from Strava API
+// Strava webhook + activity processing moved to:
+// - /app/api/strava/webhook/route.ts (webhook endpoint)
+// - /lib/sync/strava-client.ts (OAuth, token management, activity processing)
+//
+// Remaining TODOs for future phases:
 // TODO: Pace analysis — compare actual pace per block vs target pace
-// TODO: Update plan state — mark workout as completed, store activity reference
+// TODO: Advanced matching — use workout type + distance to resolve conflicts
