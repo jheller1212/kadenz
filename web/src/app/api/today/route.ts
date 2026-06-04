@@ -34,7 +34,7 @@ export async function GET() {
     weekEnd.setDate(weekStart.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
 
-    const weekWorkouts = await db.query.workouts.findMany({
+    let weekWorkouts = await db.query.workouts.findMany({
       where: (wo, { eq, and, between }) =>
         and(
           eq(wo.planId, activePlan.id),
@@ -43,6 +43,35 @@ export async function GET() {
       orderBy: (wo, { asc }) => [asc(wo.date), asc(wo.sortOrder)],
       with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
     });
+
+    // If no workouts this calendar week, find the first week with planned workouts
+    if (weekWorkouts.length === 0) {
+      const firstPlannedWorkout = await db.query.workouts.findFirst({
+        where: (wo, { eq, and, gte }) =>
+          and(
+            eq(wo.planId, activePlan.id),
+            gte(wo.date, new Date())
+          ),
+        orderBy: (wo, { asc }) => [asc(wo.date)],
+      });
+
+      if (firstPlannedWorkout) {
+        // Get the week this workout belongs to, then fetch all workouts in that week
+        const [weekRow] = await db
+          .select({ id: weeks.id })
+          .from(weeks)
+          .where(eq(weeks.id, firstPlannedWorkout.weekId))
+          .limit(1);
+
+        if (weekRow) {
+          weekWorkouts = await db.query.workouts.findMany({
+            where: (wo, { eq }) => eq(wo.weekId, weekRow.id),
+            orderBy: (wo, { asc }) => [asc(wo.date), asc(wo.sortOrder)],
+            with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+          });
+        }
+      }
+    }
 
     // Find the week number from the weeks table
     let currentWeekNumber = 1;
