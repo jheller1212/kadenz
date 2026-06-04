@@ -341,14 +341,14 @@ function InsightsSection({ stats }: { stats: TodayStats }) {
       {!collapsed && (
         <div className="grid grid-cols-2 gap-3">
           {/* Mileage card */}
-          <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+          <Link href="/insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
             <p className="text-sm font-bold text-text-1">Mileage on track</p>
             <p className="text-xs text-text-3 mt-1">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
             <div className="mt-3 flex gap-1 h-2">
               <div className="rounded-full bg-[#4ADE80]" style={{ flex: stats.completedKm }} />
               <div className="rounded-full bg-elevated" style={{ flex: Math.max(0, stats.plannedKm - stats.completedKm) }} />
             </div>
-          </div>
+          </Link>
           {/* Pace card */}
           <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
             <p className="text-sm font-bold text-text-1">Pace on point</p>
