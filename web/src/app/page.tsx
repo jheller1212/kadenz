@@ -342,11 +342,16 @@ function InsightsSection({ stats }: { stats: TodayStats }) {
         <div className="grid grid-cols-2 gap-3">
           {/* Mileage card */}
           <Link href="/insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
-            <p className="text-sm font-bold text-text-1">Mileage on track</p>
+            <div className="flex items-start justify-between">
+              <p className="text-sm font-bold text-text-1">Mileage on track</p>
+              <svg className="w-4 h-4 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
             <p className="text-xs text-text-3 mt-1">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
             <div className="mt-3 flex gap-1 h-2">
-              <div className="rounded-full bg-[#4ADE80]" style={{ flex: stats.completedKm }} />
-              <div className="rounded-full bg-elevated" style={{ flex: Math.max(0, stats.plannedKm - stats.completedKm) }} />
+              <div className="rounded-full bg-[#4ADE80]" style={{ flex: Math.max(0.01, stats.completedKm) }} />
+              <div className="rounded-full bg-elevated" style={{ flex: Math.max(0.01, stats.plannedKm - stats.completedKm) }} />
             </div>
           </Link>
           {/* Pace card */}
