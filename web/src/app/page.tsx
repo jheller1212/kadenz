@@ -46,6 +46,87 @@ interface TodayApiResponse {
   stats?: TodayStats;
 }
 
+// ── Weather ─────────────────────────────────────────────────────────────────
+
+interface WeatherData {
+  temp: number;
+  code: number;
+}
+
+function useWeather() {
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  useEffect(() => {
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => {
+        fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current=temperature_2m,weather_code&timezone=auto`
+        )
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.current) setWeather({ temp: Math.round(d.current.temperature_2m), code: d.current.weather_code });
+          })
+          .catch(() => {});
+      },
+      () => {},
+      { timeout: 5000 }
+    );
+  }, []);
+  return weather;
+}
+
+function WeatherIcon({ code, className }: { code: number; className?: string }) {
+  // WMO weather codes -> simple icons
+  if (code <= 1) {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <circle cx="12" cy="12" r="4" fill="currentColor" opacity={0.2} />
+        <circle cx="12" cy="12" r="4" />
+        <path strokeLinecap="round" d="M12 2v2m0 16v2m10-10h-2M4 12H2m17.07-7.07l-1.41 1.41M6.34 17.66l-1.41 1.41m14.14 0l-1.41-1.41M6.34 6.34L4.93 4.93" />
+      </svg>
+    );
+  }
+  if (code <= 3) {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path fill="currentColor" opacity={0.15} d="M6 19a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 10 3.5 3.5 0 0118 17H6z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 19a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 10 3.5 3.5 0 0118 17H6z" />
+      </svg>
+    );
+  }
+  if (code <= 49) {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" d="M4 12h16M6 16h12M8 8h8" />
+      </svg>
+    );
+  }
+  if (code <= 69 || (code >= 80 && code <= 82)) {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path fill="currentColor" opacity={0.15} d="M6 14a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 5 3.5 3.5 0 0118 12H6z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 14a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 5 3.5 3.5 0 0118 12H6z" />
+        <path strokeLinecap="round" d="M10 17v2m4-3v2m-6-1v2" />
+      </svg>
+    );
+  }
+  if (code <= 79 || (code >= 85 && code <= 86)) {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path fill="currentColor" opacity={0.15} d="M6 14a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 5 3.5 3.5 0 0118 12H6z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 14a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 5 3.5 3.5 0 0118 12H6z" />
+        <circle cx="10" cy="18" r="1" fill="currentColor" /><circle cx="14" cy="16" r="1" fill="currentColor" /><circle cx="8" cy="16" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path fill="currentColor" opacity={0.15} d="M6 14a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 5 3.5 3.5 0 0118 12H6z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 14a4 4 0 01-.99-7.88A5.5 5.5 0 0116.9 5 3.5 3.5 0 0118 12H6z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 14l-2 4h4l-2 4" />
+    </svg>
+  );
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
@@ -145,18 +226,23 @@ function TopAppBar({
         </svg>
       </button>
 
-      {/* Right: Back-to-today + Calendar */}
+      {/* Right: Back-to-today + Calendar with date */}
       <div className="flex items-center gap-2">
         {!viewingToday && (
-          <button onClick={onBackToToday} className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center" aria-label="Back to today">
-            <span className="text-[10px] font-extrabold text-accent">{todayDate}</span>
+          <button onClick={onBackToToday} className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex flex-col items-center justify-center relative" aria-label="Back to today">
+            <svg className="w-4 h-4 text-accent absolute top-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+            <span className="text-[9px] font-extrabold text-accent mt-2.5">{todayDate}</span>
           </button>
         )}
-        <Link href="/plan" className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center" aria-label="Calendar">
-          <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+        <Link href="/plan" className="w-9 h-9 rounded-lg bg-text-1 flex flex-col items-center justify-center relative" aria-label="Calendar">
+          <svg className="w-4 h-4 text-bg absolute top-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <rect x="3" y="4" width="18" height="18" rx="2" />
             <path d="M16 2v4M8 2v4M3 10h18" />
           </svg>
+          <span className="text-[9px] font-extrabold text-bg mt-2.5">{todayDate}</span>
         </Link>
       </div>
     </header>
@@ -215,11 +301,23 @@ function CalendarStrip({
 
 // ── 3+4. Today's Workout Section + Main Card ────────────────────────────────
 
+const typeLabel: Record<string, string> = {
+  easy: "Easy Run",
+  recovery: "Recovery",
+  tempo: "Tempo",
+  interval: "Intervals",
+  long: "Long Run",
+  race: "Race",
+};
+
 function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
   const router = useRouter();
   const isCompleted = workout.status === "completed";
   const barColor = workoutBarColor[workout.type] ?? "#999";
   const dateStr = new Date(workout.date).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" });
+  const durationRange = workout.targetDurationMinutes
+    ? `${Math.floor(Math.max(0, workout.targetDurationMinutes - 5) / 60) > 0 ? `${Math.floor(Math.max(0, workout.targetDurationMinutes - 5) / 60)}h` : ""}${Math.max(0, workout.targetDurationMinutes - 5) % 60}m - ${Math.floor((workout.targetDurationMinutes + 5) / 60) > 0 ? `${Math.floor((workout.targetDurationMinutes + 5) / 60)}h` : ""}${(workout.targetDurationMinutes + 5) % 60}m`
+    : "";
 
   return (
     <button
@@ -235,7 +333,7 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-base font-bold text-text-1">{workout.title}</p>
-              <p className="text-xs text-text-3 mt-0.5">{dateStr} · {workout.targetDurationMinutes ? `${Math.max(0, workout.targetDurationMinutes - 5)}m - ${workout.targetDurationMinutes + 5}m` : ""}</p>
+              <p className="text-xs text-text-3 mt-0.5">{dateStr}{durationRange ? ` · ${durationRange}` : ""}</p>
             </div>
             {/* Checkbox */}
             <div className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center shrink-0 ${isCompleted ? "bg-text-1 border-text-1" : "border-hairline"}`}>
@@ -245,6 +343,17 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
                 </svg>
               )}
             </div>
+          </div>
+
+          {/* Type + distance row (Benchmark-style) */}
+          <div className="flex items-center gap-1.5 mt-2 text-xs text-text-2">
+            <span className="font-semibold">{typeLabel[workout.type] ?? workout.type}</span>
+            {workout.targetKm != null && (
+              <>
+                <span>·</span>
+                <span className="font-semibold">{workout.targetKm}km</span>
+              </>
+            )}
           </div>
 
           {/* Pace structure chart */}
@@ -259,23 +368,9 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
             </div>
           )}
 
-          {/* Metrics row */}
-          <div className="flex items-center gap-4 mt-3">
-            {workout.targetKm != null && (
-              <div>
-                <p className="text-[10px] text-text-3 uppercase tracking-wide">Distance</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{workout.targetKm} km</p>
-              </div>
-            )}
-            {workout.targetDurationMinutes != null && (
-              <div>
-                <p className="text-[10px] text-text-3 uppercase tracking-wide">Time</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">~{workout.targetDurationMinutes} min</p>
-              </div>
-            )}
-            <div className="ml-auto">
-              <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={barColor} />
-            </div>
+          {/* Pace badge */}
+          <div className="mt-3">
+            <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={barColor} />
           </div>
         </div>
       </div>
@@ -469,6 +564,7 @@ function NoPlanCTA() {
 
 export default function Home() {
   const router = useRouter();
+  const weather = useWeather();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TodayApiResponse | null>(null);
   const [days, setDays] = useState<DayInfo[]>([]);
@@ -594,11 +690,15 @@ export default function Home() {
         {/* Divider */}
         <div className="h-px bg-hairline" />
 
-        {/* 3. Section header */}
+        {/* 3. Section header + weather */}
         <div className="flex items-center justify-between">
-          <p className="text-base font-bold text-text-1">
-            {viewingToday ? "Today\u2019s workouts" : new Date(selectedDate ?? new Date()).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-          </p>
+          <p className="text-base font-bold text-text-1">Workouts</p>
+          {weather && (
+            <div className="flex items-center gap-1.5 text-text-2">
+              <WeatherIcon code={weather.code} className="w-5 h-5" />
+              <span className="text-sm font-semibold tabular-nums">{weather.temp}°</span>
+            </div>
+          )}
         </div>
 
         {/* 4. Main Workout Card */}
@@ -606,9 +706,6 @@ export default function Home() {
 
         {/* 5. Week Overview */}
         <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
-
-        {/* 6. Sources */}
-        <p className="text-xs text-text-3">Sources: Kadenz Plan Engine</p>
 
         {/* Divider */}
         <div className="h-px bg-hairline" />
