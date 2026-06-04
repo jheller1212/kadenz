@@ -1,14 +1,16 @@
-import { type NextRequest } from "next/server";
-import { redirect } from "next/navigation";
+import { type NextRequest, NextResponse } from "next/server";
 import { createOAuth2Client, saveTokens, type GCalTokens } from "@/lib/sync/gcal-client";
+import { makeSessionCookie } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const error = searchParams.get("error");
 
+  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+
   if (error) {
-    return redirect("/?gcal=error");
+    return NextResponse.redirect(`${base}/?gcal=error`);
   }
 
   if (!code) {
@@ -22,7 +24,7 @@ export async function GET(request: NextRequest) {
 
     if (!tokens.refresh_token) {
       // Happens if user already authorized before; re-initiate with prompt=consent
-      return redirect("/api/auth/google");
+      return NextResponse.redirect(`${base}/api/auth/google`);
     }
 
     await saveTokens({
@@ -32,8 +34,10 @@ export async function GET(request: NextRequest) {
     } satisfies GCalTokens);
   } catch (err) {
     console.error("Failed to exchange Google OAuth code:", err);
-    return redirect("/?gcal=error");
+    return NextResponse.redirect(`${base}/?gcal=error`);
   }
 
-  return redirect("/?gcal=connected");
+  const response = NextResponse.redirect(`${base}/?gcal=connected`);
+  response.headers.set("Set-Cookie", await makeSessionCookie());
+  return response;
 }
