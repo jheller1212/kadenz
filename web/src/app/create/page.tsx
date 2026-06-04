@@ -190,6 +190,41 @@ function getGoalTimeWarning(raceDistance: RaceDistance | null, totalSeconds: num
   return null;
 }
 
+interface RaceTimeEntry {
+  distance: string;
+  label: string;
+  hours: number;
+  minutes: number;
+  seconds: number;
+}
+
+function RaceTimeInput({ entry, onChange, onRemove }: {
+  entry: RaceTimeEntry;
+  onChange: (e: RaceTimeEntry) => void;
+  onRemove: () => void;
+}) {
+  const totalSec = entry.hours * 3600 + entry.minutes * 60 + entry.seconds;
+  return (
+    <div className="rounded-[var(--radius-input)] bg-surface border border-hairline p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold text-text-1">{entry.label}</span>
+        <button onClick={onRemove} className="text-xs text-danger font-semibold">Remove</button>
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="number" min={0} max={9} value={entry.hours} onChange={(e) => onChange({ ...entry, hours: parseInt(e.target.value) || 0 })}
+          className="w-14 rounded-lg bg-elevated border border-hairline px-2 py-2 text-center text-sm text-text-1 tabular-nums" placeholder="H" />
+        <span className="text-text-3 font-bold">:</span>
+        <input type="number" min={0} max={59} value={entry.minutes} onChange={(e) => onChange({ ...entry, minutes: Math.min(59, parseInt(e.target.value) || 0) })}
+          className="w-14 rounded-lg bg-elevated border border-hairline px-2 py-2 text-center text-sm text-text-1 tabular-nums" placeholder="MM" />
+        <span className="text-text-3 font-bold">:</span>
+        <input type="number" min={0} max={59} value={entry.seconds} onChange={(e) => onChange({ ...entry, seconds: Math.min(59, parseInt(e.target.value) || 0) })}
+          className="w-14 rounded-lg bg-elevated border border-hairline px-2 py-2 text-center text-sm text-text-1 tabular-nums" placeholder="SS" />
+      </div>
+      {totalSec > 0 && <p className="text-xs text-text-3 mt-1">{formatSeconds(totalSec)}</p>}
+    </div>
+  );
+}
+
 function StepGoal({
   hours,
   minutes,
@@ -202,6 +237,8 @@ function StepGoal({
   startDate,
   onStartDate,
   raceDistance,
+  raceTimes,
+  onRaceTimes,
 }: {
   hours: number;
   minutes: number;
@@ -214,6 +251,8 @@ function StepGoal({
   startDate: string;
   onStartDate: (v: string) => void;
   raceDistance: RaceDistance | null;
+  raceTimes: RaceTimeEntry[];
+  onRaceTimes: (rt: RaceTimeEntry[]) => void;
 }) {
   const totalSeconds = hours * 3600 + minutes * 60 + seconds;
   const warning = getGoalTimeWarning(raceDistance, totalSeconds);
@@ -270,6 +309,46 @@ function StepGoal({
               min={startDate || new Date().toISOString().split("T")[0]}
             />
           </label>
+        </div>
+      </div>
+
+      {/* Recent race times (optional) */}
+      <div className="flex flex-col gap-3">
+        <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Recent race times (optional)</span>
+        <p className="text-xs text-text-2 leading-relaxed">Add recent race results for more accurate pace targets. Leave empty if you don&apos;t have any.</p>
+
+        {raceTimes.map((rt, i) => (
+          <RaceTimeInput
+            key={rt.distance}
+            entry={rt}
+            onChange={(updated) => {
+              const next = [...raceTimes];
+              next[i] = updated;
+              onRaceTimes(next);
+            }}
+            onRemove={() => onRaceTimes(raceTimes.filter((_, j) => j !== i))}
+          />
+        ))}
+
+        {/* Add buttons for distances not yet added */}
+        <div className="flex flex-wrap gap-2">
+          {[
+            { distance: "5k", label: "5K" },
+            { distance: "10k", label: "10K" },
+            { distance: "half", label: "Half Marathon" },
+            { distance: "marathon", label: "Marathon" },
+          ].filter((d) => !raceTimes.some((rt) => rt.distance === d.distance)).map((d) => (
+            <button
+              key={d.distance}
+              onClick={() => onRaceTimes([...raceTimes, { distance: d.distance, label: d.label, hours: 0, minutes: 0, seconds: 0 }])}
+              className="flex items-center gap-1 px-3 py-2 rounded-full border border-dashed border-hairline text-xs font-semibold text-text-2 active:scale-95 transition-transform"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {d.label}
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -629,6 +708,7 @@ export default function CreatePlanPage() {
   const [seconds, setSeconds] = useState(0);
   const [startDate, setStartDate] = useState(() => isoToday());
   const [raceDate, setRaceDate] = useState(() => isoDateOffset(16 * 7));
+  const [raceTimes, setRaceTimes] = useState<RaceTimeEntry[]>([]);
 
   // Step 3
   const [availableDays, setAvailableDays] = useState<number[]>([1, 3, 5, 0]); // Mon, Wed, Fri, Sun
@@ -733,6 +813,19 @@ export default function CreatePlanPage() {
       }
 
       const savedPlan = await res.json();
+
+      // Save race times (fire-and-forget)
+      for (const rt of raceTimes) {
+        const totalSec = rt.hours * 3600 + rt.minutes * 60 + rt.seconds;
+        if (totalSec > 0) {
+          fetch("/api/race-times", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ distance: rt.distance, timeSeconds: totalSec, source: "race" }),
+          }).catch(() => {});
+        }
+      }
+
       router.push(`/plan?id=${savedPlan.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save plan");
@@ -790,6 +883,8 @@ export default function CreatePlanPage() {
             startDate={startDate}
             onStartDate={setStartDate}
             raceDistance={raceDistance}
+            raceTimes={raceTimes}
+            onRaceTimes={setRaceTimes}
           />
         )}
         {step === 2 && (

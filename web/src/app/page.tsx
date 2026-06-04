@@ -51,37 +51,87 @@ interface TodayApiResponse {
 interface WeatherData {
   temp: number;
   code: number;
+  rainPct: number;
+  sunrise: string;
+  sunset: string;
+  location: string;
 }
 
-function useWeather() {
-  const [weather, setWeather] = useState<WeatherData | null>(null);
+interface WeatherCache {
+  daily: Record<string, WeatherData>; // keyed by YYYY-MM-DD
+  coords: { lat: number; lon: number } | null;
+  location: string;
+}
+
+function useWeather(selectedDate: Date | null) {
+  const [cache, setCache] = useState<WeatherCache>({ daily: {}, coords: null, location: "" });
+  const dateKey = (selectedDate ?? new Date()).toISOString().split("T")[0];
+
   useEffect(() => {
-    function fetchWeather(lat: number, lon: number) {
+    function fetchForecast(lat: number, lon: number, loc: string) {
       fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max,sunrise,sunset&current=temperature_2m,weather_code&timezone=auto&forecast_days=16`
       )
         .then((r) => r.json())
         .then((d) => {
-          if (d.current) setWeather({ temp: Math.round(d.current.temperature_2m), code: d.current.weather_code });
+          const daily: Record<string, WeatherData> = {};
+          if (d.daily?.time) {
+            for (let i = 0; i < d.daily.time.length; i++) {
+              const key = d.daily.time[i];
+              const sunrise = d.daily.sunrise?.[i] ?? "";
+              const sunset = d.daily.sunset?.[i] ?? "";
+              daily[key] = {
+                temp: Math.round((d.daily.temperature_2m_max[i] + d.daily.temperature_2m_min[i]) / 2),
+                code: d.daily.weather_code[i],
+                rainPct: d.daily.precipitation_probability_max?.[i] ?? 0,
+                sunrise: sunrise.split("T")[1]?.slice(0, 5) ?? "",
+                sunset: sunset.split("T")[1]?.slice(0, 5) ?? "",
+                location: loc,
+              };
+            }
+          }
+          // Override today with current data
+          if (d.current) {
+            const todayKey = new Date().toISOString().split("T")[0];
+            if (daily[todayKey]) {
+              daily[todayKey] = { ...daily[todayKey], temp: Math.round(d.current.temperature_2m), code: d.current.weather_code };
+            }
+          }
+          setCache({ daily, coords: { lat, lon }, location: loc });
         })
         .catch(() => {});
     }
 
+    if (cache.coords) return; // already fetched
+
+    function resolveLocation(lat: number, lon: number) {
+      // Reverse geocode for location name
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m&timezone=auto`)
+        .then((r) => r.json())
+        .then((d) => {
+          const loc = d.timezone?.split("/").pop()?.replace(/_/g, " ") ?? "Your location";
+          fetchForecast(lat, lon, loc);
+        })
+        .catch(() => fetchForecast(lat, lon, "Your location"));
+    }
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+        (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude),
         () => {
-          // Fallback: use IP-based location via Open-Meteo geocoding
           fetch("https://ipapi.co/json/")
             .then((r) => r.json())
-            .then((d) => { if (d.latitude && d.longitude) fetchWeather(d.latitude, d.longitude); })
+            .then((d) => {
+              if (d.latitude && d.longitude) resolveLocation(d.latitude, d.longitude);
+            })
             .catch(() => {});
         },
         { timeout: 5000 }
       );
     }
-  }, []);
-  return weather;
+  }, [cache.coords]);
+
+  return cache.daily[dateKey] ?? null;
 }
 
 function WeatherIcon({ code, className }: { code: number; className?: string }) {
@@ -500,11 +550,23 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-semibold text-white/60 uppercase tracking-wide">{todayLabel}</p>
                 {weather && (
-                  <div className="flex items-center gap-1 text-white/70 text-[10px]">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1M4.22 4.22l.707.707M18.364 18.364l.707.707M3 12H2m20 0h-1M4.927 19.073l.707-.707M18.364 5.636l.707-.707" />
-                    </svg>
-                    <span>—%</span>
+                  <div className="flex flex-col items-end gap-0.5 text-white/70 text-[10px]">
+                    <div className="flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                      </svg>
+                      <span>{weather.rainPct}%</span>
+                    </div>
+                    {weather.sunrise && (
+                      <div className="flex items-center gap-1">
+                        <span>☀ {weather.sunrise}</span>
+                      </div>
+                    )}
+                    {weather.sunset && (
+                      <div className="flex items-center gap-1">
+                        <span>☾ {weather.sunset}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -512,12 +574,8 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                 {weather && <WeatherIcon code={weather.code} className="w-7 h-7 text-white/80" />}
                 <p className="text-3xl font-extrabold text-white">{weather ? `${weather.temp}°` : "—"}</p>
               </div>
-              <div className="mt-2">
-                <p className="text-[10px] text-white/50">Your location</p>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-white/50">
-                  <span>↑ —</span>
-                  <span>↓ —</span>
-                </div>
+              <div className="mt-1">
+                <p className="text-[10px] font-medium text-white/60">{weather?.location ?? "Your location"}</p>
               </div>
             </div>
 
@@ -682,7 +740,6 @@ function NoPlanCTA() {
 
 export default function Home() {
   const router = useRouter();
-  const weather = useWeather();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TodayApiResponse | null>(null);
   const [days, setDays] = useState<DayInfo[]>([]);
@@ -692,6 +749,7 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<TodayApiWorkout | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const weather = useWeather(selectedDate);
 
   const loadData = useCallback(async () => {
     try {
