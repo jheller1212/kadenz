@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -14,6 +15,16 @@ interface WorkoutBlock {
   repDistanceKm?: number | null;
 }
 
+interface ActivityData {
+  id: string;
+  stravaId?: string;
+  distanceKm?: number;
+  durationSeconds?: number;
+  avgPaceSecKm?: number;
+  avgHr?: number;
+  maxHr?: number;
+}
+
 interface ActivityWorkout {
   id: string;
   type: string;
@@ -25,6 +36,7 @@ interface ActivityWorkout {
   date: string;
   dayOfWeek: number;
   blocks: WorkoutBlock[];
+  activity?: ActivityData | null;
 }
 
 interface ActivitiesApiResponse {
@@ -204,18 +216,50 @@ function Skeleton() {
 // ── WorkoutRow ────────────────────────────────────────────────────────────────
 
 function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
+  const router = useRouter();
   const barColor = WORKOUT_COLORS[workout.type] ?? "#999";
   const date = new Date(workout.date);
   const dateStr = date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
   const timeStr = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-  // Derive stats from blocks or targets
-  const distKm = workout.targetKm;
-  const durationMin = workout.targetDurationMinutes;
-  const avgPaceSecKm = distKm && durationMin ? Math.round((durationMin * 60) / distKm) : null;
+  const hasActivity = !!workout.activity;
+
+  // Prefer actual activity data over planned targets
+  const distKm = hasActivity && workout.activity!.distanceKm != null
+    ? workout.activity!.distanceKm
+    : workout.targetKm;
+  const durationSec = hasActivity && workout.activity!.durationSeconds != null
+    ? workout.activity!.durationSeconds
+    : workout.targetDurationMinutes != null ? workout.targetDurationMinutes * 60 : null;
+  const avgPaceSecKm = hasActivity && workout.activity!.avgPaceSecKm != null
+    ? workout.activity!.avgPaceSecKm
+    : (distKm && durationSec ? Math.round(durationSec / distKm) : null);
+
+  const durationDisplay = durationSec != null
+    ? (hasActivity ? formatSeconds(durationSec) : formatDuration(Math.round(durationSec / 60)))
+    : null;
+
+  function handleClick() {
+    if (hasActivity) {
+      router.push(`/activity/${workout.activity!.id}`);
+    }
+  }
+
+  const cardProps = hasActivity
+    ? {
+        role: "button" as const,
+        tabIndex: 0,
+        onClick: handleClick,
+        onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") handleClick(); },
+        className: "rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden cursor-pointer active:opacity-70 transition-opacity",
+        "aria-label": `View activity details for ${workout.title}`,
+      }
+    : {
+        className: "rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden",
+      };
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden">
+    <div {...cardProps}>
       <div className="flex">
         {/* Colored left strip */}
         <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
@@ -240,6 +284,12 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
               <p className="text-sm font-bold text-text-1 truncate">{workout.title}</p>
               <p className="text-xs text-text-3 mt-0.5">{dateStr} · {timeStr}</p>
             </div>
+
+            {hasActivity && (
+              <svg className="w-4 h-4 text-text-3 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6" />
+              </svg>
+            )}
           </div>
 
           {/* Stats row */}
@@ -250,10 +300,10 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
                 <p className="text-sm font-bold text-text-1 tabular-nums">{distKm.toFixed(2)} km</p>
               </div>
             )}
-            {durationMin != null && (
+            {durationDisplay != null && (
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-text-3">Time</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{formatDuration(durationMin)}</p>
+                <p className="text-sm font-bold text-text-1 tabular-nums">{durationDisplay}</p>
               </div>
             )}
             {avgPaceSecKm != null && (
