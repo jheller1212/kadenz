@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-type Tab = "today" | "plan" | "stats";
+type Tab = "today" | "plan" | "activities" | "stats";
 
 interface Props {
   active: Tab;
@@ -52,9 +52,9 @@ const tabs: { id: Tab; label: string; href: string; icon: React.ReactNode }[] = 
     ),
   },
   {
-    id: "stats",
-    label: "Stats",
-    href: "/stats",
+    id: "activities",
+    label: "Activities",
+    href: "/activities",
     icon: (
       <svg
         className="w-5 h-5"
@@ -67,7 +67,7 @@ const tabs: { id: Tab; label: string; href: string; icon: React.ReactNode }[] = 
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
-          d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
         />
       </svg>
     ),

@@ -229,7 +229,7 @@ function EmptyState() {
           </Link>
         </section>
       </main>
-      <BottomNav active="stats" />
+      <BottomNav active="activities" />
     </div>
   );
 }
@@ -269,7 +269,7 @@ export default function StatsPage() {
   if (!loaded) {
     return (
       <div className="min-h-screen bg-bg">
-        <BottomNav active="stats" />
+        <BottomNav active="activities" />
       </div>
     );
   }
@@ -431,7 +431,7 @@ export default function StatsPage() {
         </section>
       </main>
 
-      <BottomNav active="stats" />
+      <BottomNav active="activities" />
     </div>
   );
 }

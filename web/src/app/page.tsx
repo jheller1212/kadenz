@@ -426,9 +426,25 @@ function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodaySt
 
 // ── 7. My Insights Section ──────────────────────────────────────────────────
 
-function InsightsSection({ stats }: { stats: TodayStats }) {
+function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts }: {
+  stats: TodayStats;
+  weather: WeatherData | null;
+  currentWeek: number;
+  totalWeeks: number;
+  weekWorkouts: DayInfo[];
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const pct = stats.plannedKm > 0 ? Math.round((stats.completedKm / stats.plannedKm) * 100) : 0;
+
+  // Week summary derived from weekWorkouts
+  const workoutDays = weekWorkouts.filter((d) => d.workout && d.workout.type !== "rest");
+  const completedWorkouts = workoutDays.filter((d) => d.workout?.status === "completed");
+
+  // Circular progress
+  const circPct = stats.plannedKm > 0 ? Math.min(1, stats.completedKm / stats.plannedKm) : 0;
+
+  // Today's date label
+  const todayLabel = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
   return (
     <div>
@@ -443,31 +459,124 @@ function InsightsSection({ stats }: { stats: TodayStats }) {
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-2 gap-3">
-          {/* Mileage card */}
-          <Link href="/insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
-            <div className="flex items-start justify-between">
-              <p className="text-sm font-bold text-text-1">Mileage on track</p>
-              <svg className="w-4 h-4 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+        <div className="flex flex-col gap-3">
+          {/* Row 1: Mileage + Pace */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Mileage card */}
+            <Link href="/insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-bold text-text-1">Mileage on track</p>
+                <svg className="w-4 h-4 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+              <p className="text-xs text-text-3 mt-1">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
+              <div className="mt-3 flex gap-1 h-2">
+                <div className="rounded-full bg-[#4ADE80]" style={{ flex: Math.max(0.01, stats.completedKm) }} />
+                <div className="rounded-full bg-elevated" style={{ flex: Math.max(0.01, stats.plannedKm - stats.completedKm) }} />
+              </div>
+            </Link>
+            {/* Pace card */}
+            <Link href="/pace-insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-bold text-text-1">Pace on point</p>
+                <svg className="w-4 h-4 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+              <p className="text-xs text-text-3 mt-1">Next speed workout: soon</p>
+              <div className="mt-3 flex items-center justify-center h-2">
+                <div className="w-full h-1.5 rounded-full bg-elevated overflow-hidden">
+                  <div className="h-full rounded-full bg-[#4ADE80]" style={{ width: `${Math.min(100, pct)}%` }} />
+                </div>
+              </div>
+            </Link>
+          </div>
+
+          {/* Row 2: Weather + Week summary */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Weather card */}
+            <div className="rounded-[var(--radius-card)] bg-[#2A2E3A] p-4 flex flex-col justify-between min-h-[130px]">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold text-white/60 uppercase tracking-wide">{todayLabel}</p>
+                {weather && (
+                  <div className="flex items-center gap-1 text-white/70 text-[10px]">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1M4.22 4.22l.707.707M18.364 18.364l.707.707M3 12H2m20 0h-1M4.927 19.073l.707-.707M18.364 5.636l.707-.707" />
+                    </svg>
+                    <span>—%</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                {weather && <WeatherIcon code={weather.code} className="w-7 h-7 text-white/80" />}
+                <p className="text-3xl font-extrabold text-white">{weather ? `${weather.temp}°` : "—"}</p>
+              </div>
+              <div className="mt-2">
+                <p className="text-[10px] text-white/50">Your location</p>
+                <div className="flex items-center gap-2 mt-1 text-[10px] text-white/50">
+                  <span>↑ —</span>
+                  <span>↓ —</span>
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-text-3 mt-1">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
-            <div className="mt-3 flex gap-1 h-2">
-              <div className="rounded-full bg-[#4ADE80]" style={{ flex: Math.max(0.01, stats.completedKm) }} />
-              <div className="rounded-full bg-elevated" style={{ flex: Math.max(0.01, stats.plannedKm - stats.completedKm) }} />
-            </div>
-          </Link>
-          {/* Pace card */}
-          <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
-            <p className="text-sm font-bold text-text-1">Pace on point</p>
-            <p className="text-xs text-text-3 mt-1">Next speed workout: soon</p>
-            <div className="mt-3 flex items-center justify-center h-2">
-              <div className="w-full h-1.5 rounded-full bg-elevated overflow-hidden">
-                <div className="h-full rounded-full bg-[#4ADE80]" style={{ width: `${Math.min(100, pct)}%` }} />
+
+            {/* Week summary card */}
+            <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 flex flex-col justify-between min-h-[130px]">
+              <div>
+                <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide">Week {currentWeek}/{totalWeeks}</p>
+                <p className="text-3xl font-extrabold text-text-1 mt-1">{completedWorkouts.length}/{workoutDays.length}</p>
+              </div>
+              <div>
+                <div className="flex items-center gap-1 mb-2">
+                  <svg className="w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  <span className="text-[10px] font-semibold text-text-3 uppercase tracking-wide">Run</span>
+                </div>
+                <div className="flex gap-1 h-2">
+                  {workoutDays.map((d, i) => {
+                    const color = workoutBarColor[d.workout!.type] ?? "#999";
+                    const done = d.workout?.status === "completed";
+                    return (
+                      <div
+                        key={i}
+                        className="flex-1 rounded-full"
+                        style={{ backgroundColor: done ? color : "var(--k-elevated)", border: done ? "none" : `1.5px solid ${color}` }}
+                      />
+                    );
+                  })}
+                  {workoutDays.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Row 3: Weekly distance circle */}
+          <Link href="/activities" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 flex items-center gap-4 active:opacity-80 transition-opacity">
+            <svg viewBox="0 0 100 100" className="w-24 h-24 shrink-0">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--k-elevated)" strokeWidth="8" />
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#4ADE80" strokeWidth="8"
+                strokeDasharray={`${circPct * 251} 251`} strokeLinecap="round"
+                transform="rotate(-90 50 50)" />
+              <text x="50" y="47" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-1)" fontSize="16" fontWeight="800">
+                {stats.completedKm}/{stats.plannedKm}
+              </text>
+              <text x="50" y="62" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-3)" fontSize="10">
+                km
+              </text>
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-text-1">Weekly distance</p>
+              <p className="text-xs text-text-3 mt-0.5">{pct}% of goal</p>
+              <div className="flex items-center gap-1 mt-2 text-xs text-accent font-semibold">
+                <span>View activities</span>
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </div>
+          </Link>
         </div>
       )}
     </div>
@@ -734,7 +843,7 @@ export default function Home() {
         <div className="h-px bg-hairline" />
 
         {/* 7. My Insights */}
-        <InsightsSection stats={stats} />
+        <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} />
       </main>
 
       {/* 8. Sticky Bottom Button */}
