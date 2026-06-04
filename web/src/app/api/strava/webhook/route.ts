@@ -1,14 +1,19 @@
 import { type NextRequest } from "next/server";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { processActivity } from "@/lib/sync/strava-client";
 
 // ── Signature verification ──────────────────────────────────────────────────
 
 function verifySignature(body: string, signature: string | null): boolean {
-  const secret = process.env.STRAVA_CLIENT_SECRET;
+  const secret = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
   if (!secret || !signature) return false;
-  const expected = createHmac("sha256", secret).update(body).digest("hex");
-  return `sha256=${expected}` === signature;
+  const expected = "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    // Buffers of different lengths throw — means signature mismatch
+    return false;
+  }
 }
 
 // ── GET: Webhook subscription verification ──────────────────────────────────
@@ -41,7 +46,7 @@ interface StravaWebhookEvent {
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
-  const signature = request.headers.get("x-hub-signature");
+  const signature = request.headers.get("x-hub-signature-2");
 
   if (!verifySignature(rawBody, signature)) {
     return Response.json({ error: "Invalid signature" }, { status: 403 });
