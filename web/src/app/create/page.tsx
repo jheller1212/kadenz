@@ -33,20 +33,13 @@ const DAY_OPTIONS = [
   { name: "Sun", value: 0 },
 ];
 
-function nextMonday(): string {
-  const date = new Date();
-  const day = date.getDay(); // 0=Sun
-  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
-  date.setDate(date.getDate() + daysUntilMonday);
-  return date.toISOString().split("T")[0];
+function isoToday(): string {
+  return new Date().toISOString().split("T")[0];
 }
 
-function isoDateOffset(weeksFromToday: number): string {
+function isoDateOffset(daysFromToday: number): string {
   const date = new Date();
-  // Snap to next Monday first
-  const day = date.getDay();
-  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
-  date.setDate(date.getDate() + daysUntilMonday + weeksFromToday * 7);
+  date.setDate(date.getDate() + daysFromToday);
   return date.toISOString().split("T")[0];
 }
 
@@ -258,13 +251,13 @@ function StepGoal({
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Dates</span>
         <div className="flex flex-col gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-sm text-text-2">Plan start date (Monday)</span>
+            <span className="text-sm text-text-2">Plan start date</span>
             <input
               type="date"
               value={startDate}
               onChange={(e) => onStartDate(e.target.value)}
               className="rounded-[var(--radius-input)] bg-surface border border-hairline px-4 py-3 text-text-1 text-sm focus:outline-none focus:border-accent transition-colors"
-              min={new Date().toISOString().split("T")[0]}
+              min={isoDateOffset(-7)}
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -634,8 +627,8 @@ export default function CreatePlanPage() {
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(45);
   const [seconds, setSeconds] = useState(0);
-  const [startDate, setStartDate] = useState(() => isoDateOffset(0));
-  const [raceDate, setRaceDate] = useState(() => isoDateOffset(16));
+  const [startDate, setStartDate] = useState(() => isoToday());
+  const [raceDate, setRaceDate] = useState(() => isoDateOffset(16 * 7));
 
   // Step 3
   const [availableDays, setAvailableDays] = useState<number[]>([1, 3, 5, 0]); // Mon, Wed, Fri, Sun

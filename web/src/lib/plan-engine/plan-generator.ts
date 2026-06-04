@@ -856,7 +856,8 @@ function buildWeek(
   type: WeekType,
   targetKm: number,
   config: PlanConfig,
-  paces: PaceZones
+  paces: PaceZones,
+  skipBeforeDate?: Date
 ): GeneratedWeek {
   const trainingDays = pickTrainingDays(
     config.daysPerWeek,
@@ -903,6 +904,12 @@ function buildWeek(
   for (const dow of dayOrder) {
     const dayOffset = dow === 0 ? 6 : dow - 1; // Mon=0 offset, Tue=1, ..., Sun=6
     const date = addDays(weekStartDate, dayOffset);
+
+    // Skip days before the actual plan start (partial first week)
+    if (skipBeforeDate && date < skipBeforeDate) {
+      continue; // Don't generate any workout/rest for days before plan start
+    }
+
     const workoutType = typeMap.get(dow);
 
     if (!workoutType) {
@@ -992,13 +999,10 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     throw new Error("raceDate must be after startDate");
   }
 
-  // Force startDate to Monday
-  const startDay = config.startDate.getDay(); // 0=Sun
-  if (startDay !== 1) {
-    // Snap to next Monday
-    const daysToMonday = startDay === 0 ? 1 : 8 - startDay;
-    config = { ...config, startDate: addDays(config.startDate, daysToMonday) };
-  }
+  // Calculate the Monday of the start week (for calendar alignment)
+  const startDow = config.startDate.getDay(); // 0=Sun
+  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
+  const planStartMonday = addDays(config.startDate, mondayOffset);
 
   // Calculate VDOT
   const distM = raceDistanceMeters(config.raceDistance);
@@ -1007,12 +1011,12 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   // Derive pace zones
   const paces = getPaceZones(vdot);
 
-  // Calculate plan length in weeks
+  // Calculate plan length in weeks (from planStartMonday to race date)
   const msPerWeek = 7 * 24 * 60 * 60 * 1000;
   const totalWeeks = Math.max(
     4,
     Math.round(
-      (config.raceDate.getTime() - config.startDate.getTime()) / msPerWeek
+      (config.raceDate.getTime() - planStartMonday.getTime()) / msPerWeek
     )
   );
 
@@ -1029,11 +1033,14 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     const phase = phases[i];
     const type = weekType(i, totalWeeks, phase);
     const targetKm = volumes[i];
-    // Week starts on the startDate offset by i weeks
-    const weekStartDate = addDays(config.startDate, i * 7);
+    // All weeks aligned to Monday
+    const weekStartDate = addDays(planStartMonday, i * 7);
+
+    // For week 1, skip days before the actual start date (partial week)
+    const skipBeforeDate = i === 0 ? config.startDate : undefined;
 
     weeks.push(
-      buildWeek(weekNumber, weekStartDate, phase, type, targetKm, config, paces)
+      buildWeek(weekNumber, weekStartDate, phase, type, targetKm, config, paces, skipBeforeDate)
     );
   }
 
