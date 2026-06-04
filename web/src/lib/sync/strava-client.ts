@@ -172,8 +172,16 @@ export interface StravaActivity {
   start_date_local: string; // ISO
   average_speed: number; // m/s
   max_speed: number; // m/s
+  total_elevation_gain?: number;
+  elev_high?: number;
   average_heartrate?: number;
   max_heartrate?: number;
+  best_efforts?: Array<{
+    name: string;
+    distance: number;
+    elapsed_time: number;
+    moving_time: number;
+  }>;
   splits_metric?: Array<{
     distance: number;
     elapsed_time: number;
@@ -271,6 +279,7 @@ export async function processActivity(activityId: number): Promise<void> {
   await db.insert(activities).values({
     workoutId,
     stravaId: String(activityId),
+    name: activity.name,
     startDate: new Date(activity.start_date),
     distanceKm,
     durationSeconds: activity.moving_time,
@@ -281,6 +290,8 @@ export async function processActivity(activityId: number): Promise<void> {
     maxHr: activity.max_heartrate
       ? Math.round(activity.max_heartrate)
       : null,
+    elevationGain: activity.total_elevation_gain ?? null,
+    maxElevation: activity.elev_high ?? null,
     splitsJson: activity.splits_metric ?? null,
     lapsJson: activity.laps ?? null,
   });

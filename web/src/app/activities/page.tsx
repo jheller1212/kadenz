@@ -93,6 +93,7 @@ const WORKOUT_COLORS: Record<string, string> = {
   interval: "#C084FC",
   long: "#60A5FA",
   race: "#FF4D4D",
+  run: "#60A5FA",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -314,6 +315,12 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-text-3">Avg pace</p>
                 <p className="text-sm font-bold text-text-1 tabular-nums">{formatPace(avgPaceSecKm)} /km</p>
+              </div>
+            )}
+            {workout.activity?.avgHr != null && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-text-3">Avg HR</p>
+                <p className="text-sm font-bold text-text-1 tabular-nums">{workout.activity.avgHr} bpm</p>
               </div>
             )}
           </div>
