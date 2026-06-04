@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PlanConfig, RaceDistance, TrainingVolume, TrainingDifficulty, RaceElevation, GeneratedPlan } from "@/lib/plan-engine/types";
-import { ScrollPicker } from "@/components/ScrollPicker";
+import { TimePicker } from "@/components/TimePicker";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import { getPaceZones, formatPace } from "@/lib/plan-engine/pace-zones";
 
@@ -232,31 +232,17 @@ function StepGoal({
         <p className="text-sm text-text-2 mt-1">Enter your target finish time and race date.</p>
       </div>
 
-      {/* Goal time picker — scroll wheels */}
+      {/* Goal time picker */}
       <div className="flex flex-col gap-3">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">Goal finish time</span>
-        <div className="flex items-center justify-center gap-1 rounded-[var(--radius-card)] bg-surface border border-hairline py-4 px-2">
-          <ScrollPicker
-            values={Array.from({ length: 10 }, (_, i) => i)}
-            selected={hours}
-            onChange={onHours}
-            label="hrs"
-          />
-          <span className="text-2xl font-bold text-text-3 mb-5">:</span>
-          <ScrollPicker
-            values={Array.from({ length: 60 }, (_, i) => i)}
-            selected={minutes}
-            onChange={onMinutes}
-            label="min"
-          />
-          <span className="text-2xl font-bold text-text-3 mb-5">:</span>
-          <ScrollPicker
-            values={Array.from({ length: 60 }, (_, i) => i)}
-            selected={seconds}
-            onChange={onSeconds}
-            label="sec"
-          />
-        </div>
+        <TimePicker
+          hours={hours}
+          minutes={minutes}
+          seconds={seconds}
+          onHours={onHours}
+          onMinutes={onMinutes}
+          onSeconds={onSeconds}
+        />
         {totalSeconds > 0 && (
           <p className="text-xs text-text-3 text-center">Goal: {formatSeconds(totalSeconds)}</p>
         )}
