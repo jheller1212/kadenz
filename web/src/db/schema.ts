@@ -238,6 +238,7 @@ export const activities = pgTable(
     avgPaceSecKm: integer("avg_pace_sec_km"),
     avgHr: integer("avg_hr"),
     maxHr: integer("max_hr"),
+    startDate: timestamp("start_date", { withTimezone: true }),
     splitsJson: jsonb("splits_json"),
     lapsJson: jsonb("laps_json"),
     createdAt: timestamp("created_at", { withTimezone: true })

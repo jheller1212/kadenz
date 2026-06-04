@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  const verifyToken = process.env.STRAVA_VERIFY_TOKEN;
+  const verifyToken = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
 
   if (mode === "subscribe" && token === verifyToken && challenge) {
     return Response.json({ "hub.challenge": challenge });

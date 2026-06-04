@@ -106,6 +106,8 @@ function SectionHeader({ title }: { title: string }) {
 
 function StravaConnection() {
   const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
+  const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
     fetch("/api/integrations/strava/status")
@@ -114,39 +116,79 @@ function StravaConnection() {
       .catch(() => setStatus("disconnected"));
   }, []);
 
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    try {
+      await fetch("/api/strava/disconnect", { method: "POST" });
+      setStatus("disconnected");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  async function handleSyncNow() {
+    setSyncing(true);
+    try {
+      await fetch("/api/strava/backfill", { method: "POST" });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
-    <div className="flex items-center justify-between px-4 py-4">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-8 h-8 rounded-lg bg-[#FC4C02] flex items-center justify-center shrink-0">
-          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
-          </svg>
+    <div className="px-4 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-[#FC4C02] flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-text-1">Strava</p>
+            <p className="text-xs text-text-3">
+              {status === "loading" ? "Checking..." : status === "connected" ? "Connected" : "Auto-sync activities"}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-text-1">Strava</p>
-          <p className="text-xs text-text-3">
-            {status === "loading" ? "Checking..." : status === "connected" ? "Connected" : "Auto-sync activities"}
-          </p>
-        </div>
+        {status === "connected" ? (
+          <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full">
+            Connected
+          </span>
+        ) : status === "disconnected" ? (
+          <a
+            href="/api/auth/strava"
+            className="text-xs font-semibold text-white bg-[#FC4C02] px-3 py-1.5 rounded-full active:opacity-80 transition-opacity"
+          >
+            Connect
+          </a>
+        ) : null}
       </div>
-      {status === "connected" ? (
-        <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full">
-          Connected
-        </span>
-      ) : status === "disconnected" ? (
-        <a
-          href="/api/auth/strava"
-          className="text-xs font-semibold text-white bg-[#FC4C02] px-3 py-1.5 rounded-full active:opacity-80 transition-opacity"
-        >
-          Connect
-        </a>
-      ) : null}
+      {status === "connected" && (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            onClick={handleSyncNow}
+            disabled={syncing}
+            className="text-xs font-medium text-text-2 bg-elevated border border-hairline px-3 py-1.5 rounded-full active:opacity-70 transition-opacity disabled:opacity-50"
+          >
+            {syncing ? "Syncing..." : "Sync Now"}
+          </button>
+          <button
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="text-xs font-medium text-red-500 bg-red-500/10 px-3 py-1.5 rounded-full active:opacity-70 transition-opacity disabled:opacity-50"
+          >
+            {disconnecting ? "Disconnecting..." : "Disconnect"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 function GCalConnection() {
   const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
+  const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
     fetch("/api/integrations/gcal/status")
@@ -155,34 +197,57 @@ function GCalConnection() {
       .catch(() => setStatus("disconnected"));
   }, []);
 
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    try {
+      await fetch("/api/gcal/disconnect", { method: "POST" });
+      setStatus("disconnected");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
   return (
-    <div className="flex items-center justify-between px-4 py-4">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
-          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
+    <div className="px-4 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-text-1">Google Calendar</p>
+            <p className="text-xs text-text-3">
+              {status === "loading" ? "Checking..." : status === "connected" ? "Connected" : "Sync workouts to calendar"}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-text-1">Google Calendar</p>
-          <p className="text-xs text-text-3">
-            {status === "loading" ? "Checking..." : status === "connected" ? "Connected" : "Sync workouts to calendar"}
-          </p>
-        </div>
+        {status === "connected" ? (
+          <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full">
+            Connected
+          </span>
+        ) : status === "disconnected" ? (
+          <a
+            href="/api/auth/google"
+            className="text-xs font-semibold text-white bg-blue-500 px-3 py-1.5 rounded-full active:opacity-80 transition-opacity"
+          >
+            Connect
+          </a>
+        ) : null}
       </div>
-      {status === "connected" ? (
-        <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full">
-          Connected
-        </span>
-      ) : status === "disconnected" ? (
-        <a
-          href="/api/auth/google"
-          className="text-xs font-semibold text-white bg-blue-500 px-3 py-1.5 rounded-full active:opacity-80 transition-opacity"
-        >
-          Connect
-        </a>
-      ) : null}
+      {status === "connected" && (
+        <div className="mt-3">
+          <button
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="text-xs font-medium text-red-500 bg-red-500/10 px-3 py-1.5 rounded-full active:opacity-70 transition-opacity disabled:opacity-50"
+          >
+            {disconnecting ? "Disconnecting..." : "Disconnect"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

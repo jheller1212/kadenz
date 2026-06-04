@@ -63,6 +63,8 @@ interface WeatherCache {
   location: string;
 }
 
+const LOCATION_CACHE_KEY = "kadenz_weather_location";
+
 function useWeather(selectedDate: Date | null) {
   const [cache, setCache] = useState<WeatherCache>({ daily: {}, coords: null, location: "" });
   const dateKey = (selectedDate ?? new Date()).toISOString().split("T")[0];
@@ -104,7 +106,10 @@ function useWeather(selectedDate: Date | null) {
 
     if (cache.coords) return; // already fetched
 
-    function resolveLocation(lat: number, lon: number) {
+    function resolveLocation(lat: number, lon: number, persist = false) {
+      if (persist) {
+        try { localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ lat, lon })); } catch { /* storage unavailable */ }
+      }
       // Reverse geocode for location name
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m&timezone=auto`)
         .then((r) => r.json())
@@ -115,14 +120,39 @@ function useWeather(selectedDate: Date | null) {
         .catch(() => fetchForecast(lat, lon, "Your location"));
     }
 
+    // 1. localStorage cache — instant load from last known position
+    try {
+      const stored = localStorage.getItem(LOCATION_CACHE_KEY);
+      if (stored) {
+        const { lat, lon } = JSON.parse(stored) as { lat: number; lon: number };
+        if (typeof lat === "number" && typeof lon === "number") {
+          resolveLocation(lat, lon, false);
+        }
+      }
+    } catch { /* storage unavailable or corrupt */ }
+
+    // 2. Browser geolocation — most accurate; updates cache on success
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude),
-        () => {
+        (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude, true),
+        async () => {
+          // 3. Vercel IP headers via server-side API
+          try {
+            const geoRes = await fetch("/api/geo");
+            if (geoRes.ok) {
+              const geoData = await geoRes.json() as { latitude: number; longitude: number };
+              if (geoData.latitude && geoData.longitude) {
+                resolveLocation(geoData.latitude, geoData.longitude, false);
+                return;
+              }
+            }
+          } catch { /* fall through */ }
+
+          // 4. ipapi.co as final fallback
           fetch("https://ipapi.co/json/")
             .then((r) => r.json())
             .then((d) => {
-              if (d.latitude && d.longitude) resolveLocation(d.latitude, d.longitude);
+              if (d.latitude && d.longitude) resolveLocation(d.latitude, d.longitude, false);
             })
             .catch(() => {});
         },

@@ -26,6 +26,9 @@ export async function queueWorkoutSync(
       attempts: 0,
     })
     .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
+
+  // Fire-and-forget flush
+  processGCalOutbox().catch(console.error);
 }
 
 export async function queuePlanWorkoutsSync(
@@ -56,6 +59,9 @@ export async function queuePlanWorkoutsSync(
       .values(row)
       .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
   }
+
+  // Fire-and-forget flush
+  processGCalOutbox().catch(console.error);
 }
 
 // ── Fetch workout with blocks for event creation ──────────────────────────────

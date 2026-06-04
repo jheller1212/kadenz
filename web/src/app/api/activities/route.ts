@@ -14,7 +14,10 @@ export async function GET() {
     const allWorkouts = await db.query.workouts.findMany({
       where: (wo, { eq }) => eq(wo.planId, activePlan.id),
       orderBy: (wo, { desc }) => [desc(wo.date)],
-      with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+      with: {
+        blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
+        activity: true,
+      },
     });
 
     return Response.json({ workouts: allWorkouts, planName: activePlan.name });

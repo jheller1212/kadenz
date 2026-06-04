@@ -271,6 +271,7 @@ export async function processActivity(activityId: number): Promise<void> {
   await db.insert(activities).values({
     workoutId,
     stravaId: String(activityId),
+    startDate: new Date(activity.start_date),
     distanceKm,
     durationSeconds: activity.moving_time,
     avgPaceSecKm,
