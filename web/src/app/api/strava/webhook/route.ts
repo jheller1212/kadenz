@@ -1,5 +1,15 @@
 import { type NextRequest } from "next/server";
+import { createHmac } from "crypto";
 import { processActivity } from "@/lib/sync/strava-client";
+
+// ── Signature verification ──────────────────────────────────────────────────
+
+function verifySignature(body: string, signature: string | null): boolean {
+  const secret = process.env.STRAVA_CLIENT_SECRET;
+  if (!secret || !signature) return false;
+  const expected = createHmac("sha256", secret).update(body).digest("hex");
+  return `sha256=${expected}` === signature;
+}
 
 // ── GET: Webhook subscription verification ──────────────────────────────────
 
@@ -30,9 +40,16 @@ interface StravaWebhookEvent {
 }
 
 export async function POST(request: NextRequest) {
+  const rawBody = await request.text();
+  const signature = request.headers.get("x-hub-signature");
+
+  if (!verifySignature(rawBody, signature)) {
+    return Response.json({ error: "Invalid signature" }, { status: 403 });
+  }
+
   let event: StravaWebhookEvent;
   try {
-    event = await request.json();
+    event = JSON.parse(rawBody);
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }

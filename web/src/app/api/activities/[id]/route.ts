@@ -78,9 +78,8 @@ function parseLaps(raw: unknown) {
   }));
 }
 
-async function fetchStravaStreams(stravaId: string) {
+async function fetchStravaStreams(stravaId: string, token: string) {
   try {
-    const token = await getAccessToken();
     const res = await fetch(
       `${STRAVA_API}/activities/${stravaId}/streams?keys=heartrate,velocity_smooth,altitude,latlng,distance,time&resolution=medium`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -118,7 +117,8 @@ async function fetchStravaStreams(stravaId: string) {
 }
 
 async function fetchStravaBestEfforts(
-  stravaId: string
+  stravaId: string,
+  token: string
 ): Promise<
   Array<{
     name: string;
@@ -128,7 +128,6 @@ async function fetchStravaBestEfforts(
   }>
 > {
   try {
-    const token = await getAccessToken();
     const res = await fetch(`${STRAVA_API}/activities/${stravaId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -232,11 +231,16 @@ export async function GET(
           )
         : null;
 
-    // Fetch Strava streams and best efforts in parallel
-    const [streams, bestEfforts] = await Promise.all([
-      activity.stravaId ? fetchStravaStreams(activity.stravaId) : null,
-      activity.stravaId ? fetchStravaBestEfforts(activity.stravaId) : [],
-    ]);
+    // Fetch Strava streams and best efforts in parallel (single token fetch)
+    let streams = null;
+    let bestEfforts: Awaited<ReturnType<typeof fetchStravaBestEfforts>> = [];
+    if (activity.stravaId) {
+      const token = await getAccessToken();
+      [streams, bestEfforts] = await Promise.all([
+        fetchStravaStreams(activity.stravaId, token),
+        fetchStravaBestEfforts(activity.stravaId, token),
+      ]);
+    }
 
     return Response.json({
       id: activity.id,

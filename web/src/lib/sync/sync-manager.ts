@@ -52,13 +52,11 @@ export async function queuePlanWorkoutsSync(
     attempts: 0,
   }));
 
-  // Insert all, skip existing idempotency keys
-  for (const row of rows) {
-    await db
-      .insert(syncOutbox)
-      .values(row)
-      .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
-  }
+  // Batch insert all, skip existing idempotency keys
+  await db
+    .insert(syncOutbox)
+    .values(rows)
+    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
 
   // Fire-and-forget flush
   processGCalOutbox().catch(console.error);

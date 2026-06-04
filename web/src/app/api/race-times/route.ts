@@ -1,6 +1,17 @@
 import { db, personalRecords } from "@/db";
 import { eq } from "drizzle-orm";
 
+const VALID_DISTANCES = ["5k", "10k", "half", "marathon", "mile"] as const;
+const VALID_SOURCES = ["race", "time_trial", "estimate"] as const;
+
+function isValidDistance(v: unknown): v is (typeof VALID_DISTANCES)[number] {
+  return typeof v === "string" && (VALID_DISTANCES as readonly string[]).includes(v);
+}
+
+function isValidSource(v: unknown): v is (typeof VALID_SOURCES)[number] {
+  return typeof v === "string" && (VALID_SOURCES as readonly string[]).includes(v);
+}
+
 // GET /api/race-times — list all personal records
 export async function GET() {
   try {
@@ -22,8 +33,14 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { distance, timeSeconds, date, source } = body;
 
-    if (!distance || !timeSeconds) {
-      return Response.json({ error: "distance and timeSeconds required" }, { status: 400 });
+    if (!isValidDistance(distance)) {
+      return Response.json({ error: `Invalid distance. Must be one of: ${VALID_DISTANCES.join(", ")}` }, { status: 400 });
+    }
+    if (typeof timeSeconds !== "number" || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+      return Response.json({ error: "timeSeconds must be a positive number" }, { status: 400 });
+    }
+    if (source !== undefined && !isValidSource(source)) {
+      return Response.json({ error: `Invalid source. Must be one of: ${VALID_SOURCES.join(", ")}` }, { status: 400 });
     }
 
     // Check if record for this distance already exists

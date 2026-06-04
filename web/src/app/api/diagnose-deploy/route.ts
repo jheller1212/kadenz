@@ -93,6 +93,11 @@ function summariseDeployment(d: VercelDeployment) {
 }
 
 export async function POST(request: NextRequest) {
+  const apiSecret = process.env.API_SECRET;
+  if (apiSecret && request.headers.get("x-api-secret") !== apiSecret) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const vercelToken = process.env.VERCEL_TOKEN;
   const githubToken = process.env.GITHUB_TOKEN;
   const projectId = process.env.VERCEL_PROJECT_ID;
