@@ -32,15 +32,19 @@ interface ActivityWorkout {
   description?: string | null;
   targetKm?: number | null;
   targetDurationMinutes?: number | null;
+  distanceKm?: number | null;
+  durationSeconds?: number | null;
+  avgPaceSecKm?: number | null;
   status: string;
   date: string;
-  dayOfWeek: number;
+  dayOfWeek?: number;
   blocks: WorkoutBlock[];
   activity?: ActivityData | null;
 }
 
 interface ActivitiesApiResponse {
-  workouts: ActivityWorkout[];
+  activities?: ActivityWorkout[];
+  workouts?: ActivityWorkout[];
   planName?: string;
 }
 
@@ -125,8 +129,8 @@ function groupByMonth(workouts: ActivityWorkout[]): MonthGroup[] {
     }
     const group = map.get(key)!;
     group.workouts.push(wo);
-    group.totalKm += wo.targetKm ?? 0;
-    group.totalDurationMinutes += wo.targetDurationMinutes ?? 0;
+    group.totalKm += wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0;
+    group.totalDurationMinutes += wo.durationSeconds ? wo.durationSeconds / 60 : (wo.activity?.durationSeconds ? wo.activity.durationSeconds / 60 : (wo.targetDurationMinutes ?? 0));
     group.activityCount++;
   }
 
@@ -157,7 +161,7 @@ function computeWeeklyBars(workouts: ActivityWorkout[], weekStart: Date): WeekBa
         const d = new Date(wo.date);
         return d >= start && d <= end && wo.type !== "rest";
       })
-      .reduce((sum, wo) => sum + (wo.targetKm ?? 0), 0);
+      .reduce((sum, wo) => sum + (wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0), 0);
 
     const label = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     bars.push({ label, km: Math.round(km * 10) / 10, startDate: start });
@@ -541,8 +545,8 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
     return d >= weekStart && d <= weekEnd && wo.type !== "rest";
   });
 
-  const thisWeekKm = thisWeekWorkouts.reduce((s, wo) => s + (wo.targetKm ?? 0), 0);
-  const thisWeekSec = thisWeekWorkouts.reduce((s, wo) => s + (wo.targetDurationMinutes ?? 0) * 60, 0);
+  const thisWeekKm = thisWeekWorkouts.reduce((s, wo) => s + (wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0), 0);
+  const thisWeekSec = thisWeekWorkouts.reduce((s, wo) => s + (wo.durationSeconds ?? wo.activity?.durationSeconds ?? (wo.targetDurationMinutes ?? 0) * 60), 0);
 
   const bars = computeWeeklyBars(workouts, weekStart);
 
@@ -627,7 +631,8 @@ export default function ActivitiesPage() {
     fetch("/api/activities")
       .then((r) => r.json())
       .then((data: ActivitiesApiResponse) => {
-        setWorkouts(data.workouts ?? []);
+        // Use activities (real Strava data) if available, fall back to workouts
+        setWorkouts(data.activities ?? data.workouts ?? []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
