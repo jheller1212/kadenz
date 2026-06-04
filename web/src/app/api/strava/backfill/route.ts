@@ -49,20 +49,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Fetch activities list from Strava (max 30 per page — matches default per_page)
-  let stravaActivities: StravaActivity[];
+  // Fetch all activities from Strava with pagination
+  const stravaActivities: StravaActivity[] = [];
   try {
-    const res = await fetch(
-      `${STRAVA_API}/athlete/activities?after=${sinceEpoch}&per_page=30`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    let page = 1;
+    const perPage = 200; // max allowed by Strava
+    while (true) {
+      const res = await fetch(
+        `${STRAVA_API}/athlete/activities?after=${sinceEpoch}&per_page=${perPage}&page=${page}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Strava API error: ${res.status} ${text}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Strava API error: ${res.status} ${text}`);
+      }
+
+      const batch: StravaActivity[] = await res.json();
+      stravaActivities.push(...batch);
+      if (batch.length < perPage) break; // no more pages
+      page++;
     }
-
-    stravaActivities = await res.json();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return Response.json(
