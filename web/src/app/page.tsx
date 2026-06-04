@@ -56,20 +56,30 @@ interface WeatherData {
 function useWeather() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   useEffect(() => {
-    navigator.geolocation?.getCurrentPosition(
-      (pos) => {
-        fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current=temperature_2m,weather_code&timezone=auto`
-        )
-          .then((r) => r.json())
-          .then((d) => {
-            if (d.current) setWeather({ temp: Math.round(d.current.temperature_2m), code: d.current.weather_code });
-          })
-          .catch(() => {});
-      },
-      () => {},
-      { timeout: 5000 }
-    );
+    function fetchWeather(lat: number, lon: number) {
+      fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`
+      )
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.current) setWeather({ temp: Math.round(d.current.temperature_2m), code: d.current.weather_code });
+        })
+        .catch(() => {});
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+        () => {
+          // Fallback: use IP-based location via Open-Meteo geocoding
+          fetch("https://ipapi.co/json/")
+            .then((r) => r.json())
+            .then((d) => { if (d.latitude && d.longitude) fetchWeather(d.latitude, d.longitude); })
+            .catch(() => {});
+        },
+        { timeout: 5000 }
+      );
+    }
   }, []);
   return weather;
 }
@@ -226,23 +236,22 @@ function TopAppBar({
         </svg>
       </button>
 
-      {/* Right: Back-to-today + Calendar with date */}
+      {/* Right: Back-to-today (only when not viewing today) + Calendar */}
       <div className="flex items-center gap-2">
         {!viewingToday && (
           <button onClick={onBackToToday} className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex flex-col items-center justify-center relative" aria-label="Back to today">
-            <svg className="w-4 h-4 text-accent absolute top-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-[18px] h-[18px] text-accent absolute top-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <rect x="3" y="4" width="18" height="18" rx="2" />
               <path d="M16 2v4M8 2v4M3 10h18" />
             </svg>
-            <span className="text-[9px] font-extrabold text-accent mt-2.5">{todayDate}</span>
+            <span className="text-[9px] font-extrabold text-accent mt-3">{todayDate}</span>
           </button>
         )}
-        <Link href="/plan" className="w-9 h-9 rounded-lg bg-text-1 flex flex-col items-center justify-center relative" aria-label="Calendar">
-          <svg className="w-4 h-4 text-bg absolute top-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <Link href="/plan" className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center" aria-label="Calendar">
+          <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
             <rect x="3" y="4" width="18" height="18" rx="2" />
             <path d="M16 2v4M8 2v4M3 10h18" />
           </svg>
-          <span className="text-[9px] font-extrabold text-bg mt-2.5">{todayDate}</span>
         </Link>
       </div>
     </header>
@@ -592,12 +601,23 @@ export default function Home() {
         }
       }
 
-      if (json.activePlan && json.weekWorkouts) {
-        const monday = getMondayOfWeek(new Date());
+      if (json.activePlan && json.weekWorkouts && json.weekWorkouts.length > 0) {
+        // Use the first workout's date to determine which week to show
+        // (handles fallback when plan starts in a future week)
+        const firstWorkoutDate = new Date(json.weekWorkouts[0].date);
+        const monday = getMondayOfWeek(firstWorkoutDate);
         setDays(buildWeekDaysForDate(monday, json.weekWorkouts));
+
         if (json.todayWorkout) {
           setSelectedWorkout(json.todayWorkout);
-          setSelectedDate(new Date());
+          setSelectedDate(new Date(json.todayWorkout.date));
+        } else {
+          // Auto-select first non-rest workout
+          const firstReal = json.weekWorkouts.find((w) => w.type !== "rest");
+          if (firstReal) {
+            setSelectedWorkout(firstReal);
+            setSelectedDate(new Date(firstReal.date));
+          }
         }
       }
     } catch {
@@ -610,10 +630,13 @@ export default function Home() {
   useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
-    if (allWorkouts.length === 0 && !data?.weekWorkouts) return;
-    const monday = getMondayOfWeek(new Date());
+    const workouts = allWorkouts.length > 0 ? allWorkouts : (data?.weekWorkouts ?? []);
+    if (workouts.length === 0) return;
+    // Base Monday: derived from first workout if plan starts in future, else today
+    const baseDate = data?.weekWorkouts?.[0]?.date ? new Date(data.weekWorkouts[0].date) : new Date();
+    const monday = getMondayOfWeek(baseDate);
     monday.setDate(monday.getDate() + weekOffset * 7);
-    setDays(buildWeekDaysForDate(monday, allWorkouts.length > 0 ? allWorkouts : (data?.weekWorkouts ?? [])));
+    setDays(buildWeekDaysForDate(monday, workouts));
   }, [weekOffset, allWorkouts, data]);
 
   function handleSelectDate(day: DayInfo) {
