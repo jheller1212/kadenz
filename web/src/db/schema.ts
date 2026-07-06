@@ -92,6 +92,27 @@ export const syncEntityTypeEnum = pgEnum("sync_entity_type", [
   "workout",
   "week",
   "plan",
+  "strength_session",
+]);
+
+// ── Strength module enums ────────────────────────────────────────────────────
+
+export const strengthCategoryEnum = pgEnum("strength_category", [
+  "upper",
+  "lower",
+  "achilles",
+]);
+
+export const strengthSessionTypeEnum = pgEnum("strength_session_type", [
+  "upper",
+  "lower",
+  "lower_achilles",
+]);
+
+export const painTimingEnum = pgEnum("pain_timing", [
+  "during",
+  "after",
+  "next_day",
 ]);
 
 export const syncActionEnum = pgEnum("sync_action", [
@@ -294,6 +315,138 @@ export const syncOutbox = pgTable(
   ]
 );
 
+// ── Strength module tables ───────────────────────────────────────────────────
+
+// Exercise catalogue. Seeded once; referenced by logged sets. `slug` is a
+// stable key used by the program templates and for idempotent seeding.
+export const strengthExercises = pgTable(
+  "strength_exercises",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    category: strengthCategoryEnum("category").notNull(),
+    equipmentNote: text("equipment_note"),
+    tempoNote: text("tempo_note"),
+    // insertional-Achilles history: no deficit raises off a step
+    flatGroundOnly: boolean("flat_ground_only").notNull().default(false),
+    // overhead press is flagged a slow progressor (smaller/less-frequent bumps)
+    slowProgressor: boolean("slow_progressor").notNull().default(false),
+    defaultSets: integer("default_sets"),
+    repLow: integer("rep_low"),
+    repHigh: integer("rep_high"),
+    // suggested starting load per dumbbell (kg); null = bodyweight to start
+    startWeightKg: real("start_weight_kg"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("strength_exercises_category_idx").on(t.category)]
+);
+
+export const strengthSessions = pgTable(
+  "strength_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Optional link to the active run plan so strength lives in one weekly plan.
+    planId: uuid("plan_id").references(() => plans.id, {
+      onDelete: "set null",
+    }),
+    date: timestamp("date", { withTimezone: true }).notNull(),
+    dayOfWeek: integer("day_of_week").notNull(), // 0=Sun … 6=Sat
+    type: strengthSessionTypeEnum("type").notNull(),
+    title: text("title").notNull(),
+    status: workoutStatusEnum("status").notNull().default("planned"),
+    targetDurationMinutes: integer("target_duration_minutes"),
+    durationMinutes: integer("duration_minutes"), // actual, from session clock
+    notes: text("notes"),
+    gcalEventId: text("gcal_event_id"),
+    garminWorkoutId: text("garmin_workout_id"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("strength_sessions_plan_id_idx").on(t.planId),
+    index("strength_sessions_date_idx").on(t.date),
+    index("strength_sessions_status_idx").on(t.status),
+    index("strength_sessions_type_idx").on(t.type),
+  ]
+);
+
+export const strengthSets = pgTable(
+  "strength_sets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => strengthSessions.id, { onDelete: "cascade" }),
+    exerciseId: uuid("exercise_id")
+      .notNull()
+      .references(() => strengthExercises.id, { onDelete: "cascade" }),
+    setNumber: integer("set_number").notNull(),
+    weightKg: real("weight_kg"),
+    reps: integer("reps"),
+    rpe: real("rpe"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("strength_sets_session_id_idx").on(t.sessionId),
+    index("strength_sets_exercise_id_idx").on(t.exerciseId),
+  ]
+);
+
+// Daily check-in: readiness, bodyweight, and off-day/illness tracking. One row
+// per calendar day (upserted). Feeds the Today view and readiness context.
+export const wellnessLogs = pgTable(
+  "wellness_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    date: timestamp("date", { withTimezone: true }).notNull().unique(),
+    restDay: boolean("rest_day").notNull().default(false),
+    illness: boolean("illness").notNull().default(false),
+    injury: boolean("injury").notNull().default(false),
+    bodyweightKg: real("bodyweight_kg"),
+    energy: integer("energy"), // 1–5
+    sleepQuality: integer("sleep_quality"), // 1–5
+    soreness: integer("soreness"), // 1–5
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("wellness_logs_date_idx").on(t.date)]
+);
+
+export const painLogs = pgTable(
+  "pain_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => strengthSessions.id, { onDelete: "cascade" }),
+    score: integer("score").notNull(), // 0–10
+    timing: painTimingEnum("timing").notNull(),
+    // next-day check-in: did the load settle within 24 h?
+    settledWithin24h: boolean("settled_within_24h"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("pain_logs_session_id_idx").on(t.sessionId)]
+);
+
 // ── Relations ─────────────────────────────────────────────────────────────────
 
 export const plansRelations = relations(plans, ({ many }) => ({
@@ -327,5 +480,42 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
   workout: one(workouts, {
     fields: [activities.workoutId],
     references: [workouts.id],
+  }),
+}));
+
+export const strengthExercisesRelations = relations(
+  strengthExercises,
+  ({ many }) => ({
+    sets: many(strengthSets),
+  })
+);
+
+export const strengthSessionsRelations = relations(
+  strengthSessions,
+  ({ one, many }) => ({
+    plan: one(plans, {
+      fields: [strengthSessions.planId],
+      references: [plans.id],
+    }),
+    sets: many(strengthSets),
+    painLogs: many(painLogs),
+  })
+);
+
+export const strengthSetsRelations = relations(strengthSets, ({ one }) => ({
+  session: one(strengthSessions, {
+    fields: [strengthSets.sessionId],
+    references: [strengthSessions.id],
+  }),
+  exercise: one(strengthExercises, {
+    fields: [strengthSets.exerciseId],
+    references: [strengthExercises.id],
+  }),
+}));
+
+export const painLogsRelations = relations(painLogs, ({ one }) => ({
+  session: one(strengthSessions, {
+    fields: [painLogs.sessionId],
+    references: [strengthSessions.id],
   }),
 }));

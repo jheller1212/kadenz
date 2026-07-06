@@ -1,0 +1,115 @@
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db, strengthSessions } from "@/db";
+import { buildPlannedSession } from "@/lib/strength/service";
+import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+import { isConnected } from "@/lib/sync/gcal-client";
+import type { StrengthSessionType } from "@/lib/strength/types";
+
+const PatchSchema = z
+  .object({
+    status: z.enum(["planned", "completed", "skipped", "missed"]).optional(),
+    date: z.string().datetime().optional(),
+    durationMinutes: z.number().int().positive().optional(),
+    notes: z.string().optional(),
+    sortOrder: z.number().int().optional(),
+  })
+  .strict();
+
+// ── GET /api/strength/sessions/[id] ───────────────────────────────────────────
+// Session with logged sets, plus the planned exercises (prescriptions,
+// progression prefill, pain-gate advisory) for the logger.
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const session = await db.query.strengthSessions.findFirst({
+      where: (s, { eq }) => eq(s.id, id),
+      with: {
+        sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] },
+        painLogs: true,
+      },
+    });
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+    const plannedExercises = await buildPlannedSession(
+      session.type as StrengthSessionType,
+      new Date(session.date)
+    );
+    return Response.json({ ...session, plannedExercises });
+  } catch (err) {
+    console.error("DB error fetching strength session:", err);
+    return Response.json({ error: "Failed to fetch session" }, { status: 500 });
+  }
+}
+
+// ── PATCH /api/strength/sessions/[id] ─────────────────────────────────────────
+// Update status / reschedule / duration. A date or status change re-syncs the
+// calendar event (the drag-and-drop fan-out).
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const parsed = PatchSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Validation failed", issues: parsed.error.issues },
+      { status: 422 }
+    );
+  }
+  const updates = parsed.data;
+  if (Object.keys(updates).length === 0) {
+    return Response.json({ error: "No fields to update" }, { status: 422 });
+  }
+
+  try {
+    const set: Record<string, unknown> = { ...updates, updatedAt: new Date() };
+    if (updates.date) {
+      const d = new Date(updates.date);
+      set.date = d;
+      set.dayOfWeek = d.getDay();
+    }
+
+    const [updated] = await db
+      .update(strengthSessions)
+      .set(set)
+      .where(eq(strengthSessions.id, id))
+      .returning();
+
+    if (!updated) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    if (updates.date || updates.status) {
+      isConnected()
+        .then((connected) => {
+          if (connected) {
+            queueStrengthSessionSync(id, "update", "gcal").catch((err) =>
+              console.error("Failed to queue strength gcal update:", err)
+            );
+          }
+        })
+        .catch(() => {});
+    }
+
+    return Response.json(updated);
+  } catch (err) {
+    console.error("DB error updating strength session:", err);
+    return Response.json({ error: "Failed to update session" }, { status: 500 });
+  }
+}

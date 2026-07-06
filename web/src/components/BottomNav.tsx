@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-type Tab = "today" | "plan" | "activities" | "stats";
+type Tab = "today" | "plan" | "strength" | "activities" | "stats";
 
 interface Props {
   active: Tab;
@@ -48,6 +48,29 @@ const tabs: { id: Tab; label: string; href: string; icon: React.ReactNode }[] = 
           strokeLinejoin="round"
           d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
         />
+      </svg>
+    ),
+  },
+  {
+    id: "strength",
+    label: "Kraft",
+    href: "/strength",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.75}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6.5 6.5l11 11M4 8l2-2m14 12l-2 2M8 4L6 6m12 12l-2 2"
+        />
+        <rect x="1.5" y="9" width="4" height="6" rx="1" />
+        <rect x="18.5" y="9" width="4" height="6" rx="1" />
       </svg>
     ),
   },

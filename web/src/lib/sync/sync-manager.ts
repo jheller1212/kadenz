@@ -1,7 +1,15 @@
-import { db, syncOutbox, workouts } from "@/db";
+import { db, syncOutbox, workouts, strengthSessions } from "@/db";
 import { eq, and, asc } from "drizzle-orm";
-import { createEvent, patchEvent, deleteEvent } from "./gcal-client";
-import type { WorkoutEventInput } from "./gcal-client";
+import {
+  createEvent,
+  patchEvent,
+  deleteEvent,
+  createStrengthEvent,
+  patchStrengthEvent,
+} from "./gcal-client";
+import type { WorkoutEventInput, StrengthEventInput } from "./gcal-client";
+import { buildSessionPlan } from "@/lib/strength/session";
+import type { StrengthSessionType } from "@/lib/strength/types";
 
 const MAX_ATTEMPTS = 3;
 
@@ -59,6 +67,31 @@ export async function queuePlanWorkoutsSync(
     .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
 
   // Fire-and-forget flush
+  processGCalOutbox().catch(console.error);
+}
+
+export async function queueStrengthSessionSync(
+  sessionId: string,
+  action: "create" | "update" | "delete",
+  target: "gcal" | "garmin" = "gcal",
+  payload?: Record<string, unknown>
+): Promise<void> {
+  const idempotencyKey = `${target}:strength:${action}:${sessionId}`;
+
+  await db
+    .insert(syncOutbox)
+    .values({
+      entityType: "strength_session",
+      entityId: sessionId,
+      action,
+      target,
+      status: "pending",
+      idempotencyKey,
+      payload: payload ?? null,
+      attempts: 0,
+    })
+    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
+
   processGCalOutbox().catch(console.error);
 }
 
@@ -161,9 +194,67 @@ export async function processGCalOutbox(): Promise<SyncResult> {
   return result;
 }
 
+async function fetchStrengthSessionForSync(
+  sessionId: string
+): Promise<StrengthEventInput | null> {
+  const row = await db.query.strengthSessions.findFirst({
+    where: (s, { eq }) => eq(s.id, sessionId),
+  });
+  if (!row) return null;
+
+  const plan = buildSessionPlan(row.type as StrengthSessionType);
+  return {
+    sessionId: row.id,
+    title: row.title,
+    date: row.date,
+    type: row.type,
+    targetDurationMinutes: row.targetDurationMinutes,
+    exercises: plan.map((p) => ({
+      name: p.name,
+      prescription: p.prescription,
+      suggestedWeightKg: p.suggestedWeightKg,
+      perSide: p.perSide,
+    })),
+  };
+}
+
+async function processStrengthJob(
+  job: typeof syncOutbox.$inferSelect
+): Promise<void> {
+  const sessionId = job.entityId;
+
+  if (job.action === "delete") {
+    const payload = job.payload as { gcalEventId?: string } | null;
+    if (payload?.gcalEventId) await deleteEvent(payload.gcalEventId);
+    return;
+  }
+
+  const session = await fetchStrengthSessionForSync(sessionId);
+  if (!session) throw new Error(`Strength session ${sessionId} not found`);
+
+  const [current] = await db
+    .select({ gcalEventId: strengthSessions.gcalEventId })
+    .from(strengthSessions)
+    .where(eq(strengthSessions.id, sessionId));
+
+  if (current?.gcalEventId) {
+    await patchStrengthEvent(current.gcalEventId, session);
+  } else {
+    const gcalEventId = await createStrengthEvent(session);
+    await db
+      .update(strengthSessions)
+      .set({ gcalEventId })
+      .where(eq(strengthSessions.id, sessionId));
+  }
+}
+
 async function processJob(
   job: typeof syncOutbox.$inferSelect
 ): Promise<void> {
+  if (job.entityType === "strength_session") {
+    await processStrengthJob(job);
+    return;
+  }
   if (job.entityType !== "workout") return;
 
   const workoutId = job.entityId;

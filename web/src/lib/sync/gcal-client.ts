@@ -241,3 +241,90 @@ export async function deleteEvent(gcalEventId: string): Promise<void> {
     eventId: gcalEventId,
   });
 }
+
+// ── Strength session → Calendar event mapping ────────────────────────────────
+
+// Strength sessions get their own colour band, distinct from run workouts.
+const STRENGTH_COLORS: Record<string, string> = {
+  upper: "9", // Blueberry
+  lower: "3", // Grape
+  lower_achilles: "6", // Tangerine
+};
+
+export interface StrengthEventInput {
+  sessionId: string;
+  title: string;
+  date: Date;
+  type: string;
+  targetDurationMinutes?: number | null;
+  exercises?: Array<{
+    name: string;
+    prescription: string;
+    suggestedWeightKg?: number | null;
+    perSide?: boolean;
+  }>;
+}
+
+function buildStrengthDescription(session: StrengthEventInput): string {
+  const lines: string[] = [];
+  if (session.targetDurationMinutes) {
+    lines.push(`Duration: ~${session.targetDurationMinutes} min`);
+  }
+  if (session.exercises && session.exercises.length > 0) {
+    lines.push("", "Exercises:");
+    for (const ex of session.exercises) {
+      const load =
+        ex.suggestedWeightKg != null
+          ? ` @ ${ex.suggestedWeightKg} kg${ex.perSide ? "/side" : ""}`
+          : "";
+      lines.push(`  • ${ex.name} — ${ex.prescription}${load}`);
+    }
+  }
+  lines.push("", "— Kadenz · Kraft");
+  return lines.join("\n");
+}
+
+export async function createStrengthEvent(
+  session: StrengthEventInput
+): Promise<string> {
+  const auth = await getAuthClient();
+  if (!auth) throw new Error("Google Calendar not connected");
+
+  const cal = google.calendar({ version: "v3", auth });
+  const times = buildEventTimes(session.date, session.targetDurationMinutes);
+
+  const res = await cal.events.insert({
+    calendarId: process.env.GOOGLE_CALENDAR_ID ?? "primary",
+    requestBody: {
+      summary: session.title,
+      description: buildStrengthDescription(session),
+      colorId: STRENGTH_COLORS[session.type] ?? "8",
+      ...times,
+      extendedProperties: {
+        private: { kadenzStrengthSessionId: session.sessionId },
+      },
+    },
+  });
+
+  if (!res.data.id) throw new Error("Google Calendar returned no event ID");
+  return res.data.id;
+}
+
+export async function patchStrengthEvent(
+  gcalEventId: string,
+  session: StrengthEventInput
+): Promise<void> {
+  const auth = await getAuthClient();
+  if (!auth) throw new Error("Google Calendar not connected");
+
+  const cal = google.calendar({ version: "v3", auth });
+  await cal.events.patch({
+    calendarId: process.env.GOOGLE_CALENDAR_ID ?? "primary",
+    eventId: gcalEventId,
+    requestBody: {
+      summary: session.title,
+      description: buildStrengthDescription(session),
+      ...buildEventTimes(session.date, session.targetDurationMinutes),
+    },
+  });
+}
