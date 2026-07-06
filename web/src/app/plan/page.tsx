@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import React, { useMemo, useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
+import { Plus, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, GripVertical } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -19,9 +20,16 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { BottomNav } from "@/components/BottomNav";
+import { NavBar } from "@/components/ui/NavBar";
+import { Button } from "@/components/ui/Button";
+import { Sheet } from "@/components/ui/Sheet";
+import { EmptyState } from "@/components/ui/feedback";
+import { TransitionLink } from "@/components/ui/TransitionLink";
 import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
 import { PaceChart } from "@/components/PaceChart";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
+import { apiFetch } from "@/lib/api";
+import { haptic } from "@/lib/haptics";
 import type {
   GeneratedPlan,
   GeneratedWeek,
@@ -223,11 +231,11 @@ function WorkoutRow({
       <div
         ref={setNodeRef}
         style={style}
-        className={`flex items-center gap-3 py-2.5 px-1 ${dimmed ? "opacity-40" : ""}`}
+        className={`flex items-center gap-3 py-2.5 px-2 ${dimmed ? "opacity-40" : ""}`}
       >
         <div className="w-1 self-stretch rounded-full bg-hairline shrink-0" />
-        <p className="text-sm text-text-3">Rest day</p>
-        <p className="ml-auto text-xs text-text-3">
+        <p className="text-[13px] text-text-3">Rest day</p>
+        <p className="ml-auto text-[12px] text-text-3">
           {workout.date.toLocaleDateString("en-US", {
             weekday: "short",
             day: "numeric",
@@ -240,105 +248,125 @@ function WorkoutRow({
   return (
     <div
       ref={setNodeRef}
-      style={{
-        ...style,
-        borderLeftWidth: 3,
-        borderLeftColor: WORKOUT_BAR_COLOR[workout.type],
-      } as React.CSSProperties}
-      className={`rounded-[var(--radius-input)] border border-hairline bg-elevated overflow-hidden mb-2 ${dimmed ? "opacity-50" : ""}`}
+      style={style}
+      className={`rounded-[var(--radius-card)] bg-surface overflow-hidden mb-2 shadow-sm animate-fade-in ${
+        dimmed ? "opacity-50" : ""
+      }`}
     >
-      {/* Row header — tap to expand */}
-      <button
-        className="w-full flex items-center gap-3 px-3 py-3 text-left"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
-        {/* Drag handle */}
-        <span
-          {...attributes}
-          {...listeners}
-          className="shrink-0 flex flex-col gap-[3px] cursor-grab active:cursor-grabbing p-1 -ml-1 touch-none"
-          aria-label="Drag to reorder"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {[0, 1, 2].map((i) => (
-            <span key={i} className="w-3.5 h-[2px] rounded-full bg-text-3 block" />
-          ))}
-        </span>
+      <div className="flex">
+        {/* Colored type accent strip */}
+        <div
+          className="w-1 shrink-0"
+          style={{ backgroundColor: WORKOUT_BAR_COLOR[workout.type] }}
+        />
 
-        {/* Date */}
-        <div className="shrink-0 w-10 text-center">
-          <p className="text-[10px] font-bold uppercase text-text-3">
-            {workout.date.toLocaleDateString("en-US", { weekday: "short" })}
-          </p>
-          <p className="text-sm font-semibold text-text-2">{workout.date.getDate()}</p>
-        </div>
-
-        {/* Type badge + title */}
         <div className="flex-1 min-w-0">
-          <WorkoutTypeBadge type={workout.type} />
-          <p className="mt-0.5 text-sm font-semibold text-text-1 truncate">
-            {workout.title}
-          </p>
-        </div>
+          {/* Row header — tap to expand */}
+          <button
+            className="press w-full flex items-center gap-3 pl-2 pr-3 py-3 text-left"
+            onClick={() => {
+              haptic("light");
+              onToggle();
+            }}
+            aria-expanded={expanded}
+          >
+            {/* Drag handle */}
+            <span
+              {...attributes}
+              {...listeners}
+              className="shrink-0 flex items-center justify-center h-8 w-6 cursor-grab active:cursor-grabbing touch-none text-text-3"
+              aria-label="Drag to reorder"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GripVertical className="h-4 w-4" strokeWidth={1.9} />
+            </span>
 
-        {/* Stats */}
-        <div className="shrink-0 text-right">
-          {workout.targetKm != null && (
-            <p className="text-sm font-bold text-text-1">{workout.targetKm} km</p>
-          )}
-          {workout.targetDurationMinutes != null && (
-            <p className="text-xs text-text-3">
-              {formatDuration(workout.targetDurationMinutes)}
-            </p>
-          )}
-        </div>
+            {/* Date */}
+            <div className="shrink-0 w-10 text-center">
+              <p className="text-[10px] font-bold uppercase text-text-3">
+                {workout.date.toLocaleDateString("en-US", { weekday: "short" })}
+              </p>
+              <p className="text-[15px] font-semibold text-text-2 tabular-nums">
+                {workout.date.getDate()}
+              </p>
+            </div>
 
-        {/* Chevron */}
-        <svg
-          className={`w-4 h-4 text-text-3 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+            {/* Type badge + title */}
+            <div className="flex-1 min-w-0">
+              <WorkoutTypeBadge type={workout.type} />
+              <p className="mt-0.5 text-[15px] font-medium text-text-1 truncate">
+                {workout.title}
+              </p>
+            </div>
 
-      {/* Expanded detail */}
-      {expanded && (
-        <div className="px-4 pb-3 border-t border-hairline pt-3">
-          {workout.description && (
-            <p className="text-xs text-text-2 mb-3 leading-relaxed">
-              {workout.description}
-            </p>
-          )}
-          {workout.blocks.length > 0 && (
-            <>
-              <div className="mb-3">
-                <PaceChart
-                  blocks={workout.blocks}
-                  workoutType={workout.type}
-                  variant="full"
-                  color={WORKOUT_BAR_COLOR[workout.type]}
-                />
-              </div>
-              <div className="flex flex-col">
-                {workout.blocks.map((block, i) => (
-                  <BlockRow
-                    key={i}
-                    block={block}
-                    index={i}
-                    total={workout.blocks.length}
-                  />
-                ))}
-              </div>
-            </>
-          )}
+            {/* Stats */}
+            <div className="shrink-0 text-right">
+              {workout.targetKm != null && (
+                <p className="text-[15px] font-bold text-text-1 tabular-nums">
+                  {workout.targetKm} km
+                </p>
+              )}
+              {workout.targetDurationMinutes != null && (
+                <p className="text-[12px] text-text-3">
+                  {formatDuration(workout.targetDurationMinutes)}
+                </p>
+              )}
+            </div>
+
+            {/* Chevron */}
+            <ChevronDown
+              className={`h-4 w-4 text-text-3 shrink-0 transition-transform duration-200 ${
+                expanded ? "rotate-180" : ""
+              }`}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+
+          {/* Expanded detail */}
+          <AnimatePresence initial={false}>
+            {expanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 420, damping: 40 }}
+                className="overflow-hidden"
+              >
+                <div className="px-4 pb-3 border-t border-hairline pt-3">
+                  {workout.description && (
+                    <p className="text-[13px] text-text-2 mb-3 leading-relaxed">
+                      {workout.description}
+                    </p>
+                  )}
+                  {workout.blocks.length > 0 && (
+                    <>
+                      <div className="mb-3">
+                        <PaceChart
+                          blocks={workout.blocks}
+                          workoutType={workout.type}
+                          variant="full"
+                          color={WORKOUT_BAR_COLOR[workout.type]}
+                        />
+                      </div>
+                      <div className="flex flex-col">
+                        {workout.blocks.map((block, i) => (
+                          <BlockRow
+                            key={i}
+                            block={block}
+                            index={i}
+                            total={workout.blocks.length}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -483,16 +511,16 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
   const maxKm = Math.max(...plan.weeks.map((w) => w.targetKm));
 
   return (
-    <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
+    <section className="rounded-[var(--radius-card)] bg-surface p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
             Active plan
           </p>
-          <h1 className="mt-1 text-xl font-extrabold leading-tight text-text-1 truncate">
+          <h1 className="mt-1 text-[22px] font-bold leading-tight tracking-tight text-text-1 truncate">
             {plan.name}
           </h1>
-          <p className="mt-1 text-sm text-text-2">
+          <p className="mt-1 text-[13px] text-text-2">
             Race: {formatFullDate(plan.raceDate)}
           </p>
         </div>
@@ -568,47 +596,28 @@ function PhaseDivider({ phase }: { phase: WeekPhase }) {
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-function EmptyState() {
+function PlanEmptyState() {
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-md flex-col items-center justify-center px-4 pb-28">
-        <section className="w-full rounded-[var(--radius-card)] border border-hairline bg-surface p-8 text-center">
-          <div className="w-14 h-14 rounded-full bg-elevated border border-hairline flex items-center justify-center mx-auto mb-4">
-            <svg
-              className="w-7 h-7 text-text-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
-              />
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Plan" large />
+      <div className="mx-auto flex w-full max-w-md flex-col px-4 pb-tabbar">
+        <EmptyState
+          icon={
+            <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
             </svg>
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
-            No active plan
-          </p>
-          <h1 className="mt-2 text-2xl font-extrabold text-text-1">
-            Build your plan
-          </h1>
-          <p className="mt-2 text-sm text-text-2 leading-relaxed">
-            Create a personalised race plan and your week-by-week training
-            schedule will appear here.
-          </p>
-          <Link
-            href="/create"
-            className="mt-6 inline-flex rounded-full bg-accent px-6 py-3 text-sm font-bold text-on-accent active:scale-95 transition-transform"
-          >
-            Create plan
-          </Link>
-        </section>
-      </main>
+          }
+          title="Build your plan"
+          message="Create a personalised race plan and your week-by-week training schedule will appear here."
+          action={
+            <TransitionLink href="/create">
+              <Button size="lg">Create plan</Button>
+            </TransitionLink>
+          }
+        />
+      </div>
       <BottomNav active="plan" />
-    </div>
+    </main>
   );
 }
 
@@ -616,28 +625,23 @@ function EmptyState() {
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pb-28 pt-10">
-        <div className="h-8 w-48 rounded-lg bg-elevated animate-pulse" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5 flex flex-col gap-3">
-          <div className="h-5 w-32 rounded bg-elevated animate-pulse" />
-          <div className="h-7 w-56 rounded bg-elevated animate-pulse" />
-          <div className="h-4 w-40 rounded bg-elevated animate-pulse" />
-        </div>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Plan" large />
+      <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-tabbar">
+        <div className="h-16 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
+        <div className="h-24 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
         {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 h-32 animate-pulse" />
+          <div key={i} className="h-20 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
         ))}
-      </main>
+      </div>
       <BottomNav active="plan" />
-    </div>
+    </main>
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Week selector sheet ──────────────────────────────────────────────────────
 
-// ── Week selector dropdown ──────────────────────────────────────────────────
-
-function WeekDropdown({
+function WeekSheet({
   weeks,
   selectedWeek,
   onSelect,
@@ -650,58 +654,51 @@ function WeekDropdown({
   open: boolean;
   onClose: () => void;
 }) {
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-      <div
-        className="absolute top-0 left-0 right-0 max-w-md mx-auto mt-16 mx-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="m-4 rounded-[var(--radius-card)] border border-hairline bg-surface max-h-[60vh] overflow-y-auto">
-          <div className="p-3">
-            <p className="text-xs font-semibold text-text-3 uppercase tracking-widest px-2 mb-2">Select week</p>
-            {weeks.map((week) => {
-              const isCurrent = isCurrentWeek(week);
-              const isSelected = week.weekNumber === selectedWeek;
-              const firstDate = week.workouts[0]?.date;
-              const lastDate = week.workouts[week.workouts.length - 1]?.date;
+    <Sheet open={open} onClose={onClose} title="Select week">
+      <div className="pb-4">
+        {weeks.map((week) => {
+          const isCurrent = isCurrentWeek(week);
+          const isSelected = week.weekNumber === selectedWeek;
+          const firstDate = week.workouts[0]?.date;
+          const lastDate = week.workouts[week.workouts.length - 1]?.date;
 
-              return (
-                <button
-                  key={week.weekNumber}
-                  onClick={() => { onSelect(week.weekNumber); onClose(); }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-[var(--radius-input)] text-left transition-colors ${
-                    isSelected ? "bg-accent/10" : "active:bg-elevated"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>
-                      Week {week.weekNumber}
-                    </span>
-                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[week.phase]}`}>
-                      {week.phase}
-                    </span>
-                    {isCurrent && (
-                      <span className="text-[9px] font-bold text-accent uppercase">Now</span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    {firstDate && lastDate && (
-                      <p className="text-[10px] text-text-3">
-                        {formatDate(firstDate)} – {formatDate(lastDate)}
-                      </p>
-                    )}
-                    <p className="text-[10px] text-text-3">{week.targetKm} km</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+          return (
+            <button
+              key={week.weekNumber}
+              onClick={() => {
+                haptic("light");
+                onSelect(week.weekNumber);
+                onClose();
+              }}
+              className={`press w-full flex items-center justify-between px-3 py-3 rounded-[var(--radius-input)] text-left ${
+                isSelected ? "bg-accent/10" : "active:bg-elevated"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`text-[15px] font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>
+                  Week {week.weekNumber}
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[week.phase]}`}>
+                  {week.phase}
+                </span>
+                {isCurrent && (
+                  <span className="text-[9px] font-bold text-accent uppercase">Now</span>
+                )}
+              </div>
+              <div className="text-right">
+                {firstDate && lastDate && (
+                  <p className="text-[10px] text-text-3">
+                    {formatDate(firstDate)} – {formatDate(lastDate)}
+                  </p>
+                )}
+                <p className="text-[10px] text-text-3">{week.targetKm} km</p>
+              </div>
+            </button>
+          );
+        })}
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -732,7 +729,7 @@ function PlanPageInner() {
         if (planId) {
           url = `/api/plans/${planId}`;
         } else {
-          const listRes = await fetch("/api/plans");
+          const listRes = await apiFetch("/api/plans");
           if (!listRes.ok) throw new Error("Failed to fetch plans");
           const plans = await listRes.json();
           const active = (plans as { id: string; status: string }[]).find(
@@ -742,7 +739,7 @@ function PlanPageInner() {
           url = `/api/plans/${active.id}`;
         }
 
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         if (!res.ok) { setLoading(false); return; }
 
         const raw = await res.json();
@@ -764,7 +761,7 @@ function PlanPageInner() {
   }, [planId]);
 
   if (loading) return <LoadingSkeleton />;
-  if (!plan) return <EmptyState />;
+  if (!plan) return <PlanEmptyState />;
 
   const selectedWeek = plan.weeks.find((w) => w.weekNumber === selectedWeekNum) ?? plan.weeks[0];
   const totalWeeks = plan.weeks.length;
@@ -791,64 +788,72 @@ function PlanPageInner() {
   const isCurrent = isCurrentWeek(selectedWeek);
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main
-        className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-28 pt-8"
+    <main className="min-h-dvh bg-bg">
+      <NavBar
+        title="Plan"
+        large
+        right={
+          <TransitionLink
+            href="/create"
+            aria-label="New plan"
+            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
+          >
+            <Plus className="h-4 w-4 text-text-2" strokeWidth={2} />
+          </TransitionLink>
+        }
+      />
+
+      <div
+        className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-tabbar"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Top header: new plan + week selector + nav arrows */}
+        {/* Week selector + nav arrows */}
         <header className="flex items-center justify-between">
-          <Link
-            href="/create"
-            className="rounded-full bg-elevated border border-hairline px-3 py-2 text-xs font-semibold text-text-2 active:scale-95 transition-transform"
-          >
-            + New plan
-          </Link>
-
-          {/* Week selector with dropdown */}
           <button
-            onClick={() => setDropdownOpen(true)}
-            className="flex items-center gap-1.5 active:opacity-70 transition-opacity"
+            onClick={() => {
+              haptic("light");
+              goToWeek(selectedWeekNum - 1);
+            }}
+            disabled={selectedWeekNum <= 1}
+            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated disabled:opacity-30"
+            aria-label="Previous week"
           >
-            <span className="text-base font-bold text-text-1">
-              Week {selectedWeekNum}
-            </span>
-            <svg className="w-3.5 h-3.5 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
+            <ChevronLeft className="h-4 w-4 text-text-2" strokeWidth={2} />
           </button>
 
-          {/* Nav arrows */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => goToWeek(selectedWeekNum - 1)}
-              disabled={selectedWeekNum <= 1}
-              className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center disabled:opacity-30"
-              aria-label="Previous week"
-            >
-              <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button
-              onClick={() => goToWeek(selectedWeekNum + 1)}
-              disabled={selectedWeekNum >= totalWeeks}
-              className="w-8 h-8 rounded-full bg-elevated border border-hairline flex items-center justify-center disabled:opacity-30"
-              aria-label="Next week"
-            >
-              <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
+          {/* Week selector with sheet */}
+          <button
+            onClick={() => {
+              haptic("light");
+              setDropdownOpen(true);
+            }}
+            className="press flex items-center gap-1.5"
+          >
+            <span className="text-[17px] font-bold text-text-1">
+              Week {selectedWeekNum}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-text-3" strokeWidth={2.5} />
+          </button>
+
+          <button
+            onClick={() => {
+              haptic("light");
+              goToWeek(selectedWeekNum + 1);
+            }}
+            disabled={selectedWeekNum >= totalWeeks}
+            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated disabled:opacity-30"
+            aria-label="Next week"
+          >
+            <ChevronRightIcon className="h-4 w-4 text-text-2" strokeWidth={2} />
+          </button>
         </header>
 
         {/* Week info bar */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {firstDate && lastDate && (
-              <span className="text-xs text-text-3">
+              <span className="text-[13px] text-text-3">
                 {formatDate(firstDate)} – {formatDate(lastDate)}
               </span>
             )}
@@ -856,12 +861,14 @@ function PlanPageInner() {
               {selectedWeek.phase}
             </span>
             {selectedWeek.type !== "normal" && (
-              <span className="rounded-full bg-elevated border border-hairline px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-text-2">
+              <span className="rounded-full bg-elevated px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-text-2">
                 {selectedWeek.type}
               </span>
             )}
           </div>
-          <span className="text-xs font-semibold text-text-2">{selectedWeek.targetKm} km</span>
+          <span className="text-[13px] font-semibold text-text-2 tabular-nums">
+            {selectedWeek.targetKm} km
+          </span>
         </div>
 
         {/* Coloured volume bar */}
@@ -876,7 +883,7 @@ function PlanPageInner() {
         </div>
 
         {/* Week summary */}
-        <div className="flex items-center justify-between text-xs text-text-3">
+        <div className="flex items-center justify-between text-[13px] text-text-3">
           <span>{nonRest.length} workouts</span>
           <span>
             {isCurrent && <span className="text-accent font-semibold mr-1">Current week</span>}
@@ -911,13 +918,13 @@ function PlanPageInner() {
           </DndContext>
         </div>
 
-        {/* Plan overview link */}
+        {/* Plan overview */}
         <div className="h-px bg-hairline mt-2" />
         <PlanHeader plan={plan} />
-      </main>
+      </div>
 
-      {/* Week dropdown */}
-      <WeekDropdown
+      {/* Week sheet */}
+      <WeekSheet
         weeks={plan.weeks}
         selectedWeek={selectedWeekNum}
         onSelect={setSelectedWeekNum}
@@ -926,7 +933,7 @@ function PlanPageInner() {
       />
 
       <BottomNav active="plan" />
-    </div>
+    </main>
   );
 }
 

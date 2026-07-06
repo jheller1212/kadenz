@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight, Info, CheckCircle2, AlertTriangle, HelpCircle, Plus } from "lucide-react";
+import { NavBar } from "@/components/ui/NavBar";
+import { Segmented } from "@/components/ui/Segmented";
+import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/feedback";
+import { apiFetch } from "@/lib/api";
+import { haptic } from "@/lib/haptics";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,12 +61,6 @@ interface PaceInsightsData {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatPace(secPerKm: number): string {
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function formatTime(sec: number): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -91,31 +92,22 @@ const workoutTypeLabel: Record<string, string> = {
   long: "Long Run",
 };
 
-// ── Tab Toggle ───────────────────────────────────────────────────────────────
+// ── Back button ─────────────────────────────────────────────────────────────
 
-function TabToggle({
-  value,
-  onChange,
-}: {
-  value: "speed" | "long";
-  onChange: (v: "speed" | "long") => void;
-}) {
+function BackButton() {
+  const router = useRouter();
   return (
-    <div className="flex p-1 rounded-full bg-elevated border border-hairline">
-      {(["speed", "long"] as const).map((tab) => (
-        <button
-          key={tab}
-          onClick={() => onChange(tab)}
-          className={`flex-1 px-4 py-2 rounded-full text-xs font-semibold transition-all ${
-            value === tab
-              ? "bg-text-1 text-bg shadow-sm"
-              : "text-text-3"
-          }`}
-        >
-          {tab === "speed" ? "Speed" : "Long run"}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={() => {
+        haptic("light");
+        router.back();
+      }}
+      className="press flex h-11 items-center gap-0.5 text-accent"
+      aria-label="Back"
+    >
+      <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
+      <span className="text-[17px]">Back</span>
+    </button>
   );
 }
 
@@ -130,16 +122,14 @@ function StatusCard({
 }) {
   if (paceStatus === "no_data") {
     return (
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
+      <div className="rounded-[var(--radius-card)] bg-surface p-4">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center shrink-0">
-            <svg className="w-5 h-5 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <HelpCircle className="h-5 w-5 text-text-3" strokeWidth={1.75} />
           </div>
-          <p className="text-base font-bold text-text-1">No data yet</p>
+          <p className="text-[15px] font-bold text-text-1">No data yet</p>
         </div>
-        <p className="text-sm text-text-2 leading-relaxed">
+        <p className="text-[13px] text-text-2 leading-relaxed">
           Complete your first speed workout to see pace insights.
         </p>
       </div>
@@ -149,30 +139,26 @@ function StatusCard({
   const isOnPoint = paceStatus === "on_point";
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-      {/* Target icon */}
+    <div className="rounded-[var(--radius-card)] bg-surface p-4">
       <div className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center mb-4">
-        <svg className="w-5 h-5 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <circle cx="12" cy="12" r="9" />
-          <circle cx="12" cy="12" r="5" />
-          <circle cx="12" cy="12" r="1" fill="currentColor" />
-        </svg>
+        {isOnPoint ? (
+          <CheckCircle2 className="h-5 w-5 text-text-2" strokeWidth={1.75} />
+        ) : (
+          <AlertTriangle className="h-5 w-5 text-text-2" strokeWidth={1.75} />
+        )}
       </div>
 
-      <p className="text-base font-bold text-text-1 mb-1">
+      <p className="text-[15px] font-bold text-text-1 mb-1">
         {isOnPoint ? "Pace on point" : "Pace needs work"}
       </p>
-      <p className="text-sm text-text-2 leading-relaxed mb-6">{statusMessage}</p>
+      <p className="text-[13px] text-text-2 leading-relaxed mb-6">{statusMessage}</p>
 
-      {/* Glowing checkmark / warning illustration */}
       <div className="flex items-center justify-center py-4">
         <div className="relative flex items-center justify-center">
-          {/* Radial glow */}
           <div
             className="absolute w-28 h-28 rounded-full blur-2xl opacity-30"
             style={{ backgroundColor: isOnPoint ? "#22c55e" : "#FFB547" }}
           />
-          {/* Outer ring */}
           <div
             className="relative w-20 h-20 rounded-full flex items-center justify-center"
             style={{
@@ -181,25 +167,9 @@ function StatusCard({
             }}
           >
             {isOnPoint ? (
-              <svg
-                className="w-9 h-9"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="#22c55e"
-                strokeWidth={2.5}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
+              <CheckCircle2 className="w-9 h-9" style={{ color: "#22c55e" }} strokeWidth={2} />
             ) : (
-              <svg
-                className="w-9 h-9"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="#FFB547"
-                strokeWidth={2.5}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-              </svg>
+              <AlertTriangle className="w-9 h-9" style={{ color: "#FFB547" }} strokeWidth={2} />
             )}
           </div>
         </div>
@@ -221,7 +191,7 @@ interface PaceChartWorkout {
 function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
   if (workouts.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-sm text-text-3">
+      <div className="flex items-center justify-center h-32 text-[13px] text-text-3">
         No pace data yet
       </div>
     );
@@ -236,7 +206,6 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
   const chartW = SVG_W - PAD_LEFT - PAD_RIGHT;
   const chartH = SVG_H - PAD_TOP - PAD_BOTTOM;
 
-  // Y-axis: pace range across all workouts (inverted — faster=smaller value=higher on chart)
   const allPaces: number[] = workouts.flatMap((w) => [
     w.minPaceSecKm,
     w.maxPaceSecKm,
@@ -247,32 +216,24 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
   const paceRange = globalMax - globalMin;
 
   function paceToY(pace: number): number {
-    // Faster pace (lower number) -> top of chart
     return PAD_TOP + ((pace - globalMin) / paceRange) * chartH;
   }
 
-  // X positions
   const n = workouts.length;
   function workoutX(i: number): number {
     if (n === 1) return PAD_LEFT + chartW / 2;
     return PAD_LEFT + (i / (n - 1)) * chartW;
   }
 
-  // The zone band: we use the average target zone across workouts (rough band)
   const zonePaces = workouts.map((w) => ({ min: w.minPaceSecKm, max: w.maxPaceSecKm }));
   const bandMinPace = Math.min(...zonePaces.map((z) => z.min));
   const bandMaxPace = Math.max(...zonePaces.map((z) => z.max));
-  const bandTop = paceToY(bandMinPace); // faster pace = top
+  const bandTop = paceToY(bandMinPace);
   const bandBottom = paceToY(bandMaxPace);
 
   return (
     <div className="w-full overflow-hidden">
-      {/* Y-axis labels */}
-      <div className="flex flex-col justify-between h-[120px] absolute pointer-events-none" style={{ top: PAD_TOP, left: 0 }}>
-      </div>
-
       <div className="relative">
-        {/* Y-axis labels */}
         <div
           className="absolute left-0 flex flex-col justify-between pointer-events-none"
           style={{ top: PAD_TOP, height: chartH }}
@@ -287,7 +248,6 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
           style={{ height: SVG_H }}
           aria-hidden="true"
         >
-          {/* Target zone band */}
           <rect
             x={PAD_LEFT}
             y={bandTop}
@@ -307,7 +267,6 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
             rx={4}
           />
 
-          {/* Per-workout lines and dots */}
           {workouts.map((wo, i) => {
             if (wo.actualAvgPace == null) return null;
             const x = workoutX(i);
@@ -318,7 +277,6 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
 
             return (
               <g key={i}>
-                {/* Vertical line: fastest to slowest */}
                 <line
                   x1={x}
                   y1={fastY}
@@ -329,20 +287,15 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
                   strokeLinecap="round"
                   opacity={0.6}
                 />
-                {/* Fastest dot (top = smaller pace value) */}
                 <circle cx={x} cy={fastY} r={4} fill={dotColor} />
-                {/* Slowest dot */}
                 <circle cx={x} cy={slowY} r={4} fill={dotColor} />
-                {/* Avg pace tick */}
                 <circle cx={x} cy={avgY} r={2.5} fill="white" opacity={0.9} />
               </g>
             );
           })}
 
-          {/* X-axis date labels */}
           {workouts.map((wo, i) => {
             const x = workoutX(i);
-            // Only show every other label when crowded
             if (n > 6 && i % 2 !== 0) return null;
             return (
               <text
@@ -361,7 +314,6 @@ function PaceInsightChart({ workouts }: { workouts: PaceChartWorkout[] }) {
         </svg>
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-4 mt-2">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-white/10 border border-white/20" />
@@ -389,23 +341,21 @@ function ExpandableSection({
   return (
     <div className="border-t border-hairline pt-3 mt-3">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          haptic("light");
+          setOpen(!open);
+        }}
         className="w-full flex items-center justify-between text-left"
         aria-expanded={open}
       >
-        <span className="text-sm font-semibold text-text-2">{title}</span>
-        <svg
-          className={`w-4 h-4 text-text-3 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+        <span className="text-[13px] font-semibold text-text-2">{title}</span>
+        <ChevronRight
+          className={`h-4 w-4 text-text-3 transition-transform ${open ? "rotate-90" : ""}`}
           strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        />
       </button>
       {open && (
-        <div className="mt-3 text-sm text-text-2 leading-relaxed">{children}</div>
+        <div className="mt-3 text-[13px] text-text-2 leading-relaxed">{children}</div>
       )}
     </div>
   );
@@ -450,9 +400,9 @@ function RaceTimesSection({
   const longTime = raceTimes.find((r) => distanceCategory(r.distance) === "long") ?? null;
 
   return (
-    <section className="mt-6">
-      <h2 className="text-lg font-bold text-text-1 mb-1">Current race times</h2>
-      <p className="text-sm text-text-2 leading-relaxed mb-4">
+    <section>
+      <h2 className="text-[17px] font-bold text-text-1 mb-1">Current race times</h2>
+      <p className="text-[13px] text-text-2 leading-relaxed mb-4">
         Include a shorter distance and a longer distance time for more accurate paces in your plan.
       </p>
 
@@ -460,33 +410,29 @@ function RaceTimesSection({
         {/* Long distance */}
         {longTime ? (
           <button
-            onClick={() => onAddTime("long")}
-            className="w-full flex items-center gap-3 rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity text-left"
+            onClick={() => { haptic("light"); onAddTime("long"); }}
+            className="press w-full flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-4 text-left"
           >
             <HexBadge label={longTime.distance} />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-text-3">Half/full marathon time</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums mt-0.5">
+              <p className="text-[11px] text-text-3">Half/full marathon time</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1 mt-0.5">
                 {formatTime(longTime.timeSeconds)}
               </p>
             </div>
-            <svg className="w-5 h-5 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            <ChevronRight className="h-5 w-5 text-text-3 shrink-0" strokeWidth={2} />
           </button>
         ) : (
           <button
-            onClick={() => onAddTime("long")}
-            className="w-full flex items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-hairline bg-surface/50 p-4 active:opacity-80 transition-opacity"
+            onClick={() => { haptic("light"); onAddTime("long"); }}
+            className="press w-full flex items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-hairline bg-surface/50 p-4"
           >
-            <div className="w-10 h-10 rounded-full bg-elevated border border-hairline flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
+            <div className="w-10 h-10 rounded-full bg-elevated flex items-center justify-center shrink-0">
+              <Plus className="h-4 w-4 text-text-3" strokeWidth={2} />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-text-2">Add a half/marathon time</p>
-              <p className="text-xs text-text-3 mt-0.5">Half marathon, marathon</p>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-[13px] font-semibold text-text-2">Add a half/marathon time</p>
+              <p className="text-[11px] text-text-3 mt-0.5">Half marathon, marathon</p>
             </div>
           </button>
         )}
@@ -494,33 +440,29 @@ function RaceTimesSection({
         {/* Short distance */}
         {shortTime ? (
           <button
-            onClick={() => onAddTime("short")}
-            className="w-full flex items-center gap-3 rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity text-left"
+            onClick={() => { haptic("light"); onAddTime("short"); }}
+            className="press w-full flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-4 text-left"
           >
             <HexBadge label={shortTime.distance} />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-text-3">Short distance time</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums mt-0.5">
+              <p className="text-[11px] text-text-3">Short distance time</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1 mt-0.5">
                 {formatTime(shortTime.timeSeconds)}
               </p>
             </div>
-            <svg className="w-5 h-5 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            <ChevronRight className="h-5 w-5 text-text-3 shrink-0" strokeWidth={2} />
           </button>
         ) : (
           <button
-            onClick={() => onAddTime("short")}
-            className="w-full flex items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-hairline bg-surface/50 p-4 active:opacity-80 transition-opacity"
+            onClick={() => { haptic("light"); onAddTime("short"); }}
+            className="press w-full flex items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-hairline bg-surface/50 p-4"
           >
-            <div className="w-10 h-10 rounded-full bg-elevated border border-hairline flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
+            <div className="w-10 h-10 rounded-full bg-elevated flex items-center justify-center shrink-0">
+              <Plus className="h-4 w-4 text-text-3" strokeWidth={2} />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-text-2">Add a 5k/10k time</p>
-              <p className="text-xs text-text-3 mt-0.5">5k, 10k</p>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-[13px] font-semibold text-text-2">Add a 5k/10k time</p>
+              <p className="text-[11px] text-text-3 mt-0.5">5k, 10k</p>
             </div>
           </button>
         )}
@@ -535,13 +477,17 @@ export default function PaceInsightsPage() {
   const router = useRouter();
   const [data, setData] = useState<PaceInsightsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"speed" | "long">("speed");
 
   useEffect(() => {
-    fetch("/api/pace-insights")
-      .then((r) => r.json())
+    apiFetch("/api/pace-insights")
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load pace insights");
+        return r.json();
+      })
       .then(setData)
-      .catch(() => {})
+      .catch(() => setError("Couldn't load pace insights. Please try again."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -552,23 +498,38 @@ export default function PaceInsightsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-      </div>
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Pace Insights" large={false} left={<BackButton />} />
+        <div className="px-4 pb-tabbar flex flex-col gap-3 pt-2">
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Pace Insights" large={false} left={<BackButton />} />
+        <div className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-center pb-tabbar">
+          <p className="text-[15px] text-text-2">{error}</p>
+          <Button variant="secondary" onClick={() => router.back()}>Go back</Button>
+        </div>
+      </main>
     );
   }
 
   if (!data?.activePlan) {
     return (
-      <div className="min-h-screen bg-bg flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-text-2">No active plan</p>
-        <button
-          onClick={() => router.back()}
-          className="text-accent text-sm font-semibold"
-        >
-          Go back
-        </button>
-      </div>
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Pace Insights" large={false} left={<BackButton />} />
+        <div className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-center pb-tabbar">
+          <p className="text-[15px] text-text-2">No active plan</p>
+          <Button variant="secondary" onClick={() => router.back()}>Go back</Button>
+        </div>
+      </main>
     );
   }
 
@@ -576,7 +537,6 @@ export default function PaceInsightsPage() {
   const longWorkouts = data.longWorkouts ?? [];
   const activeWorkouts = activeTab === "speed" ? speedWorkouts : longWorkouts;
 
-  // Date range for the section header
   function getSectionDateRange(workouts: Array<{ date: string }>) {
     if (workouts.length === 0) return null;
     const sorted = [...workouts].sort((a, b) => a.date.localeCompare(b.date));
@@ -589,49 +549,24 @@ export default function PaceInsightsPage() {
   const sectionDateRange = getSectionDateRange(activeWorkouts);
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-10 pb-16">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={() => router.back()}
-            className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center"
-            aria-label="Back"
-          >
-            <svg
-              className="w-5 h-5 text-text-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
+    <main className="min-h-dvh bg-bg">
+      <NavBar
+        title="Pace Insights"
+        large={false}
+        left={<BackButton />}
+        right={
+          <button className="flex h-9 w-9 items-center justify-center rounded-full press" aria-label="Info">
+            <Info className="h-5 w-5 text-text-2" strokeWidth={2} />
           </button>
+        }
+      />
 
-          <button
-            className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center"
-            aria-label="Info"
-          >
-            <svg
-              className="w-5 h-5 text-text-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-        </div>
-
+      <div className="px-4 pb-tabbar flex flex-col gap-4 pt-2">
         {/* Title row */}
-        <div className="flex items-center justify-between mb-5">
-          <h1 className="text-2xl font-extrabold text-text-1">Pace Insights</h1>
-          <div className="flex items-center gap-1.5 text-xs text-text-3">
-            <svg className="w-3.5 h-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+        <div className="flex items-center justify-between">
+          <h1 className="text-[22px] font-bold tracking-tight text-text-1">Pace Insights</h1>
+          <div className="flex items-center gap-1.5 text-[11px] text-text-3">
+            <CheckCircle2 className="h-3.5 w-3.5 text-accent" strokeWidth={2.5} />
             <span>Updated: {formatUpdatedDate(data.updatedDate)}</span>
           </div>
         </div>
@@ -639,13 +574,10 @@ export default function PaceInsightsPage() {
         {/* Status card */}
         <StatusCard paceStatus={data.paceStatus} statusMessage={data.statusMessage} />
 
-        {/* Divider */}
-        <div className="h-px bg-hairline my-5" />
-
         {/* Next speed workout */}
         {data.nextSpeedWorkout && (
-          <div className="mb-5">
-            <p className="text-xs text-text-3 mb-2 font-semibold uppercase tracking-wide">
+          <div>
+            <p className="text-[11px] text-text-3 mb-2 font-semibold uppercase tracking-wide">
               Next speed workout:{" "}
               {new Date(data.nextSpeedWorkout.date).toLocaleDateString("en-GB", {
                 day: "numeric",
@@ -657,42 +589,47 @@ export default function PaceInsightsPage() {
                 className="w-2 h-2 rounded-sm shrink-0"
                 style={{ backgroundColor: data.nextSpeedWorkout.color }}
               />
-              <span className="text-sm font-semibold text-text-2">
+              <span className="text-[13px] font-semibold text-text-2">
                 {data.nextSpeedWorkout.dayLabel}
               </span>
               <span className="text-text-3">·</span>
-              <span className="text-sm text-text-2">
+              <span className="text-[13px] text-text-2">
                 {workoutTypeLabel[data.nextSpeedWorkout.type] ?? data.nextSpeedWorkout.type}
               </span>
               <span className="text-text-3">·</span>
-              <span className="text-sm text-text-2">{data.nextSpeedWorkout.targetKm}km</span>
+              <span className="text-[13px] text-text-2">{data.nextSpeedWorkout.targetKm}km</span>
             </div>
           </div>
         )}
 
         {/* Speed / Long tab toggle */}
-        <TabToggle value={activeTab} onChange={setActiveTab} />
+        <Segmented
+          options={[
+            { value: "speed", label: "Speed" },
+            { value: "long", label: "Long run" },
+          ]}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
 
         {/* Pace on point section */}
-        <section className="mt-5">
-          <div className="flex items-center justify-between mb-4">
+        <section>
+          <div className="flex items-center justify-between mb-3">
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-bold text-text-1">
+              <h2 className="text-[15px] font-bold text-text-1">
                 {activeTab === "speed" ? "Speed run pace" : "Long run pace"}
               </h2>
               {sectionDateRange && (
-                <p className="text-xs text-text-3 mt-0.5">{sectionDateRange}</p>
+                <p className="text-[11px] text-text-3 mt-0.5">{sectionDateRange}</p>
               )}
             </div>
-            <button className="w-7 h-7 rounded-full flex items-center justify-center" aria-label="Info">
-              <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+            <button className="flex h-7 w-7 items-center justify-center rounded-full press" aria-label="Info">
+              <Info className="h-4 w-4 text-text-3" strokeWidth={2} />
             </button>
           </div>
 
           {activeWorkouts.length > 0 ? (
-            <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+            <div className="rounded-[var(--radius-card)] bg-surface p-4">
               <PaceInsightChart
                 workouts={activeWorkouts.map((wo) => ({
                   date: wo.date,
@@ -704,9 +641,9 @@ export default function PaceInsightsPage() {
               />
             </div>
           ) : (
-            <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-6 text-center">
-              <p className="text-sm text-text-3">No pace data yet</p>
-              <p className="text-xs text-text-3 mt-1">
+            <div className="rounded-[var(--radius-card)] bg-surface p-6 text-center">
+              <p className="text-[13px] text-text-3">No pace data yet</p>
+              <p className="text-[11px] text-text-3 mt-1">
                 {activeTab === "speed"
                   ? "Complete a speed workout to see your pace chart."
                   : "Complete a long run to see your pace chart."}
@@ -715,19 +652,16 @@ export default function PaceInsightsPage() {
           )}
         </section>
 
-        {/* Divider */}
-        <div className="h-px bg-hairline my-5" />
-
         {/* Explanation section */}
-        <section>
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
           {activeTab === "speed" ? (
             <div>
-              <h2 className="text-base font-bold text-text-1 mb-2">Speed run pace</h2>
-              <p className="text-sm text-text-2 leading-relaxed">
+              <h2 className="text-[15px] font-bold text-text-1 mb-2">Speed run pace</h2>
+              <p className="text-[13px] text-text-2 leading-relaxed">
                 We monitor your pace in speed runs to understand how fast you can run over shorter distances.
               </p>
               <ExpandableSection title="Types of speed runs">
-                <ul className="flex flex-col gap-2 text-sm text-text-2 list-none">
+                <ul className="flex flex-col gap-2 text-[13px] text-text-2 list-none">
                   <li>
                     <span className="font-semibold" style={{ color: workoutTypeColor.tempo }}>Tempo runs</span>
                     {" "}— Sustained effort at a comfortably hard pace, typically 20–40 minutes.
@@ -741,12 +675,12 @@ export default function PaceInsightsPage() {
             </div>
           ) : (
             <div>
-              <h2 className="text-base font-bold text-text-1 mb-2">Long run pace</h2>
-              <p className="text-sm text-text-2 leading-relaxed">
+              <h2 className="text-[15px] font-bold text-text-1 mb-2">Long run pace</h2>
+              <p className="text-[13px] text-text-2 leading-relaxed">
                 We monitor your pace in long runs to understand your endurance over longer distances.
               </p>
               <ExpandableSection title="Incompatible runs">
-                <p className="text-sm text-text-2 leading-relaxed">
+                <p className="text-[13px] text-text-2 leading-relaxed">
                   Runs with GPS signal issues, incomplete recordings, or distances under 10km are excluded from the long run pace chart to keep the data reliable.
                 </p>
               </ExpandableSection>
@@ -754,12 +688,9 @@ export default function PaceInsightsPage() {
           )}
         </section>
 
-        {/* Divider */}
-        <div className="h-px bg-hairline my-5" />
-
         {/* Race times */}
         <RaceTimesSection raceTimes={data.raceTimes} onAddTime={handleAddTime} />
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

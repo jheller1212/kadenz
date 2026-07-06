@@ -1,8 +1,23 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  ExternalLink,
+  Trash2,
+  Zap,
+  AlertCircle,
+  Activity as ActivityIcon,
+} from "lucide-react";
+import { NavBar } from "@/components/ui/NavBar";
+import { TransitionLink } from "@/components/ui/TransitionLink";
+import { Sheet } from "@/components/ui/Sheet";
+import { Skeleton, EmptyState } from "@/components/ui/feedback";
+import { Button } from "@/components/ui/Button";
+import { haptic } from "@/lib/haptics";
+import { apiFetch } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -150,7 +165,7 @@ function AreaChart({
 }: AreaChartProps) {
   if (!data || data.length < 2) {
     return (
-      <div className="flex items-center justify-center h-28 text-xs text-text-3">
+      <div className="flex h-28 items-center justify-center text-[13px] text-text-3">
         No data
       </div>
     );
@@ -297,20 +312,20 @@ function AreaChart({
 
 function SummaryStats({ activity }: { activity: ActivityDetail }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+    <div className="rounded-[var(--radius-card)] bg-surface p-4">
       <div className="grid grid-cols-3 divide-x divide-hairline">
         <div className="pr-3 text-center">
-          <p className="text-[10px] uppercase tracking-wider text-text-3 mb-1">Distance</p>
-          <p className="text-xl font-extrabold text-text-1 tabular-nums">{activity.distanceKm.toFixed(2)}</p>
+          <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Distance</p>
+          <p className="text-[22px] font-extrabold tabular-nums text-text-1">{activity.distanceKm.toFixed(2)}</p>
           <p className="text-[10px] text-text-3">km</p>
         </div>
         <div className="px-3 text-center">
-          <p className="text-[10px] uppercase tracking-wider text-text-3 mb-1">Time</p>
-          <p className="text-xl font-extrabold text-text-1 tabular-nums leading-none">{formatDuration(activity.durationSeconds)}</p>
+          <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Time</p>
+          <p className="text-[22px] font-extrabold leading-none tabular-nums text-text-1">{formatDuration(activity.durationSeconds)}</p>
         </div>
         <div className="pl-3 text-center">
-          <p className="text-[10px] uppercase tracking-wider text-text-3 mb-1">Avg Pace</p>
-          <p className="text-xl font-extrabold text-text-1 tabular-nums">{formatPace(activity.avgPaceSecKm)}</p>
+          <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Avg Pace</p>
+          <p className="text-[22px] font-extrabold tabular-nums text-text-1">{formatPace(activity.avgPaceSecKm)}</p>
           <p className="text-[10px] text-text-3">/km</p>
         </div>
       </div>
@@ -333,25 +348,23 @@ function BestEfforts({ efforts }: { efforts: ActivityDetail["bestEfforts"] }) {
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Best Efforts</h2>
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface divide-y divide-hairline overflow-hidden">
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Best Efforts</h2>
+      <div className="divide-y divide-hairline overflow-hidden rounded-[var(--radius-card)] bg-surface">
         {sorted.map((effort, i) => {
           const pacePerKm = effort.distance > 0 ? (effort.elapsedTime / (effort.distance / 1000)) : 0;
           return (
             <div key={i} className="flex items-center gap-3 px-4 py-3">
-              <svg className="w-5 h-5 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-text-1">{effort.name}</p>
-                <p className="text-xs text-text-3 tabular-nums">{formatPace(pacePerKm)}/km</p>
+              <Zap className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.75} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[15px] font-medium text-text-1">{effort.name}</p>
+                <p className="text-[13px] tabular-nums text-text-3">{formatPace(pacePerKm)}/km</p>
               </div>
-              <p className="text-sm font-bold text-text-1 tabular-nums shrink-0">{formatEffortTime(effort.elapsedTime)}</p>
+              <p className="shrink-0 text-[15px] font-bold tabular-nums text-text-1">{formatEffortTime(effort.elapsedTime)}</p>
             </div>
           );
         })}
       </div>
-      <p className="text-[10px] text-text-3 mt-2 leading-snug px-1">
+      <p className="mt-2 px-1 text-[11px] leading-snug text-text-3">
         Best efforts are calculated using total time, not moving time.
       </p>
     </div>
@@ -367,13 +380,6 @@ const BLOCK_LABELS: Record<string, string> = {
   cooldown: "Cool-down",
 };
 
-const BLOCK_ICONS: Record<string, string> = {
-  warmup: "M13 10V3L4 14h7v7l9-11h-7z",
-  work: "M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3",
-  recovery: "M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z",
-  cooldown: "M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z",
-};
-
 function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetail["plannedWorkout"]> }) {
   const [showAll, setShowAll] = useState(false);
 
@@ -382,41 +388,30 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold text-text-1">Planned Workout</h2>
-        <button
-          className="w-7 h-7 rounded-lg bg-elevated border border-hairline flex items-center justify-center active:opacity-70"
-          aria-label="Copy workout"
-        >
-          <svg className="w-3.5 h-3.5 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <rect x="9" y="9" width="13" height="13" rx="2" />
-            <path strokeLinecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-          </svg>
-        </button>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-[15px] font-bold text-text-1">Planned Workout</h2>
       </div>
 
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden">
+      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
         <div className="divide-y divide-hairline">
           {displayBlocks.map((block, i) => {
             const isWork = block.type === "work";
             const isRepSet = isWork && block.reps && block.repDistanceKm;
             return (
               <div key={i} className="flex items-start gap-3 px-4 py-3">
-                <svg className="w-4 h-4 text-text-3 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d={BLOCK_ICONS[block.type] ?? BLOCK_ICONS.work} />
-                </svg>
+                <ActivityIcon className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.75} />
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-text-1">
+                    <p className="text-[15px] font-medium text-text-1">
                       {BLOCK_LABELS[block.type] ?? block.type}
                     </p>
                     {isRepSet && (
-                      <span className="px-1.5 py-0.5 rounded-full bg-accent/10 text-[10px] font-bold text-accent">
+                      <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-bold text-accent">
                         ×{block.reps}
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-text-3 mt-0.5">
+                  <p className="mt-0.5 text-[13px] text-text-3">
                     {isRepSet
                       ? `${block.reps}×${Math.round((block.repDistanceKm ?? 0) * 1000)}m`
                       : block.distanceKm
@@ -434,23 +429,24 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
 
         {blocks.length > 3 && (
           <button
-            onClick={() => setShowAll(!showAll)}
-            className="w-full py-3 text-xs font-semibold text-accent border-t border-hairline text-center active:opacity-70 transition-opacity"
+            onClick={() => {
+              haptic("light");
+              setShowAll(!showAll);
+            }}
+            className="press w-full border-t border-hairline py-3 text-center text-[13px] font-semibold text-accent"
           >
             {showAll ? "Show less" : `Show ${blocks.length - 3} more`}
           </button>
         )}
 
         <div className="border-t border-hairline px-4 py-3">
-          <Link
+          <TransitionLink
             href={`/workout/${workout.id}`}
-            className="flex items-center justify-center gap-1.5 text-xs font-semibold text-text-2 active:opacity-70 transition-opacity"
+            className="press flex items-center justify-center gap-1.5 text-[13px] font-semibold text-text-2"
           >
             View full workout
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
+            <ChevronRight className="h-3 w-3" strokeWidth={2.5} />
+          </TransitionLink>
         </div>
       </div>
     </div>
@@ -488,20 +484,20 @@ function LapsSection({
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Laps</h2>
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Laps</h2>
 
       {/* Bar chart */}
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 mb-3">
+      <div className="mb-3 rounded-[var(--radius-card)] bg-surface p-4">
         <div className="flex flex-col gap-2">
           {laps.map((lap, i) => {
             const barPct = lapBarPct(lap.paceSecKm);
             const color = paceColor(lap.paceSecKm);
             return (
               <div key={i} className="flex items-center gap-2">
-                <span className="text-[10px] text-text-3 tabular-nums w-5 shrink-0 text-right">{lap.index}</span>
-                <div className="flex-1 relative h-6 bg-elevated rounded-sm overflow-hidden">
+                <span className="w-5 shrink-0 text-right text-[10px] tabular-nums text-text-3">{lap.index}</span>
+                <div className="relative h-6 flex-1 overflow-hidden rounded-sm bg-elevated">
                   <div
-                    className="absolute inset-y-0 left-0 rounded-sm flex items-center px-2"
+                    className="absolute inset-y-0 left-0 flex items-center rounded-sm px-2"
                     style={{ width: `${barPct}%`, backgroundColor: color + "33" }}
                   >
                     <div
@@ -520,7 +516,7 @@ function LapsSection({
                       }}
                     />
                   )}
-                  <span className="relative z-10 text-[10px] font-semibold tabular-nums pl-2" style={{ color }}>
+                  <span className="relative z-10 pl-2 text-[10px] font-semibold tabular-nums" style={{ color }}>
                     {formatPace(lap.paceSecKm)}/km
                   </span>
                 </div>
@@ -531,23 +527,23 @@ function LapsSection({
       </div>
 
       {/* Detail table */}
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden">
-        <div className="grid grid-cols-4 px-4 py-2 border-b border-hairline">
+      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
+        <div className="grid grid-cols-4 border-b border-hairline px-4 py-2">
           {["LAP", "DIST", "TIME", "PACE"].map((h) => (
-            <p key={h} className="text-[10px] font-semibold uppercase tracking-wider text-text-3 text-right first:text-left">{h}</p>
+            <p key={h} className="text-right text-[10px] font-semibold uppercase tracking-wider text-text-3 first:text-left">{h}</p>
           ))}
         </div>
         <div className="divide-y divide-hairline">
           {laps.map((lap, i) => {
             const color = paceColor(lap.paceSecKm);
             return (
-              <div key={i} className="grid grid-cols-4 px-4 py-2.5 items-center">
-                <span className="text-xs font-semibold text-text-2">{lap.index}</span>
-                <span className="text-xs text-text-1 tabular-nums text-right">{lap.distanceKm.toFixed(2)}km</span>
-                <span className="text-xs text-text-1 tabular-nums text-right">{formatDuration(lap.durationSeconds)}</span>
+              <div key={i} className="grid grid-cols-4 items-center px-4 py-2.5">
+                <span className="text-[13px] font-semibold text-text-2">{lap.index}</span>
+                <span className="text-right text-[13px] tabular-nums text-text-1">{lap.distanceKm.toFixed(2)}km</span>
+                <span className="text-right text-[13px] tabular-nums text-text-1">{formatDuration(lap.durationSeconds)}</span>
                 <div className="flex justify-end">
                   <span
-                    className="text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded-md"
+                    className="rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums"
                     style={{ color, backgroundColor: color + "22" }}
                   >
                     {formatPace(lap.paceSecKm)}
@@ -578,12 +574,12 @@ function SplitsSection({ splits }: { splits: ActivityDetail["splits"] }) {
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Splits</h2>
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden">
-        <div className="grid grid-cols-[2rem_1fr_3rem] px-4 py-2 border-b border-hairline gap-2">
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Splits</h2>
+      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
+        <div className="grid grid-cols-[2rem_1fr_3rem] gap-2 border-b border-hairline px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">KM</p>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">AVG PACE</p>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3 text-right">+/-</p>
+          <p className="text-right text-[10px] font-semibold uppercase tracking-wider text-text-3">+/-</p>
         </div>
         <div className="divide-y divide-hairline">
           {splits.map((split, i) => {
@@ -601,22 +597,22 @@ function SplitsSection({ splits }: { splits: ActivityDetail["splits"] }) {
               diff == null ? "var(--k-text-3)" : diff < 0 ? "#4ADE80" : diff > 0 ? "#F87171" : "var(--k-text-2)";
 
             return (
-              <div key={i} className="grid grid-cols-[2rem_1fr_3rem] px-4 py-2 items-center gap-2">
-                <span className="text-xs font-semibold text-text-2 tabular-nums">{split.km}</span>
-                <div className="relative h-6 flex items-center">
+              <div key={i} className="grid grid-cols-[2rem_1fr_3rem] items-center gap-2 px-4 py-2">
+                <span className="text-[13px] font-semibold tabular-nums text-text-2">{split.km}</span>
+                <div className="relative flex h-6 items-center">
                   <div
-                    className="absolute inset-y-0 left-0 rounded-sm flex items-center"
+                    className="absolute inset-y-0 left-0 flex items-center rounded-sm"
                     style={{
                       width: `${barPct(split.paceSecKm)}%`,
                       backgroundColor: "#F87171" + "33",
                     }}
                   />
-                  <span className="relative z-10 text-[11px] font-semibold text-text-1 tabular-nums pl-1">
+                  <span className="relative z-10 pl-1 text-[11px] font-semibold tabular-nums text-text-1">
                     {formatPace(split.paceSecKm)}/km
                   </span>
                 </div>
                 <span
-                  className="text-[11px] font-bold tabular-nums text-right"
+                  className="text-right text-[11px] font-bold tabular-nums"
                   style={{ color: diffColor }}
                 >
                   {diffStr}
@@ -646,8 +642,8 @@ function PaceChartSection({ activity }: { activity: ActivityDetail }) {
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Pace</h2>
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Pace</h2>
+      <div className="rounded-[var(--radius-card)] bg-surface p-4">
         <AreaChart
           data={paceData}
           xData={distData}
@@ -659,15 +655,15 @@ function PaceChartSection({ activity }: { activity: ActivityDetail }) {
           yFormatter={(v) => formatPace(v)}
           height={120}
         />
-        <div className="flex gap-6 mt-3 pt-3 border-t border-hairline">
+        <div className="mt-3 flex gap-6 border-t border-hairline pt-3">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-text-3">Avg Pace</p>
-            <p className="text-sm font-bold text-text-1 tabular-nums">{formatPace(activity.avgPaceSecKm)}/km</p>
+            <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(activity.avgPaceSecKm)}/km</p>
           </div>
           {activity.maxPaceSecKm != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Max Pace</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums">{formatPace(activity.maxPaceSecKm)}/km</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(activity.maxPaceSecKm)}/km</p>
             </div>
           )}
         </div>
@@ -688,8 +684,8 @@ function ElevationChartSection({ activity }: { activity: ActivityDetail }) {
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Elevation</h2>
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Elevation</h2>
+      <div className="rounded-[var(--radius-card)] bg-surface p-4">
         <AreaChart
           data={streams.altitude}
           xData={distData}
@@ -701,17 +697,17 @@ function ElevationChartSection({ activity }: { activity: ActivityDetail }) {
           yFormatter={(v) => `${Math.round(v)}m`}
           height={120}
         />
-        <div className="flex gap-6 mt-3 pt-3 border-t border-hairline">
+        <div className="mt-3 flex gap-6 border-t border-hairline pt-3">
           {activity.elevationGain != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Elevation Gain</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums">{Math.round(activity.elevationGain)}m</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{Math.round(activity.elevationGain)}m</p>
             </div>
           )}
           {activity.maxElevation != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Max Elevation</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums">{Math.round(activity.maxElevation)}m</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{Math.round(activity.maxElevation)}m</p>
             </div>
           )}
         </div>
@@ -732,8 +728,8 @@ function HeartRateChartSection({ activity }: { activity: ActivityDetail }) {
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Heart Rate</h2>
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Heart Rate</h2>
+      <div className="rounded-[var(--radius-card)] bg-surface p-4">
         <AreaChart
           data={streams.heartrate}
           xData={distData}
@@ -745,17 +741,17 @@ function HeartRateChartSection({ activity }: { activity: ActivityDetail }) {
           yFormatter={(v) => `${Math.round(v)}`}
           height={120}
         />
-        <div className="flex gap-6 mt-3 pt-3 border-t border-hairline">
+        <div className="mt-3 flex gap-6 border-t border-hairline pt-3">
           {activity.avgHr != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Avg Heart Rate</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums">{Math.round(activity.avgHr)} bpm</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{Math.round(activity.avgHr)} bpm</p>
             </div>
           )}
           {activity.maxHr != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Max Heart Rate</p>
-              <p className="text-sm font-bold text-text-1 tabular-nums">{Math.round(activity.maxHr)} bpm</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{Math.round(activity.maxHr)} bpm</p>
             </div>
           )}
         </div>
@@ -777,22 +773,22 @@ function HrZonesSection({ activity }: { activity: ActivityDetail }) {
 
   return (
     <div>
-      <h2 className="text-sm font-bold text-text-1 mb-3">Heart Rate Zones</h2>
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface divide-y divide-hairline overflow-hidden">
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Heart Rate Zones</h2>
+      <div className="divide-y divide-hairline overflow-hidden rounded-[var(--radius-card)] bg-surface">
         {zones.map((zone, i) => (
           <div key={i} className="px-4 py-3">
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: zone.color }} />
-                <span className="text-xs font-semibold text-text-1">{zone.label}</span>
-                <span className="text-[10px] text-text-3 tabular-nums">{zone.min}–{zone.max === 999 ? `${estimatedMax}+` : zone.max} bpm</span>
+                <div className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: zone.color }} />
+                <span className="text-[13px] font-semibold text-text-1">{zone.label}</span>
+                <span className="text-[10px] tabular-nums text-text-3">{zone.min}–{zone.max === 999 ? `${estimatedMax}+` : zone.max} bpm</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-text-3 tabular-nums">{zone.pct}%</span>
-                <span className="text-xs text-text-2 tabular-nums w-14 text-right">{formatDuration(zone.seconds)}</span>
+                <span className="text-[13px] tabular-nums text-text-3">{zone.pct}%</span>
+                <span className="w-14 text-right text-[13px] tabular-nums text-text-2">{formatDuration(zone.seconds)}</span>
               </div>
             </div>
-            <div className="h-2 rounded-full bg-elevated overflow-hidden">
+            <div className="h-2 overflow-hidden rounded-full bg-elevated">
               <div
                 className="h-full rounded-full transition-all"
                 style={{
@@ -812,26 +808,24 @@ function HrZonesSection({ activity }: { activity: ActivityDetail }) {
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen bg-bg flex flex-col">
-      {/* Header skeleton */}
-      <div className="bg-gradient-to-b from-[#1a2a1a] to-bg pt-12 pb-6 px-4">
-        <div className="max-w-md mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div className="w-9 h-9 rounded-full bg-elevated animate-pulse" />
-            <div className="w-32 h-5 rounded bg-elevated animate-pulse" />
-            <div className="w-9 h-9 rounded-full bg-elevated animate-pulse" />
-          </div>
-          <div className="w-48 h-6 rounded bg-elevated animate-pulse mb-2" />
-          <div className="w-32 h-4 rounded bg-elevated animate-pulse" />
-        </div>
+    <main className="min-h-dvh bg-bg">
+      <NavBar
+        title="Activity"
+        large={false}
+        left={
+          <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent">
+            <ChevronLeft className="h-6 w-6" strokeWidth={2} />
+            Activities
+          </TransitionLink>
+        }
+      />
+      <div className="flex flex-col gap-4 px-4 pb-tabbar">
+        <Skeleton className="h-24" />
+        <Skeleton className="h-40" />
+        <Skeleton className="h-32" />
+        <Skeleton className="h-48" />
       </div>
-      <main className="flex-1 max-w-md mx-auto w-full px-4 pb-12 flex flex-col gap-5 mt-4">
-        <div className="h-24 rounded-[var(--radius-card)] bg-surface border border-hairline animate-pulse" />
-        <div className="h-40 rounded-[var(--radius-card)] bg-surface border border-hairline animate-pulse" />
-        <div className="h-32 rounded-[var(--radius-card)] bg-surface border border-hairline animate-pulse" />
-        <div className="h-48 rounded-[var(--radius-card)] bg-surface border border-hairline animate-pulse" />
-      </main>
-    </div>
+    </main>
   );
 }
 
@@ -839,20 +833,20 @@ function LoadingSkeleton() {
 
 export default function ActivityDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   const [activity, setActivity] = useState<ActivityDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`/api/activities/${id}`);
+        const res = await apiFetch(`/api/activities/${id}`);
         if (!res.ok) throw new Error("Not found");
         const data: ActivityDetail = await res.json();
         setActivity(data);
       } catch {
-        // silent — not found state handled below
+        setError(true);
       } finally {
         setLoading(false);
       }
@@ -862,17 +856,32 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
 
   if (loading) return <LoadingSkeleton />;
 
-  if (!activity) {
+  if (!activity || error) {
     return (
-      <div className="min-h-screen bg-bg flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-text-2">Activity not found</p>
-        <button
-          onClick={() => router.back()}
-          className="text-accent text-sm font-semibold"
-        >
-          Go back
-        </button>
-      </div>
+      <main className="min-h-dvh bg-bg">
+        <NavBar
+          title="Activity"
+          large={false}
+          left={
+            <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent">
+              <ChevronLeft className="h-6 w-6" strokeWidth={2} />
+              Activities
+            </TransitionLink>
+          }
+        />
+        <div className="px-4 pb-tabbar">
+          <EmptyState
+            icon={<AlertCircle className="h-10 w-10" strokeWidth={1.5} />}
+            title="Activity not found"
+            message="We couldn't load this activity. It may have been deleted or you may have lost connection."
+            action={
+              <TransitionLink href="/activities">
+                <Button variant="secondary">Back to Activities</Button>
+              </TransitionLink>
+            }
+          />
+        </div>
+      </main>
     );
   }
 
@@ -894,150 +903,90 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
     activity.plannedWorkout?.blocks.find((b) => b.type === "work")?.targetPaceSecKm ?? null;
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col">
-      {/* Gradient header */}
-      <div className="bg-gradient-to-b from-[#1a3a2a] to-bg pt-12 pb-6 px-4">
-        <div className="flex items-center justify-between max-w-md mx-auto mb-4">
+    <main className="min-h-dvh bg-bg">
+      <NavBar
+        title={activity.name}
+        large={false}
+        left={
+          <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent">
+            <ChevronLeft className="h-6 w-6" strokeWidth={2} />
+            Activities
+          </TransitionLink>
+        }
+        right={
           <button
-            onClick={() => router.back()}
-            className="w-9 h-9 rounded-full bg-bg/30 backdrop-blur flex items-center justify-center"
-            aria-label="Back"
-          >
-            <svg className="w-5 h-5 text-text-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-
-          <h1 className="text-sm font-bold text-text-1 truncate max-w-[180px] text-center">{activity.name}</h1>
-
-          <button
-            onClick={() => setMenuOpen(true)}
-            className="w-9 h-9 rounded-full bg-bg/30 backdrop-blur flex items-center justify-center"
+            onClick={() => {
+              haptic("light");
+              setMenuOpen(true);
+            }}
+            className="press flex h-9 w-9 items-center justify-center rounded-full text-text-2"
             aria-label="More options"
           >
-            <svg className="w-5 h-5 text-text-1" fill="currentColor" viewBox="0 0 24 24">
-              <circle cx="5" cy="12" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="19" cy="12" r="2" />
-            </svg>
+            <MoreHorizontal className="h-5 w-5" strokeWidth={2} />
           </button>
-        </div>
-
-        <div className="max-w-md mx-auto">
-          <p className="text-xs text-text-3">{dateStr} · {timeStr}</p>
-        </div>
-      </div>
+        }
+      />
 
       {/* Content */}
-      <main className="flex-1 max-w-md mx-auto w-full px-4 pb-12 flex flex-col gap-5 -mt-2">
+      <div className="flex flex-col gap-4 px-4 pb-tabbar">
+        <p className="-mt-1 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
+
         {/* Summary stats */}
         <SummaryStats activity={activity} />
 
-        {/* Divider */}
-        <div className="h-px bg-hairline" />
-
         {/* Best Efforts */}
-        {activity.bestEfforts.length > 0 && (
-          <>
-            <BestEfforts efforts={activity.bestEfforts} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.bestEfforts.length > 0 && <BestEfforts efforts={activity.bestEfforts} />}
 
         {/* Planned Workout */}
-        {activity.plannedWorkout && (
-          <>
-            <PlannedWorkoutSection workout={activity.plannedWorkout} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.plannedWorkout && <PlannedWorkoutSection workout={activity.plannedWorkout} />}
 
         {/* Laps */}
-        {activity.laps.length > 0 && (
-          <>
-            <LapsSection laps={activity.laps} targetPaceSecKm={targetPaceSecKm} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.laps.length > 0 && <LapsSection laps={activity.laps} targetPaceSecKm={targetPaceSecKm} />}
 
         {/* Splits */}
-        {activity.splits.length > 0 && (
-          <>
-            <SplitsSection splits={activity.splits} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.splits.length > 0 && <SplitsSection splits={activity.splits} />}
 
         {/* Pace chart */}
-        {activity.streams?.velocity && (
-          <>
-            <PaceChartSection activity={activity} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.streams?.velocity && <PaceChartSection activity={activity} />}
 
         {/* Elevation chart */}
-        {activity.streams?.altitude && (
-          <>
-            <ElevationChartSection activity={activity} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.streams?.altitude && <ElevationChartSection activity={activity} />}
 
         {/* Heart rate chart */}
-        {activity.streams?.heartrate && (
-          <>
-            <HeartRateChartSection activity={activity} />
-            <div className="h-px bg-hairline" />
-          </>
-        )}
+        {activity.streams?.heartrate && <HeartRateChartSection activity={activity} />}
 
         {/* HR Zones */}
-        {activity.streams?.heartrate && (
-          <HrZonesSection activity={activity} />
-        )}
-      </main>
+        {activity.streams?.heartrate && <HrZonesSection activity={activity} />}
+      </div>
 
       {/* Action sheet */}
-      {menuOpen && (
-        <div className="fixed inset-0 z-50" onClick={() => setMenuOpen(false)}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          <div
-            className="absolute bottom-0 left-0 right-0 max-w-md mx-auto animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
+        <div className="flex flex-col gap-2 pb-2">
+          <a
+            href={`https://www.strava.com/activities/${activity.stravaId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => {
+              haptic("light");
+              setMenuOpen(false);
+            }}
+            className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-elevated px-4 py-3.5 text-[15px] font-medium text-text-1"
           >
-            <div className="mx-4 mb-2 rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden divide-y divide-hairline">
-              <a
-                href={`https://www.strava.com/activities/${activity.stravaId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center gap-3 px-5 py-4 text-left text-sm font-medium text-text-1 active:bg-elevated transition-colors"
-                onClick={() => setMenuOpen(false)}
-              >
-                <svg className="w-5 h-5 text-text-2 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-                View on Strava
-              </a>
-              <button
-                className="w-full flex items-center gap-3 px-5 py-4 text-left text-sm font-medium text-danger active:bg-elevated transition-colors"
-                onClick={() => setMenuOpen(false)}
-              >
-                <svg className="w-5 h-5 text-danger shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Delete activity
-              </button>
-            </div>
-            <button
-              onClick={() => setMenuOpen(false)}
-              className="mx-4 mb-6 w-[calc(100%-2rem)] rounded-[var(--radius-card)] bg-surface border border-hairline py-4 text-sm font-bold text-text-1 active:bg-elevated transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
+            <ExternalLink className="h-5 w-5 shrink-0 text-text-2" strokeWidth={1.75} />
+            View on Strava
+          </a>
+          <button
+            onClick={() => {
+              haptic("warning");
+              setMenuOpen(false);
+            }}
+            className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-elevated px-4 py-3.5 text-left text-[15px] font-medium text-danger"
+          >
+            <Trash2 className="h-5 w-5 shrink-0 text-danger" strokeWidth={1.75} />
+            Delete activity
+          </button>
         </div>
-      )}
-    </div>
+      </Sheet>
+    </main>
   );
 }

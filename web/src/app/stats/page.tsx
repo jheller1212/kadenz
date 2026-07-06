@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { BarChart3 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
+import { NavBar } from "@/components/ui/NavBar";
+import { Button } from "@/components/ui/Button";
+import { Skeleton, EmptyState } from "@/components/ui/feedback";
+import { TransitionLink } from "@/components/ui/TransitionLink";
+import { apiFetch } from "@/lib/api";
 import type {
   GeneratedPlan,
   GeneratedWeek,
@@ -175,62 +180,55 @@ function WorkoutTypeBar({
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
     <div className="flex items-center gap-3">
-      <p className="w-16 shrink-0 text-xs text-text-2">{label}</p>
+      <p className="w-16 shrink-0 text-[13px] text-text-2">{label}</p>
       <div className="flex-1 h-1.5 rounded-full bg-elevated overflow-hidden">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
-      <p className="w-8 shrink-0 text-right text-xs tabular-nums text-text-3">
+      <p className="w-8 shrink-0 text-right text-[13px] tabular-nums text-text-3">
         {count}
       </p>
     </div>
   );
 }
 
-// ── Empty state ───────────────────────────────────────────────────────────────
+// ── Loading / empty states ────────────────────────────────────────────────────
 
-function EmptyState() {
+function StatsSkeleton() {
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-md flex-col items-center justify-center px-4 pb-28">
-        <section className="w-full rounded-[var(--radius-card)] border border-hairline bg-surface p-8 text-center">
-          <div className="w-14 h-14 rounded-full bg-elevated border border-hairline flex items-center justify-center mx-auto mb-4">
-            <svg
-              className="w-7 h-7 text-text-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-              />
-            </svg>
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
-            No active plan
-          </p>
-          <h1 className="mt-2 text-2xl font-extrabold text-text-1">
-            No stats yet
-          </h1>
-          <p className="mt-2 text-sm text-text-2 leading-relaxed">
-            Create a training plan and your stats will appear here.
-          </p>
-          <Link
-            href="/create"
-            className="mt-6 inline-flex rounded-full bg-accent px-6 py-3 text-sm font-bold text-on-accent active:scale-95 transition-transform"
-          >
-            Create plan
-          </Link>
-        </section>
-      </main>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Stats" large />
+      <div className="px-4 pb-tabbar flex flex-col gap-3">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
       <BottomNav active="activities" />
-    </div>
+    </main>
+  );
+}
+
+function NoPlanState() {
+  return (
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Stats" large />
+      <div className="pb-tabbar">
+        <EmptyState
+          icon={<BarChart3 className="h-10 w-10" strokeWidth={1.5} />}
+          title="No stats yet"
+          message="Create a training plan and your stats will appear here."
+          action={
+            <TransitionLink href="/create">
+              <Button variant="primary">Create plan</Button>
+            </TransitionLink>
+          }
+        />
+      </div>
+      <BottomNav active="activities" />
+    </main>
   );
 }
 
@@ -239,11 +237,12 @@ function EmptyState() {
 export default function StatsPage() {
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadPlan() {
       try {
-        const listRes = await fetch("/api/plans");
+        const listRes = await apiFetch("/api/plans");
         if (!listRes.ok) throw new Error("Failed to fetch plans");
         const plans = await listRes.json();
         const active = (plans as { id: string; status: string }[]).find(
@@ -253,12 +252,12 @@ export default function StatsPage() {
           setLoaded(true);
           return;
         }
-        const res = await fetch(`/api/plans/${active.id}`);
+        const res = await apiFetch(`/api/plans/${active.id}`);
         if (!res.ok) throw new Error("Failed to fetch plan");
         const raw = await res.json();
         setPlan(adaptApiPlan(raw));
       } catch {
-        // Silent fail — show empty state
+        setError("Couldn't load your stats. Pull to refresh and try again.");
       } finally {
         setLoaded(true);
       }
@@ -266,15 +265,8 @@ export default function StatsPage() {
     loadPlan();
   }, []);
 
-  if (!loaded) {
-    return (
-      <div className="min-h-screen bg-bg">
-        <BottomNav active="activities" />
-      </div>
-    );
-  }
-
-  if (!plan) return <EmptyState />;
+  if (!loaded) return <StatsSkeleton />;
+  if (!plan) return <NoPlanState />;
 
   const currentWeekIdx = getCurrentWeekIndex(plan);
   const currentWeek = plan.weeks[currentWeekIdx];
@@ -298,21 +290,22 @@ export default function StatsPage() {
     thisWeekWorkouts.length > 0
       ? Math.round((pastWorkoutsThisWeek / thisWeekWorkouts.length) * 100)
       : 0;
+  const planPct = Math.round(((currentWeekIdx + 1) / plan.planLengthWeeks) * 100);
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-28 pt-10">
-        {/* Header */}
-        <header>
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
-            Kadenz
-          </p>
-          <h1 className="text-2xl font-extrabold text-text-1">Stats</h1>
-        </header>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Stats" large />
+
+      <div className="px-4 pb-tabbar flex flex-col gap-3">
+        {error && (
+          <div className="rounded-[var(--radius-card)] bg-danger/10 p-4 text-[13px] text-danger">
+            {error}
+          </div>
+        )}
 
         {/* Plan progress */}
-        <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
             Plan progress
           </p>
           <div className="mt-4 grid grid-cols-3 gap-3">
@@ -320,7 +313,7 @@ export default function StatsPage() {
               <p className="text-[10px] uppercase tracking-wider text-text-3">
                 Week
               </p>
-              <p className="mt-1 text-lg font-extrabold text-accent">
+              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-accent">
                 {currentWeekIdx + 1}
                 <span className="text-text-3 text-xs font-semibold">
                   /{plan.planLengthWeeks}
@@ -331,7 +324,7 @@ export default function StatsPage() {
               <p className="text-[10px] uppercase tracking-wider text-text-3">
                 Total km
               </p>
-              <p className="mt-1 text-lg font-extrabold text-text-1">
+              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
                 {Math.round(totalKm)}
               </p>
             </div>
@@ -339,7 +332,7 @@ export default function StatsPage() {
               <p className="text-[10px] uppercase tracking-wider text-text-3">
                 Workouts
               </p>
-              <p className="mt-1 text-lg font-extrabold text-text-1">
+              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
                 {totalWorkouts}
               </p>
             </div>
@@ -348,40 +341,33 @@ export default function StatsPage() {
           <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-elevated">
             <div
               className="h-full rounded-full bg-accent transition-all"
-              style={{
-                width: `${Math.round(
-                  ((currentWeekIdx + 1) / plan.planLengthWeeks) * 100
-                )}%`,
-              }}
+              style={{ width: `${planPct}%` }}
             />
           </div>
-          <p className="mt-1.5 text-[10px] text-text-3 text-right">
-            {Math.round(
-              ((currentWeekIdx + 1) / plan.planLengthWeeks) * 100
-            )}
-            % through plan
+          <p className="mt-1.5 text-[11px] text-text-3 text-right">
+            {planPct}% through plan
           </p>
         </section>
 
         {/* This week */}
         {currentWeek && (
-          <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-            <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
+          <section className="rounded-[var(--radius-card)] bg-surface p-4">
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
               This week
             </p>
             <div className="mt-4 grid grid-cols-2 gap-4">
               <div>
-                <p className="text-3xl font-extrabold text-text-1">
+                <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
                   {completionPct}%
                 </p>
-                <p className="mt-1 text-sm text-text-3">Workouts done</p>
+                <p className="mt-1.5 text-[13px] text-text-3">Workouts done</p>
               </div>
               <div>
-                <p className="text-3xl font-extrabold text-text-1">
+                <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
                   {currentWeek.targetKm}
-                  <span className="text-sm font-semibold text-text-3"> km</span>
+                  <span className="text-[15px] font-semibold text-text-3"> km</span>
                 </p>
-                <p className="mt-1 text-sm text-text-3">Planned volume</p>
+                <p className="mt-1.5 text-[13px] text-text-3">Planned volume</p>
               </div>
             </div>
             <div className="mt-5 h-2 overflow-hidden rounded-full bg-elevated">
@@ -394,23 +380,23 @@ export default function StatsPage() {
         )}
 
         {/* Volume progression */}
-        <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-xs font-semibold uppercase tracking-widest text-text-3">
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
               Volume progression
             </p>
-            <p className="text-[10px] text-text-3">km / week</p>
+            <p className="text-[11px] text-text-3">km / week</p>
           </div>
           <VolumeChart weeks={plan.weeks} currentWeekIdx={currentWeekIdx} />
-          <div className="mt-2 flex justify-between text-[10px] text-text-3">
+          <div className="mt-2 flex justify-between text-[11px] text-text-3">
             <span>Wk 1</span>
             <span>Wk {plan.planLengthWeeks}</span>
           </div>
         </section>
 
         {/* Workout type distribution */}
-        <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3 mb-4">
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3 mb-4">
             Workout distribution
           </p>
           <div className="flex flex-col gap-3">
@@ -429,9 +415,9 @@ export default function StatsPage() {
               ))}
           </div>
         </section>
-      </main>
+      </div>
 
       <BottomNav active="activities" />
-    </div>
+    </main>
   );
 }

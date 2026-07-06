@@ -1,10 +1,30 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
+import {
+  User,
+  ChevronDown,
+  ChevronRight,
+  CalendarDays,
+  Play,
+  Check,
+  Plus,
+  Moon,
+  CloudRain,
+  Sunrise,
+  Sunset,
+  RefreshCw,
+} from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
+import { NavBar } from "@/components/ui/NavBar";
+import { Button } from "@/components/ui/Button";
+import { Sheet } from "@/components/ui/Sheet";
+import { Skeleton, EmptyState } from "@/components/ui/feedback";
+import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
+import { apiFetch } from "@/lib/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,7 +158,7 @@ function useWeather(selectedDate: Date | null) {
         async () => {
           // 3. Vercel IP headers via server-side API
           try {
-            const geoRes = await fetch("/api/geo");
+            const geoRes = await apiFetch("/api/geo");
             if (geoRes.ok) {
               const geoData = await geoRes.json() as { latitude: number; longitude: number };
               if (geoData.latitude && geoData.longitude) {
@@ -275,9 +295,9 @@ function buildWeekDaysForDate(weekMonday: Date, allWorkouts: TodayApiWorkout[]):
   });
 }
 
-// ── 1. Top App Bar ──────────────────────────────────────────────────────────
+// ── Week selector bar (sits below the NavBar large title) ──────────────────
 
-function TopAppBar({
+function WeekBar({
   currentWeek,
   totalWeeks,
   onWeekDropdown,
@@ -292,53 +312,39 @@ function TopAppBar({
 }) {
   const todayDate = new Date().getDate();
   return (
-    <header className="flex items-center justify-between">
-      {/* Left: Profile + notifications */}
-      <div className="flex items-center gap-2.5">
-        <Link href="/settings" className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center" aria-label="Profile">
-          <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <circle cx="12" cy="8" r="4" />
-            <path strokeLinecap="round" d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-          </svg>
-        </Link>
-        <button className="w-9 h-9 rounded-full flex items-center justify-center" aria-label="Notifications">
-          <svg className="w-5 h-5 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Center: Week selector */}
-      <button onClick={onWeekDropdown} className="flex items-center gap-1.5 active:opacity-70 transition-opacity">
-        <span className="text-base font-bold text-text-1">Week {currentWeek}/{totalWeeks}</span>
-        <svg className="w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+    <header className="flex items-center justify-between px-5 pb-2">
+      <button
+        onClick={onWeekDropdown}
+        className="press flex items-center gap-1 text-text-2"
+      >
+        <span className="text-[15px] font-semibold text-text-1">Week {currentWeek}/{totalWeeks}</span>
+        <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>
 
-      {/* Right: Back-to-today (only when not viewing today) + Calendar */}
       <div className="flex items-center gap-2">
         {!viewingToday && (
-          <button onClick={onBackToToday} className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex flex-col items-center justify-center relative" aria-label="Back to today">
-            <svg className="w-[18px] h-[18px] text-accent absolute top-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18" />
-            </svg>
-            <span className="text-[9px] font-extrabold text-accent mt-3">{todayDate}</span>
+          <button
+            onClick={onBackToToday}
+            aria-label="Back to today"
+            className="press flex h-9 w-9 flex-col items-center justify-center rounded-lg bg-elevated"
+          >
+            <CalendarDays className="mt-0.5 h-4 w-4 text-accent" strokeWidth={1.9} />
+            <span className="mt-[1px] text-[9px] font-extrabold leading-none text-accent">{todayDate}</span>
           </button>
         )}
-        <Link href="/plan" className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center" aria-label="Calendar">
-          <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
-        </Link>
+        <TransitionLink
+          href="/plan"
+          aria-label="Calendar"
+          className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+        >
+          <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+        </TransitionLink>
       </div>
     </header>
   );
 }
 
-// ── 2. Horizontal Calendar Strip ────────────────────────────────────────────
+// ── Horizontal Calendar Strip ────────────────────────────────────────────
 
 function CalendarStrip({
   days,
@@ -361,7 +367,7 @@ function CalendarStrip({
   }
 
   return (
-    <div className="flex justify-between" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <div className="flex justify-between px-5" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {days.map((day, i) => {
         const hasWorkout = day.workout && day.workout.type !== "rest";
         const completed = day.workout?.status === "completed";
@@ -369,17 +375,17 @@ function CalendarStrip({
         const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth();
 
         return (
-          <button key={i} onClick={() => onSelectDate(day)} className="flex flex-col items-center gap-1 w-11 py-1">
+          <button key={i} onClick={() => onSelectDate(day)} className="press flex w-11 flex-col items-center gap-1 py-1">
             <span className={`text-[10px] font-semibold tracking-wide ${day.isToday ? "text-text-1" : "text-text-3"}`}>
               {DAY_LABELS[i]}
             </span>
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+            <div className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-colors ${
               day.isToday ? "bg-text-1 text-bg" : isSelected ? "bg-elevated text-text-1" : "text-text-2"
             }`}>
               {day.dayNum}
             </div>
-            <div className="h-2 flex items-center">
-              {hasWorkout && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: completed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)") }} />}
+            <div className="flex h-2 items-center">
+              {hasWorkout && <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: completed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)") }} />}
             </div>
           </button>
         );
@@ -388,7 +394,7 @@ function CalendarStrip({
   );
 }
 
-// ── 3+4. Today's Workout Section + Main Card ────────────────────────────────
+// ── Today's Workout Card ────────────────────────────────────────────────────
 
 const typeLabel: Record<string, string> = {
   easy: "Easy Run",
@@ -409,9 +415,11 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
     : "";
 
   return (
-    <button
+    <motion.button
       onClick={() => router.push(`/workout/${workout.id}`)}
-      className="w-full text-left rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden active:opacity-80 transition-opacity"
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 450, damping: 32 }}
+      className="w-full overflow-hidden rounded-[var(--radius-card)] bg-surface text-left"
     >
       <div className="flex">
         {/* Colored left strip */}
@@ -420,22 +428,18 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
         <div className="flex-1 p-4">
           {/* Title row */}
           <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-base font-bold text-text-1">{workout.title}</p>
-              <p className="text-xs text-text-3 mt-0.5">{dateStr}{durationRange ? ` · ${durationRange}` : ""}</p>
+              <p className="mt-0.5 text-xs text-text-3">{dateStr}{durationRange ? ` · ${durationRange}` : ""}</p>
             </div>
             {/* Checkbox */}
-            <div className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center shrink-0 ${isCompleted ? "bg-text-1 border-text-1" : "border-hairline"}`}>
-              {isCompleted && (
-                <svg className="w-4 h-4 text-bg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              )}
+            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${isCompleted ? "border-text-1 bg-text-1" : "border-hairline"}`}>
+              {isCompleted && <Check className="h-4 w-4 text-bg" strokeWidth={3} />}
             </div>
           </div>
 
-          {/* Type + distance row (Benchmark-style) */}
-          <div className="flex items-center gap-1.5 mt-2 text-xs text-text-2">
+          {/* Type + distance row */}
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-text-2">
             <span className="font-semibold">{typeLabel[workout.type] ?? workout.type}</span>
             {workout.targetKm != null && (
               <>
@@ -463,26 +467,24 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
           </div>
         </div>
       </div>
-    </button>
+    </motion.button>
   );
 }
 
-// ── 5. Week Overview Progress Card ──────────────────────────────────────────
+// ── Week Overview Progress Card ──────────────────────────────────────────────
 
 function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodayStats; currentWeek: number; weekWorkouts: DayInfo[] }) {
   const workoutTypes = weekWorkouts.filter((d) => d.workout && d.workout.type !== "rest").map((d) => d.workout!);
 
   return (
-    <Link href="/plan" className="block rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity">
+    <TransitionLink href="/plan" className="press block rounded-[var(--radius-card)] bg-surface p-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-text-1">Week {currentWeek} Overview</p>
-        <svg className="w-5 h-5 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+        <ChevronRight className="h-5 w-5 text-text-3" strokeWidth={2} />
       </div>
 
       {/* Segmented progress bar */}
-      <div className="flex gap-1 mt-3 h-2">
+      <div className="mt-3 flex h-2 gap-1">
         {workoutTypes.map((wo, i) => {
           const completed = wo.status === "completed";
           const color = workoutBarColor[wo.type] ?? "#999";
@@ -496,15 +498,15 @@ function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodaySt
         })}
       </div>
 
-      <div className="flex items-center justify-between mt-2.5 text-xs text-text-3">
+      <div className="mt-2.5 flex items-center justify-between text-xs text-text-3">
         <span>Workouts: <span className="font-semibold text-text-1">{stats.daysCompleted}/{stats.totalDays}</span></span>
         <span>Distance: <span className="font-semibold text-text-1">{stats.completedKm}/{stats.plannedKm}KM</span></span>
       </div>
-    </Link>
+    </TransitionLink>
   );
 }
 
-// ── 7. My Insights Section ──────────────────────────────────────────────────
+// ── My Insights Section ──────────────────────────────────────────────────────
 
 function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts }: {
   stats: TodayStats;
@@ -513,6 +515,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
   totalWeeks: number;
   weekWorkouts: DayInfo[];
 }) {
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const pct = stats.plannedKm > 0 ? Math.round((stats.completedKm / stats.plannedKm) * 100) : 0;
 
@@ -528,80 +531,74 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
+      <div className="mb-3 flex items-center justify-between px-5">
         <p className="text-base font-bold text-text-1">My insights</p>
-        <button onClick={() => setCollapsed(!collapsed)} className="flex items-center gap-1 text-xs font-semibold text-text-3 uppercase tracking-wide active:opacity-70">
+        <button onClick={() => setCollapsed(!collapsed)} className="press flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-text-3">
           {collapsed ? "Expand" : "Collapse"}
-          <svg className={`w-3 h-3 transition-transform ${collapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          <ChevronDown className={`h-3 w-3 transition-transform ${collapsed ? "" : "rotate-180"}`} strokeWidth={2.5} />
         </button>
       </div>
 
       {!collapsed && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 px-5">
           {/* Row 1: Mileage + Pace */}
           <div className="grid grid-cols-2 gap-3">
             {/* Mileage card */}
-            <Link href="/insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
+            <TransitionLink href="/insights" className="press block rounded-[var(--radius-card)] bg-surface p-4">
               <div className="flex items-start justify-between">
                 <p className="text-sm font-bold text-text-1">Mileage on track</p>
-                <svg className="w-4 h-4 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
+                <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
               </div>
-              <p className="text-xs text-text-3 mt-1">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
-              <div className="mt-3 flex gap-1 h-2">
+              <p className="mt-1 text-xs text-text-3">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
+              <div className="mt-3 flex h-2 gap-1">
                 <div className="rounded-full bg-[#4ADE80]" style={{ flex: Math.max(0.01, stats.completedKm) }} />
                 <div className="rounded-full bg-elevated" style={{ flex: Math.max(0.01, stats.plannedKm - stats.completedKm) }} />
               </div>
-            </Link>
+            </TransitionLink>
             {/* Pace card */}
-            <Link href="/pace-insights" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 active:opacity-80 transition-opacity block">
+            <TransitionLink href="/pace-insights" className="press block rounded-[var(--radius-card)] bg-surface p-4">
               <div className="flex items-start justify-between">
                 <p className="text-sm font-bold text-text-1">Pace on point</p>
-                <svg className="w-4 h-4 text-text-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
+                <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
               </div>
-              <p className="text-xs text-text-3 mt-1">Next speed workout: soon</p>
-              <div className="mt-3 flex items-center justify-center h-2">
-                <div className="w-full h-1.5 rounded-full bg-elevated overflow-hidden">
+              <p className="mt-1 text-xs text-text-3">Next speed workout: soon</p>
+              <div className="mt-3 flex h-2 items-center justify-center">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
                   <div className="h-full rounded-full bg-[#4ADE80]" style={{ width: `${Math.min(100, pct)}%` }} />
                 </div>
               </div>
-            </Link>
+            </TransitionLink>
           </div>
 
           {/* Row 2: Weather + Week summary */}
           <div className="grid grid-cols-2 gap-3">
             {/* Weather card */}
-            <div className="rounded-[var(--radius-card)] bg-[#2A2E3A] p-4 flex flex-col justify-between min-h-[130px]">
+            <div className="flex min-h-[130px] flex-col justify-between rounded-[var(--radius-card)] bg-[#2A2E3A] p-4">
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold text-white/60 uppercase tracking-wide">{todayLabel}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-white/60">{todayLabel}</p>
                 {weather && (
-                  <div className="flex flex-col items-end gap-0.5 text-white/70 text-[10px]">
+                  <div className="flex flex-col items-end gap-0.5 text-[10px] text-white/70">
                     <div className="flex items-center gap-1">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                      </svg>
+                      <CloudRain className="h-3 w-3" strokeWidth={1.5} />
                       <span>{weather.rainPct}%</span>
                     </div>
                     {weather.sunrise && (
                       <div className="flex items-center gap-1">
-                        <span>☀ {weather.sunrise}</span>
+                        <Sunrise className="h-3 w-3" strokeWidth={1.5} />
+                        <span>{weather.sunrise}</span>
                       </div>
                     )}
                     {weather.sunset && (
                       <div className="flex items-center gap-1">
-                        <span>☾ {weather.sunset}</span>
+                        <Sunset className="h-3 w-3" strokeWidth={1.5} />
+                        <span>{weather.sunset}</span>
                       </div>
                     )}
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2 mt-2">
-                {weather && <WeatherIcon code={weather.code} className="w-7 h-7 text-white/80" />}
+              <div className="mt-2 flex items-center gap-2">
+                {weather && <WeatherIcon code={weather.code} className="h-7 w-7 text-white/80" />}
                 <p className="text-3xl font-extrabold text-white">{weather ? `${weather.temp}°` : "—"}</p>
               </div>
               <div className="mt-1">
@@ -610,19 +607,17 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
             </div>
 
             {/* Week summary card */}
-            <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 flex flex-col justify-between min-h-[130px]">
+            <div className="flex min-h-[130px] flex-col justify-between rounded-[var(--radius-card)] bg-surface p-4">
               <div>
-                <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide">Week {currentWeek}/{totalWeeks}</p>
-                <p className="text-3xl font-extrabold text-text-1 mt-1">{completedWorkouts.length}/{workoutDays.length}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Week {currentWeek}/{totalWeeks}</p>
+                <p className="mt-1 text-3xl font-extrabold text-text-1">{completedWorkouts.length}/{workoutDays.length}</p>
               </div>
               <div>
-                <div className="flex items-center gap-1 mb-2">
-                  <svg className="w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  <span className="text-[10px] font-semibold text-text-3 uppercase tracking-wide">Run</span>
+                <div className="mb-2 flex items-center gap-1">
+                  <Play className="h-3 w-3 text-text-3" strokeWidth={1.9} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Run</span>
                 </div>
-                <div className="flex gap-1 h-2">
+                <div className="flex h-2 gap-1">
                   {workoutDays.map((d, i) => {
                     const color = workoutBarColor[d.workout!.type] ?? "#999";
                     const done = d.workout?.status === "completed";
@@ -641,8 +636,14 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
           </div>
 
           {/* Row 3: Weekly distance circle */}
-          <Link href="/activities" className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 flex items-center gap-4 active:opacity-80 transition-opacity">
-            <svg viewBox="0 0 100 100" className="w-24 h-24 shrink-0">
+          <div
+            role="link"
+            tabIndex={0}
+            onClick={() => router.push("/activities")}
+            onKeyDown={(e) => { if (e.key === "Enter") router.push("/activities"); }}
+            className="press flex cursor-pointer items-center gap-4 rounded-[var(--radius-card)] bg-surface p-4"
+          >
+            <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0">
               <circle cx="50" cy="50" r="40" fill="none" stroke="var(--k-elevated)" strokeWidth="8" />
               <circle cx="50" cy="50" r="40" fill="none" stroke="#4ADE80" strokeWidth="8"
                 strokeDasharray={`${circPct * 251} 251`} strokeLinecap="round"
@@ -654,17 +655,22 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                 km
               </text>
             </svg>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-text-1">Weekly distance</p>
-              <p className="text-xs text-text-3 mt-0.5">{pct}% of goal</p>
-              <div className="flex items-center gap-1 mt-2 text-xs text-accent font-semibold">
-                <span>View activities</span>
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
+              <p className="mt-0.5 text-xs text-text-3">{pct}% of goal</p>
+              <div className="mt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="!h-auto !px-0 !text-xs"
+                  onClick={() => router.push("/activities")}
+                >
+                  View activities
+                  <ChevronRight className="h-3 w-3" strokeWidth={2.5} />
+                </Button>
               </div>
             </div>
-          </Link>
+          </div>
         </div>
       )}
     </div>
@@ -675,11 +681,9 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
 
 function RestDayCard() {
   return (
-    <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-6 flex flex-col items-center gap-3 text-center">
-      <div className="w-12 h-12 rounded-full bg-elevated flex items-center justify-center">
-        <svg className="w-6 h-6 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v9l3 3M3 12a9 9 0 1 0 18 0A9 9 0 0 0 3 12z" />
-        </svg>
+    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] bg-surface p-6 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-elevated">
+        <Moon className="h-6 w-6 text-text-3" strokeWidth={1.5} />
       </div>
       <p className="text-base font-semibold text-text-1">Rest day</p>
       <p className="text-sm text-text-3">Recovery is part of the plan.</p>
@@ -687,9 +691,9 @@ function RestDayCard() {
   );
 }
 
-// ── Week Dropdown ───────────────────────────────────────────────────────────
+// ── Week Selector Sheet ─────────────────────────────────────────────────────
 
-function WeekDropdown({
+function WeekSheet({
   open,
   onClose,
   totalWeeks,
@@ -702,67 +706,99 @@ function WeekDropdown({
   currentWeek: number;
   onSelectWeek: (w: number) => void;
 }) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-      <div className="absolute top-14 left-0 right-0 max-w-md mx-auto px-4" onClick={(e) => e.stopPropagation()}>
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface shadow-xl max-h-[50vh] overflow-y-auto animate-slide-up">
-          <div className="p-2">
-            {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((w) => {
-              const isSelected = w === currentWeek;
-              return (
-                <button key={w} onClick={() => { onSelectWeek(w); onClose(); }}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-[var(--radius-input)] text-left transition-colors ${isSelected ? "bg-accent/10" : "active:bg-elevated"}`}>
-                  <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>Week {w}</span>
-                  {isSelected && <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                </button>
-              );
-            })}
-            <div className="border-t border-hairline mt-1 pt-1">
-              <Link href="/create" onClick={onClose} className="w-full flex items-center gap-2 px-4 py-3 rounded-[var(--radius-input)] text-left active:bg-elevated transition-colors">
-                <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                <span className="text-sm font-semibold text-text-2">New plan</span>
-              </Link>
-            </div>
-          </div>
+    <Sheet open={open} onClose={onClose} title="Select week">
+      <div className="pb-2">
+        {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((w) => {
+          const isSelected = w === currentWeek;
+          return (
+            <button
+              key={w}
+              onClick={() => { onSelectWeek(w); onClose(); }}
+              className={`press flex w-full items-center justify-between rounded-[var(--radius-input)] px-4 py-3 text-left ${isSelected ? "bg-accent/10" : ""}`}
+            >
+              <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>Week {w}</span>
+              {isSelected && <Check className="h-4 w-4 text-accent" strokeWidth={2.5} />}
+            </button>
+          );
+        })}
+        <div className="mt-1 border-t border-hairline pt-1">
+          <TransitionLink
+            href="/create"
+            onClick={onClose}
+            className="press flex w-full items-center gap-2 rounded-[var(--radius-input)] px-4 py-3 text-left"
+          >
+            <Plus className="h-4 w-4 text-text-3" strokeWidth={2} />
+            <span className="text-sm font-semibold text-text-2">New plan</span>
+          </TransitionLink>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Skeleton ─────────────────────────────────────────────────────────────────
-
-function Skeleton() {
-  return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-8 pb-28 flex flex-col gap-4">
-        <div className="flex justify-between"><div className="w-20 h-9 rounded-full bg-elevated animate-pulse" /><div className="w-24 h-5 rounded bg-elevated animate-pulse" /><div className="w-9 h-9 rounded-lg bg-elevated animate-pulse" /></div>
-        <div className="flex justify-between">{Array.from({ length: 7 }).map((_, i) => <div key={i} className="flex flex-col items-center gap-1"><div className="h-3 w-6 rounded bg-elevated animate-pulse" /><div className="w-9 h-9 rounded-full bg-elevated animate-pulse" /></div>)}</div>
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface h-32 animate-pulse" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface h-20 animate-pulse" />
-      </main>
-      <BottomNav active="today" />
-    </div>
+    </Sheet>
   );
 }
 
 // ── No Plan CTA ──────────────────────────────────────────────────────────────
 
-function NoPlanCTA() {
+function NoPlanCTA({ error, onRetry }: { error?: boolean; onRetry?: () => void }) {
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-12 pb-28 flex flex-col items-center justify-center min-h-[80vh]">
-        <section className="w-full rounded-[var(--radius-card)] border border-hairline bg-surface p-8 text-center">
-          <h1 className="text-2xl font-extrabold text-accent">Kadenz</h1>
-          <h2 className="mt-3 text-xl font-extrabold text-text-1">Ready to train?</h2>
-          <p className="mt-2 text-sm text-text-2 leading-relaxed">Create a personalised race plan to see your workouts here.</p>
-          <Link href="/create" className="mt-6 inline-flex rounded-full bg-accent px-6 py-3 text-sm font-bold text-on-accent active:scale-95 transition-transform">Create plan</Link>
-        </section>
-      </main>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Today" large />
+      <div className="flex min-h-[70dvh] items-center justify-center px-5 pb-tabbar">
+        <EmptyState
+          icon={<CalendarDays className="h-10 w-10" strokeWidth={1.5} />}
+          title={error ? "Couldn't load your plan" : "Ready to train?"}
+          message={
+            error
+              ? "Something went wrong reaching Kadenz. Check your connection and try again."
+              : "Create a personalised race plan to see your workouts here."
+          }
+          action={
+            error ? (
+              <Button variant="secondary" onClick={onRetry}>
+                <RefreshCw className="h-4 w-4" strokeWidth={2} />
+                Try again
+              </Button>
+            ) : (
+              <TransitionLink href="/create">
+                <Button variant="primary">Create plan</Button>
+              </TransitionLink>
+            )
+          }
+        />
+      </div>
       <BottomNav active="today" />
-    </div>
+    </main>
+  );
+}
+
+// ── Loading skeleton ─────────────────────────────────────────────────────────
+
+function TodaySkeleton() {
+  return (
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Today" large />
+      <div className="flex flex-col gap-4 px-5 pb-tabbar">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-24" />
+          <Skeleton className="h-9 w-9 rounded-lg" />
+        </div>
+        <div className="flex justify-between">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <Skeleton className="h-3 w-6" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-36 w-full rounded-[var(--radius-card)]" />
+        <Skeleton className="h-20 w-full rounded-[var(--radius-card)]" />
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-28 rounded-[var(--radius-card)]" />
+          <Skeleton className="h-28 rounded-[var(--radius-card)]" />
+        </div>
+      </div>
+      <BottomNav active="today" />
+    </main>
   );
 }
 
@@ -772,9 +808,11 @@ export default function Home() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TodayApiResponse | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [days, setDays] = useState<DayInfo[]>([]);
   const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
   const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<TodayApiWorkout | null>(null);
@@ -782,14 +820,16 @@ export default function Home() {
   const weather = useWeather(selectedDate);
 
   const loadData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
     try {
-      const res = await fetch("/api/today");
+      const res = await apiFetch("/api/today");
       if (!res.ok) throw new Error("Failed");
       const json: TodayApiResponse = await res.json();
       setData(json);
 
       if (json.activePlan && json.planId) {
-        const planRes = await fetch(`/api/plans/${json.planId}`);
+        const planRes = await apiFetch(`/api/plans/${json.planId}`);
         if (planRes.ok) {
           const plan = await planRes.json();
           const wo: TodayApiWorkout[] = [];
@@ -818,6 +858,7 @@ export default function Home() {
         }
       }
     } catch {
+      setLoadError(true);
       setData({ activePlan: false });
     } finally {
       setLoading(false);
@@ -854,14 +895,23 @@ export default function Home() {
     const wo = selectedWorkout ?? data?.todayWorkout;
     if (!wo || completing) return;
     setCompleting(true);
+    setCompleteError(false);
     try {
-      const res = await fetch(`/api/workouts/${wo.id}/complete`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
-      if (res.ok) await loadData();
-    } catch { /* silent */ } finally { setCompleting(false); }
+      const res = await apiFetch(`/api/workouts/${wo.id}/complete`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (res.ok) {
+        await loadData();
+      } else {
+        setCompleteError(true);
+      }
+    } catch {
+      setCompleteError(true);
+    } finally {
+      setCompleting(false);
+    }
   }
 
-  if (loading) return <Skeleton />;
-  if (!data?.activePlan) return <NoPlanCTA />;
+  if (loading) return <TodaySkeleton />;
+  if (!data?.activePlan) return <NoPlanCTA error={loadError} onRetry={loadData} />;
 
   const currentWeek = data.currentWeek ?? 1;
   const totalWeeks = data.totalWeeks ?? 1;
@@ -885,12 +935,27 @@ export default function Home() {
       };
 
   const displayedWeek = currentWeek + weekOffset;
+  const showStickyButton = !isRestDay && activeWorkout && activeWorkout.status !== "completed";
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-8 pb-36 flex flex-col gap-4">
-        {/* 1. Top App Bar */}
-        <TopAppBar
+    <main className="min-h-dvh bg-bg">
+      <NavBar
+        title="Today"
+        large
+        right={
+          <TransitionLink
+            href="/settings"
+            aria-label="Profile"
+            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
+          >
+            <User className="h-4 w-4 text-text-3" strokeWidth={1.75} />
+          </TransitionLink>
+        }
+      />
+
+      <div className={`flex flex-col gap-4 ${showStickyButton ? "pb-[calc(var(--tabbar-h)+var(--sa-bottom)+88px)]" : "pb-tabbar"}`}>
+        {/* Week selector */}
+        <WeekBar
           currentWeek={displayedWeek}
           totalWeeks={totalWeeks}
           onWeekDropdown={() => setDropdownOpen(true)}
@@ -898,7 +963,7 @@ export default function Home() {
           onBackToToday={handleBackToToday}
         />
 
-        {/* 2. Calendar Strip */}
+        {/* Calendar Strip */}
         <CalendarStrip
           days={days}
           selectedDate={selectedDate}
@@ -908,52 +973,63 @@ export default function Home() {
         />
 
         {/* Divider */}
-        <div className="h-px bg-hairline" />
+        <div className="mx-5 h-px bg-hairline" />
 
-        {/* 3. Section header + weather */}
-        <div className="flex items-center justify-between">
+        {/* Section header + weather */}
+        <div className="flex items-center justify-between px-5">
           <p className="text-base font-bold text-text-1">Workouts</p>
           {weather && (
             <div className="flex items-center gap-1.5 text-text-2">
-              <WeatherIcon code={weather.code} className="w-5 h-5" />
+              <WeatherIcon code={weather.code} className="h-5 w-5" />
               <span className="text-sm font-semibold tabular-nums">{weather.temp}°</span>
             </div>
           )}
         </div>
 
-        {/* 4. Main Workout Card */}
-        {isRestDay ? <RestDayCard /> : <WorkoutCard workout={activeWorkout!} />}
+        {/* Main Workout Card */}
+        <div className="px-5">
+          {isRestDay ? <RestDayCard /> : <WorkoutCard workout={activeWorkout!} />}
+        </div>
 
-        {/* 5. Week Overview */}
-        <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
+        {/* Week Overview */}
+        <div className="px-5">
+          <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
+        </div>
 
         {/* Divider */}
-        <div className="h-px bg-hairline" />
+        <div className="mx-5 h-px bg-hairline" />
 
-        {/* 7. My Insights */}
+        {/* My Insights */}
         <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} />
-      </main>
+      </div>
 
-      {/* 8. Sticky Bottom Button */}
-      {!isRestDay && activeWorkout && activeWorkout.status !== "completed" && (
-        <div className="fixed bottom-16 left-0 right-0 z-40 px-4 pb-4">
-          <div className="max-w-md mx-auto">
-            <button
-              onClick={handleComplete}
-              disabled={completing}
-              className="w-full rounded-full bg-text-1 text-bg font-bold text-sm py-4 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60 shadow-lg"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              {completing ? "Saving..." : "Record workout"}
-            </button>
-          </div>
+      {/* Sticky Bottom Button */}
+      {showStickyButton && (
+        <div
+          className="fixed inset-x-0 z-40 mx-auto max-w-[430px] px-5"
+          style={{ bottom: "calc(var(--tabbar-h) + var(--sa-bottom) + 12px)" }}
+        >
+          {completeError && (
+            <p className="mb-2 text-center text-xs font-medium text-danger">
+              Couldn&apos;t save your workout. Please try again.
+            </p>
+          )}
+          <Button
+            variant="primary"
+            size="lg"
+            full
+            busy={completing}
+            onClick={handleComplete}
+            className="shadow-lg"
+          >
+            <Play className="h-4 w-4" fill="currentColor" strokeWidth={0} />
+            Record workout
+          </Button>
         </div>
       )}
 
-      {/* Week Dropdown */}
-      <WeekDropdown
+      {/* Week Selector Sheet */}
+      <WeekSheet
         open={dropdownOpen}
         onClose={() => setDropdownOpen(false)}
         totalWeeks={totalWeeks}
@@ -962,6 +1038,6 @@ export default function Home() {
       />
 
       <BottomNav active="today" />
-    </div>
+    </main>
   );
 }

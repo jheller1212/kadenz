@@ -1,8 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { ChevronRight, Activity as ActivityIcon, AlertCircle } from "lucide-react";
+import { NavBar } from "@/components/ui/NavBar";
 import { BottomNav } from "@/components/BottomNav";
+import { Segmented } from "@/components/ui/Segmented";
+import { Skeleton, EmptyState } from "@/components/ui/feedback";
+import { TransitionLink } from "@/components/ui/TransitionLink";
+import { apiFetch } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,15 +101,6 @@ const WORKOUT_COLORS: Record<string, string> = {
   run: "#60A5FA",
 };
 
-const TYPE_LABEL: Record<string, string> = {
-  easy: "Easy Run",
-  recovery: "Recovery Run",
-  tempo: "Tempo Run",
-  interval: "Intervals",
-  long: "Long Run",
-  race: "Race",
-};
-
 // ── Group workouts by month ───────────────────────────────────────────────────
 
 interface MonthGroup {
@@ -192,36 +188,29 @@ const FILTER_TYPE_MAP: Record<string, string[]> = {
   "Race":     ["race"],
 };
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
+// ── Loading skeleton ──────────────────────────────────────────────────────────
 
-function Skeleton() {
+function ActivitiesSkeleton() {
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-8 pb-28 flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div className="w-28 h-7 rounded bg-elevated animate-pulse" />
-          <div className="flex gap-2">
-            <div className="w-8 h-8 rounded-lg bg-elevated animate-pulse" />
-            <div className="w-8 h-8 rounded-lg bg-elevated animate-pulse" />
-          </div>
-        </div>
-        <div className="flex gap-0.5 h-10 rounded-[var(--radius-input)] bg-elevated animate-pulse" />
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Activities" large />
+      <div className="flex flex-col gap-3 px-4 pb-tabbar">
+        <Skeleton className="h-10 w-full" />
         <div className="flex gap-2">
-          {[0, 1, 2].map((i) => <div key={i} className="h-8 w-24 rounded-full bg-elevated animate-pulse" />)}
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-8 w-24 rounded-full" />)}
         </div>
         {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-[var(--radius-card)] border border-hairline bg-surface h-24 animate-pulse" />
+          <Skeleton key={i} className="h-28" />
         ))}
-      </main>
+      </div>
       <BottomNav active="activities" />
-    </div>
+    </main>
   );
 }
 
 // ── WorkoutRow ────────────────────────────────────────────────────────────────
 
 function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
-  const router = useRouter();
   const barColor = WORKOUT_COLORS[workout.type] ?? "#999";
   const date = new Date(workout.date);
   const dateStr = date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
@@ -244,90 +233,79 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
     ? (hasActivity ? formatSeconds(durationSec) : formatDuration(Math.round(durationSec / 60)))
     : null;
 
-  function handleClick() {
-    if (hasActivity) {
-      router.push(`/activity/${workout.activity!.id}`);
-    }
-  }
+  const cardInner = (
+    <div className="flex">
+      {/* Colored left strip */}
+      <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
 
-  const cardProps = hasActivity
-    ? {
-        role: "button" as const,
-        tabIndex: 0,
-        onClick: handleClick,
-        onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") handleClick(); },
-        className: "rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden cursor-pointer active:opacity-70 transition-opacity",
-        "aria-label": `View activity details for ${workout.title}`,
-      }
-    : {
-        className: "rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden",
-      };
-
-  return (
-    <div {...cardProps}>
-      <div className="flex">
-        {/* Colored left strip */}
-        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
-
-        <div className="flex-1 p-4">
-          {/* Top row */}
-          <div className="flex items-start gap-3">
-            {/* Running icon */}
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-              style={{ backgroundColor: `${barColor}22` }}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={barColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="5" r="1.5" />
-                <path d="M6 9l3 1.5 1.5 3.5L9 18" />
-                <path d="M14.5 9.5L12 11l1 3 3.5 2" />
-                <path d="M10 12l1.5 1 2-1" />
-              </svg>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-text-1 truncate">{workout.title}</p>
-              <p className="text-xs text-text-3 mt-0.5">{dateStr} · {timeStr}</p>
-            </div>
-
-            {hasActivity && (
-              <svg className="w-4 h-4 text-text-3 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6" />
-              </svg>
-            )}
+      <div className="flex-1 p-4">
+        {/* Top row */}
+        <div className="flex items-start gap-3">
+          {/* Running icon */}
+          <div
+            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+            style={{ backgroundColor: `${barColor}22` }}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke={barColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.5" />
+              <path d="M6 9l3 1.5 1.5 3.5L9 18" />
+              <path d="M14.5 9.5L12 11l1 3 3.5 2" />
+              <path d="M10 12l1.5 1 2-1" />
+            </svg>
           </div>
 
-          {/* Stats row */}
-          <div className="mt-3 flex items-center gap-4">
-            {distKm != null && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-text-3">Distance</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{distKm.toFixed(2)} km</p>
-              </div>
-            )}
-            {durationDisplay != null && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-text-3">Time</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{durationDisplay}</p>
-              </div>
-            )}
-            {avgPaceSecKm != null && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-text-3">Avg pace</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{formatPace(avgPaceSecKm)} /km</p>
-              </div>
-            )}
-            {workout.activity?.avgHr != null && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-text-3">Avg HR</p>
-                <p className="text-sm font-bold text-text-1 tabular-nums">{workout.activity.avgHr} bpm</p>
-              </div>
-            )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold text-text-1">{workout.title}</p>
+            <p className="mt-0.5 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
           </div>
+
+          {hasActivity && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
+        </div>
+
+        {/* Stats row */}
+        <div className="mt-3 flex items-center gap-4">
+          {distKm != null && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-3">Distance</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{distKm.toFixed(2)} km</p>
+            </div>
+          )}
+          {durationDisplay != null && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-3">Time</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{durationDisplay}</p>
+            </div>
+          )}
+          {avgPaceSecKm != null && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-3">Avg pace</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(avgPaceSecKm)} /km</p>
+            </div>
+          )}
+          {workout.activity?.avgHr != null && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-text-3">Avg HR</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{workout.activity.avgHr} bpm</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
+
+  if (hasActivity) {
+    return (
+      <TransitionLink
+        href={`/activity/${workout.activity!.id}`}
+        aria-label={`View activity details for ${workout.title}`}
+        className="press block overflow-hidden rounded-[var(--radius-card)] bg-surface"
+      >
+        {cardInner}
+      </TransitionLink>
+    );
+  }
+
+  return <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">{cardInner}</div>;
 }
 
 // ── MonthSection ──────────────────────────────────────────────────────────────
@@ -346,12 +324,12 @@ function MonthSection({ group }: { group: MonthGroup }) {
       {/* Month header */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-base font-bold text-text-1">{group.label}</p>
-          <p className="text-xs text-text-3 mt-0.5">
+          <p className="text-[17px] font-bold text-text-1">{group.label}</p>
+          <p className="mt-0.5 text-[13px] text-text-3">
             {group.activityCount} {group.activityCount === 1 ? "activity" : "activities"} · {durationStr}
           </p>
         </div>
-        <p className="text-sm font-bold text-text-2 tabular-nums pt-0.5">
+        <p className="pt-0.5 text-[15px] font-bold tabular-nums text-text-2">
           {Math.round(group.totalKm * 10) / 10} km
         </p>
       </div>
@@ -395,19 +373,19 @@ function WorkoutsTab({ workouts }: { workouts: ActivityWorkout[] }) {
   return (
     <div className="flex flex-col gap-5">
       {/* Filters */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+      <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1">
         {/* Workout type */}
         <div className="relative shrink-0">
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="appearance-none pl-3 pr-7 py-1.5 rounded-full border border-hairline bg-surface text-xs font-semibold text-text-1 cursor-pointer focus:outline-none"
+            className="press appearance-none rounded-full bg-elevated py-1.5 pl-3 pr-7 text-[13px] font-semibold text-text-1 focus:outline-none"
           >
             {FILTER_TYPES.map((t) => (
               <option key={t} value={t}>{t === "All" ? "Workout Type" : t}</option>
             ))}
           </select>
-          <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+          <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
@@ -417,12 +395,12 @@ function WorkoutsTab({ workouts }: { workouts: ActivityWorkout[] }) {
           <select
             value={yearFilter}
             onChange={(e) => setYearFilter(e.target.value)}
-            className="appearance-none pl-3 pr-7 py-1.5 rounded-full border border-hairline bg-surface text-xs font-semibold text-text-1 cursor-pointer focus:outline-none"
+            className="press appearance-none rounded-full bg-elevated py-1.5 pl-3 pr-7 text-[13px] font-semibold text-text-1 focus:outline-none"
           >
             <option value="All">Year</option>
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
-          <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+          <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
@@ -432,12 +410,12 @@ function WorkoutsTab({ workouts }: { workouts: ActivityWorkout[] }) {
           <select
             value={monthFilter}
             onChange={(e) => setMonthFilter(e.target.value)}
-            className="appearance-none pl-3 pr-7 py-1.5 rounded-full border border-hairline bg-surface text-xs font-semibold text-text-1 cursor-pointer focus:outline-none"
+            className="press appearance-none rounded-full bg-elevated py-1.5 pl-3 pr-7 text-[13px] font-semibold text-text-1 focus:outline-none"
           >
             <option value="All">Month</option>
             {months.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
-          <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+          <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
@@ -445,9 +423,11 @@ function WorkoutsTab({ workouts }: { workouts: ActivityWorkout[] }) {
 
       {/* Month groups */}
       {groups.length === 0 ? (
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-8 text-center">
-          <p className="text-sm text-text-3">No workouts match the selected filters.</p>
-        </div>
+        <EmptyState
+          icon={<ActivityIcon className="h-10 w-10" strokeWidth={1.5} />}
+          title="No activities yet"
+          message="No workouts match the selected filters, or you haven't logged any activities yet."
+        />
       ) : (
         groups.map((group) => <MonthSection key={group.key} group={group} />)
       )}
@@ -462,12 +442,12 @@ function WeeklyBarChart({ bars }: { bars: WeekBar[] }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-end gap-1.5 h-20">
+      <div className="flex h-20 items-end gap-1.5">
         {bars.map((bar, i) => {
           const pct = (bar.km / maxKm) * 100;
           const isCurrent = i === bars.length - 1;
           return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1">
+            <div key={i} className="flex flex-1 flex-col items-center gap-1">
               <div
                 className="w-full rounded-t-sm transition-all"
                 style={{
@@ -482,7 +462,7 @@ function WeeklyBarChart({ bars }: { bars: WeekBar[] }) {
         })}
       </div>
       {/* X-axis labels — only first and last to avoid crowding */}
-      <div className="flex justify-between text-[10px] text-text-3 tabular-nums px-0.5">
+      <div className="flex justify-between px-0.5 text-[10px] tabular-nums text-text-3">
         <span>{bars[0]?.label}</span>
         <span>{bars[bars.length - 1]?.label}</span>
       </div>
@@ -502,7 +482,7 @@ function HexBadge({ pr }: { pr: PersonalRecord }) {
     <div className="flex flex-col items-center gap-2">
       {/* Hexagon */}
       <div
-        className="w-16 h-16 flex items-center justify-center"
+        className="flex h-16 w-16 items-center justify-center"
         style={{
           clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
           backgroundColor: display.bgColor,
@@ -514,27 +494,30 @@ function HexBadge({ pr }: { pr: PersonalRecord }) {
         </span>
       </div>
       {/* Time */}
-      <p className="text-sm font-bold text-text-1 tabular-nums text-center">
+      <p className="text-center text-[15px] font-bold tabular-nums text-text-1">
         {formatPaceSeconds(pr.timeSeconds)}
       </p>
       {/* Date */}
-      <p className="text-[10px] text-text-3 text-center leading-tight">{dateStr}</p>
+      <p className="text-center text-[10px] leading-tight text-text-3">{dateStr}</p>
     </div>
   );
 }
 
 function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
-  const [viewBy] = useState<"week">("week");
   const [prs, setPrs] = useState<PersonalRecord[]>([]);
   const [prsLoading, setPrsLoading] = useState(true);
+  const [prsError, setPrsError] = useState(false);
 
   useEffect(() => {
-    fetch("/api/race-times")
-      .then((r) => r.json())
+    apiFetch("/api/race-times")
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load personal records");
+        return r.json();
+      })
       .then((data) => {
         if (Array.isArray(data)) setPrs(data);
       })
-      .catch(() => {})
+      .catch(() => setPrsError(true))
       .finally(() => setPrsLoading(false));
   }, []);
 
@@ -561,14 +544,10 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
     <div className="flex flex-col gap-5">
       {/* Date range header */}
       <div className="flex items-center justify-between">
-        <p className="text-base font-bold text-text-1">{dateRangeLabel}</p>
-        <div className="flex items-center gap-1 px-3 py-1.5 rounded-full border border-hairline bg-surface">
-          <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide">View by:</p>
-          <p className="text-[10px] font-bold text-text-1 uppercase tracking-wide">{viewBy}</p>
-          <svg className="w-3 h-3 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
+        <p className="text-[17px] font-bold text-text-1">{dateRangeLabel}</p>
+        <span className="rounded-full bg-elevated px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-3">
+          This week
+        </span>
       </div>
 
       {/* Summary stats */}
@@ -578,40 +557,45 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
           { label: "TIME",       value: thisWeekSec > 0 ? formatSeconds(thisWeekSec) : "0s" },
           { label: "ACTIVITIES", value: thisWeekWorkouts.length.toString() },
         ].map(({ label, value }) => (
-          <div key={label} className="rounded-[var(--radius-input)] bg-surface border border-hairline p-3 text-center">
+          <div key={label} className="rounded-[var(--radius-input)] bg-surface p-3 text-center">
             <p className="text-[9px] font-semibold uppercase tracking-wider text-text-3">{label}</p>
-            <p className="mt-1 text-sm font-extrabold text-text-1 tabular-nums leading-tight">{value}</p>
+            <p className="mt-1 text-[15px] font-extrabold leading-tight tabular-nums text-text-1">{value}</p>
           </div>
         ))}
       </div>
 
       {/* Weekly mileage bar chart */}
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-text-3 mb-4">Weekly mileage</p>
+      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+        <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-text-3">Weekly mileage</p>
         <WeeklyBarChart bars={bars} />
       </div>
 
       {/* Personal Records */}
-      <div className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-text-3">Personal Records</p>
-          <a href="/settings" className="text-[10px] font-semibold text-accent">Edit</a>
+      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-[13px] font-semibold uppercase tracking-wider text-text-3">Personal Records</p>
+          <TransitionLink href="/settings" className="text-[12px] font-semibold text-accent">Edit</TransitionLink>
         </div>
 
         {prsLoading ? (
           <div className="grid grid-cols-3 gap-4">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="flex flex-col items-center gap-2">
-                <div className="w-16 h-16 rounded-full bg-elevated animate-pulse" />
-                <div className="h-4 w-12 rounded bg-elevated animate-pulse" />
-                <div className="h-3 w-16 rounded bg-elevated animate-pulse" />
+                <Skeleton className="h-16 w-16 rounded-full" />
+                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-3 w-16" />
               </div>
             ))}
           </div>
+        ) : prsError ? (
+          <p className="flex items-center justify-center gap-1.5 py-4 text-center text-[13px] text-danger">
+            <AlertCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+            Couldn&apos;t load personal records.
+          </p>
         ) : prs.length === 0 ? (
-          <p className="text-sm text-text-3 text-center py-4">
+          <p className="py-4 text-center text-[14px] text-text-3">
             No personal records yet.{" "}
-            <a href="/settings" className="text-accent font-semibold">Add one</a>
+            <TransitionLink href="/settings" className="font-semibold text-accent">Add one</TransitionLink>
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-4">
@@ -633,67 +617,45 @@ export default function ActivitiesPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("workouts");
   const [workouts, setWorkouts] = useState<ActivityWorkout[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch("/api/activities")
-      .then((r) => r.json())
+    apiFetch("/api/activities")
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load activities");
+        return r.json();
+      })
       .then((data: ActivitiesApiResponse) => {
         // Use activities (real Strava data) if available, fall back to workouts
         setWorkouts(data.activities ?? data.workouts ?? []);
       })
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Skeleton />;
+  if (loading) return <ActivitiesSkeleton />;
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-8 pb-28 flex flex-col gap-4">
-        {/* Header */}
-        <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-extrabold text-text-1">Activities</h1>
-          <div className="flex items-center gap-2">
-            {/* Add button */}
-            <button
-              className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center active:opacity-70 transition-opacity"
-              aria-label="Add activity"
-            >
-              <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-            {/* Grid / list toggle */}
-            <button
-              className="w-9 h-9 rounded-lg bg-elevated border border-hairline flex items-center justify-center active:opacity-70 transition-opacity"
-              aria-label="Toggle view"
-            >
-              <svg className="w-4 h-4 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-                <rect x="14" y="14" width="7" height="7" rx="1" />
-              </svg>
-            </button>
-          </div>
-        </header>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Activities" large />
 
-        {/* Tab bar */}
-        <div className="flex border-b border-hairline">
-          {(["workouts", "performance"] as ActiveTab[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 pb-2.5 text-sm font-semibold capitalize transition-colors ${
-                activeTab === tab
-                  ? "text-text-1 border-b-2 border-text-1 -mb-px"
-                  : "text-text-3"
-              }`}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-col gap-4 px-4 pb-tabbar">
+        {error && (
+          <p className="flex items-center gap-1.5 rounded-[var(--radius-input)] bg-danger/10 px-3 py-2 text-[13px] text-danger">
+            <AlertCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+            Couldn&apos;t load your activities. Pull to refresh or try again later.
+          </p>
+        )}
+
+        {/* Tab control */}
+        <Segmented
+          options={[
+            { value: "workouts", label: "Workouts" },
+            { value: "performance", label: "Performance" },
+          ]}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
 
         {/* Tab content */}
         {activeTab === "workouts" ? (
@@ -701,9 +663,9 @@ export default function ActivitiesPage() {
         ) : (
           <PerformanceTab workouts={workouts} />
         )}
-      </main>
+      </div>
 
       <BottomNav active="activities" />
-    </div>
+    </main>
   );
 }

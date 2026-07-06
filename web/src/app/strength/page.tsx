@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { motion } from "motion/react";
+import { ChevronRight, Minus, Plus, Check, X } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
+import { NavBar } from "@/components/ui/NavBar";
+import { Button } from "@/components/ui/Button";
+import { TransitionLink } from "@/components/ui/TransitionLink";
+import { haptic } from "@/lib/haptics";
+import { apiFetch } from "@/lib/api";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
 
@@ -60,21 +66,30 @@ interface WorkSet {
   logged: boolean;
 }
 
+// Small spring-driven +/- stepper button used throughout the logger.
+function Stepper({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileTap={{ scale: 0.85 }}
+      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      style={{ touchAction: "manipulation" }}
+      className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-input)] bg-surface text-text-1"
+    >
+      {children}
+    </motion.button>
+  );
+}
+
 export default function StrengthPage() {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [work, setWork] = useState<Record<string, WorkSet[]>>({});
   const [elapsed, setElapsed] = useState(0);
   const [rest, setRest] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const buzz = (ms: number | number[]) => {
-    try {
-      navigator.vibrate?.(ms);
-    } catch {
-      /* no haptics */
-    }
-  };
 
   // Session clock
   useEffect(() => {
@@ -91,7 +106,7 @@ export default function StrengthPage() {
       setRest((r) => {
         if (r === null || r <= 1) {
           if (restTimer.current) clearInterval(restTimer.current);
-          buzz([60, 40, 60]);
+          haptic("warning");
           return null;
         }
         return r - 1;
@@ -108,16 +123,27 @@ export default function StrengthPage() {
 
   async function startSession(type: SessionType) {
     setBusy(true);
+    setError(null);
     try {
-      const res = await fetch("/api/strength/sessions", {
+      const res = await apiFetch("/api/strength/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type, date: new Date().toISOString(), force: true }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setError("Couldn't start the session. Try again.");
+        return;
+      }
       const { session: s } = await res.json();
-      const detail = await (await fetch(`/api/strength/sessions/${s.id}`)).json();
+      const detailRes = await apiFetch(`/api/strength/sessions/${s.id}`);
+      if (!detailRes.ok) {
+        setError("Couldn't load the session. Try again.");
+        return;
+      }
+      const detail = await detailRes.json();
       hydrate(detail);
+    } catch {
+      setError("Network error — couldn't start the session.");
     } finally {
       setBusy(false);
     }
@@ -144,10 +170,10 @@ export default function StrengthPage() {
     const nextLogged = !set.logged;
     setWork({ ...work, [ex.slug]: arr.map((s, i) => (i === si ? { ...s, logged: nextLogged } : s)) });
     if (nextLogged) {
-      buzz(30);
+      haptic("light");
       startRest(90);
       if (session) {
-        fetch(`/api/strength/sessions/${session.id}/sets`, {
+        apiFetch(`/api/strength/sessions/${session.id}/sets`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -162,6 +188,7 @@ export default function StrengthPage() {
   }
 
   function adjust(slug: string, si: number, field: "kg" | "reps", d: number) {
+    haptic("light");
     setWork((w) => ({
       ...w,
       [slug]: w[slug].map((s, i) =>
@@ -176,7 +203,8 @@ export default function StrengthPage() {
 
   async function finish() {
     if (!session) return;
-    await fetch(`/api/strength/sessions/${session.id}`, {
+    haptic("success");
+    await apiFetch(`/api/strength/sessions/${session.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "completed", durationMinutes: Math.max(1, Math.round(elapsed / 60)) }),
@@ -188,38 +216,50 @@ export default function StrengthPage() {
   // ── Picker ──────────────────────────────────────────────────────────────────
   if (!session) {
     return (
-      <div className="min-h-screen bg-bg">
-        <main className="mx-auto w-full max-w-md px-4 pt-10 pb-28">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-3">Strength</p>
-          <h1 className="mt-1 text-2xl font-extrabold text-text-1">Start a session</h1>
-          <p className="mt-2 text-sm text-text-2">
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Kraft" large />
+        <div className="px-4 pb-tabbar">
+          <p className="text-[15px] text-text-2">
             Dumbbell program · loads snap to your DH FitLife 18-in-1 (18 levels, 2.5–23.5 kg).
           </p>
-          <div className="mt-5 grid grid-cols-1 gap-3">
+
+          {error && (
+            <div className="mt-3 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-col gap-3">
             {(Object.keys(TYPE_META) as SessionType[]).map((t) => (
-              <button
+              <motion.button
                 key={t}
+                type="button"
                 disabled={busy}
                 onClick={() => startSession(t)}
-                className="flex items-center gap-3 rounded-[var(--radius-card)] border border-hairline bg-surface p-4 text-left active:scale-[0.98] transition-transform disabled:opacity-50"
+                whileTap={{ scale: busy ? 1 : 0.97 }}
+                transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                style={{ touchAction: "manipulation" }}
+                className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-4 text-left disabled:opacity-50"
               >
-                <span className="h-10 w-1.5 rounded-full" style={{ backgroundColor: TYPE_META[t].color }} />
-                <span className="flex-1">
-                  <span className="block text-base font-extrabold text-text-1">{TYPE_META[t].title}</span>
-                  <span className="block text-xs text-text-3">{TYPE_META[t].sub}</span>
+                <span className="h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: TYPE_META[t].color }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[17px] font-bold text-text-1">{TYPE_META[t].title}</span>
+                  <span className="block text-[13px] text-text-3">{TYPE_META[t].sub}</span>
                 </span>
-                <svg className="h-5 w-5 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
+                <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.9} />
+              </motion.button>
             ))}
           </div>
-          <Link href="/strength/history" className="mt-4 block text-center text-sm font-semibold text-accent">
+
+          <TransitionLink
+            href="/strength/history"
+            className="mt-5 block text-center text-[15px] font-semibold text-accent"
+          >
             View history →
-          </Link>
-        </main>
+          </TransitionLink>
+        </div>
         <BottomNav active="strength" />
-      </div>
+      </main>
     );
   }
 
@@ -228,111 +268,160 @@ export default function StrengthPage() {
   const total = Object.values(work).flat().length;
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto w-full max-w-md px-4 pt-6 pb-40">
-        <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between bg-bg px-4 pb-3">
+    <main className="min-h-dvh bg-bg">
+      <div className="px-4 pb-tabbar pt-[max(env(safe-area-inset-top),8px)]">
+        <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between px-4 pb-3 pt-3 material">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger" />
-            <span className="text-lg font-extrabold tabular-nums">{fmt(elapsed)}</span>
-            <span className="text-xs text-text-3">/ ~{session.targetDurationMinutes}m</span>
+            <span className="text-[19px] font-extrabold tabular-nums text-text-1">{fmt(elapsed)}</span>
+            <span className="text-[13px] text-text-3">/ ~{session.targetDurationMinutes}m</span>
           </div>
-          <button onClick={() => setSession(null)} className="rounded-lg bg-elevated border border-hairline px-3 py-1.5 text-xs font-semibold text-text-2">
+          <Button variant="secondary" size="sm" onClick={() => setSession(null)}>
             Exit
-          </button>
+          </Button>
         </div>
+
         <div className="h-1 overflow-hidden rounded-full bg-elevated">
-          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
+          <div
+            className="h-full rounded-full bg-accent transition-all"
+            style={{ width: `${total ? (done / total) * 100 : 0}%` }}
+          />
         </div>
 
         <div className="mt-3 flex items-baseline justify-between">
-          <h1 className="text-xl font-extrabold text-text-1">{session.title}</h1>
-          <span className="text-sm text-text-3 tabular-nums">{done}/{total} sets</span>
+          <h1 className="text-[22px] font-bold tracking-tight text-text-1">{session.title}</h1>
+          <span className="text-[13px] tabular-nums text-text-3">
+            {done}/{total} sets
+          </span>
         </div>
 
         {session.type === "lower_achilles" && (
-          <div className="mt-2 rounded-[var(--radius-input)] bg-[color-mix(in_srgb,var(--color-warn)_12%,transparent)] px-3 py-2 text-xs font-medium text-warn">
+          <div className="mt-2 rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
             Order locked: explosive work first, slow heavy HSR calf work last.
           </div>
         )}
 
-        {session.plannedExercises.map((ex, ei) => (
-          <div key={ex.slug} className="mt-3 overflow-hidden rounded-[var(--radius-card)] border border-hairline bg-surface">
-            <div className="flex items-start gap-3 p-3.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-xs font-extrabold text-text-2">{ei + 1}</span>
-              <div className="flex-1">
-                <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
-                <p className="mt-0.5 text-[11px] text-text-3">
-                  {ex.prescription}
-                  {ex.tempoNote ? ` · ${ex.tempoNote}` : ""}
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {ex.flatGroundOnly && (
-                    <span className="rounded-md bg-[color-mix(in_srgb,var(--color-warn)_18%,transparent)] px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>
-                  )}
-                  {ex.painGated && (
-                    <span className="rounded-md bg-[color-mix(in_srgb,var(--color-danger)_16%,transparent)] px-2 py-0.5 text-[11px] font-bold text-danger">Eased — pain gate</span>
-                  )}
-                  {ex.progression.action === "increase" && (
-                    <span className="rounded-md bg-[color-mix(in_srgb,var(--color-accent)_18%,transparent)] px-2 py-0.5 text-[11px] font-bold text-accent">↑ Level up</span>
-                  )}
+        <div className="mt-3 space-y-3">
+          {session.plannedExercises.map((ex, ei) => (
+            <div key={ex.slug} className="overflow-hidden rounded-[var(--radius-card)] bg-surface p-3.5">
+              <div className="flex items-start gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
+                  {ei + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
+                  <p className="mt-0.5 text-[12px] text-text-3">
+                    {ex.prescription}
+                    {ex.tempoNote ? ` · ${ex.tempoNote}` : ""}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {ex.flatGroundOnly && (
+                      <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">
+                        ⚠ Flat ground only
+                      </span>
+                    )}
+                    {ex.painGated && (
+                      <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">
+                        Eased — pain gate
+                      </span>
+                    )}
+                    {ex.progression.action === "increase" && (
+                      <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[11px] font-bold text-accent">
+                        ↑ Level up
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="flex flex-col gap-2 px-3.5 pb-3">
-              {(work[ex.slug] ?? []).map((st, si) => (
-                <div key={si} className={`flex items-center gap-2 ${st.logged ? "opacity-60" : ""}`}>
-                  <span className="w-9 text-[11px] font-extrabold uppercase tracking-wide text-text-3">S{si + 1}</span>
-                  <div className="flex flex-1 items-center justify-between rounded-[10px] border border-hairline bg-elevated p-1">
-                    <button onClick={() => adjust(ex.slug, si, "kg", -1)} className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-xl">−</button>
-                    <span className="text-center leading-none">
-                      <b className="text-base font-extrabold tabular-nums">{st.kg}</b>
-                      <span className="block text-[9px] uppercase tracking-wide text-text-3">kg{ex.perSide ? "/side" : ""}</span>
-                    </span>
-                    <button onClick={() => adjust(ex.slug, si, "kg", 1)} className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-xl">+</button>
-                  </div>
-                  <div className="flex items-center justify-between rounded-[10px] border border-hairline bg-elevated p-1" style={{ maxWidth: 104 }}>
-                    <button onClick={() => adjust(ex.slug, si, "reps", -1)} className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-xl">−</button>
-                    <span className="text-center leading-none">
-                      <b className="text-base font-extrabold tabular-nums">{st.reps}</b>
-                      <span className="block text-[9px] uppercase tracking-wide text-text-3">reps</span>
-                    </span>
-                    <button onClick={() => adjust(ex.slug, si, "reps", 1)} className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-xl">+</button>
-                  </div>
-                  <button
-                    onClick={() => logSet(ex, si)}
-                    aria-label="Log set"
-                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] ${st.logged ? "bg-[#4ADE80]" : "bg-accent"} text-on-accent active:scale-90 transition-transform`}
-                  >
-                    {st.logged ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
-                    ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path d="M5 12h14M12 5v14" /></svg>
-                    )}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
 
-        <button onClick={finish} className="mt-5 w-full rounded-full bg-accent py-4 text-sm font-extrabold text-on-accent active:scale-[0.98] transition-transform">
-          Finish session
-        </button>
-      </main>
+              <div className="mt-3 flex flex-col gap-2">
+                {(work[ex.slug] ?? []).map((st, si) => (
+                  <div key={si} className={`flex items-center gap-2 ${st.logged ? "opacity-50" : ""}`}>
+                    <span className="w-8 shrink-0 text-[11px] font-extrabold uppercase tracking-wide text-text-3">
+                      S{si + 1}
+                    </span>
+                    <div className="flex flex-1 items-center justify-between rounded-[var(--radius-input)] bg-elevated p-1">
+                      <Stepper onClick={() => adjust(ex.slug, si, "kg", -1)}>
+                        <Minus className="h-4 w-4" strokeWidth={2.5} />
+                      </Stepper>
+                      <span className="text-center leading-none">
+                        <b className="text-[16px] font-extrabold tabular-nums text-text-1">{st.kg}</b>
+                        <span className="block text-[9px] uppercase tracking-wide text-text-3">
+                          kg{ex.perSide ? "/side" : ""}
+                        </span>
+                      </span>
+                      <Stepper onClick={() => adjust(ex.slug, si, "kg", 1)}>
+                        <Plus className="h-4 w-4" strokeWidth={2.5} />
+                      </Stepper>
+                    </div>
+                    <div
+                      className="flex items-center justify-between rounded-[var(--radius-input)] bg-elevated p-1"
+                      style={{ maxWidth: 104 }}
+                    >
+                      <Stepper onClick={() => adjust(ex.slug, si, "reps", -1)}>
+                        <Minus className="h-4 w-4" strokeWidth={2.5} />
+                      </Stepper>
+                      <span className="text-center leading-none">
+                        <b className="text-[16px] font-extrabold tabular-nums text-text-1">{st.reps}</b>
+                        <span className="block text-[9px] uppercase tracking-wide text-text-3">reps</span>
+                      </span>
+                      <Stepper onClick={() => adjust(ex.slug, si, "reps", 1)}>
+                        <Plus className="h-4 w-4" strokeWidth={2.5} />
+                      </Stepper>
+                    </div>
+                    <motion.button
+                      type="button"
+                      onClick={() => logSet(ex, si)}
+                      aria-label="Log set"
+                      whileTap={{ scale: 0.88 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      style={{ touchAction: "manipulation" }}
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-input)] ${
+                        st.logged ? "bg-[#4ADE80]" : "bg-accent"
+                      } text-on-accent`}
+                    >
+                      {st.logged ? (
+                        <Check className="h-5 w-5" strokeWidth={3} />
+                      ) : (
+                        <Plus className="h-5 w-5" strokeWidth={3} />
+                      )}
+                    </motion.button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5">
+          <Button variant="primary" size="lg" full onClick={finish}>
+            Finish session
+          </Button>
+        </div>
+      </div>
 
       {/* Rest timer */}
       {rest !== null && (
-        <div className="fixed inset-x-0 bottom-16 z-40 mx-auto max-w-md px-4">
-          <div className="flex items-center gap-3 rounded-[var(--radius-card)] border border-hairline bg-surface p-3 shadow-lg">
-            <span className="text-2xl font-extrabold tabular-nums text-accent">{fmt(Math.max(0, rest))}</span>
-            <span className="flex-1 text-xs text-text-3">Rest — next set</span>
-            <button onClick={() => setRest((r) => (r ?? 0) + 15)} className="rounded-lg bg-elevated px-3 py-2 text-xs font-bold text-text-2">+15s</button>
-            <button onClick={stopRest} className="rounded-lg bg-text-1 px-3 py-2 text-xs font-bold text-bg">Skip</button>
+        <div className="fixed inset-x-0 bottom-16 z-40 mx-auto max-w-[430px] px-4">
+          <div className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-3 shadow-2xl">
+            <span className="text-[24px] font-extrabold tabular-nums text-accent">{fmt(Math.max(0, rest))}</span>
+            <span className="flex-1 text-[13px] text-text-3">Rest — next set</span>
+            <Button variant="secondary" size="sm" onClick={() => setRest((r) => (r ?? 0) + 15)}>
+              +15s
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={stopRest}
+              className="!bg-text-1 !text-bg"
+            >
+              <X className="h-4 w-4" strokeWidth={2.5} />
+            </Button>
           </div>
         </div>
       )}
 
       <BottomNav active="strength" />
-    </div>
+    </main>
   );
 }

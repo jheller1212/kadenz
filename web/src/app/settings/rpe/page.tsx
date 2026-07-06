@@ -1,4 +1,8 @@
-import Link from "next/link";
+"use client";
+
+import { ChevronLeft } from "lucide-react";
+import { NavBar } from "@/components/ui/NavBar";
+import { TransitionLink } from "@/components/ui/TransitionLink";
 
 const RPE_SCALE = [
   { level: 10, label: "Max effort", color: "#FF0000", desc: "All-out sprint. Cannot maintain." },
@@ -15,31 +19,31 @@ const RPE_SCALE = [
 
 export default function RPEPage() {
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex w-full max-w-md flex-col px-4 pb-16 pt-10">
-        {/* Header */}
-        <header className="flex items-center gap-3 mb-6">
-          <Link
+    <main className="min-h-dvh bg-bg">
+      <NavBar
+        title="What is RPE?"
+        large={false}
+        left={
+          <TransitionLink
             href="/settings"
-            className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center text-text-2"
-            aria-label="Back to settings"
+            className="press flex items-center gap-0.5 text-[17px] font-medium text-accent"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <h1 className="text-xl font-extrabold text-text-1">What is RPE?</h1>
-        </header>
+            <ChevronLeft className="h-6 w-6" strokeWidth={2} />
+            Me
+          </TransitionLink>
+        }
+      />
 
+      <div className="flex flex-col gap-3 px-4 pb-tabbar">
         {/* Intro */}
-        <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5 mb-5">
-          <h2 className="text-lg font-bold text-text-1">Rate of Perceived Exertion</h2>
-          <p className="text-sm text-text-2 mt-2 leading-relaxed">
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <h2 className="text-[17px] font-bold text-text-1">Rate of Perceived Exertion</h2>
+          <p className="mt-2 text-[14px] leading-relaxed text-text-2">
             RPE is a way to measure workout intensity based on how hard the effort <em>feels</em> rather than
             hitting specific pace numbers. It&apos;s especially useful when conditions vary — heat, hills, fatigue,
             or altitude can all affect your pace without changing the actual training stimulus.
           </p>
-          <p className="text-sm text-text-2 mt-2 leading-relaxed">
+          <p className="mt-2 text-[14px] leading-relaxed text-text-2">
             Instead of targeting 5:00/km, you&apos;d target an RPE of 6-7 (moderate to somewhat hard).
             This lets your body self-regulate and prevents overtraining on bad days while still pushing
             appropriately on good days.
@@ -47,20 +51,20 @@ export default function RPEPage() {
         </section>
 
         {/* Modified Borg Scale */}
-        <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5 mb-5">
-          <h2 className="text-lg font-bold text-text-1 mb-4">The Modified Borg Scale</h2>
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <h2 className="mb-3 text-[17px] font-bold text-text-1">The Modified Borg Scale</h2>
           <div className="flex flex-col gap-1">
             {RPE_SCALE.map(({ level, label, color, desc }) => (
-              <div key={level} className="flex items-center gap-3">
+              <div key={level} className="flex items-center gap-3 py-1">
                 <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-extrabold text-bg shrink-0"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-extrabold text-bg"
                   style={{ backgroundColor: color }}
                 >
                   {level}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-text-1">{label}</p>
-                  <p className="text-xs text-text-3 truncate">{desc}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-medium text-text-1">{label}</p>
+                  <p className="truncate text-[13px] text-text-3">{desc}</p>
                 </div>
               </div>
             ))}
@@ -68,8 +72,8 @@ export default function RPEPage() {
         </section>
 
         {/* When to use RPE */}
-        <section className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-          <h2 className="text-lg font-bold text-text-1">When to use RPE</h2>
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <h2 className="text-[17px] font-bold text-text-1">When to use RPE</h2>
           <div className="mt-3 flex flex-col gap-3">
             {[
               {
@@ -94,16 +98,16 @@ export default function RPEPage() {
               },
             ].map(({ title, desc }) => (
               <div key={title}>
-                <p className="text-sm font-semibold text-text-1">{title}</p>
-                <p className="text-xs text-text-3 mt-0.5 leading-relaxed">{desc}</p>
+                <p className="text-[15px] font-medium text-text-1">{title}</p>
+                <p className="mt-0.5 text-[13px] leading-relaxed text-text-3">{desc}</p>
               </div>
             ))}
           </div>
 
           {/* RPE mapping for running */}
           <div className="mt-5 rounded-[var(--radius-input)] bg-elevated p-4">
-            <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-2">Quick reference</p>
-            <div className="flex flex-col gap-1.5 text-sm">
+            <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">Quick reference</p>
+            <div className="flex flex-col gap-1.5 text-[14px]">
               <div className="flex justify-between">
                 <span className="text-text-2">Easy / Recovery</span>
                 <span className="font-semibold text-[#44BB00]">RPE 2–3</span>
@@ -131,7 +135,7 @@ export default function RPEPage() {
             </div>
           </div>
         </section>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

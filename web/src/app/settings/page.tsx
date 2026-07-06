@@ -1,116 +1,29 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { NavBar } from "@/components/ui/NavBar";
 import { BottomNav } from "@/components/BottomNav";
+import { ListGroup, Row } from "@/components/ui/List";
+import { Switch } from "@/components/ui/Switch";
+import { Segmented } from "@/components/ui/Segmented";
+import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/feedback";
+import { haptic } from "@/lib/haptics";
+import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
+import { AlertCircle, Plus } from "lucide-react";
 
-// ── Toggle component ────────────────────────────────────────────────────────
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-  description,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-  description?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between py-3">
-      <div className="flex-1 min-w-0 mr-4">
-        <p className="text-sm font-semibold text-text-1">{label}</p>
-        {description && <p className="text-xs text-text-3 mt-0.5">{description}</p>}
-      </div>
-      <button
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-          checked ? "bg-accent" : "bg-elevated"
-        }`}
-      >
-        <div
-          className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-6" : "translate-x-1"
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
-
-// ── Option selector ─────────────────────────────────────────────────────────
-
-function OptionGroup<T extends string>({
-  label,
-  description,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  options: { value: T; label: string; sublabel?: string }[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="py-3">
-      <p className="text-sm font-semibold text-text-1">{label}</p>
-      {description && <p className="text-xs text-text-3 mt-0.5">{description}</p>}
-      <div className="mt-3 flex flex-col gap-2">
-        {options.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => onChange(opt.value)}
-            className={`flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] border transition-all text-left ${
-              value === opt.value
-                ? "border-accent bg-accent/10"
-                : "border-hairline bg-elevated"
-            }`}
-          >
-            <div
-              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                value === opt.value ? "border-accent" : "border-text-3"
-              }`}
-            >
-              {value === opt.value && <div className="w-2.5 h-2.5 rounded-full bg-accent" />}
-            </div>
-            <div>
-              <p className={`text-sm font-medium ${value === opt.value ? "text-accent" : "text-text-1"}`}>
-                {opt.label}
-              </p>
-              {opt.sublabel && <p className="text-xs text-text-3">{opt.sublabel}</p>}
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Section divider ─────────────────────────────────────────────────────────
-
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <div className="pt-5 pb-2">
-      <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">{title}</p>
-    </div>
-  );
-}
-
-// ── Integration connection buttons ──────────────────────────────────────────
+// ── Integration connection rows ─────────────────────────────────────────────
 
 function StravaConnection() {
   const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/integrations/strava/status")
+    apiFetch("/api/integrations/strava/status")
       .then((r) => r.json())
       .then((d) => setStatus(d.connected ? "connected" : "disconnected"))
       .catch(() => setStatus("disconnected"));
@@ -118,9 +31,13 @@ function StravaConnection() {
 
   async function handleDisconnect() {
     setDisconnecting(true);
+    setError(null);
     try {
-      await fetch("/api/strava/disconnect", { method: "POST" });
+      const res = await apiFetch("/api/strava/disconnect", { method: "POST" });
+      if (!res.ok) throw new Error("Failed to disconnect Strava");
       setStatus("disconnected");
+    } catch {
+      setError("Couldn't disconnect Strava. Try again.");
     } finally {
       setDisconnecting(false);
     }
@@ -128,8 +45,12 @@ function StravaConnection() {
 
   async function handleSyncNow() {
     setSyncing(true);
+    setError(null);
     try {
-      await fetch("/api/strava/backfill", { method: "POST" });
+      const res = await apiFetch("/api/strava/backfill", { method: "POST" });
+      if (!res.ok) throw new Error("Sync failed");
+    } catch {
+      setError("Sync failed. Try again later.");
     } finally {
       setSyncing(false);
     }
@@ -137,50 +58,52 @@ function StravaConnection() {
 
   return (
     <div className="px-4 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-[#FC4C02] flex items-center justify-center shrink-0">
-            <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#FC4C02]">
+            <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
             </svg>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-text-1">Strava</p>
-            <p className="text-xs text-text-3">
-              {status === "loading" ? "Checking..." : status === "connected" ? "Connected" : "Auto-sync activities"}
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium text-text-1">Strava</p>
+            <p className="truncate text-[13px] text-text-3">
+              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : "Auto-sync your activities"}
             </p>
           </div>
         </div>
+
         {status === "connected" ? (
-          <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
             Connected
           </span>
         ) : status === "disconnected" ? (
           <a
             href="/api/auth/strava"
-            className="text-xs font-semibold text-white bg-[#FC4C02] px-3 py-1.5 rounded-full active:opacity-80 transition-opacity"
+            onClick={() => haptic("medium")}
+            className="press shrink-0 rounded-full bg-[#FC4C02] px-4 py-2 text-[13px] font-semibold text-white"
           >
             Connect
           </a>
         ) : null}
       </div>
+
       {status === "connected" && (
         <div className="mt-3 flex items-center gap-2">
-          <button
-            onClick={handleSyncNow}
-            disabled={syncing}
-            className="text-xs font-medium text-text-2 bg-elevated border border-hairline px-3 py-1.5 rounded-full active:opacity-70 transition-opacity disabled:opacity-50"
-          >
-            {syncing ? "Syncing..." : "Sync Now"}
-          </button>
-          <button
-            onClick={handleDisconnect}
-            disabled={disconnecting}
-            className="text-xs font-medium text-red-500 bg-red-500/10 px-3 py-1.5 rounded-full active:opacity-70 transition-opacity disabled:opacity-50"
-          >
-            {disconnecting ? "Disconnecting..." : "Disconnect"}
-          </button>
+          <Button variant="secondary" size="sm" busy={syncing} onClick={handleSyncNow}>
+            Sync now
+          </Button>
+          <Button variant="danger" size="sm" busy={disconnecting} onClick={handleDisconnect}>
+            Disconnect
+          </Button>
         </div>
+      )}
+
+      {error && (
+        <p className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+          {error}
+        </p>
       )}
     </div>
   );
@@ -189,9 +112,10 @@ function StravaConnection() {
 function GCalConnection() {
   const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
   const [disconnecting, setDisconnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/integrations/gcal/status")
+    apiFetch("/api/integrations/gcal/status")
       .then((r) => r.json())
       .then((d) => setStatus(d.connected ? "connected" : "disconnected"))
       .catch(() => setStatus("disconnected"));
@@ -199,9 +123,13 @@ function GCalConnection() {
 
   async function handleDisconnect() {
     setDisconnecting(true);
+    setError(null);
     try {
-      await fetch("/api/gcal/disconnect", { method: "POST" });
+      const res = await apiFetch("/api/gcal/disconnect", { method: "POST" });
+      if (!res.ok) throw new Error("Failed to disconnect Google Calendar");
       setStatus("disconnected");
+    } catch {
+      setError("Couldn't disconnect Google Calendar. Try again.");
     } finally {
       setDisconnecting(false);
     }
@@ -209,44 +137,50 @@ function GCalConnection() {
 
   return (
     <div className="px-4 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500">
+            <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               <rect x="3" y="4" width="18" height="18" rx="2" />
               <path d="M16 2v4M8 2v4M3 10h18" />
             </svg>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-text-1">Google Calendar</p>
-            <p className="text-xs text-text-3">
-              {status === "loading" ? "Checking..." : status === "connected" ? "Connected" : "Sync workouts to calendar"}
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium text-text-1">Google Calendar</p>
+            <p className="truncate text-[13px] text-text-3">
+              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : "Sync workouts to your calendar"}
             </p>
           </div>
         </div>
+
         {status === "connected" ? (
-          <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2.5 py-1 rounded-full">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
             Connected
           </span>
         ) : status === "disconnected" ? (
           <a
             href="/api/auth/google"
-            className="text-xs font-semibold text-white bg-blue-500 px-3 py-1.5 rounded-full active:opacity-80 transition-opacity"
+            onClick={() => haptic("medium")}
+            className="press shrink-0 rounded-full bg-blue-500 px-4 py-2 text-[13px] font-semibold text-white"
           >
             Connect
           </a>
         ) : null}
       </div>
+
       {status === "connected" && (
         <div className="mt-3">
-          <button
-            onClick={handleDisconnect}
-            disabled={disconnecting}
-            className="text-xs font-medium text-red-500 bg-red-500/10 px-3 py-1.5 rounded-full active:opacity-70 transition-opacity disabled:opacity-50"
-          >
-            {disconnecting ? "Disconnecting..." : "Disconnect"}
-          </button>
+          <Button variant="danger" size="sm" busy={disconnecting} onClick={handleDisconnect}>
+            Disconnect
+          </Button>
         </div>
+      )}
+
+      {error && (
+        <p className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+          {error}
+        </p>
       )}
     </div>
   );
@@ -255,6 +189,7 @@ function GCalConnection() {
 // ── Main Settings Page ──────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
   useEffect(() => {
@@ -270,149 +205,144 @@ export default function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="min-h-screen bg-bg">
-        <BottomNav active="today" />
-      </div>
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Me" large />
+        <div className="flex flex-col gap-3 px-4 pb-tabbar">
+          <Skeleton className="h-40" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-32" />
+        </div>
+        <BottomNav active="me" />
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="mx-auto flex w-full max-w-md flex-col px-4 pb-28 pt-10">
-        {/* Header */}
-        <header className="flex items-center gap-3 mb-6">
-          <Link
-            href="/"
-            className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center text-text-2"
-            aria-label="Back"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <h1 className="text-xl font-extrabold text-text-1">Settings</h1>
-        </header>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Me" large />
 
+      <div className="px-4 pb-tabbar">
         {/* Appearance */}
-        <SectionHeader title="Appearance" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4">
-          <OptionGroup
-            label="Theme"
-            options={[
-              { value: "light" as const, label: "Light", sublabel: "Clean, bright interface" },
-              { value: "dark" as const, label: "Dark", sublabel: "Easy on the eyes" },
-            ]}
-            value={settings.theme}
-            onChange={(v) => {
-              update({ theme: v });
-              // Apply immediately
-              if (v === "light") document.documentElement.classList.add("light");
-              else document.documentElement.classList.remove("light");
-            }}
-          />
-        </div>
+        <ListGroup header="Appearance">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-[15px] font-medium text-text-1">Theme</span>
+            <Segmented
+              className="w-40"
+              options={[
+                { value: "light", label: "Light" },
+                { value: "dark", label: "Dark" },
+              ]}
+              value={settings.theme}
+              onChange={(v) => {
+                update({ theme: v });
+                if (v === "light") document.documentElement.classList.add("light");
+                else document.documentElement.classList.remove("light");
+              }}
+            />
+          </div>
+        </ListGroup>
 
         {/* Pace Targets */}
-        <SectionHeader title="Pace Targets" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4 divide-y divide-hairline">
-          <Toggle
-            checked={settings.paceTargets}
-            onChange={(v) => update({ paceTargets: v })}
-            label="Pace targets"
-            description="Show target pace ranges on all workouts"
+        <ListGroup header="Pace Targets">
+          <Row
+            title="Pace targets"
+            subtitle="Show target pace ranges on all workouts"
+            accessory={
+              <Switch
+                checked={settings.paceTargets}
+                onChange={(v) => update({ paceTargets: v })}
+                aria-label="Pace targets"
+              />
+            }
           />
-          <Toggle
-            checked={settings.paceTargetsEasyRuns}
-            onChange={(v) => update({ paceTargetsEasyRuns: v })}
-            label="Pace targets on easy runs"
-            description="Show pace guidance on easy and recovery runs"
+          <Row
+            title="Pace targets on easy runs"
+            subtitle="Show pace guidance on easy and recovery runs"
+            accessory={
+              <Switch
+                checked={settings.paceTargetsEasyRuns}
+                onChange={(v) => update({ paceTargetsEasyRuns: v })}
+                aria-label="Pace targets on easy runs"
+              />
+            }
           />
-        </div>
+        </ListGroup>
 
         {/* Units of Measure */}
-        <SectionHeader title="Units of Measure" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4 divide-y divide-hairline">
-          <OptionGroup
-            label="Distance & pace"
-            description="Affects plan generation and all displays"
-            options={[
-              { value: "km" as const, label: "Kilometers", sublabel: "Pace in min/km" },
-              { value: "miles" as const, label: "Miles", sublabel: "Pace in min/mi" },
-            ]}
-            value={settings.units}
-            onChange={(v) => update({ units: v })}
-          />
-          <OptionGroup
-            label="Temperature"
-            options={[
-              { value: "celsius" as const, label: "Celsius (°C)" },
-              { value: "fahrenheit" as const, label: "Fahrenheit (°F)" },
-            ]}
-            value={settings.tempUnit}
-            onChange={(v) => update({ tempUnit: v })}
-          />
-        </div>
+        <ListGroup header="Units of Measure" footer="Affects plan generation and all displays.">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-[15px] font-medium text-text-1">Distance &amp; pace</span>
+            <Segmented
+              className="w-40"
+              options={[
+                { value: "km", label: "km" },
+                { value: "miles", label: "mi" },
+              ]}
+              value={settings.units}
+              onChange={(v) => update({ units: v })}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-[15px] font-medium text-text-1">Temperature</span>
+            <Segmented
+              className="w-40"
+              options={[
+                { value: "celsius", label: "°C" },
+                { value: "fahrenheit", label: "°F" },
+              ]}
+              value={settings.tempUnit}
+              onChange={(v) => update({ tempUnit: v })}
+            />
+          </div>
+        </ListGroup>
 
         {/* Workout Targets */}
-        <SectionHeader title="Workout Targets" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface px-4">
-          <OptionGroup
-            label="Target metric"
-            description="How workout intensity is displayed"
-            options={[
-              { value: "pace" as const, label: "Running Pace", sublabel: "Target pace ranges per block" },
-              { value: "rpe" as const, label: "RPE (Rate of Perceived Exertion)", sublabel: "Effort-based intensity scale" },
-            ]}
-            value={settings.workoutTargetMode}
-            onChange={(v) => update({ workoutTargetMode: v })}
-          />
+        <ListGroup header="Workout Targets">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="text-[15px] font-medium text-text-1">Target metric</span>
+            <Segmented
+              className="w-40"
+              options={[
+                { value: "pace", label: "Pace" },
+                { value: "rpe", label: "RPE" },
+              ]}
+              value={settings.workoutTargetMode}
+              onChange={(v) => update({ workoutTargetMode: v })}
+            />
+          </div>
           {settings.workoutTargetMode === "rpe" && (
-            <div className="pb-3">
-              <Link
-                href="/settings/rpe"
-                className="flex items-center gap-2 text-sm font-medium text-accent active:opacity-70 transition-opacity"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <circle cx="12" cy="12" r="10" />
-                  <path strokeLinecap="round" d="M12 16v-4M12 8h.01" />
-                </svg>
-                What is RPE?
-              </Link>
-            </div>
+            <Row
+              title="What is RPE?"
+              subtitle="Rate of Perceived Exertion explained"
+              chevron
+              onClick={() => router.push("/settings/rpe")}
+            />
           )}
-        </div>
+        </ListGroup>
 
         {/* Integrations */}
-        <SectionHeader title="Integrations" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden divide-y divide-hairline">
+        <ListGroup header="Integrations">
           <StravaConnection />
+          <div className="border-t border-hairline/60" />
           <GCalConnection />
-        </div>
+        </ListGroup>
 
         {/* Plan management */}
-        <SectionHeader title="Plan" />
-        <div className="rounded-[var(--radius-card)] border border-hairline bg-surface overflow-hidden">
-          <Link
-            href="/create"
-            className="flex items-center gap-3 px-4 py-4 active:bg-elevated transition-colors"
-          >
-            <svg className="w-5 h-5 text-text-2 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <div>
-              <p className="text-sm font-semibold text-text-1">Create new plan</p>
-              <p className="text-xs text-text-3">Start a fresh training plan</p>
-            </div>
-          </Link>
-        </div>
+        <ListGroup header="Plan">
+          <Row
+            icon={<Plus className="h-4 w-4 text-text-2" strokeWidth={1.9} />}
+            title="Create new plan"
+            subtitle="Start a fresh training plan"
+            chevron
+            onClick={() => router.push("/create")}
+          />
+        </ListGroup>
 
         {/* App info */}
-        <div className="mt-8 text-center">
-          <p className="text-xs text-text-3">Kadenz · Version 1.0</p>
-        </div>
-      </main>
+        <p className="mb-4 text-center text-[12px] text-text-3">Kadenz · Version 1.0</p>
+      </div>
 
-      <BottomNav active="today" />
-    </div>
+      <BottomNav active="me" />
+    </main>
   );
 }

@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { NavBar } from "@/components/ui/NavBar";
+import { Segmented } from "@/components/ui/Segmented";
+import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/feedback";
+import { apiFetch } from "@/lib/api";
+import { haptic } from "@/lib/haptics";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,31 +40,22 @@ interface InsightsData {
   currentWeekNum: number;
 }
 
-// ── Tab toggle ──────────────────────────────────────────────────────────────
+// ── Back button ─────────────────────────────────────────────────────────────
 
-function TabToggle({
-  value,
-  onChange,
-}: {
-  value: "all" | "current";
-  onChange: (v: "all" | "current") => void;
-}) {
+function BackButton() {
+  const router = useRouter();
   return (
-    <div className="flex gap-2">
-      {(["all", "current"] as const).map((tab) => (
-        <button
-          key={tab}
-          onClick={() => onChange(tab)}
-          className={`px-4 py-2 rounded-full text-xs font-semibold transition-all ${
-            value === tab
-              ? "bg-text-1 text-bg"
-              : "bg-elevated text-text-3 border border-hairline"
-          }`}
-        >
-          {tab === "all" ? "All" : "Current period"}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={() => {
+        haptic("light");
+        router.back();
+      }}
+      className="press flex h-11 items-center gap-0.5 text-accent"
+      aria-label="Back"
+    >
+      <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
+      <span className="text-[17px]">Back</span>
+    </button>
   );
 }
 
@@ -67,33 +65,55 @@ export default function InsightsPage() {
   const router = useRouter();
   const [data, setData] = useState<InsightsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [mileageTab, setMileageTab] = useState<"all" | "current">("current");
   const [workoutsTab, setWorkoutsTab] = useState<"all" | "current">("current");
 
   useEffect(() => {
-    fetch("/api/insights")
-      .then((r) => r.json())
+    apiFetch("/api/insights")
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load insights");
+        return r.json();
+      })
       .then(setData)
-      .catch(() => {})
+      .catch(() => setError("Couldn't load insights. Please try again."))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-      </div>
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Mileage Insights" large={false} left={<BackButton />} />
+        <div className="px-4 pb-tabbar flex flex-col gap-3 pt-2">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-48 w-full" />
+        </div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Mileage Insights" large={false} left={<BackButton />} />
+        <div className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-center pb-tabbar">
+          <p className="text-[15px] text-text-2">{error}</p>
+          <Button variant="secondary" onClick={() => router.back()}>Go back</Button>
+        </div>
+      </main>
     );
   }
 
   if (!data?.activePlan) {
     return (
-      <div className="min-h-screen bg-bg flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-text-2">No active plan</p>
-        <button onClick={() => router.back()} className="text-accent text-sm font-semibold">
-          Go back
-        </button>
-      </div>
+      <main className="min-h-dvh bg-bg">
+        <NavBar title="Mileage Insights" large={false} left={<BackButton />} />
+        <div className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-center pb-tabbar">
+          <p className="text-[15px] text-text-2">No active plan</p>
+          <Button variant="secondary" onClick={() => router.back()}>Go back</Button>
+        </div>
+      </main>
     );
   }
 
@@ -103,54 +123,38 @@ export default function InsightsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-bg">
-      <main className="max-w-md mx-auto w-full px-4 pt-10 pb-12">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={() => router.back()}
-            className="w-9 h-9 rounded-full bg-elevated border border-hairline flex items-center justify-center"
-            aria-label="Back"
-          >
-            <svg className="w-5 h-5 text-text-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div />
-        </div>
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Mileage Insights" large={false} left={<BackButton />} />
 
-        <h1 className="text-2xl font-extrabold text-text-1">Mileage Insights</h1>
+      <div className="px-4 pb-tabbar flex flex-col gap-4 pt-2">
+        <h1 className="text-[22px] font-bold tracking-tight text-text-1">Mileage Insights</h1>
 
-        {/* Warning banner */}
+        {/* Status banner */}
         {data.behindTypes.length > 0 ? (
-          <div className="mt-5 rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
+          <div className="rounded-[var(--radius-card)] bg-surface p-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-warn/10 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-warn" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                </svg>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warn/10">
+                <AlertTriangle className="h-5 w-5 text-warn" strokeWidth={1.9} />
               </div>
               <div>
-                <p className="text-base font-bold text-text-1">
+                <p className="text-[15px] font-bold text-text-1">
                   Behind {data.behindTypes.join(" & ").toLowerCase()} mileage
                 </p>
-                <p className="text-sm text-text-2 mt-1 leading-relaxed">
+                <p className="mt-1 text-[13px] leading-relaxed text-text-2">
                   Your recent {data.behindTypes[0].toLowerCase()} mileage is below what we normally recommend at this stage of your plan. Stay consistent from now on, and you&apos;ll soon be back on track.
                 </p>
               </div>
             </div>
           </div>
         ) : (
-          <div className="mt-5 rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
+          <div className="rounded-[var(--radius-card)] bg-surface p-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10">
+                <CheckCircle2 className="h-5 w-5 text-accent" strokeWidth={1.9} />
               </div>
               <div>
-                <p className="text-base font-bold text-text-1">Mileage on track</p>
-                <p className="text-sm text-text-2 mt-1 leading-relaxed">
+                <p className="text-[15px] font-bold text-text-1">Mileage on track</p>
+                <p className="mt-1 text-[13px] leading-relaxed text-text-2">
                   You&apos;re keeping up with your plan across all workout types. Keep it up!
                 </p>
               </div>
@@ -159,46 +163,39 @@ export default function InsightsPage() {
         )}
 
         {/* Completed mileage */}
-        <section className="mt-6 rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-          <h2 className="text-lg font-bold text-text-1 mb-4">Completed mileage</h2>
-          <TabToggle value={mileageTab} onChange={setMileageTab} />
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <h2 className="text-[17px] font-bold text-text-1 mb-3">Completed mileage</h2>
+          <Segmented
+            options={[
+              { value: "current", label: "Current period" },
+              { value: "all", label: "All" },
+            ]}
+            value={mileageTab}
+            onChange={setMileageTab}
+          />
 
           <div className="mt-4">
-            <p className="text-xs text-text-3">
+            <p className="text-[13px] text-text-3">
               {startDateStr} - Today
             </p>
-            <p className="text-4xl font-extrabold text-text-1 mt-1">{data.overallPct}%</p>
+            <p className="mt-1 text-[34px] font-extrabold tabular-nums leading-none text-text-1">{data.overallPct}%</p>
           </div>
 
           <div className="mt-5 flex flex-col gap-4">
             {data.mileageByType.map((m) => (
               <div key={m.type}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm text-text-2">{m.label}</span>
-                  <span className="text-sm font-bold text-text-1 tabular-nums">{m.pct}%</span>
+                  <span className="text-[13px] text-text-2">{m.label}</span>
+                  <span className="text-[13px] font-bold tabular-nums text-text-1">{m.pct}%</span>
                 </div>
                 <div className="h-3 rounded-full bg-elevated overflow-hidden">
                   <div
-                    className="h-full rounded-full transition-all relative"
+                    className="h-full rounded-full transition-all"
                     style={{
                       width: `${Math.min(100, m.pct)}%`,
                       backgroundColor: m.color,
                     }}
-                  >
-                    {m.pct > 100 && (
-                      <div className="absolute right-1 top-0.5 flex gap-0.5">
-                        <svg className="w-2 h-2 text-white/80" viewBox="0 0 8 8" fill="currentColor">
-                          <path d="M1 7L4 1l3 6H1z" />
-                        </svg>
-                        <svg className="w-2 h-2 text-white/80" viewBox="0 0 8 8" fill="currentColor">
-                          <path d="M1 7L4 1l3 6H1z" />
-                        </svg>
-                        <svg className="w-2 h-2 text-white/80" viewBox="0 0 8 8" fill="currentColor">
-                          <path d="M1 7L4 1l3 6H1z" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
+                  />
                 </div>
               </div>
             ))}
@@ -206,19 +203,26 @@ export default function InsightsPage() {
         </section>
 
         {/* Completed workouts */}
-        <section className="mt-6 rounded-[var(--radius-card)] border border-hairline bg-surface p-5">
-          <h2 className="text-lg font-bold text-text-1 mb-4">Completed workouts</h2>
-          <TabToggle value={workoutsTab} onChange={setWorkoutsTab} />
+        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+          <h2 className="text-[17px] font-bold text-text-1 mb-3">Completed workouts</h2>
+          <Segmented
+            options={[
+              { value: "current", label: "Current period" },
+              { value: "all", label: "All" },
+            ]}
+            value={workoutsTab}
+            onChange={setWorkoutsTab}
+          />
 
           <div className="mt-4">
-            <p className="text-xs text-text-3">
+            <p className="text-[13px] text-text-3">
               {startDateStr} - Today
             </p>
             <div className="flex items-baseline gap-2 mt-1">
-              <p className="text-4xl font-extrabold text-text-1">
+              <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
                 {data.completedRuns}/{data.totalPlanRuns}
               </p>
-              <span className="text-sm text-text-3">plan runs</span>
+              <span className="text-[13px] text-text-3">plan runs</span>
             </div>
           </div>
 
@@ -226,7 +230,7 @@ export default function InsightsPage() {
           <div className="mt-5 flex flex-col gap-4">
             {[...data.weeklyWorkouts].reverse().map((week) => (
               <div key={week.weekNumber} className="flex items-center justify-between">
-                <span className="text-sm text-text-2 w-16 shrink-0">Week {week.weekNumber}</span>
+                <span className="text-[13px] text-text-2 w-16 shrink-0">Week {week.weekNumber}</span>
                 <div className="flex gap-1.5">
                   {week.workouts.map((wo, i) => {
                     const completed = wo.status === "completed";
@@ -239,18 +243,14 @@ export default function InsightsPage() {
                             ? "bg-text-1"
                             : completed
                             ? "bg-elevated"
-                            : "bg-elevated/50 border border-hairline"
+                            : "bg-elevated/50"
                         }`}
                       >
                         {completed && (
-                          <svg className="w-4 h-4 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
+                          <CheckCircle2 className="h-4 w-4 text-text-3" strokeWidth={2.2} />
                         )}
                         {missed && (
-                          <svg className="w-4 h-4 text-bg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                          <X className="h-4 w-4 text-bg" strokeWidth={2.5} />
                         )}
                         {!completed && !missed && (
                           <div className="w-2 h-2 rounded-full bg-hairline" />
@@ -263,7 +263,7 @@ export default function InsightsPage() {
             ))}
           </div>
         </section>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

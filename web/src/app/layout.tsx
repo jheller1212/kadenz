@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegistration } from "./sw-register";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { SessionProvider } from "@/components/SessionProvider";
 
 export const metadata: Metadata = {
   title: "Kadenz",
@@ -12,6 +13,8 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Kadenz",
   },
+  // Standard replacement for apple-mobile-web-app-capable (Android/standards).
+  other: { "mobile-web-app-capable": "yes" },
   icons: {
     icon: [
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
@@ -22,11 +25,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // Dynamically updated per active theme by ThemeProvider.
   themeColor: "#0A0A0B",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // Required for env(safe-area-inset-*) to resolve on notched iPhones.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -47,7 +53,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider />
         <ServiceWorkerRegistration />
-        {children}
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );
