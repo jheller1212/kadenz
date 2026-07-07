@@ -42,6 +42,9 @@
   --k-warn: #FFB547;
   --k-danger: #FF4D4D;
 
+  /* Desktop backdrop behind the centered phone column */
+  --k-desk: #000000;
+
   /* Translucent "material" fill for blurred bars (dark) */
   --k-material: rgba(22, 22, 24, 0.72);
   --k-material-border: rgba(255, 255, 255, 0.08);
@@ -72,6 +75,7 @@ html.light {
 
   --k-material: rgba(255, 255, 255, 0.72);
   --k-material-border: rgba(0, 0, 0, 0.08);
+  --k-desk: #C7C7CC;
 }
 
 /* ── Base / native shell ─────────────────────────────────────────────────── */
@@ -119,6 +123,31 @@ button {
 .scroll-native {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+}
+
+/* ── App frame: phone-width column, centered on larger screens ───────────── */
+/* Mobile: fills the viewport. Desktop/browser: a centered device-width column
+   on a dimmed backdrop, so the app never stretches ultra-wide. The fixed
+   NavBar/BottomNav already center at the same max width, so they stay aligned. */
+.app-frame {
+  width: 100%;
+  max-width: 430px;
+  margin-inline: auto;
+  min-height: 100dvh;
+  background: var(--k-bg);
+  position: relative;
+}
+
+@media (min-width: 431px) {
+  html,
+  body {
+    background: var(--k-desk);
+  }
+  .app-frame {
+    border-left: 0.5px solid var(--k-hairline);
+    border-right: 0.5px solid var(--k-hairline);
+    box-shadow: 0 0 80px rgba(0, 0, 0, 0.35);
+  }
 }
 
 /* ── Safe-area helpers ───────────────────────────────────────────────────── */

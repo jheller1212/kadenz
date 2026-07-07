@@ -53,7 +53,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider />
         <ServiceWorkerRegistration />
-        <SessionProvider>{children}</SessionProvider>
+        <div className="app-frame">
+          <SessionProvider>{children}</SessionProvider>
+        </div>
       </body>
     </html>
   );

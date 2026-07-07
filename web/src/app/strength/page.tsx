@@ -1,36 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { motion } from "motion/react";
-import { ChevronRight, Minus, Plus, Check, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
+import { Sheet } from "@/components/ui/Sheet";
+import { ListGroup, Row } from "@/components/ui/List";
+import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
+import GuidedSession, {
+  unlockGuidedAudio,
+  type GuidedFinishSummary,
+  type PlannedExercise,
+  type SessionType,
+} from "@/components/strength/GuidedSession";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
-
-type SessionType = "upper" | "lower" | "lower_achilles";
-
-interface PlannedExercise {
-  slug: string;
-  name: string;
-  category: "upper" | "lower" | "achilles";
-  equipmentNote?: string;
-  tempoNote?: string;
-  flatGroundOnly: boolean;
-  perSide: boolean;
-  sets: number;
-  repLow: number;
-  repHigh: number;
-  prescription: string;
-  suggestedWeightKg: number | null;
-  lastWeightKg: number | null;
-  painGated: boolean;
-  progression: { action: string; reason: string };
-}
 
 interface SessionDetail {
   id: string;
@@ -39,8 +28,22 @@ interface SessionDetail {
   status: string;
   targetDurationMinutes: number | null;
   plannedExercises: PlannedExercise[];
-  sets: Array<{ exerciseId: string; setNumber: number; weightKg: number | null; reps: number | null }>;
 }
+
+interface ExerciseCatalogRow {
+  slug: string;
+  name: string;
+  category: "upper" | "lower" | "achilles";
+  equipmentNote?: string | null;
+  tempoNote?: string | null;
+  flatGroundOnly: boolean;
+  defaultSets: number | null;
+  repLow: number | null;
+  repHigh: number | null;
+  startWeightKg: number | null;
+}
+
+type Phase = "picker" | "overview" | "guided" | "summary";
 
 const TYPE_META: Record<SessionType, { title: string; sub: string; color: string }> = {
   upper: { title: "Upper", sub: "5 lifts · ~35 min", color: "#60A5FA" },
@@ -48,80 +51,28 @@ const TYPE_META: Record<SessionType, { title: string; sub: string; color: string
   lower_achilles: { title: "Lower + Achilles", sub: "7 lifts · ~46 min", color: "#FFB547" },
 };
 
-// Dumbbell ladder (mirrors the server) for the +/- steppers.
-const LEVELS = [2.5, 4, 5, 6.5, 8, 9, 10.5, 12, 13, 14.5, 16, 17, 18, 19.5, 21, 22, 23, 23.5];
-const snap = (kg: number) => LEVELS.reduce((a, b) => (Math.abs(b - kg) < Math.abs(a - kg) ? b : a), LEVELS[0]);
-const stepW = (kg: number, d: number) => {
-  const i = LEVELS.indexOf(snap(kg));
-  return LEVELS[Math.max(0, Math.min(LEVELS.length - 1, i + d))];
+// Categories eligible for "Add exercise" per session type.
+const ADD_CATEGORIES: Record<SessionType, Array<ExerciseCatalogRow["category"]>> = {
+  upper: ["upper"],
+  lower: ["lower"],
+  lower_achilles: ["lower", "achilles"],
 };
 
-const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
-// ── Local working-set state for the logger ────────────────────────────────────
-
-interface WorkSet {
-  kg: number;
-  reps: number;
-  logged: boolean;
-}
-
-// Small spring-driven +/- stepper button used throughout the logger.
-function Stepper({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      whileTap={{ scale: 0.85 }}
-      transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      style={{ touchAction: "manipulation" }}
-      className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-input)] bg-surface text-text-1"
-    >
-      {children}
-    </motion.button>
-  );
-}
-
 export default function StrengthPage() {
+  const [phase, setPhase] = useState<Phase>("picker");
   const [session, setSession] = useState<SessionDetail | null>(null);
-  const [work, setWork] = useState<Record<string, WorkSet[]>>({});
-  const [elapsed, setElapsed] = useState(0);
-  const [rest, setRest] = useState<number | null>(null);
+  const [exercises, setExercises] = useState<PlannedExercise[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Session clock
-  useEffect(() => {
-    if (!session || session.status === "completed") return;
-    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(t);
-  }, [session]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [catalog, setCatalog] = useState<ExerciseCatalogRow[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
-  // Rest countdown — driven imperatively so we never setState in an effect body.
-  function startRest(seconds = 90) {
-    if (restTimer.current) clearInterval(restTimer.current);
-    setRest(seconds);
-    restTimer.current = setInterval(() => {
-      setRest((r) => {
-        if (r === null || r <= 1) {
-          if (restTimer.current) clearInterval(restTimer.current);
-          haptic("warning");
-          return null;
-        }
-        return r - 1;
-      });
-    }, 1000);
-  }
-  function stopRest() {
-    if (restTimer.current) clearInterval(restTimer.current);
-    setRest(null);
-  }
-  useEffect(() => () => {
-    if (restTimer.current) clearInterval(restTimer.current);
-  }, []);
+  const [summary, setSummary] = useState<GuidedFinishSummary | null>(null);
 
-  async function startSession(type: SessionType) {
+  // ── Picker → create the session, but land on the overview (no clock yet) ────
+  async function pickType(type: SessionType) {
     setBusy(true);
     setError(null);
     try {
@@ -140,8 +91,10 @@ export default function StrengthPage() {
         setError("Couldn't load the session. Try again.");
         return;
       }
-      const detail = await detailRes.json();
-      hydrate(detail);
+      const detail: SessionDetail = await detailRes.json();
+      setSession(detail);
+      setExercises(detail.plannedExercises);
+      setPhase("overview");
     } catch {
       setError("Network error — couldn't start the session.");
     } finally {
@@ -149,72 +102,88 @@ export default function StrengthPage() {
     }
   }
 
-  function hydrate(detail: SessionDetail) {
-    const w: Record<string, WorkSet[]> = {};
-    for (const ex of detail.plannedExercises) {
-      const reps = ex.repHigh;
-      w[ex.slug] = Array.from({ length: ex.sets }, () => ({
-        kg: ex.suggestedWeightKg ?? 0,
-        reps,
-        logged: false,
-      }));
-    }
-    setWork(w);
-    setSession(detail);
-    setElapsed(0);
-  }
-
-  async function logSet(ex: PlannedExercise, si: number) {
-    const arr = work[ex.slug];
-    const set = arr[si];
-    const nextLogged = !set.logged;
-    setWork({ ...work, [ex.slug]: arr.map((s, i) => (i === si ? { ...s, logged: nextLogged } : s)) });
-    if (nextLogged) {
-      haptic("light");
-      startRest(90);
-      if (session) {
-        apiFetch(`/api/strength/sessions/${session.id}/sets`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            exerciseSlug: ex.slug,
-            setNumber: si + 1,
-            weightKg: set.kg,
-            reps: set.reps,
-          }),
-        }).catch(() => {});
-      }
-    }
-  }
-
-  function adjust(slug: string, si: number, field: "kg" | "reps", d: number) {
+  function backToPicker() {
     haptic("light");
-    setWork((w) => ({
-      ...w,
-      [slug]: w[slug].map((s, i) =>
-        i === si
-          ? field === "kg"
-            ? { ...s, kg: stepW(s.kg, d) }
-            : { ...s, reps: Math.max(1, s.reps + d) }
-          : s
-      ),
-    }));
-  }
-
-  async function finish() {
-    if (!session) return;
-    haptic("success");
-    await apiFetch(`/api/strength/sessions/${session.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "completed", durationMinutes: Math.max(1, Math.round(elapsed / 60)) }),
-    }).catch(() => {});
+    setPhase("picker");
     setSession(null);
-    setWork({});
+    setExercises([]);
+    setSummary(null);
+    setError(null);
   }
 
-  // ── Picker ──────────────────────────────────────────────────────────────────
-  if (!session) {
+  function removeExercise(slug: string) {
+    haptic("light");
+    setExercises((exs) => exs.filter((e) => e.slug !== slug));
+  }
+
+  async function openAddSheet() {
+    setAddOpen(true);
+    if (catalog.length > 0 || catalogLoading) return;
+    setCatalogLoading(true);
+    try {
+      const res = await apiFetch("/api/strength/exercises");
+      if (res.ok) {
+        setCatalog(await res.json());
+      } else {
+        setError("Couldn't load the exercise catalogue.");
+      }
+    } catch {
+      setError("Network error loading exercises.");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  function addExercise(row: ExerciseCatalogRow) {
+    haptic("light");
+    const sets = row.defaultSets ?? 3;
+    const repLow = row.repLow ?? 8;
+    const repHigh = row.repHigh ?? 12;
+    const planned: PlannedExercise = {
+      slug: row.slug,
+      name: row.name,
+      category: row.category,
+      equipmentNote: row.equipmentNote ?? undefined,
+      tempoNote: row.tempoNote ?? undefined,
+      flatGroundOnly: row.flatGroundOnly ?? false,
+      perSide: false,
+      sets,
+      repLow,
+      repHigh,
+      restSeconds: 90,
+      prescription: repLow === repHigh ? `${sets} × ${repLow}` : `${sets} × ${repLow}–${repHigh}`,
+      suggestedWeightKg: row.startWeightKg ?? null,
+      lastWeightKg: null,
+      painGated: false,
+      progression: { action: "same", reason: "Manually added" },
+    };
+    setExercises((exs) => [...exs, planned]);
+    setAddOpen(false);
+  }
+
+  function handleStart() {
+    if (exercises.length === 0) {
+      setError("Add at least one exercise before starting.");
+      return;
+    }
+    setError(null);
+    unlockGuidedAudio();
+    setPhase("guided");
+  }
+
+  function handleFinish(s: GuidedFinishSummary) {
+    setSummary(s);
+    setPhase("summary");
+  }
+
+  function handleExitGuided() {
+    setPhase("picker");
+    setSession(null);
+    setExercises([]);
+  }
+
+  // ── Phase 1: Picker ───────────────────────────────────────────────────────
+  if (phase === "picker") {
     return (
       <main className="min-h-dvh bg-bg">
         <NavBar title="Kraft" large />
@@ -235,7 +204,7 @@ export default function StrengthPage() {
                 key={t}
                 type="button"
                 disabled={busy}
-                onClick={() => startSession(t)}
+                onClick={() => pickType(t)}
                 whileTap={{ scale: busy ? 1 : 0.97 }}
                 transition={{ type: "spring", stiffness: 500, damping: 32 }}
                 style={{ touchAction: "manipulation" }}
@@ -263,57 +232,99 @@ export default function StrengthPage() {
     );
   }
 
-  // ── Active session logger ─────────────────────────────────────────────────────
-  const done = Object.values(work).flat().filter((s) => s.logged).length;
-  const total = Object.values(work).flat().length;
+  // ── Phase 3: Guided walkthrough (full-screen takeover) ───────────────────────
+  if (phase === "guided" && session) {
+    return (
+      <GuidedSession
+        session={{
+          id: session.id,
+          type: session.type,
+          title: session.title,
+          targetDurationMinutes: session.targetDurationMinutes,
+        }}
+        exercises={exercises}
+        onExit={handleExitGuided}
+        onFinish={handleFinish}
+      />
+    );
+  }
 
-  return (
-    <main className="min-h-dvh bg-bg">
-      <div className="px-4 pb-tabbar pt-[max(env(safe-area-inset-top),8px)]">
-        <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between px-4 pb-3 pt-3 material">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger" />
-            <span className="text-[19px] font-extrabold tabular-nums text-text-1">{fmt(elapsed)}</span>
-            <span className="text-[13px] text-text-3">/ ~{session.targetDurationMinutes}m</span>
+  // ── Phase 4: Summary ─────────────────────────────────────────────────────────
+  if (phase === "summary" && summary) {
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center bg-bg px-6">
+        <div className="w-full max-w-sm rounded-[var(--radius-card)] bg-surface p-6 text-center">
+          <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">Session complete</h1>
+          <p className="mt-2 text-[15px] text-text-2">
+            {summary.setsLogged}/{summary.totalSets} sets logged · {summary.durationMinutes} min
+          </p>
+          <div className="mt-6">
+            <Button variant="primary" size="lg" full onClick={backToPicker}>
+              Done
+            </Button>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => setSession(null)}>
-            Exit
-          </Button>
         </div>
+      </main>
+    );
+  }
 
-        <div className="h-1 overflow-hidden rounded-full bg-elevated">
-          <div
-            className="h-full rounded-full bg-accent transition-all"
-            style={{ width: `${total ? (done / total) * 100 : 0}%` }}
-          />
-        </div>
+  // ── Phase 2: Overview (editable, no clock) ───────────────────────────────────
+  if (phase === "overview" && session) {
+    const addable = catalog.filter(
+      (r) =>
+        ADD_CATEGORIES[session.type].includes(r.category) &&
+        !exercises.some((e) => e.slug === r.slug)
+    );
 
-        <div className="mt-3 flex items-baseline justify-between">
-          <h1 className="text-[22px] font-bold tracking-tight text-text-1">{session.title}</h1>
-          <span className="text-[13px] tabular-nums text-text-3">
-            {done}/{total} sets
-          </span>
-        </div>
+    return (
+      <main className="min-h-dvh bg-bg">
+        <NavBar
+          title={session.title}
+          large={false}
+          left={
+            <button
+              type="button"
+              onClick={backToPicker}
+              aria-label="Back"
+              style={{ touchAction: "manipulation" }}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-elevated text-text-1"
+            >
+              <ChevronLeft className="h-5 w-5" strokeWidth={2.2} />
+            </button>
+          }
+        />
+        <div className="px-4 pb-tabbar">
+          <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
+          <p className="mt-1 text-[13px] text-text-3">
+            {exercises.length} exercises · ~{session.targetDurationMinutes} min
+          </p>
 
-        {session.type === "lower_achilles" && (
-          <div className="mt-2 rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
-            Order locked: explosive work first, slow heavy HSR calf work last.
-          </div>
-        )}
+          {session.type === "lower_achilles" && (
+            <div className="mt-3 rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
+              Order locked: explosive work first, slow heavy HSR calf work last.
+            </div>
+          )}
 
-        <div className="mt-3 space-y-3">
-          {session.plannedExercises.map((ex, ei) => (
-            <div key={ex.slug} className="overflow-hidden rounded-[var(--radius-card)] bg-surface p-3.5">
-              <div className="flex items-start gap-3">
+          {error && (
+            <div className="mt-3 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-col gap-3">
+            {exercises.map((ex, ei) => (
+              <div key={ex.slug} className="flex items-start gap-3 rounded-[var(--radius-card)] bg-surface p-3.5">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
                   {ei + 1}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
                   <p className="mt-0.5 text-[12px] text-text-3">
-                    {ex.prescription}
-                    {ex.tempoNote ? ` · ${ex.tempoNote}` : ""}
+                    {ex.sets} sets × {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps
+                    {ex.suggestedWeightKg != null ? ` · ${ex.suggestedWeightKg} kg` : " · bodyweight"}
+                    {ex.perSide ? "/side" : ""}
                   </p>
+                  {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {ex.flatGroundOnly && (
                       <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">
@@ -332,96 +343,65 @@ export default function StrengthPage() {
                     )}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => removeExercise(ex.slug)}
+                  aria-label={`Remove ${ex.name}`}
+                  style={{ touchAction: "manipulation" }}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-elevated text-text-3"
+                >
+                  <X className="h-4 w-4" strokeWidth={2.5} />
+                </button>
               </div>
+            ))}
 
-              <div className="mt-3 flex flex-col gap-2">
-                {(work[ex.slug] ?? []).map((st, si) => (
-                  <div key={si} className={`flex items-center gap-2 ${st.logged ? "opacity-50" : ""}`}>
-                    <span className="w-8 shrink-0 text-[11px] font-extrabold uppercase tracking-wide text-text-3">
-                      S{si + 1}
-                    </span>
-                    <div className="flex flex-1 items-center justify-between rounded-[var(--radius-input)] bg-elevated p-1">
-                      <Stepper onClick={() => adjust(ex.slug, si, "kg", -1)}>
-                        <Minus className="h-4 w-4" strokeWidth={2.5} />
-                      </Stepper>
-                      <span className="text-center leading-none">
-                        <b className="text-[16px] font-extrabold tabular-nums text-text-1">{st.kg}</b>
-                        <span className="block text-[9px] uppercase tracking-wide text-text-3">
-                          kg{ex.perSide ? "/side" : ""}
-                        </span>
-                      </span>
-                      <Stepper onClick={() => adjust(ex.slug, si, "kg", 1)}>
-                        <Plus className="h-4 w-4" strokeWidth={2.5} />
-                      </Stepper>
-                    </div>
-                    <div
-                      className="flex items-center justify-between rounded-[var(--radius-input)] bg-elevated p-1"
-                      style={{ maxWidth: 104 }}
-                    >
-                      <Stepper onClick={() => adjust(ex.slug, si, "reps", -1)}>
-                        <Minus className="h-4 w-4" strokeWidth={2.5} />
-                      </Stepper>
-                      <span className="text-center leading-none">
-                        <b className="text-[16px] font-extrabold tabular-nums text-text-1">{st.reps}</b>
-                        <span className="block text-[9px] uppercase tracking-wide text-text-3">reps</span>
-                      </span>
-                      <Stepper onClick={() => adjust(ex.slug, si, "reps", 1)}>
-                        <Plus className="h-4 w-4" strokeWidth={2.5} />
-                      </Stepper>
-                    </div>
-                    <motion.button
-                      type="button"
-                      onClick={() => logSet(ex, si)}
-                      aria-label="Log set"
-                      whileTap={{ scale: 0.88 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                      style={{ touchAction: "manipulation" }}
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-input)] ${
-                        st.logged ? "bg-[#4ADE80]" : "bg-accent"
-                      } text-on-accent`}
-                    >
-                      {st.logged ? (
-                        <Check className="h-5 w-5" strokeWidth={3} />
-                      ) : (
-                        <Plus className="h-5 w-5" strokeWidth={3} />
-                      )}
-                    </motion.button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-5">
-          <Button variant="primary" size="lg" full onClick={finish}>
-            Finish session
-          </Button>
-        </div>
-      </div>
-
-      {/* Rest timer */}
-      {rest !== null && (
-        <div className="fixed inset-x-0 bottom-16 z-40 mx-auto max-w-[430px] px-4">
-          <div className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-3 shadow-2xl">
-            <span className="text-[24px] font-extrabold tabular-nums text-accent">{fmt(Math.max(0, rest))}</span>
-            <span className="flex-1 text-[13px] text-text-3">Rest — next set</span>
-            <Button variant="secondary" size="sm" onClick={() => setRest((r) => (r ?? 0) + 15)}>
-              +15s
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={stopRest}
-              className="!bg-text-1 !text-bg"
+            <motion.button
+              type="button"
+              onClick={openAddSheet}
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: "spring", stiffness: 500, damping: 32 }}
+              style={{ touchAction: "manipulation" }}
+              className="flex items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-hairline bg-transparent p-3.5 text-[15px] font-semibold text-accent"
             >
-              <X className="h-4 w-4" strokeWidth={2.5} />
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              Add exercise
+            </motion.button>
+          </div>
+
+          <div className="mt-6">
+            <Button variant="primary" size="lg" full onClick={handleStart}>
+              Start
             </Button>
           </div>
         </div>
-      )}
 
-      <BottomNav active="strength" />
-    </main>
-  );
+        <Sheet open={addOpen} onClose={() => setAddOpen(false)} title="Add exercise">
+          {catalogLoading ? (
+            <p className="py-8 text-center text-[13px] text-text-3">Loading…</p>
+          ) : addable.length === 0 ? (
+            <EmptyState title="Nothing to add" message="All eligible exercises are already in this session." />
+          ) : (
+            <ListGroup>
+              {addable.map((row) => (
+                <Row
+                  key={row.slug}
+                  title={row.name}
+                  subtitle={
+                    row.tempoNote ??
+                    `${row.defaultSets ?? 3} sets × ${row.repLow ?? 8}–${row.repHigh ?? 12} reps`
+                  }
+                  onClick={() => addExercise(row)}
+                  chevron
+                />
+              ))}
+            </ListGroup>
+          )}
+        </Sheet>
+
+        <BottomNav active="strength" />
+      </main>
+    );
+  }
+
+  return null;
 }
