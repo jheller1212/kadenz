@@ -52,6 +52,127 @@ export async function isConnected(): Promise<boolean> {
   return (await loadTokens()) !== null;
 }
 
+// ── Webhook subscription (same singleton storage pattern) ───────────────────
+
+const SUBSCRIPTION_IDEM_KEY = "strava:subscription:singleton";
+
+interface StoredSubscription {
+  subscription_id: number;
+  callback_url: string;
+}
+
+export async function loadSubscription(): Promise<StoredSubscription | null> {
+  try {
+    const [row] = await db
+      .select({ payload: syncOutbox.payload })
+      .from(syncOutbox)
+      .where(eq(syncOutbox.idempotencyKey, SUBSCRIPTION_IDEM_KEY))
+      .limit(1);
+
+    if (!row?.payload) return null;
+    return row.payload as unknown as StoredSubscription;
+  } catch {
+    return null;
+  }
+}
+
+async function saveSubscription(sub: StoredSubscription): Promise<void> {
+  await db
+    .insert(syncOutbox)
+    .values({
+      entityType: TOKEN_ENTITY_TYPE,
+      entityId: TOKEN_ENTITY_ID,
+      action: "update",
+      target: "gcal", // reuse existing enum value — no migration needed
+      status: "completed",
+      idempotencyKey: SUBSCRIPTION_IDEM_KEY,
+      payload: sub as unknown as Record<string, unknown>,
+      attempts: 0,
+    })
+    .onConflictDoUpdate({
+      target: syncOutbox.idempotencyKey,
+      set: { payload: sub as unknown as Record<string, unknown> },
+    });
+}
+
+interface StravaSubscription {
+  id: number;
+  callback_url: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** List this application's webhook subscription on Strava (max one per app). */
+export async function getWebhookSubscription(): Promise<StravaSubscription | null> {
+  const { clientId, clientSecret } = getConfig();
+  const params = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+  });
+
+  const res = await fetch(`${STRAVA_API}/push_subscriptions?${params}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Strava subscription list failed: ${res.status} ${text}`);
+  }
+
+  const subs = (await res.json()) as StravaSubscription[];
+  return subs[0] ?? null;
+}
+
+/**
+ * Ensure a webhook subscription exists for the given callback URL.
+ * Strava allows one subscription per application; if one already exists it is
+ * reused (and replaced only when its callback URL differs).
+ */
+export async function registerWebhookSubscription(
+  callbackUrl: string
+): Promise<StoredSubscription> {
+  const { clientId, clientSecret } = getConfig();
+  const verifyToken = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
+  if (!verifyToken) throw new Error("STRAVA_WEBHOOK_VERIFY_TOKEN is not set");
+
+  const existing = await getWebhookSubscription();
+  if (existing) {
+    if (existing.callback_url === callbackUrl) {
+      const stored = { subscription_id: existing.id, callback_url: existing.callback_url };
+      await saveSubscription(stored);
+      return stored;
+    }
+    // Stale callback (old domain) — delete so we can re-register
+    const del = new URLSearchParams({ client_id: clientId, client_secret: clientSecret });
+    const delRes = await fetch(`${STRAVA_API}/push_subscriptions/${existing.id}?${del}`, {
+      method: "DELETE",
+    });
+    if (!delRes.ok && delRes.status !== 404) {
+      const text = await delRes.text();
+      throw new Error(`Strava subscription delete failed: ${delRes.status} ${text}`);
+    }
+  }
+
+  // Strava validates the callback synchronously (GET with hub.challenge)
+  const res = await fetch(`${STRAVA_API}/push_subscriptions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      callback_url: callbackUrl,
+      verify_token: verifyToken,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Strava subscription create failed: ${res.status} ${text}`);
+  }
+
+  const data = (await res.json()) as { id: number };
+  const stored = { subscription_id: data.id, callback_url: callbackUrl };
+  await saveSubscription(stored);
+  return stored;
+}
+
 // ── OAuth2 helpers ──────────────────────────────────────────────────────────
 
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize";
