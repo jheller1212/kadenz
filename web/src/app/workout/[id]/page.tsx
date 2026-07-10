@@ -211,16 +211,13 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     async function load() {
       try {
-        // Fetch from today API and find this workout
-        const res = await apiFetch("/api/today");
-        if (!res.ok) throw new Error("Failed");
-        const data = await res.json();
-        const found = data.weekWorkouts?.find((w: WorkoutDetail) => w.id === id);
-        if (found) {
-          setWorkout(found);
-        } else {
+        const res = await apiFetch(`/api/workouts/${id}`);
+        if (res.status === 404) {
           setError("Workout not found.");
+          return;
         }
+        if (!res.ok) throw new Error("Failed");
+        setWorkout(await res.json());
       } catch {
         setError("Couldn't load this workout. Please try again.");
       } finally {
