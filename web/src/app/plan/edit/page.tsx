@@ -187,7 +187,7 @@ function EditPlanInner() {
           </button>
         }
       />
-      <div className="flex flex-col gap-5 px-4 pb-32">
+      <div className="flex flex-col gap-5 px-4 pb-[calc(env(safe-area-inset-bottom)+152px)]">
         <p className="text-[13px] text-text-3">
           Changing these regenerates the schedule in place — completed runs stay in your history.
         </p>
@@ -352,7 +352,7 @@ function EditPlanInner() {
       </div>
 
       {/* Sticky save */}
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-md bg-bg/90 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] bg-bg/90 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 backdrop-blur">
         <Button full onClick={save} busy={saving}>
           Save &amp; regenerate
         </Button>
