@@ -1,5 +1,5 @@
-import { db, syncOutbox, activities, workouts } from "@/db";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { db, syncOutbox, activities, workouts, plans } from "@/db";
+import { eq, and, gte, lte, ne, isNull } from "drizzle-orm";
 
 // ── Token storage (same pattern as gcal-client.ts) ──────────────────────────
 
@@ -345,8 +345,11 @@ export async function fetchActivity(
 // ── Activity matching & storage ─────────────────────────────────────────────
 
 /**
- * Match a Strava activity to a planned workout by date.
- * Only matches Run activities to non-rest workouts on the same day.
+ * Match a Strava activity to a workout on the same day.
+ * Candidates come from the active plan only (never archived plans) and
+ * exclude rest days. Planned workouts win over manually-completed ones
+ * that lack Strava data; ties break on targetKm closest to the actual
+ * distance so multi-run days attach to the right session.
  */
 async function findMatchingWorkout(
   activity: StravaActivity
@@ -357,19 +360,37 @@ async function findMatchingWorkout(
   const dayEnd = new Date(activityDate);
   dayEnd.setHours(23, 59, 59, 999);
 
-  const matches = await db
-    .select({ id: workouts.id, type: workouts.type, status: workouts.status })
+  const candidates = await db
+    .select({
+      id: workouts.id,
+      status: workouts.status,
+      targetKm: workouts.targetKm,
+    })
     .from(workouts)
+    .innerJoin(plans, eq(workouts.planId, plans.id))
     .where(
       and(
         gte(workouts.date, dayStart),
         lte(workouts.date, dayEnd),
-        eq(workouts.status, "planned")
+        ne(workouts.type, "rest"),
+        eq(plans.status, "active"),
+        isNull(workouts.stravaActivityId)
       )
-    )
-    .limit(1);
+    );
 
-  return matches[0]?.id ?? null;
+  if (candidates.length === 0) return null;
+
+  const distanceKm = activity.distance / 1000;
+  const byDistance = (pool: typeof candidates) =>
+    [...pool].sort(
+      (a, b) =>
+        Math.abs((a.targetKm ?? 0) - distanceKm) -
+        Math.abs((b.targetKm ?? 0) - distanceKm)
+    )[0];
+
+  const planned = candidates.filter((c) => c.status === "planned");
+  const best = planned.length > 0 ? byDistance(planned) : byDistance(candidates);
+  return best?.id ?? null;
 }
 
 /** Process a Strava activity: store it and match to a workout if possible. */
