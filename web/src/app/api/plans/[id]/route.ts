@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
-import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
+import { queuePlanWorkoutsSync, queueWorkoutEventDeletes } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 
 const PlanConfigSchema = z.object({
@@ -135,6 +135,16 @@ export async function PUT(
       })
       .where(eq(plans.id, id));
 
+    // Capture the old workouts' calendar events before we drop them, so their
+    // now-stale events can be pruned from Google Calendar.
+    const oldWorkouts = await db
+      .select({ workoutId: workouts.id, gcalEventId: workouts.gcalEventId })
+      .from(workouts)
+      .where(eq(workouts.planId, id));
+    const staleEvents = oldWorkouts
+      .filter((w): w is { workoutId: string; gcalEventId: string } => !!w.gcalEventId)
+      .map((w) => ({ workoutId: w.workoutId, gcalEventId: w.gcalEventId }));
+
     // Replace the schedule: delete existing weeks (cascades workouts + blocks).
     await db.delete(weeks).where(eq(weeks.planId, id));
 
@@ -194,6 +204,10 @@ export async function PUT(
     isConnected()
       .then((connected) => {
         if (connected) {
+          // Prune the old schedule's events, then create the new ones.
+          queueWorkoutEventDeletes(staleEvents).catch((err) =>
+            console.error("Failed to queue gcal event deletes:", err)
+          );
           queuePlanWorkoutsSync(id, "gcal").catch((err) =>
             console.error("Failed to queue gcal sync:", err)
           );

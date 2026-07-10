@@ -18,7 +18,8 @@ const MAX_ATTEMPTS = 3;
 export async function queueWorkoutSync(
   workoutId: string,
   action: "create" | "update" | "delete",
-  target: "gcal" | "garmin" = "gcal"
+  target: "gcal" | "garmin" = "gcal",
+  payload?: Record<string, unknown>
 ): Promise<void> {
   const idempotencyKey = `${target}:${action}:${workoutId}`;
 
@@ -31,11 +32,39 @@ export async function queueWorkoutSync(
       target,
       status: "pending",
       idempotencyKey,
+      payload: payload ?? null,
       attempts: 0,
     })
     .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
 
   // Fire-and-forget flush
+  processGCalOutbox().catch(console.error);
+}
+
+/**
+ * Queue calendar deletions for a set of already-known workout events. Used when
+ * a plan is regenerated: the old workouts (and their gcalEventIds) are about to
+ * be removed, so their calendar events must be pruned by id.
+ */
+export async function queueWorkoutEventDeletes(
+  events: Array<{ workoutId: string; gcalEventId: string }>,
+  target: "gcal" | "garmin" = "gcal"
+): Promise<void> {
+  if (events.length === 0) return;
+  const rows = events.map((e) => ({
+    entityType: "workout" as const,
+    entityId: e.workoutId,
+    action: "delete" as const,
+    target,
+    status: "pending" as const,
+    idempotencyKey: `${target}:delete:${e.workoutId}`,
+    payload: { gcalEventId: e.gcalEventId } as Record<string, unknown>,
+    attempts: 0,
+  }));
+  await db
+    .insert(syncOutbox)
+    .values(rows)
+    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
   processGCalOutbox().catch(console.error);
 }
 
