@@ -222,6 +222,47 @@ describe("generatePlan — volume progression", () => {
     }
   });
 
+  it("week targetKm equals the sum of its scheduled workouts (no phantom volume)", () => {
+    // Reported bug: 50 km/wk target, long capped at 16, easy min 10, 4 days →
+    // schedules 1×16 + 3×easy but the week still displayed the un-schedulable
+    // ramp target, so the header total/max didn't match the actual runs.
+    const plan = generatePlan({
+      ...marathonConfig,
+      currentWeeklyKm: 50,
+      daysPerWeek: 4,
+      longRunCapKm: 16,
+      easyRunMinKm: 10,
+    });
+    for (const week of plan.weeks) {
+      const scheduled = week.workouts.reduce((s, w) => s + (w.targetKm ?? 0), 0);
+      expect(week.targetKm).toBe(Math.round(scheduled));
+    }
+  });
+
+  it("absorbs overflow into easy runs when the long-run cap is binding", () => {
+    // With a hard 16 km cap and only 4 days, the leftover weekly volume must go
+    // into the easy runs (kept under the long run) rather than being discarded.
+    const plan = generatePlan({
+      ...marathonConfig,
+      currentWeeklyKm: 50,
+      daysPerWeek: 4,
+      longRunCapKm: 16,
+      easyRunMinKm: 10,
+    });
+    for (const week of plan.weeks) {
+      if (week.type !== "normal") continue;
+      const longRun = week.workouts.find((w) => w.type === "long");
+      const easies = week.workouts.filter((w) => w.type === "easy");
+      if (!longRun?.targetKm || easies.length === 0) continue;
+      // Long run honored the cap …
+      expect(longRun.targetKm).toBeLessThanOrEqual(16);
+      // … and every easy run stays strictly shorter than the long run.
+      for (const e of easies) {
+        expect(e.targetKm!).toBeLessThan(longRun.targetKm);
+      }
+    }
+  });
+
   it("high volume plan has more km than low volume plan", () => {
     const low = generatePlan({ ...marathonConfig, trainingVolume: "low" });
     const high = generatePlan({ ...marathonConfig, trainingVolume: "high" });

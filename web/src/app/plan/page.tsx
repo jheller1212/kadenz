@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, GripVertical } from "lucide-react";
+import { Plus, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, GripVertical, CalendarClock, SlidersHorizontal } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
 import { PaceChart } from "@/components/PaceChart";
+import { StrengthScheduler } from "@/components/strength/StrengthScheduler";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
@@ -65,6 +66,7 @@ function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
       type: week.type as GeneratedWeek["type"],
       targetKm: (week.targetKm as number) ?? 0,
       workouts: ((week.workouts as Record<string, unknown>[]) ?? []).map((wo) => ({
+        id: wo.id as string | undefined,
         dayOfWeek: wo.dayOfWeek as number,
         date: new Date(wo.date as string),
         type: wo.type as GeneratedWorkout["type"],
@@ -118,6 +120,16 @@ const BLOCK_LABEL: Record<string, string> = {
 
 function formatDate(d: Date) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Monday of the week containing `d` (weeks start Monday in Kadenz). */
+function mondayOf(d: Date): Date {
+  const x = new Date(d);
+  const dow = x.getDay(); // 0=Sun
+  const offset = dow === 0 ? -6 : 1 - dow;
+  x.setDate(x.getDate() + offset);
+  x.setHours(0, 0, 0, 0);
+  return x;
 }
 
 function formatFullDate(d: Date) {
@@ -211,11 +223,13 @@ function WorkoutRow({
   expanded,
   onToggle,
   dimmed,
+  onMove,
 }: {
   workout: GeneratedWorkout;
   expanded: boolean;
   onToggle: () => void;
   dimmed: boolean;
+  onMove?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: workout.sortOrder.toString() });
@@ -360,6 +374,18 @@ function WorkoutRow({
                         ))}
                       </div>
                     </>
+                  )}
+                  {onMove && workout.id && (
+                    <button
+                      onClick={() => {
+                        haptic("light");
+                        onMove();
+                      }}
+                      className="press mt-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-elevated py-2.5 text-[13px] font-semibold text-text-2"
+                    >
+                      <CalendarClock className="h-4 w-4" strokeWidth={2} />
+                      Move to another day
+                    </button>
                   )}
                 </div>
               </motion.div>
@@ -713,6 +739,9 @@ function PlanPageInner() {
   const [selectedWeekNum, setSelectedWeekNum] = useState<number>(1);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null);
+  const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [moveTarget, setMoveTarget] = useState<GeneratedWorkout | null>(null);
 
   // Swipe refs
   const touchStartX = React.useRef(0);
@@ -726,6 +755,7 @@ function PlanPageInner() {
     async function loadPlan() {
       try {
         let url: string;
+        let effectiveId = planId;
         if (planId) {
           url = `/api/plans/${planId}`;
         } else {
@@ -736,8 +766,10 @@ function PlanPageInner() {
             (p) => p.status === "active"
           );
           if (!active) { setLoading(false); return; }
+          effectiveId = active.id;
           url = `/api/plans/${active.id}`;
         }
+        setResolvedPlanId(effectiveId);
 
         const res = await apiFetch(url);
         if (!res.ok) { setLoading(false); return; }
@@ -746,10 +778,13 @@ function PlanPageInner() {
         const adapted = adaptApiPlan(raw);
         setPlan(adapted);
 
-        // Default to current week
-        const currentIdx = adapted.weeks.findIndex((w) => isCurrentWeek(w));
-        if (currentIdx >= 0) {
-          setSelectedWeekNum(adapted.weeks[currentIdx].weekNumber);
+        // Default to current week on first load only (don't yank the view
+        // back after a reschedule reload).
+        if (reloadKey === 0) {
+          const currentIdx = adapted.weeks.findIndex((w) => isCurrentWeek(w));
+          if (currentIdx >= 0) {
+            setSelectedWeekNum(adapted.weeks[currentIdx].weekNumber);
+          }
         }
       } catch {
         // silent
@@ -758,7 +793,7 @@ function PlanPageInner() {
       }
     }
     loadPlan();
-  }, [planId]);
+  }, [planId, reloadKey]);
 
   if (loading) return <LoadingSkeleton />;
   if (!plan) return <PlanEmptyState />;
@@ -768,6 +803,25 @@ function PlanPageInner() {
 
   function goToWeek(n: number) {
     setSelectedWeekNum(Math.max(1, Math.min(n, totalWeeks)));
+  }
+
+  async function moveWorkout(dateIso: string) {
+    if (!moveTarget?.id || !resolvedPlanId) return;
+    const res = await apiFetch(
+      `/api/plans/${resolvedPlanId}/workouts/${moveTarget.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: dateIso }),
+      }
+    );
+    if (res.ok) {
+      haptic("success");
+      setMoveTarget(null);
+      setReloadKey((k) => k + 1);
+    } else {
+      haptic("warning");
+    }
   }
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -793,13 +847,22 @@ function PlanPageInner() {
         title="Plan"
         large
         right={
-          <TransitionLink
-            href="/create"
-            aria-label="New plan"
-            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
-          >
-            <Plus className="h-4 w-4 text-text-2" strokeWidth={2} />
-          </TransitionLink>
+          <div className="flex items-center gap-2">
+            <TransitionLink
+              href="/plan/edit"
+              aria-label="Edit plan"
+              className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
+            >
+              <SlidersHorizontal className="h-4 w-4 text-text-2" strokeWidth={2} />
+            </TransitionLink>
+            <TransitionLink
+              href="/create"
+              aria-label="New plan"
+              className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
+            >
+              <Plus className="h-4 w-4 text-text-2" strokeWidth={2} />
+            </TransitionLink>
+          </div>
         }
       />
 
@@ -911,12 +974,26 @@ function PlanPageInner() {
                     expanded={expandedWorkout === wId}
                     onToggle={() => setExpandedWorkout(expandedWorkout === wId ? null : wId)}
                     dimmed={isPastWeek(selectedWeek)}
+                    onMove={workout.id ? () => setMoveTarget(workout) : undefined}
                   />
                 );
               })}
             </SortableContext>
           </DndContext>
         </div>
+
+        {/* Strength scheduling — add/move dumbbell sessions onto the calendar */}
+        {firstDate && (
+          <>
+            <div className="h-px bg-hairline mt-2" />
+            <StrengthScheduler
+              weekStart={mondayOf(firstDate)}
+              runs={selectedWeek.workouts
+                .filter((w) => w.type !== "rest")
+                .map((w) => ({ date: w.date, type: w.type }))}
+            />
+          </>
+        )}
 
         {/* Plan overview */}
         <div className="h-px bg-hairline mt-2" />
@@ -931,6 +1008,47 @@ function PlanPageInner() {
         open={dropdownOpen}
         onClose={() => setDropdownOpen(false)}
       />
+
+      {/* Reschedule a run to another day this week */}
+      <Sheet
+        open={!!moveTarget}
+        onClose={() => setMoveTarget(null)}
+        title="Move to another day"
+      >
+        {moveTarget && firstDate && (
+          <div className="flex flex-col gap-4 px-1 pb-2">
+            <p className="text-[13px] text-text-2">
+              <span className="font-semibold text-text-1">{moveTarget.title}</span> — pick a new day.
+            </p>
+            <div className="grid grid-cols-7 gap-1.5">
+              {Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(mondayOf(firstDate));
+                d.setDate(d.getDate() + i);
+                const isCurrent =
+                  d.getFullYear() === moveTarget.date.getFullYear() &&
+                  d.getMonth() === moveTarget.date.getMonth() &&
+                  d.getDate() === moveTarget.date.getDate();
+                return (
+                  <button
+                    key={i}
+                    disabled={isCurrent}
+                    onClick={() => moveWorkout(d.toISOString())}
+                    className={`flex flex-col items-center rounded-[var(--radius-input)] py-2.5 text-center transition-colors disabled:opacity-40 ${
+                      isCurrent ? "bg-accent text-on-accent" : "bg-elevated text-text-2 press"
+                    }`}
+                  >
+                    <span className="text-[9px] font-bold uppercase">
+                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i]}
+                    </span>
+                    <span className="text-[15px] font-bold tabular-nums">{d.getDate()}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[12px] text-text-3">The workout and its calendar event move together.</p>
+          </div>
+        )}
+      </Sheet>
 
       <BottomNav active="plan" />
     </main>

@@ -789,12 +789,21 @@ function distributeVolume(
     tempoCount * tempoTotalKm + intervalCount * intervalTotalKm;
 
   const minEasy = easyRunMinKm > 0 ? easyRunMinKm : 3;
-  // Easy runs capped at 55% of long run — must feel distinctly shorter
-  // At minimum, easy must be at least 3km shorter than long run
-  const maxEasy = Math.min(
+  // Preferred easy-run size: distinctly shorter than the long run (≈55%, and at
+  // least 3km shorter). This is only a *preference*, not a hard ceiling.
+  const preferredMaxEasy = Math.min(
     Math.round(longRunKm * 0.55),
     longRunKm - 3
   );
+  // easyRunMinKm is a FLOOR, not a ceiling — easy runs may run longer. When the
+  // weekly volume can't fit under the preferred size (few training days, or a
+  // binding long-run cap), let the easy runs grow to absorb it rather than
+  // silently discarding volume. They stay 1km under the long run so it remains
+  // the distinctly longest run of the week.
+  const wouldStrandVolume = remainingKm > easyCount * preferredMaxEasy;
+  const maxEasy = wouldStrandVolume
+    ? Math.max(preferredMaxEasy, longRunKm - 1)
+    : preferredMaxEasy;
   const effectiveMaxEasy = Math.max(maxEasy, minEasy);
 
   // Only reduce easy run count in extreme cases: when the user's minimum
@@ -970,11 +979,18 @@ function buildWeek(
     }
   }
 
+  // Reconcile the week's displayed volume with what was actually scheduled.
+  // Hard caps (long-run cap, easy min/max, limited training days) can make the
+  // achievable total differ from the ramp target — the weekly number shown to
+  // the athlete must equal the sum of the runs actually on the calendar, or the
+  // header "total/max km" won't match the schedule.
+  const scheduledKm = workouts.reduce((sum, w) => sum + (w.targetKm ?? 0), 0);
+
   return {
     weekNumber,
     phase,
     type,
-    targetKm: Math.round(targetKm),
+    targetKm: Math.round(scheduledKm),
     workouts,
   };
 }

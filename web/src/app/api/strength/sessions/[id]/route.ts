@@ -113,3 +113,45 @@ export async function PATCH(
     return Response.json({ error: "Failed to update session" }, { status: 500 });
   }
 }
+
+// ── DELETE /api/strength/sessions/[id] ────────────────────────────────────────
+// Remove a scheduled strength session and its calendar event.
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const [existing] = await db
+      .select({ id: strengthSessions.id, gcalEventId: strengthSessions.gcalEventId })
+      .from(strengthSessions)
+      .where(eq(strengthSessions.id, id));
+
+    if (!existing) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    await db.delete(strengthSessions).where(eq(strengthSessions.id, id));
+
+    // Fan out the calendar deletion if there was an event.
+    if (existing.gcalEventId) {
+      isConnected()
+        .then((connected) => {
+          if (connected) {
+            queueStrengthSessionSync(id, "delete", "gcal", {
+              gcalEventId: existing.gcalEventId!,
+            }).catch((err) =>
+              console.error("Failed to queue strength gcal delete:", err)
+            );
+          }
+        })
+        .catch(() => {});
+    }
+
+    return Response.json({ ok: true });
+  } catch (err) {
+    console.error("DB error deleting strength session:", err);
+    return Response.json({ error: "Failed to delete session" }, { status: 500 });
+  }
+}
