@@ -22,6 +22,16 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
+  // Vercel cron invocations authenticate with CRON_SECRET, not a session.
+  // The route re-verifies the same header; this just lets it through the gate.
+  if (pathname.startsWith("/api/cron/")) {
+    const secret = process.env.CRON_SECRET;
+    if (secret && request.headers.get("authorization") === `Bearer ${secret}`) {
+      return NextResponse.next();
+    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const cookieHeader = request.headers.get("cookie");
   const valid = await validateSessionCookie(cookieHeader);
   if (!valid) {
