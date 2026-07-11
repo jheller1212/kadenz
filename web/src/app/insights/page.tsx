@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
+import { useSwipeBack } from "@/lib/useSwipeBack";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ function BackButton() {
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function InsightsPage() {
+  useSwipeBack();
   const router = useRouter();
   const [data, setData] = useState<InsightsData | null>(null);
   const [loading, setLoading] = useState(true);

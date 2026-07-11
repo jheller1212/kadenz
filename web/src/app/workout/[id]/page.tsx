@@ -13,6 +13,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
+import { useSwipeBack } from "@/lib/useSwipeBack";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -189,6 +190,7 @@ function BackButton() {
 // ── Main Workout Detail Page ────────────────────────────────────────────────
 
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  useSwipeBack();
   const { id } = use(params);
   const router = useRouter();
   const settings = useSettings();

@@ -18,6 +18,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
+import { useSwipeBack } from "@/lib/useSwipeBack";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -832,6 +833,7 @@ function LoadingSkeleton() {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ActivityDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  useSwipeBack();
   const { id } = use(params);
   const [activity, setActivity] = useState<ActivityDetail | null>(null);
   const [loading, setLoading] = useState(true);

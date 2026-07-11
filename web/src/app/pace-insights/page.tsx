@@ -10,6 +10,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
+import { useSwipeBack } from "@/lib/useSwipeBack";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -594,6 +595,7 @@ function RaceTimeSheet({
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PaceInsightsPage() {
+  useSwipeBack();
   const router = useRouter();
   const [data, setData] = useState<PaceInsightsData | null>(null);
   const [loading, setLoading] = useState(true);

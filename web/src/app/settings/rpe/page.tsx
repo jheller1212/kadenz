@@ -3,6 +3,7 @@
 import { ChevronLeft } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { TransitionLink } from "@/components/ui/TransitionLink";
+import { useSwipeBack } from "@/lib/useSwipeBack";
 
 const RPE_SCALE = [
   { level: 10, label: "Max effort", color: "#FF0000", desc: "All-out sprint. Cannot maintain." },
@@ -18,6 +19,7 @@ const RPE_SCALE = [
 ];
 
 export default function RPEPage() {
+  useSwipeBack();
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar
