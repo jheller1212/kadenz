@@ -7,7 +7,13 @@ export async function GET() {
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
-      scope: ["https://www.googleapis.com/auth/calendar.events"],
+      // openid + email let the callback read the account's verified email so it
+      // can enforce the owner allowlist before minting a session.
+      scope: [
+        "openid",
+        "email",
+        "https://www.googleapis.com/auth/calendar.events",
+      ],
     });
 
     return Response.redirect(authUrl);

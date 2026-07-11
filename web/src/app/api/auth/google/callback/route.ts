@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createOAuth2Client, saveTokens, type GCalTokens } from "@/lib/sync/gcal-client";
 import { makeSessionCookie } from "@/lib/session";
+import { isAllowedGoogleEmail } from "@/lib/owner";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -25,6 +26,26 @@ export async function GET(request: NextRequest) {
     if (!tokens.refresh_token) {
       // Happens if user already authorized before; re-initiate with prompt=consent
       return NextResponse.redirect(`${base}/api/auth/google`);
+    }
+
+    // Bind the session to the owner: verify the account's email against the
+    // allowlist before doing anything with the tokens. verifyIdToken checks
+    // the JWT signature/audience, so the email cannot be spoofed. Checked
+    // before saveTokens so a rejected stranger cannot overwrite owner tokens.
+    if (!tokens.id_token) {
+      console.error("Google token exchange returned no id_token");
+      return NextResponse.redirect(`${base}/?gcal=error`);
+    }
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const email = ticket.getPayload()?.email;
+    if (!isAllowedGoogleEmail(email)) {
+      return NextResponse.json(
+        { error: "This Google account is not authorized for Kadenz." },
+        { status: 403 }
+      );
     }
 
     await saveTokens({

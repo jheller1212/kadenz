@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { exchangeCode, saveTokens } from "@/lib/sync/strava-client";
 import { makeSessionCookie } from "@/lib/session";
+import { isAllowedStravaAthleteId } from "@/lib/owner";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -20,11 +21,28 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  let tokens;
   try {
-    const tokens = await exchangeCode(code);
-    await saveTokens(tokens);
+    tokens = await exchangeCode(code);
   } catch (err) {
     console.error("Failed to exchange Strava OAuth code:", err);
+    return NextResponse.redirect(`${base}/?strava=error`);
+  }
+
+  // Bind the session to the owner: only the allowlisted athlete may log in.
+  // Checked before saveTokens so a rejected stranger cannot overwrite the
+  // stored owner tokens.
+  if (!isAllowedStravaAthleteId(tokens.athlete_id)) {
+    return NextResponse.json(
+      { error: "This Strava account is not authorized for Kadenz." },
+      { status: 403 }
+    );
+  }
+
+  try {
+    await saveTokens(tokens);
+  } catch (err) {
+    console.error("Failed to save Strava tokens:", err);
     return NextResponse.redirect(`${base}/?strava=error`);
   }
 
