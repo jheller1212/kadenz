@@ -373,7 +373,7 @@ function CalendarStrip({
         const hasWorkout = day.workout && day.workout.type !== "rest";
         const completed = day.workout?.status === "completed";
         const dotColor = day.workout?.type ? workoutDotColor[day.workout.type] : null;
-        const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth();
+        const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth() && day.date.getFullYear() === selectedDate.getFullYear();
 
         return (
           <button key={i} onClick={() => onSelectDate(day)} className="press flex w-11 flex-col items-center gap-1 py-1">
@@ -954,7 +954,7 @@ export default function Home() {
 
   const currentWeek = data.currentWeek ?? 1;
   const totalWeeks = data.totalWeeks ?? 1;
-  const viewingToday = weekOffset === 0 && (!selectedDate || (selectedDate.getDate() === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth()));
+  const viewingToday = weekOffset === 0 && (!selectedDate || (selectedDate.getDate() === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth() && selectedDate.getFullYear() === new Date().getFullYear()));
 
   // When viewing a different week, show the first workout of that week if nothing selected
   const activeWorkout = selectedWorkout
