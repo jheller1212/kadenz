@@ -1,13 +1,13 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Home, CalendarDays, Dumbbell, Activity, User } from "lucide-react";
+import { Home, CalendarDays, Dumbbell, Activity, BarChart3 } from "lucide-react";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 
-type Tab = "today" | "plan" | "strength" | "activities" | "me";
+type Tab = "today" | "plan" | "strength" | "activities" | "stats";
 
 interface Props {
-  active: Tab;
+  active?: Tab;
 }
 
 const tabs: { id: Tab; label: string; href: string; Icon: typeof Home }[] = [
@@ -15,7 +15,7 @@ const tabs: { id: Tab; label: string; href: string; Icon: typeof Home }[] = [
   { id: "plan", label: "Plan", href: "/plan", Icon: CalendarDays },
   { id: "strength", label: "Kraft", href: "/strength", Icon: Dumbbell },
   { id: "activities", label: "Activities", href: "/activities", Icon: Activity },
-  { id: "me", label: "Me", href: "/settings", Icon: User },
+  { id: "stats", label: "Stats", href: "/stats", Icon: BarChart3 },
 ];
 
 export function BottomNav({ active }: Props) {

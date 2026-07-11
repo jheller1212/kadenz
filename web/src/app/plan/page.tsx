@@ -30,6 +30,7 @@ import {
 } from "@dnd-kit/core";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Segmented } from "@/components/ui/Segmented";
@@ -710,7 +711,7 @@ function PhaseDivider({ phase }: { phase: WeekPhase }) {
 function PlanEmptyState() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Plan" large />
+      <NavBar title="Plan" large left={<ProfileAvatar />} />
       <div className="mx-auto flex w-full max-w-md flex-col px-4 pb-tabbar">
         <EmptyState
           icon={
@@ -737,7 +738,7 @@ function PlanEmptyState() {
 function LoadingSkeleton() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Plan" large />
+      <NavBar title="Plan" large left={<ProfileAvatar />} />
       <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-tabbar">
         <div className="h-16 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
         <div className="h-24 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
@@ -1206,6 +1207,7 @@ function PlanPageInner() {
       <NavBar
         title="Plan"
         large
+        left={<ProfileAvatar />}
         right={
           <div className="flex items-center gap-2">
             <TransitionLink

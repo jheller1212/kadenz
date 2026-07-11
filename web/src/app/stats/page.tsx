@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -199,14 +200,14 @@ function WorkoutTypeBar({
 function StatsSkeleton() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Stats" large />
+      <NavBar title="Stats" large left={<ProfileAvatar />} />
       <div className="px-4 pb-tabbar flex flex-col gap-3">
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-28 w-full" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
       </div>
-      <BottomNav active="activities" />
+      <BottomNav active="stats" />
     </main>
   );
 }
@@ -214,7 +215,7 @@ function StatsSkeleton() {
 function NoPlanState() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Stats" large />
+      <NavBar title="Stats" large left={<ProfileAvatar />} />
       <div className="pb-tabbar">
         <EmptyState
           icon={<BarChart3 className="h-10 w-10" strokeWidth={1.5} />}
@@ -227,7 +228,7 @@ function NoPlanState() {
           }
         />
       </div>
-      <BottomNav active="activities" />
+      <BottomNav active="stats" />
     </main>
   );
 }
@@ -294,7 +295,7 @@ export default function StatsPage() {
 
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Stats" large />
+      <NavBar title="Stats" large left={<ProfileAvatar />} />
 
       <div className="px-4 pb-tabbar flex flex-col gap-3">
         {error && (
@@ -417,7 +418,7 @@ export default function StatsPage() {
         </section>
       </div>
 
-      <BottomNav active="activities" />
+      <BottomNav active="stats" />
     </main>
   );
 }

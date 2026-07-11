@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import {
-  User,
   ChevronDown,
   ChevronRight,
   CalendarDays,
@@ -19,6 +18,7 @@ import {
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
@@ -766,7 +766,7 @@ function WeekSheet({
 function NoPlanCTA({ error, onRetry }: { error?: boolean; onRetry?: () => void }) {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Today" large />
+      <NavBar title="Today" large left={<ProfileAvatar />} />
       <div className="flex min-h-[70dvh] items-center justify-center px-5 pb-tabbar">
         <EmptyState
           icon={<CalendarDays className="h-10 w-10" strokeWidth={1.5} />}
@@ -800,7 +800,7 @@ function NoPlanCTA({ error, onRetry }: { error?: boolean; onRetry?: () => void }
 function TodaySkeleton() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Today" large />
+      <NavBar title="Today" large left={<ProfileAvatar />} />
       <div className="flex flex-col gap-4 px-5 pb-tabbar">
         <div className="flex items-center justify-between">
           <Skeleton className="h-5 w-24" />
@@ -982,15 +982,7 @@ export default function Home() {
       <NavBar
         title="Today"
         large
-        right={
-          <TransitionLink
-            href="/settings"
-            aria-label="Profile"
-            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
-          >
-            <User className="h-4 w-4 text-text-3" strokeWidth={1.75} />
-          </TransitionLink>
-        }
+        left={<ProfileAvatar />}
       />
 
       <div className={`flex flex-col gap-4 ${showStickyButton ? "pb-[calc(var(--tabbar-h)+var(--sa-bottom)+88px)]" : "pb-tabbar"}`}>

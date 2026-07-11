@@ -222,7 +222,7 @@ export default function SettingsPage() {
           <Skeleton className="h-24" />
           <Skeleton className="h-32" />
         </div>
-        <BottomNav active="me" />
+        <BottomNav />
       </main>
     );
   }
@@ -352,7 +352,7 @@ export default function SettingsPage() {
         <p className="mb-4 text-center text-[12px] text-text-3">Kadenz · Version 1.0</p>
       </div>
 
-      <BottomNav active="me" />
+      <BottomNav />
     </main>
   );
 }

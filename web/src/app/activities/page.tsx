@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ChevronRight, Activity as ActivityIcon, AlertCircle } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { BottomNav } from "@/components/BottomNav";
 import { Segmented } from "@/components/ui/Segmented";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
@@ -193,7 +194,7 @@ const FILTER_TYPE_MAP: Record<string, string[]> = {
 function ActivitiesSkeleton() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Activities" large />
+      <NavBar title="Activities" large left={<ProfileAvatar />} />
       <div className="flex flex-col gap-3 px-4 pb-tabbar">
         <Skeleton className="h-10 w-full" />
         <div className="flex gap-2">
@@ -637,7 +638,7 @@ export default function ActivitiesPage() {
 
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Activities" large />
+      <NavBar title="Activities" large left={<ProfileAvatar />} />
 
       <div className="flex flex-col gap-4 px-4 pb-tabbar">
         {error && (
