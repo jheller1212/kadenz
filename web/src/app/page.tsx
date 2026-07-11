@@ -361,6 +361,10 @@ function CalendarStrip({
         const completed = day.workout?.status === "completed";
         const dotColor = day.workout?.type ? workoutDotColor[day.workout.type] : null;
         const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth() && day.date.getFullYear() === selectedDate.getFullYear();
+        // Past planned (non-rest) workout that never got completed = missed
+        const dayEnd = new Date(day.date);
+        dayEnd.setHours(23, 59, 59, 999);
+        const missed = !!hasWorkout && !completed && dayEnd.getTime() < Date.now() && !day.isToday;
 
         return (
           <button key={i} onClick={() => onSelectDate(day)} className="press flex w-11 flex-col items-center gap-1 py-1">
@@ -368,12 +372,24 @@ function CalendarStrip({
               {DAY_LABELS[i]}
             </span>
             <div className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-colors ${
-              day.isToday ? "bg-text-1 text-bg" : isSelected ? "bg-elevated text-text-1" : "text-text-2"
+              day.isToday ? "bg-text-1 text-bg" : isSelected ? "bg-elevated text-text-1" : missed ? "text-danger" : "text-text-2"
             }`}>
               {day.dayNum}
             </div>
             <div className="flex h-2 items-center">
-              {hasWorkout && <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: completed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)") }} />}
+              {hasWorkout && (
+                <div
+                  className="h-[7px] w-[7px] rounded-[2px]"
+                  style={{
+                    backgroundColor: missed
+                      ? "var(--k-text-3)"
+                      : completed
+                        ? (dotColor ?? "var(--k-text-3)")
+                        : (dotColor ?? "var(--k-text-3)"),
+                    opacity: completed ? 1 : 0.85,
+                  }}
+                />
+              )}
             </div>
           </button>
         );
