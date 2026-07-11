@@ -25,6 +25,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
+import { haptic } from "@/lib/haptics";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -526,6 +527,26 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
   // Circular progress
   const circPct = stats.plannedKm > 0 ? Math.min(1, stats.completedKm / stats.plannedKm) : 0;
 
+  // Mileage status vs how far into the week we are (Mon-based)
+  const dowIdx = (new Date().getDay() + 6) % 7; // Mon=0 … Sun=6
+  const expectedPct = Math.round(((dowIdx + 1) / 7) * 100);
+  const mileageTitle =
+    pct >= 100 ? "Mileage complete" : pct + 15 >= expectedPct ? "Mileage on track" : "Mileage behind plan";
+
+  // Next speed session this week (tempo / interval / race, not yet completed)
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const nextSpeed = weekWorkouts.find(
+    (d) =>
+      d.workout &&
+      ["tempo", "interval", "race"].includes(d.workout.type) &&
+      d.workout.status !== "completed" &&
+      d.date >= todayStart
+  );
+  const nextSpeedLabel = nextSpeed
+    ? nextSpeed.date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })
+    : null;
+
   // Today's date label
   const todayLabel = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
@@ -546,7 +567,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
             {/* Mileage card */}
             <TransitionLink href="/insights" className="press block rounded-[var(--radius-card)] bg-surface p-4">
               <div className="flex items-start justify-between">
-                <p className="text-sm font-bold text-text-1">Mileage on track</p>
+                <p className="text-sm font-bold text-text-1">{mileageTitle}</p>
                 <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
               </div>
               <p className="mt-1 text-xs text-text-3">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
@@ -561,7 +582,9 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                 <p className="text-sm font-bold text-text-1">Pace on point</p>
                 <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
               </div>
-              <p className="mt-1 text-xs text-text-3">Next speed workout: soon</p>
+              <p className="mt-1 text-xs text-text-3">
+                {nextSpeedLabel ? `Next speed workout: ${nextSpeedLabel}` : "No speed work left this week"}
+              </p>
               <div className="mt-3 flex h-2 items-center justify-center">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
                   <div className="h-full rounded-full bg-[#4ADE80]" style={{ width: `${Math.min(100, pct)}%` }} />
@@ -819,8 +842,8 @@ export default function Home() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const weather = useWeather(selectedDate);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setLoadError(false);
     try {
       const res = await apiFetch("/api/today");
@@ -899,8 +922,24 @@ export default function Home() {
     try {
       const res = await apiFetch(`/api/workouts/${wo.id}/complete`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
       if (res.ok) {
-        await loadData();
+        haptic("success");
+        // Optimistic: flip status in place, refresh in the background (no skeleton flash)
+        const flip = <T extends { id: string; status: string }>(w: T) =>
+          w.id === wo.id ? { ...w, status: "completed" } : w;
+        setSelectedWorkout((prev) => (prev && prev.id === wo.id ? { ...prev, status: "completed" } : prev));
+        setAllWorkouts((prev) => prev.map(flip));
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                todayWorkout: prev.todayWorkout ? flip(prev.todayWorkout) : prev.todayWorkout,
+                weekWorkouts: prev.weekWorkouts?.map(flip),
+              }
+            : prev
+        );
+        loadData({ silent: true });
       } else {
+        haptic("warning");
         setCompleteError(true);
       }
     } catch {
