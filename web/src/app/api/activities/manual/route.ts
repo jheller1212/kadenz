@@ -2,15 +2,23 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db, activities } from "@/db";
 
-const ManualActivitySchema = z.object({
-  name: z.string().min(1).max(120),
-  date: z.string().datetime(),
-  distanceKm: z.number().positive().max(500),
-  durationSeconds: z.number().int().positive().max(24 * 3600),
-});
+const ManualActivitySchema = z
+  .object({
+    kind: z.enum(["run", "strength"]).optional().default("run"),
+    name: z.string().min(1).max(120),
+    date: z.string().datetime(),
+    distanceKm: z.number().positive().max(500).optional(),
+    durationSeconds: z.number().int().positive().max(24 * 3600),
+  })
+  .refine((d) => d.kind === "strength" || (d.distanceKm ?? 0) > 0, {
+    message: "Runs need a distance.",
+    path: ["distanceKm"],
+  });
 
 // ── POST /api/activities/manual ───────────────────────────────────────────────
-// Adds a manually-logged activity (no Strava id → shows as source "manual").
+// Adds a manually-logged, off-plan ("instant") activity — a run or a strength
+// session — with no Strava id. Runs carry distance + pace; strength sessions are
+// tagged sport_type="WeightTraining" so the unified feed renders them correctly.
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -28,7 +36,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { name, date, distanceKm, durationSeconds } = parsed.data;
+  const { kind, name, date, distanceKm, durationSeconds } = parsed.data;
+  const isStrength = kind === "strength";
 
   try {
     const [created] = await db
@@ -36,9 +45,13 @@ export async function POST(request: NextRequest) {
       .values({
         name,
         startDate: new Date(date),
-        distanceKm,
+        sportType: isStrength ? "WeightTraining" : "Run",
+        distanceKm: isStrength ? null : distanceKm,
         durationSeconds,
-        avgPaceSecKm: Math.round(durationSeconds / distanceKm),
+        avgPaceSecKm:
+          isStrength || !distanceKm
+            ? null
+            : Math.round(durationSeconds / distanceKm),
       })
       .returning();
 

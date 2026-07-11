@@ -908,6 +908,7 @@ function AddActivitySheet({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [kind, setKind] = useState<"run" | "strength">("run");
   const [name, setName] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [distance, setDistance] = useState("");
@@ -918,10 +919,12 @@ function AddActivitySheet({
   const [formError, setFormError] = useState<string | null>(null);
 
   async function save() {
+    const isStrength = kind === "strength";
     const distanceKm = parseFloat(distance.replace(",", "."));
     const durationSeconds = hours * 3600 + minutes * 60 + seconds;
     if (!name.trim()) return setFormError("Give the activity a name.");
-    if (!Number.isFinite(distanceKm) || distanceKm <= 0) return setFormError("Enter a distance.");
+    if (!isStrength && (!Number.isFinite(distanceKm) || distanceKm <= 0))
+      return setFormError("Enter a distance.");
     if (durationSeconds <= 0) return setFormError("Enter a duration.");
     setSaving(true);
     setFormError(null);
@@ -930,9 +933,10 @@ function AddActivitySheet({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          kind,
           name: name.trim(),
           date: new Date(`${date}T12:00:00`).toISOString(),
-          distanceKm,
+          ...(isStrength ? {} : { distanceKm }),
           durationSeconds,
         }),
       });
@@ -960,25 +964,35 @@ function AddActivitySheet({
     "w-16 rounded-[var(--radius-input)] bg-elevated px-2 py-2.5 text-center text-[16px] font-semibold text-text-1 outline-none tabular-nums focus:ring-2 focus:ring-accent/40";
 
   return (
-    <Sheet open={open} onClose={onClose} title="Add activity">
+    <Sheet open={open} onClose={onClose} title="Log activity">
       <div className="flex flex-col gap-4 pb-2">
+        <Segmented
+          value={kind}
+          onChange={(v) => { setKind(v); setFormError(null); }}
+          options={[
+            { value: "run", label: "Run" },
+            { value: "strength", label: "Strength" },
+          ]}
+        />
         <input
           type="text"
-          placeholder="Name (e.g. Evening run)"
+          placeholder={kind === "strength" ? "Name (e.g. Gym session)" : "Name (e.g. Evening run)"}
           value={name}
           onChange={(e) => setName(e.target.value)}
           className={inputCls}
         />
         <div className="flex items-center gap-3">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
-          <div className="flex shrink-0 items-center gap-1.5">
-            <input
-              type="number" inputMode="decimal" step="0.01" min={0} placeholder="0.0"
-              value={distance} onChange={(e) => setDistance(e.target.value)}
-              className="w-20 rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center text-[16px] font-semibold text-text-1 outline-none tabular-nums focus:ring-2 focus:ring-accent/40"
-            />
-            <span className="text-[13px] text-text-3">km</span>
-          </div>
+          {kind === "run" && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <input
+                type="number" inputMode="decimal" step="0.01" min={0} placeholder="0.0"
+                value={distance} onChange={(e) => setDistance(e.target.value)}
+                className="w-20 rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center text-[16px] font-semibold text-text-1 outline-none tabular-nums focus:ring-2 focus:ring-accent/40"
+              />
+              <span className="text-[13px] text-text-3">km</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-center gap-2">
           {([["h", hours, setHours, 23], ["m", minutes, setMinutes, 59], ["s", seconds, setSeconds, 59]] as const).map(
@@ -997,7 +1011,7 @@ function AddActivitySheet({
         </div>
         {formError && <p className="text-center text-[13px] text-danger">{formError}</p>}
         <Button full onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Add activity"}
+          {saving ? "Saving…" : kind === "strength" ? "Log strength session" : "Log run"}
         </Button>
       </div>
     </Sheet>
