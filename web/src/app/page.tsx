@@ -29,6 +29,7 @@ import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
 import { WellnessCheckIn } from "@/components/WellnessCheckIn";
+import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { haptic } from "@/lib/haptics";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1031,6 +1032,9 @@ export default function Home() {
 
         {/* Divider */}
         <div className="mx-5 h-px bg-hairline" />
+
+        {/* Missed-session adjustment tray (Benchmark-style) */}
+        <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />
 
         {/* Section header + weather */}
         <div className="flex items-center justify-between px-5">
