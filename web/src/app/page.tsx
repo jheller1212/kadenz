@@ -596,11 +596,11 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
           {/* Row 2: Weather + Week summary */}
           <div className="grid grid-cols-2 gap-3">
             {/* Weather card */}
-            <div className="flex min-h-[130px] flex-col justify-between rounded-[var(--radius-card)] bg-[#2A2E3A] p-4">
+            <div className="flex min-h-[130px] flex-col justify-between rounded-[var(--radius-card)] bg-surface p-4">
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-white/60">{todayLabel}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">{todayLabel}</p>
                 {weather && (
-                  <div className="flex flex-col items-end gap-0.5 text-[10px] text-white/70">
+                  <div className="flex flex-col items-end gap-0.5 text-[10px] text-text-2">
                     <div className="flex items-center gap-1">
                       <CloudRain className="h-3 w-3" strokeWidth={1.5} />
                       <span>{weather.rainPct}%</span>
@@ -621,11 +621,11 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                 )}
               </div>
               <div className="mt-2 flex items-center gap-2">
-                {weather && <WeatherIcon code={weather.code} className="h-7 w-7 text-white/80" />}
-                <p className="text-3xl font-extrabold text-white">{weather ? `${weather.temp}°` : "—"}</p>
+                {weather && <WeatherIcon code={weather.code} className="h-7 w-7 text-text-2" />}
+                <p className="text-3xl font-extrabold text-text-1">{weather ? `${weather.temp}°` : "—"}</p>
               </div>
               <div className="mt-1">
-                <p className="text-[10px] font-medium text-white/60">{weather?.location ?? "Your location"}</p>
+                <p className="text-[10px] font-medium text-text-3">{weather?.location ?? "Your location"}</p>
               </div>
             </div>
 
