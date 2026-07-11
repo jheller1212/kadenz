@@ -218,13 +218,13 @@ function RaceTimeInput({ entry, onChange, onRemove }: {
         </button>
       </div>
       <div className="flex items-center gap-2">
-        <input type="number" min={0} max={9} value={entry.hours} onChange={(e) => onChange({ ...entry, hours: parseInt(e.target.value) || 0 })}
+        <input type="number" inputMode="numeric" min={0} max={9} value={entry.hours} onChange={(e) => onChange({ ...entry, hours: parseInt(e.target.value) || 0 })}
           className="w-14 rounded-lg bg-elevated px-2 py-2 text-center text-sm text-text-1 tabular-nums" placeholder="H" />
         <span className="text-text-3 font-bold">:</span>
-        <input type="number" min={0} max={59} value={entry.minutes} onChange={(e) => onChange({ ...entry, minutes: Math.min(59, parseInt(e.target.value) || 0) })}
+        <input type="number" inputMode="numeric" min={0} max={59} value={entry.minutes} onChange={(e) => onChange({ ...entry, minutes: Math.min(59, parseInt(e.target.value) || 0) })}
           className="w-14 rounded-lg bg-elevated px-2 py-2 text-center text-sm text-text-1 tabular-nums" placeholder="MM" />
         <span className="text-text-3 font-bold">:</span>
-        <input type="number" min={0} max={59} value={entry.seconds} onChange={(e) => onChange({ ...entry, seconds: Math.min(59, parseInt(e.target.value) || 0) })}
+        <input type="number" inputMode="numeric" min={0} max={59} value={entry.seconds} onChange={(e) => onChange({ ...entry, seconds: Math.min(59, parseInt(e.target.value) || 0) })}
           className="w-14 rounded-lg bg-elevated px-2 py-2 text-center text-sm text-text-1 tabular-nums" placeholder="SS" />
       </div>
       {totalSec > 0 && <p className="text-xs text-text-3 mt-1">{formatSeconds(totalSec)}</p>}

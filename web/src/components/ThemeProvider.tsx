@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { SETTINGS_CHANGED_EVENT } from "@/lib/settings";
 
 export function ThemeProvider() {
   useEffect(() => {
@@ -33,11 +34,12 @@ export function ThemeProvider() {
     }
 
     applyTheme();
+    // Same-tab saves dispatch SETTINGS_CHANGED_EVENT; "storage" covers other tabs
+    window.addEventListener(SETTINGS_CHANGED_EVENT, applyTheme);
     window.addEventListener("storage", applyTheme);
-    const interval = setInterval(applyTheme, 300);
     return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, applyTheme);
       window.removeEventListener("storage", applyTheme);
-      clearInterval(interval);
     };
   }, []);
 

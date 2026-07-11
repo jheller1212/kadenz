@@ -37,7 +37,11 @@ export function loadSettings(): UserSettings {
   }
 }
 
+/** Fired on window whenever settings are saved (theme, units, …). */
+export const SETTINGS_CHANGED_EVENT = "kadenz:settings-changed";
+
 export function saveSettings(settings: UserSettings): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
 }

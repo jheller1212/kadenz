@@ -215,6 +215,7 @@ function EditPlanInner() {
               <div key={k} className="flex items-center gap-2">
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={0}
                   max={k === "hours" ? 9 : 59}
                   value={form[k]}
@@ -310,6 +311,7 @@ function EditPlanInner() {
           <span className={labelCls}>Current weekly km</span>
           <input
             type="number"
+            inputMode="numeric"
             min={0}
             value={form.currentWeeklyKm}
             onChange={(e) => set("currentWeeklyKm", Math.max(0, parseFloat(e.target.value) || 0))}
@@ -320,6 +322,7 @@ function EditPlanInner() {
           <span className={labelCls}>Long-run cap (km)</span>
           <input
             type="number"
+            inputMode="numeric"
             min={0}
             value={form.longRunCapKm}
             onChange={(e) => set("longRunCapKm", Math.max(0, parseFloat(e.target.value) || 0))}
@@ -330,6 +333,7 @@ function EditPlanInner() {
           <span className={labelCls}>Easy-run min (km)</span>
           <input
             type="number"
+            inputMode="numeric"
             min={0}
             value={form.easyRunMinKm}
             onChange={(e) => set("easyRunMinKm", Math.max(0, parseFloat(e.target.value) || 0))}
