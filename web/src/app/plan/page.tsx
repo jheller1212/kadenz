@@ -1,33 +1,42 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, GripVertical, CalendarClock, SlidersHorizontal } from "lucide-react";
+import {
+  Plus,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight as ChevronRightIcon,
+  GripVertical,
+  CalendarClock,
+  SlidersHorizontal,
+  Dumbbell,
+  Trash2,
+  X,
+  AlertTriangle,
+} from "lucide-react";
 import {
   DndContext,
   closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
+  useDraggable,
+  useDroppable,
+  DragOverlay,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
+import { Segmented } from "@/components/ui/Segmented";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
 import { PaceChart } from "@/components/PaceChart";
-import { StrengthScheduler } from "@/components/strength/StrengthScheduler";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
@@ -132,6 +141,55 @@ function mondayOf(d: Date): Date {
   return x;
 }
 
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** The 7 Mon–Sun dates of a plan week (empty if the week has no workouts). */
+function weekDaysFor(plan: GeneratedPlan, weekNum: number): Date[] {
+  const wk = plan.weeks.find((w) => w.weekNumber === weekNum) ?? plan.weeks[0];
+  const first = wk?.workouts[0]?.date;
+  if (!first) return [];
+  const ws = mondayOf(first);
+  return Array.from({ length: 7 }, (_, i) => addDays(ws, i));
+}
+
+// ── Strength (folded into the unified day calendar) ───────────────────────────
+
+type SessionType = "upper" | "lower" | "lower_achilles";
+
+interface StrengthSession {
+  id: string;
+  date: string;
+  type: SessionType;
+  title: string;
+  status: string;
+}
+
+interface Violation {
+  code: string;
+  severity: "error" | "warn";
+  message: string;
+}
+
+const STRENGTH_META: Record<SessionType, { label: string; color: string }> = {
+  upper: { label: "Upper", color: "#60A5FA" },
+  lower: { label: "Lower", color: "#C084FC" },
+  lower_achilles: { label: "Lower + Achilles", color: "#FFB547" },
+};
+
 function formatFullDate(d: Date) {
   return d.toLocaleDateString("en-US", {
     month: "short",
@@ -216,310 +274,337 @@ function BlockRow({
   );
 }
 
-// ── Workout row (sortable) ────────────────────────────────────────────────────
+// ── Run chip (draggable) ──────────────────────────────────────────────────────
 
-function WorkoutRow({
+function RunChip({
   workout,
   expanded,
   onToggle,
-  dimmed,
   onMove,
+  dimmed,
 }: {
   workout: GeneratedWorkout;
   expanded: boolean;
   onToggle: () => void;
-  dimmed: boolean;
   onMove?: () => void;
+  dimmed: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: workout.sortOrder.toString() });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.45 : 1,
-  };
-
-  if (workout.type === "rest") {
-    return (
-      <div
-        ref={setNodeRef}
-        style={style}
-        className={`flex items-center gap-3 py-2.5 px-2 ${dimmed ? "opacity-40" : ""}`}
-      >
-        <div className="w-1 self-stretch rounded-full bg-hairline shrink-0" />
-        <p className="text-[13px] text-text-3">Rest day</p>
-        <p className="ml-auto text-[12px] text-text-3">
-          {workout.date.toLocaleDateString("en-US", {
-            weekday: "short",
-            day: "numeric",
-          })}
-        </p>
-      </div>
-    );
-  }
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `run:${workout.id}`,
+  });
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`rounded-[var(--radius-card)] bg-surface overflow-hidden mb-2 shadow-sm animate-fade-in ${
+      style={{ opacity: isDragging ? 0.4 : undefined }}
+      className={`rounded-[var(--radius-input)] bg-surface overflow-hidden shadow-sm ${
         dimmed ? "opacity-50" : ""
       }`}
     >
-      <div className="flex">
+      <div className="flex items-stretch">
         {/* Colored type accent strip */}
         <div
           className="w-1 shrink-0"
           style={{ backgroundColor: WORKOUT_BAR_COLOR[workout.type] }}
         />
 
-        <div className="flex-1 min-w-0">
-          {/* Row header — tap to expand */}
-          <button
-            className="press w-full flex items-center gap-3 pl-2 pr-3 py-3 text-left"
-            onClick={() => {
-              haptic("light");
-              onToggle();
-            }}
-            aria-expanded={expanded}
-          >
-            {/* Drag handle */}
-            <span
-              {...attributes}
-              {...listeners}
-              className="shrink-0 flex items-center justify-center h-8 w-6 cursor-grab active:cursor-grabbing touch-none text-text-3"
-              aria-label="Drag to reorder"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <GripVertical className="h-4 w-4" strokeWidth={1.9} />
-            </span>
+        {/* Drag handle */}
+        <span
+          {...attributes}
+          {...listeners}
+          className="shrink-0 flex items-center justify-center w-7 cursor-grab active:cursor-grabbing touch-none text-text-3"
+          aria-label="Drag to another day"
+        >
+          <GripVertical className="h-4 w-4" strokeWidth={1.9} />
+        </span>
 
-            {/* Date */}
-            <div className="shrink-0 w-10 text-center">
-              <p className="text-[10px] font-bold uppercase text-text-3">
-                {workout.date.toLocaleDateString("en-US", { weekday: "short" })}
+        {/* Body — tap to expand */}
+        <button
+          className="press flex-1 min-w-0 flex items-center gap-2 py-2 pr-2 text-left"
+          onClick={() => {
+            haptic("light");
+            onToggle();
+          }}
+          aria-expanded={expanded}
+        >
+          <div className="flex-1 min-w-0">
+            <WorkoutTypeBadge type={workout.type} />
+            <p className="mt-0.5 text-[14px] font-medium text-text-1 truncate">
+              {workout.title}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            {workout.targetKm != null && (
+              <p className="text-[14px] font-bold text-text-1 tabular-nums">
+                {workout.targetKm} km
               </p>
-              <p className="text-[15px] font-semibold text-text-2 tabular-nums">
-                {workout.date.getDate()}
-              </p>
-            </div>
-
-            {/* Type badge + title */}
-            <div className="flex-1 min-w-0">
-              <WorkoutTypeBadge type={workout.type} />
-              <p className="mt-0.5 text-[15px] font-medium text-text-1 truncate">
-                {workout.title}
-              </p>
-            </div>
-
-            {/* Stats */}
-            <div className="shrink-0 text-right">
-              {workout.targetKm != null && (
-                <p className="text-[15px] font-bold text-text-1 tabular-nums">
-                  {workout.targetKm} km
-                </p>
-              )}
-              {workout.targetDurationMinutes != null && (
-                <p className="text-[12px] text-text-3">
-                  {formatDuration(workout.targetDurationMinutes)}
-                </p>
-              )}
-            </div>
-
-            {/* Chevron */}
-            <ChevronDown
-              className={`h-4 w-4 text-text-3 shrink-0 transition-transform duration-200 ${
-                expanded ? "rotate-180" : ""
-              }`}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          </button>
-
-          {/* Expanded detail */}
-          <AnimatePresence initial={false}>
-            {expanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 420, damping: 40 }}
-                className="overflow-hidden"
-              >
-                <div className="px-4 pb-3 border-t border-hairline pt-3">
-                  {workout.description && (
-                    <p className="text-[13px] text-text-2 mb-3 leading-relaxed">
-                      {workout.description}
-                    </p>
-                  )}
-                  {workout.blocks.length > 0 && (
-                    <>
-                      <div className="mb-3">
-                        <PaceChart
-                          blocks={workout.blocks}
-                          workoutType={workout.type}
-                          variant="full"
-                          color={WORKOUT_BAR_COLOR[workout.type]}
-                        />
-                      </div>
-                      <div className="flex flex-col">
-                        {workout.blocks.map((block, i) => (
-                          <BlockRow
-                            key={i}
-                            block={block}
-                            index={i}
-                            total={workout.blocks.length}
-                          />
-                        ))}
-                      </div>
-                    </>
-                  )}
-                  {onMove && workout.id && (
-                    <button
-                      onClick={() => {
-                        haptic("light");
-                        onMove();
-                      }}
-                      className="press mt-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-elevated py-2.5 text-[13px] font-semibold text-text-2"
-                    >
-                      <CalendarClock className="h-4 w-4" strokeWidth={2} />
-                      Move to another day
-                    </button>
-                  )}
-                </div>
-              </motion.div>
             )}
-          </AnimatePresence>
-        </div>
+            {workout.targetDurationMinutes != null && (
+              <p className="text-[11px] text-text-3">
+                {formatDuration(workout.targetDurationMinutes)}
+              </p>
+            )}
+          </div>
+          <ChevronDown
+            className={`h-4 w-4 text-text-3 shrink-0 transition-transform duration-200 ${
+              expanded ? "rotate-180" : ""
+            }`}
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+
+      {/* Expanded detail */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 420, damping: 40 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 border-t border-hairline pt-3">
+              {workout.description && (
+                <p className="text-[13px] text-text-2 mb-3 leading-relaxed">
+                  {workout.description}
+                </p>
+              )}
+              {workout.blocks.length > 0 && (
+                <>
+                  <div className="mb-3">
+                    <PaceChart
+                      blocks={workout.blocks}
+                      workoutType={workout.type}
+                      variant="full"
+                      color={WORKOUT_BAR_COLOR[workout.type]}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    {workout.blocks.map((block, i) => (
+                      <BlockRow
+                        key={i}
+                        block={block}
+                        index={i}
+                        total={workout.blocks.length}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+              {onMove && workout.id && (
+                <button
+                  onClick={() => {
+                    haptic("light");
+                    onMove();
+                  }}
+                  className="press mt-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-elevated py-2.5 text-[13px] font-semibold text-text-2"
+                >
+                  <CalendarClock className="h-4 w-4" strokeWidth={2} />
+                  Move to another day
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Strength chip (draggable) ─────────────────────────────────────────────────
+
+function StrengthChip({
+  session,
+  onMove,
+  onDelete,
+  dimmed,
+  busy,
+}: {
+  session: StrengthSession;
+  onMove: () => void;
+  onDelete: () => void;
+  dimmed: boolean;
+  busy: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `strength:${session.id}`,
+  });
+  const meta = STRENGTH_META[session.type];
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ opacity: isDragging ? 0.4 : undefined }}
+      className={`rounded-[var(--radius-input)] overflow-hidden ${
+        dimmed ? "opacity-50" : ""
+      }`}
+    >
+      <div
+        className="flex items-stretch"
+        style={{ backgroundColor: `${meta.color}1A` }}
+      >
+        {/* Colored type accent strip */}
+        <div className="w-1 shrink-0" style={{ backgroundColor: meta.color }} />
+
+        {/* Drag handle */}
+        <span
+          {...attributes}
+          {...listeners}
+          className="shrink-0 flex items-center justify-center w-7 cursor-grab active:cursor-grabbing touch-none"
+          style={{ color: meta.color }}
+          aria-label="Drag to another day"
+        >
+          <GripVertical className="h-4 w-4" strokeWidth={1.9} />
+        </span>
+
+        {/* Body — tap to move */}
+        <button
+          onClick={() => {
+            haptic("light");
+            onMove();
+          }}
+          className="press flex-1 min-w-0 flex items-center gap-2 py-2 text-left"
+        >
+          <Dumbbell
+            className="h-3.5 w-3.5 shrink-0"
+            style={{ color: meta.color }}
+            strokeWidth={2}
+          />
+          <span className="truncate text-[13px] font-semibold text-text-1">
+            {meta.label}
+          </span>
+          {session.status === "completed" && (
+            <span
+              className="ml-auto text-[10px] font-bold uppercase"
+              style={{ color: "#4ADE80" }}
+            >
+              done
+            </span>
+          )}
+        </button>
+
+        {/* Delete */}
+        <button
+          onClick={() => {
+            haptic("medium");
+            onDelete();
+          }}
+          disabled={busy}
+          aria-label="Remove strength session"
+          className="press flex h-9 w-9 shrink-0 items-center justify-center text-text-3 disabled:opacity-40"
+        >
+          <Trash2 className="h-4 w-4" strokeWidth={2} />
+        </button>
       </div>
     </div>
   );
 }
 
-// ── Week card ─────────────────────────────────────────────────────────────────
+// ── Day row (droppable) ───────────────────────────────────────────────────────
 
-function WeekCard({
-  week,
-  isCurrent,
-  isPast,
+function DayRow({
+  dayIdx,
+  date,
+  run,
+  strength,
+  expandedRunId,
+  onToggleRun,
+  onMoveRun,
+  onMoveStrength,
+  onDeleteStrength,
+  onAddStrength,
+  dimmed,
+  strengthBusy,
 }: {
-  week: GeneratedWeek;
-  isCurrent: boolean;
-  isPast: boolean;
+  dayIdx: number;
+  date: Date;
+  run: GeneratedWorkout | undefined;
+  strength: StrengthSession | undefined;
+  expandedRunId: string | null;
+  onToggleRun: (id: string) => void;
+  onMoveRun: (workout: GeneratedWorkout) => void;
+  onMoveStrength: (session: StrengthSession) => void;
+  onDeleteStrength: (id: string) => void;
+  onAddStrength: (dayIdx: number) => void;
+  dimmed: boolean;
+  strengthBusy: boolean;
 }) {
-  const [workouts, setWorkouts] = useState(week.workouts);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
-  );
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    setWorkouts((prev) => {
-      const oldIdx = prev.findIndex((w) => w.sortOrder.toString() === active.id);
-      const newIdx = prev.findIndex((w) => w.sortOrder.toString() === over.id);
-      return arrayMove(prev, oldIdx, newIdx);
-    });
-  }
-
-  const firstDate = workouts[0]?.date;
-  const lastDate = workouts[workouts.length - 1]?.date;
-  const nonRest = workouts.filter((w) => w.type !== "rest");
+  const { setNodeRef, isOver } = useDroppable({ id: `day:${dayIdx}` });
+  const isToday = sameDay(date, new Date());
+  const isRest = run?.type === "rest";
 
   return (
-    <section
-      className={`rounded-[var(--radius-card)] border bg-surface overflow-hidden ${
-        isCurrent ? "border-accent/50" : "border-hairline"
-      } ${isPast ? "opacity-60" : ""}`}
+    <div
+      ref={setNodeRef}
+      className={`rounded-[var(--radius-card)] border px-2 py-2 transition-colors ${
+        isOver
+          ? "border-accent bg-accent/10"
+          : isToday
+          ? "border-accent/30 bg-accent/5"
+          : "border-hairline bg-surface"
+      }`}
     >
-      {/* Week header */}
-      <div className={`px-4 pt-4 pb-3 ${isCurrent ? "bg-accent/5" : ""}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            {firstDate && lastDate && (
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-text-3">
-                {formatDate(firstDate)} – {formatDate(lastDate)}
-              </p>
-            )}
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <h2
-                className={`text-xl font-extrabold ${
-                  isCurrent ? "text-accent" : "text-text-1"
+      <div className="flex items-start gap-2">
+        {/* Day label */}
+        <div className="w-10 shrink-0 pt-1.5 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-text-3">
+            {DOW[dayIdx]}
+          </p>
+          <p
+            className={`text-[15px] font-bold tabular-nums ${
+              isToday ? "text-accent" : "text-text-1"
+            }`}
+          >
+            {date.getDate()}
+          </p>
+        </div>
+
+        {/* Activity chips */}
+        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+          {run &&
+            (isRest ? (
+              <div
+                className={`flex items-center gap-2 rounded-[var(--radius-input)] px-2 py-2 ${
+                  dimmed ? "opacity-50" : ""
                 }`}
               >
-                Week {week.weekNumber}
-              </h2>
-              {isCurrent && (
-                <span className="rounded-full bg-accent/20 border border-accent/30 px-2 py-0.5 text-[10px] font-bold text-accent uppercase tracking-wider">
-                  Current
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex gap-1.5 flex-wrap justify-end">
-            <span
-              className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${PHASE_BADGE[week.phase]}`}
-            >
-              {week.phase}
-            </span>
-            {week.type !== "normal" && (
-              <span className="rounded-full bg-elevated border border-hairline px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-text-2">
-                {week.type}
-              </span>
-            )}
-          </div>
-        </div>
+                <div className="w-1 self-stretch rounded-full bg-hairline shrink-0" />
+                <span className="text-[13px] text-text-3">Rest day</span>
+              </div>
+            ) : (
+              <RunChip
+                workout={run}
+                expanded={expandedRunId === run.id}
+                onToggle={() => run.id && onToggleRun(run.id)}
+                onMove={run.id ? () => onMoveRun(run) : undefined}
+                dimmed={dimmed}
+              />
+            ))}
 
-        {/* Coloured volume bar */}
-        <div className="mt-3 flex gap-0.5 h-1.5">
-          {nonRest.map((w, i) => (
-            <div
-              key={i}
-              className="flex-1 rounded-full"
-              style={{ backgroundColor: WORKOUT_BAR_COLOR[w.type] }}
+          {strength && (
+            <StrengthChip
+              session={strength}
+              onMove={() => onMoveStrength(strength)}
+              onDelete={() => onDeleteStrength(strength.id)}
+              dimmed={dimmed}
+              busy={strengthBusy}
             />
-          ))}
-        </div>
+          )}
 
-        {/* Week summary */}
-        <div className="mt-2 flex items-center justify-between text-xs text-text-3">
-          <span>{nonRest.length} workouts</span>
-          <span className="font-semibold text-text-2">{week.targetKm} km total</span>
+          {!strength && (
+            <button
+              onClick={() => onAddStrength(dayIdx)}
+              className="press flex items-center gap-1.5 self-start rounded-[var(--radius-input)] border border-dashed border-hairline px-2.5 py-1.5 text-[12px] font-medium text-text-3"
+            >
+              <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
+              Add strength
+            </button>
+          )}
         </div>
       </div>
-
-      {/* Drag-sortable workout list */}
-      <div className="px-3 pb-3 pt-1 border-t border-hairline">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={workouts.map((w) => w.sortOrder.toString())}
-            strategy={verticalListSortingStrategy}
-          >
-            {workouts.map((workout) => {
-              const id = workout.sortOrder.toString();
-              return (
-                <WorkoutRow
-                  key={id}
-                  workout={workout}
-                  expanded={expandedId === id}
-                  onToggle={() =>
-                    setExpandedId(expandedId === id ? null : id)
-                  }
-                  dimmed={isPast}
-                />
-              );
-            })}
-          </SortableContext>
-        </DndContext>
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -741,7 +826,31 @@ function PlanPageInner() {
   const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null);
   const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [moveTarget, setMoveTarget] = useState<GeneratedWorkout | null>(null);
+
+  // Strength sessions for the visible week.
+  const [sessions, setSessions] = useState<StrengthSession[]>([]);
+  const [strengthBusy, setStrengthBusy] = useState(false);
+
+  // Unified drag state + transient error note.
+  const [activeDrag, setActiveDrag] = useState<
+    | { kind: "run"; workout: GeneratedWorkout }
+    | { kind: "strength"; session: StrengthSession }
+    | null
+  >(null);
+  const [errorNote, setErrorNote] = useState<string | null>(null);
+
+  // "Move to another day" picker (accessible alternative to dragging).
+  const [movePicker, setMovePicker] = useState<
+    | { kind: "run"; workout: GeneratedWorkout }
+    | { kind: "strength"; session: StrengthSession }
+    | null
+  >(null);
+
+  // Add-strength sheet state.
+  const [addDayIdx, setAddDayIdx] = useState<number | null>(null);
+  const [addType, setAddType] = useState<SessionType>("lower_achilles");
+  const [violations, setViolations] = useState<Violation[]>([]);
+  const [addBusy, setAddBusy] = useState(false);
 
   // Swipe refs
   const touchStartX = React.useRef(0);
@@ -795,33 +904,275 @@ function PlanPageInner() {
     loadPlan();
   }, [planId, reloadKey]);
 
+  // Fetch strength sessions for the visible week's date window.
+  const loadSessions = useCallback(async () => {
+    if (!plan) return;
+    const days = weekDaysFor(plan, selectedWeekNum);
+    if (days.length === 0) return;
+    const from = new Date(days[0]);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(days[6]);
+    to.setHours(23, 59, 59, 999);
+    try {
+      const res = await apiFetch(
+        `/api/strength/sessions?from=${from.toISOString()}&to=${to.toISOString()}`
+      );
+      if (res.ok) setSessions((await res.json()) as StrengthSession[]);
+    } catch {
+      /* ignore — leave prior sessions in place */
+    }
+  }, [plan, selectedWeekNum]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await loadSessions();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSessions, reloadKey]);
+
+  // Re-validate the add-strength sheet whenever its day/type changes.
+  useEffect(() => {
+    if (addDayIdx == null || !plan) return;
+    const days = weekDaysFor(plan, selectedWeekNum);
+    const date = days[addDayIdx];
+    if (!date) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch("/api/strength/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: addType, date: date.toISOString() }),
+        });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setViolations(data.violations ?? []);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [addDayIdx, addType, plan, selectedWeekNum]);
+
   if (loading) return <LoadingSkeleton />;
   if (!plan) return <PlanEmptyState />;
 
   const selectedWeek = plan.weeks.find((w) => w.weekNumber === selectedWeekNum) ?? plan.weeks[0];
   const totalWeeks = plan.weeks.length;
+  const weekWorkouts = selectedWeek.workouts;
+  const days = weekDaysFor(plan, selectedWeekNum);
+  const isPast = isPastWeek(selectedWeek);
 
   function goToWeek(n: number) {
     setSelectedWeekNum(Math.max(1, Math.min(n, totalWeeks)));
   }
 
-  async function moveWorkout(dateIso: string) {
-    if (!moveTarget?.id || !resolvedPlanId) return;
-    const res = await apiFetch(
-      `/api/plans/${resolvedPlanId}/workouts/${moveTarget.id}`,
-      {
+  function showError(msg: string) {
+    setErrorNote(msg);
+    setTimeout(() => setErrorNote(null), 2600);
+  }
+
+  // ── API helpers (return ok) ──────────────────────────────────────────────
+  async function patchWorkout(id: string, date: Date): Promise<boolean> {
+    if (!resolvedPlanId) return false;
+    try {
+      const res = await apiFetch(`/api/plans/${resolvedPlanId}/workouts/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: dateIso }),
-      }
-    );
-    if (res.ok) {
-      haptic("success");
-      setMoveTarget(null);
-      setReloadKey((k) => k + 1);
-    } else {
-      haptic("warning");
+        body: JSON.stringify({ date: date.toISOString() }),
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
+  }
+
+  async function patchStrength(id: string, date: Date): Promise<boolean> {
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: date.toISOString() }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // ── Run move / swap ───────────────────────────────────────────────────────
+  // Every day (incl. rest) is a real workout row, so a run landing on an
+  // occupied day swaps the two runs' dates (Benchmark behaviour). A run onto an
+  // empty pre-start day is a single move.
+  function applyRunDates(
+    runId: string,
+    runDate: Date,
+    otherId: string | undefined,
+    otherDate: Date
+  ) {
+    setPlan((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        weeks: prev.weeks.map((wk) => {
+          if (wk.weekNumber !== selectedWeekNum) return wk;
+          return {
+            ...wk,
+            workouts: wk.workouts.map((w) => {
+              if (w.id === runId)
+                return { ...w, date: runDate, dayOfWeek: runDate.getDay() };
+              if (otherId && w.id === otherId)
+                return { ...w, date: otherDate, dayOfWeek: otherDate.getDay() };
+              return w;
+            }),
+          };
+        }),
+      };
+    });
+  }
+
+  async function moveRun(runId: string, targetDayIdx: number) {
+    const targetDate = days[targetDayIdx];
+    if (!targetDate) return;
+    const dragged = weekWorkouts.find((w) => w.id === runId);
+    if (!dragged || !dragged.id || sameDay(dragged.date, targetDate)) return;
+    const target = weekWorkouts.find((w) => sameDay(w.date, targetDate));
+    const oldDate = new Date(dragged.date);
+
+    applyRunDates(dragged.id, targetDate, target?.id, oldDate);
+
+    const calls = [patchWorkout(dragged.id, targetDate)];
+    if (target?.id) calls.push(patchWorkout(target.id, oldDate));
+    const oks = await Promise.all(calls);
+    if (oks.some((ok) => !ok)) {
+      applyRunDates(dragged.id, oldDate, target?.id, targetDate); // revert
+      haptic("warning");
+      showError("Couldn't move that workout. Try again.");
+    } else {
+      haptic("success");
+    }
+  }
+
+  // ── Strength move / swap ──────────────────────────────────────────────────
+  function applyStrengthDates(
+    sessionId: string,
+    sessionDate: Date,
+    otherId: string | undefined,
+    otherDate: Date
+  ) {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id === sessionId) return { ...s, date: sessionDate.toISOString() };
+        if (otherId && s.id === otherId) return { ...s, date: otherDate.toISOString() };
+        return s;
+      })
+    );
+  }
+
+  async function moveStrength(sessionId: string, targetDayIdx: number) {
+    const targetDate = days[targetDayIdx];
+    if (!targetDate) return;
+    const dragged = sessions.find((s) => s.id === sessionId);
+    if (!dragged || sameDay(new Date(dragged.date), targetDate)) return;
+    const target = sessions.find(
+      (s) => s.id !== sessionId && sameDay(new Date(s.date), targetDate)
+    );
+    const oldDate = new Date(dragged.date);
+
+    applyStrengthDates(dragged.id, targetDate, target?.id, oldDate);
+
+    const calls = [patchStrength(dragged.id, targetDate)];
+    if (target) calls.push(patchStrength(target.id, oldDate));
+    const oks = await Promise.all(calls);
+    if (oks.some((ok) => !ok)) {
+      applyStrengthDates(dragged.id, oldDate, target?.id, targetDate); // revert
+      haptic("warning");
+      showError("Couldn't move that session. Try again.");
+    } else {
+      haptic("success");
+    }
+  }
+
+  async function deleteStrength(id: string) {
+    setStrengthBusy(true);
+    setSessions((prev) => prev.filter((s) => s.id !== id)); // optimistic
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        showError("Couldn't remove that session.");
+        await loadSessions(); // reconcile — session reappears
+      }
+    } catch {
+      await loadSessions();
+    } finally {
+      setStrengthBusy(false);
+    }
+  }
+
+  async function confirmAddStrength() {
+    if (addDayIdx == null) return;
+    const date = days[addDayIdx];
+    if (!date) return;
+    setAddBusy(true);
+    try {
+      const res = await apiFetch("/api/strength/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: addType, date: date.toISOString(), force: true }),
+      });
+      if (res.ok) {
+        haptic("success");
+        setAddDayIdx(null);
+        await loadSessions();
+      } else {
+        haptic("warning");
+        showError("Couldn't add that session.");
+      }
+    } finally {
+      setAddBusy(false);
+    }
+  }
+
+  // ── Drag lifecycle ────────────────────────────────────────────────────────
+  function handleDragStart(event: DragStartEvent) {
+    const [kind, id] = String(event.active.id).split(":");
+    if (kind === "run") {
+      const workout = weekWorkouts.find((w) => w.id === id);
+      if (workout) setActiveDrag({ kind: "run", workout });
+    } else if (kind === "strength") {
+      const session = sessions.find((s) => s.id === id);
+      if (session) setActiveDrag({ kind: "strength", session });
+    }
+    haptic("light");
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveDrag(null);
+    const { active, over } = event;
+    if (!over) return;
+    const [kind, id] = String(active.id).split(":");
+    const targetIdx = Number(String(over.id).split(":")[1]);
+    if (Number.isNaN(targetIdx)) return;
+    if (kind === "run") moveRun(id, targetIdx);
+    else if (kind === "strength") moveStrength(id, targetIdx);
+  }
+
+  // ── Move-picker handler (sheet fallback) ──────────────────────────────────
+  function pickMoveDay(idx: number) {
+    if (!movePicker) return;
+    if (movePicker.kind === "run" && movePicker.workout.id) {
+      moveRun(movePicker.workout.id, idx);
+    } else if (movePicker.kind === "strength") {
+      moveStrength(movePicker.session.id, idx);
+    }
+    setMovePicker(null);
   }
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -836,10 +1187,19 @@ function PlanPageInner() {
     }
   }
 
-  const firstDate = selectedWeek.workouts[0]?.date;
-  const lastDate = selectedWeek.workouts[selectedWeek.workouts.length - 1]?.date;
-  const nonRest = selectedWeek.workouts.filter((w) => w.type !== "rest");
+  const firstDate = weekWorkouts[0]?.date;
+  const lastDate = weekWorkouts[weekWorkouts.length - 1]?.date;
+  const nonRest = weekWorkouts.filter((w) => w.type !== "rest");
   const isCurrent = isCurrentWeek(selectedWeek);
+  const hasError = violations.some((v) => v.severity === "error");
+
+  // The current day of the item being moved via the picker (disabled in grid).
+  const movePickerDate =
+    movePicker?.kind === "run"
+      ? movePicker.workout.date
+      : movePicker?.kind === "strength"
+      ? new Date(movePicker.session.date)
+      : null;
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -947,53 +1307,120 @@ function PlanPageInner() {
 
         {/* Week summary */}
         <div className="flex items-center justify-between text-[13px] text-text-3">
-          <span>{nonRest.length} workouts</span>
+          <span>
+            {nonRest.length} runs
+            {sessions.length > 0 && ` · ${sessions.length} strength`}
+          </span>
           <span>
             {isCurrent && <span className="text-accent font-semibold mr-1">Current week</span>}
             {selectedWeekNum} of {totalWeeks}
           </span>
         </div>
 
-        {/* Workout list for this week */}
-        <div className="flex flex-col gap-2">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={() => {}}
-          >
-            <SortableContext
-              items={selectedWeek.workouts.map((w) => w.sortOrder.toString())}
-              strategy={verticalListSortingStrategy}
+        {/* Error note */}
+        <AnimatePresence>
+          {errorNote && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="flex items-center gap-2 rounded-[var(--radius-input)] bg-danger/10 px-3 py-2 text-[12.5px] text-danger"
             >
-              {selectedWeek.workouts.map((workout) => {
-                const wId = workout.sortOrder.toString();
-                return (
-                  <WorkoutRow
-                    key={wId}
-                    workout={workout}
-                    expanded={expandedWorkout === wId}
-                    onToggle={() => setExpandedWorkout(expandedWorkout === wId ? null : wId)}
-                    dimmed={isPastWeek(selectedWeek)}
-                    onMove={workout.id ? () => setMoveTarget(workout) : undefined}
-                  />
-                );
-              })}
-            </SortableContext>
-          </DndContext>
-        </div>
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+              <span>{errorNote}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Strength scheduling — add/move dumbbell sessions onto the calendar */}
-        {firstDate && (
-          <>
-            <div className="h-px bg-hairline mt-2" />
-            <StrengthScheduler
-              weekStart={mondayOf(firstDate)}
-              runs={selectedWeek.workouts
-                .filter((w) => w.type !== "rest")
-                .map((w) => ({ date: w.date, type: w.type }))}
-            />
-          </>
-        )}
+        {/* Unified day calendar — drag any chip to another day */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex flex-col gap-1.5">
+            {days.map((day, idx) => {
+              const run = weekWorkouts.find((w) => sameDay(w.date, day));
+              const strength = sessions.find((s) => sameDay(new Date(s.date), day));
+              return (
+                <DayRow
+                  key={idx}
+                  dayIdx={idx}
+                  date={day}
+                  run={run}
+                  strength={strength}
+                  expandedRunId={expandedWorkout}
+                  onToggleRun={(id) =>
+                    setExpandedWorkout(expandedWorkout === id ? null : id)
+                  }
+                  onMoveRun={(w) => setMovePicker({ kind: "run", workout: w })}
+                  onMoveStrength={(s) => setMovePicker({ kind: "strength", session: s })}
+                  onDeleteStrength={deleteStrength}
+                  onAddStrength={(dIdx) => {
+                    haptic("light");
+                    setAddType("lower_achilles");
+                    setViolations([]);
+                    setAddDayIdx(dIdx);
+                  }}
+                  dimmed={isPast}
+                  strengthBusy={strengthBusy}
+                />
+              );
+            })}
+          </div>
+
+          <DragOverlay dropAnimation={null}>
+            {activeDrag?.kind === "run" ? (
+              <div className="rounded-[var(--radius-input)] bg-surface shadow-lg overflow-hidden opacity-95">
+                <div className="flex items-stretch">
+                  <div
+                    className="w-1 shrink-0"
+                    style={{ backgroundColor: WORKOUT_BAR_COLOR[activeDrag.workout.type] }}
+                  />
+                  <div className="flex items-center gap-2 py-2 px-2">
+                    <GripVertical className="h-4 w-4 text-text-3" strokeWidth={1.9} />
+                    <div className="min-w-0">
+                      <WorkoutTypeBadge type={activeDrag.workout.type} />
+                      <p className="mt-0.5 text-[14px] font-medium text-text-1 truncate">
+                        {activeDrag.workout.title}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeDrag?.kind === "strength" ? (
+              <div
+                className="rounded-[var(--radius-input)] shadow-lg overflow-hidden opacity-95"
+                style={{ backgroundColor: `${STRENGTH_META[activeDrag.session.type].color}1A` }}
+              >
+                <div className="flex items-center gap-2 py-2 px-2">
+                  <div
+                    className="w-1 self-stretch shrink-0"
+                    style={{ backgroundColor: STRENGTH_META[activeDrag.session.type].color }}
+                  />
+                  <GripVertical
+                    className="h-4 w-4"
+                    strokeWidth={1.9}
+                    style={{ color: STRENGTH_META[activeDrag.session.type].color }}
+                  />
+                  <Dumbbell
+                    className="h-3.5 w-3.5"
+                    strokeWidth={2}
+                    style={{ color: STRENGTH_META[activeDrag.session.type].color }}
+                  />
+                  <span className="text-[13px] font-semibold text-text-1">
+                    {STRENGTH_META[activeDrag.session.type].label}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+
+        <p className="text-center text-[11px] text-text-3">
+          Drag a workout or strength chip to another day.
+        </p>
 
         {/* Plan overview */}
         <div className="h-px bg-hairline mt-2" />
@@ -1009,43 +1436,123 @@ function PlanPageInner() {
         onClose={() => setDropdownOpen(false)}
       />
 
-      {/* Reschedule a run to another day this week */}
+      {/* Move-to-another-day picker (tap fallback for drag) */}
       <Sheet
-        open={!!moveTarget}
-        onClose={() => setMoveTarget(null)}
+        open={!!movePicker}
+        onClose={() => setMovePicker(null)}
         title="Move to another day"
       >
-        {moveTarget && firstDate && (
+        {movePicker && movePickerDate && (
           <div className="flex flex-col gap-4 px-1 pb-2">
             <p className="text-[13px] text-text-2">
-              <span className="font-semibold text-text-1">{moveTarget.title}</span> — pick a new day.
+              <span className="font-semibold text-text-1">
+                {movePicker.kind === "run"
+                  ? movePicker.workout.title
+                  : STRENGTH_META[movePicker.session.type].label}
+              </span>{" "}
+              — pick a new day.
             </p>
             <div className="grid grid-cols-7 gap-1.5">
-              {Array.from({ length: 7 }, (_, i) => {
-                const d = new Date(mondayOf(firstDate));
-                d.setDate(d.getDate() + i);
-                const isCurrent =
-                  d.getFullYear() === moveTarget.date.getFullYear() &&
-                  d.getMonth() === moveTarget.date.getMonth() &&
-                  d.getDate() === moveTarget.date.getDate();
+              {days.map((d, i) => {
+                const current = sameDay(d, movePickerDate);
                 return (
                   <button
                     key={i}
-                    disabled={isCurrent}
-                    onClick={() => moveWorkout(d.toISOString())}
+                    disabled={current}
+                    onClick={() => pickMoveDay(i)}
                     className={`flex flex-col items-center rounded-[var(--radius-input)] py-2.5 text-center transition-colors disabled:opacity-40 ${
-                      isCurrent ? "bg-accent text-on-accent" : "bg-elevated text-text-2 press"
+                      current ? "bg-accent text-on-accent" : "bg-elevated text-text-2 press"
                     }`}
                   >
-                    <span className="text-[9px] font-bold uppercase">
-                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i]}
-                    </span>
+                    <span className="text-[9px] font-bold uppercase">{DOW[i]}</span>
                     <span className="text-[15px] font-bold tabular-nums">{d.getDate()}</span>
                   </button>
                 );
               })}
             </div>
-            <p className="text-[12px] text-text-3">The workout and its calendar event move together.</p>
+            <p className="text-[12px] text-text-3">
+              {movePicker.kind === "run"
+                ? "Landing on another run swaps their days. The calendar event moves too."
+                : "Landing on another session swaps their days. The calendar event moves too."}
+            </p>
+          </div>
+        )}
+      </Sheet>
+
+      {/* Add-strength sheet */}
+      <Sheet
+        open={addDayIdx != null}
+        onClose={() => setAddDayIdx(null)}
+        title="Add strength"
+      >
+        {addDayIdx != null && days[addDayIdx] && (
+          <div className="flex flex-col gap-4 px-1 pb-2">
+            <div>
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-3">
+                Session
+              </p>
+              <Segmented
+                value={addType}
+                onChange={(v) => setAddType(v as SessionType)}
+                options={[
+                  { value: "upper", label: "Upper" },
+                  { value: "lower", label: "Lower" },
+                  { value: "lower_achilles", label: "L+Achilles" },
+                ]}
+              />
+            </div>
+
+            <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated px-3 py-2 text-[13px] text-text-2">
+              <CalendarClock className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
+              <span>
+                {days[addDayIdx].toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+            </div>
+
+            {/* Constraint feedback */}
+            {violations.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {violations.map((v, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-2 rounded-[var(--radius-input)] px-3 py-2 text-[12.5px] ${
+                      v.severity === "error" ? "bg-danger/10 text-danger" : "bg-warn/10 text-warn"
+                    }`}
+                  >
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+                    <span>{v.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                className="flex items-center gap-2 rounded-[var(--radius-input)] px-3 py-2 text-[12.5px]"
+                style={{ backgroundColor: "rgba(74,222,128,0.10)", color: "#4ADE80" }}
+              >
+                <CalendarClock className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+                <span>No conflicts with your runs this week.</span>
+              </div>
+            )}
+
+            <Button
+              full
+              onClick={confirmAddStrength}
+              busy={addBusy}
+              variant={hasError ? "danger" : "primary"}
+            >
+              {hasError ? "Schedule anyway" : "Schedule session"}
+            </Button>
+            <button
+              onClick={() => setAddDayIdx(null)}
+              className="press mx-auto flex items-center gap-1 text-[13px] font-medium text-text-3"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2} />
+              Cancel
+            </button>
           </div>
         )}
       </Sheet>
