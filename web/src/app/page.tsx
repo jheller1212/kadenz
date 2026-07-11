@@ -25,6 +25,9 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
+import { usePullToRefresh } from "@/lib/usePullToRefresh";
+import { useScrollRestoration } from "@/lib/useScrollRestoration";
+import { PullIndicator } from "@/components/ui/PullIndicator";
 import { WellnessCheckIn } from "@/components/WellnessCheckIn";
 import { haptic } from "@/lib/haptics";
 
@@ -891,6 +894,9 @@ export default function Home() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const { pull, refreshing } = usePullToRefresh(() => loadData({ silent: true }));
+  useScrollRestoration(!loading);
+
   useEffect(() => {
     const workouts = allWorkouts.length > 0 ? allWorkouts : (data?.weekWorkouts ?? []);
     if (workouts.length === 0) return;
@@ -979,6 +985,7 @@ export default function Home() {
 
   return (
     <main className="min-h-dvh bg-bg">
+      <PullIndicator pull={pull} refreshing={refreshing} />
       <NavBar
         title="Today"
         large

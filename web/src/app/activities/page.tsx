@@ -9,6 +9,9 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
+import { usePullToRefresh } from "@/lib/usePullToRefresh";
+import { useScrollRestoration } from "@/lib/useScrollRestoration";
+import { PullIndicator } from "@/components/ui/PullIndicator";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -620,24 +623,32 @@ export default function ActivitiesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
-    apiFetch("/api/activities")
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed to load activities");
-        return r.json();
-      })
-      .then((data: ActivitiesApiResponse) => {
-        // Use activities (real Strava data) if available, fall back to workouts
-        setWorkouts(data.activities ?? data.workouts ?? []);
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
+  async function load() {
+    try {
+      const r = await apiFetch("/api/activities");
+      if (!r.ok) throw new Error("Failed to load activities");
+      const data: ActivitiesApiResponse = await r.json();
+      // Use activities (real Strava data) if available, fall back to workouts
+      setWorkouts(data.activities ?? data.workouts ?? []);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
+
+  const { pull, refreshing } = usePullToRefresh(load);
+  useScrollRestoration(!loading);
 
   if (loading) return <ActivitiesSkeleton />;
 
   return (
     <main className="min-h-dvh bg-bg">
+      <PullIndicator pull={pull} refreshing={refreshing} />
       <NavBar title="Activities" large left={<ProfileAvatar />} />
 
       <div className="flex flex-col gap-4 px-4 pb-tabbar">
