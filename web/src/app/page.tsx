@@ -25,6 +25,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
+import { WellnessCheckIn } from "@/components/WellnessCheckIn";
 import { haptic } from "@/lib/haptics";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1034,6 +1035,9 @@ export default function Home() {
         <div className="px-5">
           <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
         </div>
+
+        {/* Daily wellness check-in */}
+        <WellnessCheckIn />
 
         {/* Divider */}
         <div className="mx-5 h-px bg-hairline" />
