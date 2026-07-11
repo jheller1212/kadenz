@@ -243,7 +243,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
   const cardInner = (
     <div className="flex">
       {/* Colored left strip */}
-      <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
+      <div className="w-2.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
 
       <div className="flex-1 p-4">
         {/* Top row */}
@@ -687,15 +687,24 @@ export default function ActivitiesPage() {
           </p>
         )}
 
-        {/* Tab control */}
-        <Segmented
-          options={[
-            { value: "workouts", label: "Workouts" },
-            { value: "performance", label: "Performance" },
-          ]}
-          value={activeTab}
-          onChange={setActiveTab}
-        />
+        {/* Tab control — Benchmark underline style */}
+        <div className="relative -mx-4 flex border-b border-hairline">
+          {([["workouts", "Workouts"], ["performance", "Performance"]] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => { haptic("light"); setActiveTab(value); }}
+              className={`press relative flex-1 pb-3 pt-1 text-center text-[16px] font-bold transition-colors ${
+                activeTab === value ? "text-text-1" : "text-text-2"
+              }`}
+            >
+              {label}
+              {activeTab === value && (
+                <span className="absolute inset-x-6 bottom-[-1px] h-[3px] rounded-full bg-text-1" />
+              )}
+            </button>
+          ))}
+        </div>
 
         {/* Tab content */}
         {activeTab === "workouts" ? (
