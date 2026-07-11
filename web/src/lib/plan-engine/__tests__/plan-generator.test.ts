@@ -302,13 +302,13 @@ describe("generatePlan — workout structure", () => {
     }
   });
 
-  it("race week contains exactly one race workout on preferred long run day", () => {
+  it("race week contains exactly one race workout on the actual race date", () => {
     const plan = generatePlan(marathonConfig);
     const raceWeek = plan.weeks.find((w) => w.type === "race");
     expect(raceWeek).toBeDefined();
     const raceWorkout = raceWeek!.workouts.filter((w) => w.type === "race");
     expect(raceWorkout).toHaveLength(1);
-    expect(raceWorkout[0].dayOfWeek).toBe(marathonConfig.preferredLongRunDay);
+    expect(raceWorkout[0].dayOfWeek).toBe(marathonConfig.raceDate.getUTCDay());
   });
 
   it("base phase has no interval or tempo workouts", () => {
