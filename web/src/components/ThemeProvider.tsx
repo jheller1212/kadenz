@@ -22,14 +22,14 @@ export function ThemeProvider() {
         const theme = settings.theme ?? "light";
         if (theme === "light") {
           document.documentElement.classList.add("light");
-          setThemeColor("#F5F5F7");
+          setThemeColor("#EEF0F4");
         } else {
           document.documentElement.classList.remove("light");
           setThemeColor("#0A0A0B");
         }
       } catch {
         document.documentElement.classList.add("light");
-        setThemeColor("#F5F5F7");
+        setThemeColor("#EEF0F4");
       }
     }
 

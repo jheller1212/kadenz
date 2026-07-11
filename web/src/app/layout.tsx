@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   // Dynamically updated per active theme by ThemeProvider; light is the default.
-  themeColor: "#F5F5F7",
+  themeColor: "#EEF0F4",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,

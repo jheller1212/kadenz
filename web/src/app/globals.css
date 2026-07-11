@@ -61,13 +61,14 @@
 
 /* Light theme — clean monochrome like Benchmark */
 html.light {
-  --k-bg: #F5F5F7;
+  /* Benchmark-style cool two-tone: blue-gray canvas, borderless white cards */
+  --k-bg: #EEF0F4;
   --k-surface: #FFFFFF;
-  --k-elevated: #EEEEF0;
-  --k-hairline: #D8D8DC;
-  --k-text-1: #1A1A1A;
-  --k-text-2: #6B6B70;
-  --k-text-3: #9A9AA0;
+  --k-elevated: #E7EAF0;
+  --k-hairline: #DEE1E8;
+  --k-text-1: #16181D;
+  --k-text-2: #5F646E;
+  --k-text-3: #969BA6;
   --k-accent: #1A1A1A;
   --k-on-accent: #FFFFFF;
   --k-warn: #E8850A;

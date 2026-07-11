@@ -10,8 +10,8 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     orientation: "portrait",
     // Default theme is light; runtime theme-color is managed by ThemeProvider
-    background_color: "#F5F5F7",
-    theme_color: "#F5F5F7",
+    background_color: "#EEF0F4",
+    theme_color: "#EEF0F4",
     icons: [
       {
         src: "/icon-192.png",
