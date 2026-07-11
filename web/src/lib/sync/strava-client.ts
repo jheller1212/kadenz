@@ -1,5 +1,5 @@
-import { db, syncOutbox, activities, workouts, plans } from "@/db";
-import { eq, and, gte, lte, ne, isNull } from "drizzle-orm";
+import { db, syncOutbox, activities, workouts, plans, strengthSessions } from "@/db";
+import { eq, and, gte, lte, ne, isNull, inArray } from "drizzle-orm";
 
 // ── Token storage (same pattern as gcal-client.ts) ──────────────────────────
 
@@ -393,7 +393,48 @@ async function findMatchingWorkout(
   return best?.id ?? null;
 }
 
-/** Process a Strava activity: store it and match to a workout if possible. */
+// Strava sport types we treat as a strength/lifting session.
+const STRENGTH_SPORT_TYPES = new Set(["WeightTraining", "Workout", "Crossfit", "HIIT"]);
+
+/**
+ * Match a Strava strength activity to a strength session on the same day that
+ * isn't already backed by a recorded activity. Prefers planned/incomplete
+ * sessions. Returns the session id, or null.
+ */
+async function findMatchingStrengthSession(
+  activity: StravaActivity
+): Promise<string | null> {
+  const d = new Date(activity.start_date_local);
+  const dayStart = new Date(d);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(d);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const sessions = await db
+    .select({ id: strengthSessions.id, status: strengthSessions.status })
+    .from(strengthSessions)
+    .where(
+      and(
+        gte(strengthSessions.date, dayStart),
+        lte(strengthSessions.date, dayEnd),
+        ne(strengthSessions.status, "skipped")
+      )
+    );
+  if (sessions.length === 0) return null;
+
+  // Drop sessions that already have a linked activity.
+  const linked = await db
+    .select({ sid: activities.strengthSessionId })
+    .from(activities)
+    .where(inArray(activities.strengthSessionId, sessions.map((s) => s.id)));
+  const linkedIds = new Set(linked.map((l) => l.sid));
+  const open = sessions.filter((s) => !linkedIds.has(s.id));
+  if (open.length === 0) return null;
+
+  return (open.find((s) => s.status === "planned") ?? open[0]).id;
+}
+
+/** Process a Strava activity: store it and match to a workout/session. */
 export async function processActivity(activityId: number): Promise<void> {
   // Skip if already processed
   const [existing] = await db
@@ -405,10 +446,41 @@ export async function processActivity(activityId: number): Promise<void> {
   if (existing) return;
 
   const activity = await fetchActivity(activityId);
+  const sportType = activity.sport_type || activity.type;
+  const isRun = activity.sport_type === "Run" || activity.type === "Run";
+  const isStrength = STRENGTH_SPORT_TYPES.has(sportType);
+  if (!isRun && !isStrength) return;
 
-  // Only process runs
-  if (activity.sport_type !== "Run" && activity.type !== "Run") return;
+  const avgHr = activity.average_heartrate ? Math.round(activity.average_heartrate) : null;
+  const maxHr = activity.max_heartrate ? Math.round(activity.max_heartrate) : null;
 
+  // ── Strength: store + match to a strength session ──────────────────────────
+  if (isStrength) {
+    const strengthSessionId = await findMatchingStrengthSession(activity);
+    await db.insert(activities).values({
+      strengthSessionId,
+      sportType,
+      stravaId: String(activityId),
+      name: activity.name,
+      startDate: new Date(activity.start_date),
+      durationSeconds: activity.moving_time,
+      avgHr,
+      maxHr,
+    });
+    if (strengthSessionId) {
+      await db
+        .update(strengthSessions)
+        .set({
+          status: "completed",
+          durationMinutes: Math.max(1, Math.round(activity.moving_time / 60)),
+          updatedAt: new Date(),
+        })
+        .where(eq(strengthSessions.id, strengthSessionId));
+    }
+    return;
+  }
+
+  // ── Run: existing behaviour ────────────────────────────────────────────────
   const distanceKm = activity.distance / 1000;
   const avgPaceSecKm =
     activity.average_speed > 0
@@ -420,6 +492,7 @@ export async function processActivity(activityId: number): Promise<void> {
   // Insert activity record
   await db.insert(activities).values({
     workoutId,
+    sportType: "Run",
     stravaId: String(activityId),
     name: activity.name,
     startDate: new Date(activity.start_date),

@@ -1,4 +1,6 @@
-import { db, activities, workouts, blocks } from "@/db";
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { db, activities, workouts, blocks, strengthSessions } from "@/db";
 import { eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
 
@@ -262,5 +264,110 @@ export async function GET(
   } catch (err) {
     console.error("Error fetching activity detail:", err);
     return Response.json({ error: "Failed to fetch" }, { status: 500 });
+  }
+}
+
+// ── PATCH /api/activities/[id] — link / unlink to a run or strength session ────
+// Benchmark-style manual reconciliation: attach a recorded activity (with its HR)
+// to a planned run workout or strength session, or detach it.
+
+const LinkSchema = z
+  .object({
+    workoutId: z.string().uuid().optional(),
+    strengthSessionId: z.string().uuid().optional(),
+    unlink: z.boolean().optional(),
+  })
+  .strict();
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const parsed = LinkSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 422 });
+  }
+  const { workoutId, strengthSessionId, unlink } = parsed.data;
+
+  try {
+    const [activity] = await db.select().from(activities).where(eq(activities.id, id));
+    if (!activity) return Response.json({ error: "Activity not found" }, { status: 404 });
+
+    // Revert whatever this activity was previously linked to, back to planned.
+    async function detachOld() {
+      if (activity.workoutId) {
+        await db
+          .update(workouts)
+          .set({ status: "planned", actualKm: null, stravaActivityId: null, updatedAt: new Date() })
+          .where(eq(workouts.id, activity.workoutId));
+      }
+      if (activity.strengthSessionId) {
+        await db
+          .update(strengthSessions)
+          .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
+          .where(eq(strengthSessions.id, activity.strengthSessionId));
+      }
+    }
+
+    if (unlink || (!workoutId && !strengthSessionId)) {
+      await detachOld();
+      const [updated] = await db
+        .update(activities)
+        .set({ workoutId: null, strengthSessionId: null })
+        .where(eq(activities.id, id))
+        .returning();
+      return Response.json(updated);
+    }
+
+    if (workoutId) {
+      const [w] = await db.select({ id: workouts.id }).from(workouts).where(eq(workouts.id, workoutId));
+      if (!w) return Response.json({ error: "Workout not found" }, { status: 422 });
+      await detachOld();
+      await db
+        .update(workouts)
+        .set({
+          status: "completed",
+          actualKm: activity.distanceKm ?? null,
+          stravaActivityId: activity.stravaId ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(workouts.id, workoutId));
+      const [updated] = await db
+        .update(activities)
+        .set({ workoutId, strengthSessionId: null })
+        .where(eq(activities.id, id))
+        .returning();
+      return Response.json(updated);
+    }
+
+    // strengthSessionId
+    const [s] = await db.select({ id: strengthSessions.id }).from(strengthSessions).where(eq(strengthSessions.id, strengthSessionId!));
+    if (!s) return Response.json({ error: "Strength session not found" }, { status: 422 });
+    await detachOld();
+    await db
+      .update(strengthSessions)
+      .set({
+        status: "completed",
+        durationMinutes: activity.durationSeconds ? Math.max(1, Math.round(activity.durationSeconds / 60)) : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(strengthSessions.id, strengthSessionId!));
+    const [updated] = await db
+      .update(activities)
+      .set({ strengthSessionId, workoutId: null })
+      .where(eq(activities.id, id))
+      .returning();
+    return Response.json(updated);
+  } catch (err) {
+    console.error("DB error linking activity:", err);
+    return Response.json({ error: "Failed to link activity" }, { status: 500 });
   }
 }

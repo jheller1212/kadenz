@@ -253,6 +253,15 @@ export const activities = pgTable(
     workoutId: uuid("workout_id").references(() => workouts.id, {
       onDelete: "set null",
     }),
+    // A recorded activity can instead back a strength session (HR/calories for
+    // a lift). Exactly one of workoutId / strengthSessionId is set when linked.
+    strengthSessionId: uuid("strength_session_id").references(
+      () => strengthSessions.id,
+      { onDelete: "set null" }
+    ),
+    // Strava sport_type ("Run", "WeightTraining", "Workout", …) — drives the
+    // unified feed's type badge and run-vs-strength matching.
+    sportType: text("sport_type"),
     stravaId: text("strava_id").unique(),
     name: text("name"),
     distanceKm: real("distance_km"),
@@ -272,6 +281,7 @@ export const activities = pgTable(
   (t) => [
     index("activities_workout_id_idx").on(t.workoutId),
     index("activities_strava_id_idx").on(t.stravaId),
+    index("activities_strength_session_id_idx").on(t.strengthSessionId),
   ]
 );
 

@@ -1,5 +1,5 @@
-import { db, plans, workouts, activities } from "@/db";
-import { eq, desc, isNull } from "drizzle-orm";
+import { db, plans, activities, strengthSessions } from "@/db";
+import { eq, desc } from "drizzle-orm";
 
 export async function GET() {
   try {
@@ -21,7 +21,7 @@ export async function GET() {
       .filter((a) => a.workoutId)
       .map((a) => a.workoutId!);
 
-    let workoutMap = new Map<
+    const workoutMap = new Map<
       string,
       { type: string; title: string; blocks: unknown[] }
     >();
@@ -79,16 +79,24 @@ export async function GET() {
         }));
     }
 
-    // 5. Build unified response — real activities first
+    // 5. Strength sessions — for a unified feed and to enrich linked activities.
+    const strengthRows = await db.select().from(strengthSessions);
+    const sessionMap = new Map(strengthRows.map((s) => [s.id, s]));
+
+    // 6. Build unified response — recorded activities first (runs + strength).
     const activityItems = allActivities.map((a) => {
-      const linked = a.workoutId ? workoutMap.get(a.workoutId) : null;
+      const linkedRun = a.workoutId ? workoutMap.get(a.workoutId) : null;
+      const linkedSession = a.strengthSessionId ? sessionMap.get(a.strengthSessionId) : null;
+      const isStrength = !!linkedSession || a.sportType === "WeightTraining" || a.sportType === "Workout" || a.sportType === "Crossfit" || a.sportType === "HIIT";
       return {
         id: a.id,
         source: "strava" as const,
+        kind: isStrength ? "strength" : "run",
         stravaId: a.stravaId,
         date: (a.startDate ?? a.createdAt).toISOString(),
-        type: linked?.type ?? "run",
-        title: a.name ?? linked?.title ?? "Run",
+        type: isStrength ? "strength" : linkedRun?.type ?? "run",
+        strengthType: linkedSession?.type ?? null,
+        title: linkedSession?.title ?? a.name ?? linkedRun?.title ?? (isStrength ? "Strength" : "Run"),
         distanceKm: a.distanceKm,
         durationSeconds: a.durationSeconds,
         avgPaceSecKm: a.avgPaceSecKm,
@@ -97,6 +105,7 @@ export async function GET() {
         elevationGain: a.elevationGain,
         status: "completed",
         workoutId: a.workoutId,
+        strengthSessionId: a.strengthSessionId,
         activity: {
           id: a.id,
           stravaId: a.stravaId,
@@ -106,12 +115,47 @@ export async function GET() {
           avgHr: a.avgHr,
           maxHr: a.maxHr,
         },
-        blocks: linked?.blocks ?? [],
+        blocks: linkedRun?.blocks ?? [],
       };
     });
 
+    // 7. Strength sessions without a recorded activity → standalone feed items
+    //    (completed in-app, or past-planned = missed). Future ones are skipped.
+    const now = new Date();
+    const linkedSessionIds = new Set(
+      allActivities.filter((a) => a.strengthSessionId).map((a) => a.strengthSessionId!)
+    );
+    const strengthItems = strengthRows
+      .filter((s) => !linkedSessionIds.has(s.id))
+      .filter((s) => s.status === "completed" || (s.status === "planned" && new Date(s.date) < now))
+      .map((s) => ({
+        id: `strength:${s.id}`,
+        source: "session" as const,
+        kind: "strength" as const,
+        stravaId: null,
+        date: new Date(s.date).toISOString(),
+        type: "strength",
+        strengthType: s.type,
+        title: s.title,
+        distanceKm: null,
+        durationSeconds: s.durationMinutes ? s.durationMinutes * 60 : null,
+        avgPaceSecKm: null,
+        avgHr: null,
+        maxHr: null,
+        elevationGain: null,
+        status: s.status,
+        workoutId: null,
+        strengthSessionId: s.id,
+        activity: null,
+        blocks: [],
+      }));
+
+    const unified = [...activityItems, ...strengthItems].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
     return Response.json({
-      activities: activityItems,
+      activities: unified,
       plannedWorkouts,
       planName: activePlan?.name ?? null,
     });

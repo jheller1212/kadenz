@@ -106,6 +106,7 @@ const WORKOUT_COLORS: Record<string, string> = {
   long: "#60A5FA",
   race: "#FF4D4D",
   run: "#60A5FA",
+  strength: "#F472B6",
 };
 
 // ── Group workouts by month ───────────────────────────────────────────────────
@@ -185,7 +186,7 @@ const PR_DISPLAY: Record<string, { label: string; color: string; bgColor: string
 
 // ── Workout type filter options ───────────────────────────────────────────────
 
-const FILTER_TYPES = ["All", "Easy", "Tempo", "Interval", "Long", "Race"];
+const FILTER_TYPES = ["All", "Easy", "Tempo", "Interval", "Long", "Race", "Strength"];
 const FILTER_TYPE_MAP: Record<string, string[]> = {
   "All":      [],
   "Easy":     ["easy", "recovery"],
@@ -193,6 +194,7 @@ const FILTER_TYPE_MAP: Record<string, string[]> = {
   "Interval": ["interval"],
   "Long":     ["long"],
   "Race":     ["race"],
+  "Strength": ["strength"],
 };
 
 // ── Loading skeleton ──────────────────────────────────────────────────────────
