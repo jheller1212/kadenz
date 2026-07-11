@@ -18,6 +18,7 @@
   --color-bg: var(--k-bg);
   --color-surface: var(--k-surface);
   --color-elevated: var(--k-elevated);
+  --color-float: var(--k-float);
   --color-hairline: var(--k-hairline);
   --color-text-1: var(--k-text-1);
   --color-text-2: var(--k-text-2);
@@ -26,28 +27,73 @@
   --color-on-accent: var(--k-on-accent);
   --color-warn: var(--k-warn);
   --color-danger: var(--k-danger);
+  --color-success: var(--k-success);
 }
 
-/* Dark theme (default) */
+/* ── Kadenz v2 tokens ("iOS-native depth") — see docs/DESIGN.md ──────────────
+   Dark is the app default (:root); light is html.light. Dark expresses
+   elevation through LIGHTER surfaces (bg → surface → elevated → float);
+   light expresses it through layered soft shadows. Every surface has a
+   `-grad` twin (2–4% vertical luminance shift) so cards feel lit, not flat. */
+
+/* Dark theme (default) — designed, not inverted */
 :root {
   --k-bg: #0A0A0B;
-  --k-surface: #161618;
-  --k-elevated: #1F1F22;
-  --k-hairline: #2A2A2E;
+  --k-bg-grad: linear-gradient(180deg, #0C0C0E 0%, #08080A 100%);
+  --k-surface: #17181B;
+  --k-surface-grad: linear-gradient(180deg, #1B1C20 0%, #141518 100%);
+  --k-elevated: #212227;
+  --k-float: #26282E;
+  --k-float-grad: linear-gradient(180deg, #2A2C33 0%, #222429 100%);
+  --k-hairline: #2A2B30;
+
   --k-text-1: #FAFAFA;
-  --k-text-2: #9A9A9F;
-  --k-text-3: #5C5C61;
-  --k-accent: #C8FF3C;
-  --k-on-accent: #0A0A0B;
+  --k-text-2: #A6A8B0;
+  --k-text-3: #878B95;
+
+  /* Accent — near-white in dark, "lit" via gradient */
+  --k-accent: #FAFAFA;
+  --k-accent-grad: linear-gradient(180deg, #FFFFFF 0%, #E4E7ED 100%);
+  --k-on-accent: #101114;
+
+  /* Progress teal + kinetic pair (ring gradients) */
+  --k-progress: #2DD4BF;
+  --k-progress-2: #38BDF8;
+
+  /* Signature gradient — at most ONE hero moment per screen.
+     Default identity: "Dawn" (running at sunrise). */
+  --k-signature-grad: var(--k-sig-dawn);
+  --k-signature-ink: #FFFFFF;
+  --k-sig-dawn: linear-gradient(140deg, #FFAB5E 0%, #FF7759 52%, #EF5B7B 100%);
+  --k-sig-kinetic: linear-gradient(140deg, #2DD4BF 0%, #38BDF8 58%, #4F7CF7 100%);
+  --k-sig-aurora: linear-gradient(140deg, #4ADE80 0%, #2DD4BF 50%, #38BDF8 100%);
+
   --k-warn: #FFB547;
-  --k-danger: #FF4D4D;
+  --k-danger: #FF5C5C;
+  --k-success: #34D399;
+
+  /* Workout type spectrum (spines, dots, badges) — meaning, never decoration */
+  --k-type-easy: #4ADE80;
+  --k-type-recovery: #4ADE80;
+  --k-type-tempo: #FFB547;
+  --k-type-interval: #C084FC;
+  --k-type-long: #60A5FA;
+  --k-type-race: #FF4D4D;
+
+  /* Elevation — dark uses lighter surfaces; shadows collapse to a 0.5px ring */
+  --k-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --k-shadow-float:
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 16px 48px rgba(0, 0, 0, 0.6);
+  --k-ring-hairline: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
 
   /* Desktop backdrop behind the centered phone column */
   --k-desk: #000000;
 
   /* Translucent "material" fill for blurred bars (dark) */
-  --k-material: rgba(22, 22, 24, 0.72);
+  --k-material: rgba(23, 24, 27, 0.72);
   --k-material-border: rgba(255, 255, 255, 0.08);
+  --k-scrim: rgba(0, 0, 0, 0.55);
 
   /* Safe-area insets, resolved once so we can compose them */
   --sa-top: env(safe-area-inset-top, 0px);
@@ -59,23 +105,43 @@
   --tabbar-h: 56px;
 }
 
-/* Light theme — clean monochrome like Benchmark */
+/* Light theme — cool-neutral canvas, white gradient cards, soft shadows */
 html.light {
-  /* Benchmark-style cool two-tone: blue-gray canvas, borderless white cards */
   --k-bg: #EEF0F4;
+  --k-bg-grad: linear-gradient(180deg, #F2F4F8 0%, #EAEDF2 100%);
   --k-surface: #FFFFFF;
+  --k-surface-grad: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
   --k-elevated: #E7EAF0;
+  --k-float: #FFFFFF;
+  --k-float-grad: linear-gradient(180deg, #FFFFFF 0%, #F5F7FA 100%);
   --k-hairline: #DEE1E8;
+
+  /* text-3 darkened from v1 #969BA6 — that failed WCAG AA on white */
   --k-text-1: #16181D;
   --k-text-2: #5F646E;
-  --k-text-3: #969BA6;
+  --k-text-3: #646973;
+
   --k-accent: #1A1A1A;
+  --k-accent-grad: linear-gradient(180deg, #33363D 0%, #131418 100%);
   --k-on-accent: #FFFFFF;
+
   --k-warn: #E8850A;
   --k-danger: #E03A3A;
+  --k-success: #1FA97A;
+
+  --k-shadow-card:
+    0 1px 1px rgba(23, 26, 31, 0.03),
+    0 2px 6px rgba(23, 26, 31, 0.05),
+    0 8px 24px rgba(23, 26, 31, 0.05);
+  --k-shadow-float:
+    0 2px 4px rgba(23, 26, 31, 0.06),
+    0 8px 20px rgba(23, 26, 31, 0.1),
+    0 24px 60px rgba(23, 26, 31, 0.16);
+  --k-ring-hairline: 0 0 0 0.5px rgba(23, 26, 31, 0.06);
 
   --k-material: rgba(255, 255, 255, 0.72);
   --k-material-border: rgba(0, 0, 0, 0.08);
+  --k-scrim: rgba(10, 12, 16, 0.4);
   --k-desk: #C7C7CC;
 }
 
@@ -167,6 +233,28 @@ button {
   min-height: 100dvh;
 }
 
+/* ── Surfaces: the three elevation levels, gradient-treated ──────────────── */
+/* Borderless — a 0.5px ring + shadow replaces the v1 hairline border. */
+
+.k-card {
+  background: var(--k-surface-grad);
+  background-color: var(--k-surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--k-ring-hairline), var(--k-shadow-card);
+}
+.k-float {
+  background: var(--k-float-grad);
+  background-color: var(--k-float);
+  border-radius: var(--radius-card);
+  box-shadow: var(--k-shadow-float);
+}
+/* The one hero moment per screen — display numerals / white ink only on top */
+.k-signature {
+  background: var(--k-signature-grad);
+  color: var(--k-signature-ink);
+  box-shadow: var(--k-shadow-card);
+}
+
 /* ── Materials (translucent blurred bars, iOS-style) ─────────────────────── */
 
 .material {
@@ -184,14 +272,18 @@ button {
 }
 
 /* ── Native press feedback ───────────────────────────────────────────────── */
+/* Scale + brightness dip (light) / brightness lift (dark). No hover — touch app. */
 
 .press {
-  transition: transform 0.12s var(--ease-ios), opacity 0.12s var(--ease-ios);
+  transition: transform 0.12s var(--ease-ios), filter 0.12s var(--ease-ios);
   touch-action: manipulation;
 }
 .press:active {
   transform: scale(0.96);
-  opacity: 0.85;
+  filter: brightness(1.12);
+}
+html.light .press:active {
+  filter: brightness(0.96);
 }
 
 /* ── Animations ──────────────────────────────────────────────────────────── */

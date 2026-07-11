@@ -523,7 +523,7 @@ function StepPreferences({
           step={1}
           value={longRunCapKm}
           onChange={(e) => onLongRunCapKm(Number(e.target.value))}
-          className="w-full accent-[#C8FF3C]"
+          className="w-full accent-[var(--k-progress)]"
           aria-label={`Long run cap: ${longRunCapKm === 0 ? "none" : longRunCapKm + " km"}`}
         />
         <div className="flex justify-between text-[10px] text-text-3">
@@ -566,7 +566,7 @@ function StepPreferences({
           step={1}
           value={easyRunMinKm}
           onChange={(e) => onEasyRunMinKm(Number(e.target.value))}
-          className="w-full accent-[#C8FF3C]"
+          className="w-full accent-[var(--k-progress)]"
           aria-label={`Easy run minimum: ${easyRunMinKm === 0 ? "none" : easyRunMinKm + " km"}`}
         />
         <div className="flex justify-between text-[10px] text-text-3">

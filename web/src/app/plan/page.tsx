@@ -711,7 +711,7 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
               ? "#FF4D4D"
               : week.type === "deload"
               ? "#FFB547"
-              : "#C8FF3C";
+              : "var(--k-progress)";
           return (
             <div
               key={week.weekNumber}
