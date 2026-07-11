@@ -14,6 +14,9 @@ import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
+import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
+import { AnimatePresence } from "motion/react";
+import { Radio } from "lucide-react";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -205,6 +208,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [mode, setMode] = useState<"outdoor" | "treadmill">("outdoor");
   const [menuOpen, setMenuOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [guiding, setGuiding] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -245,6 +249,29 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       setActionError("Couldn't save your workout. Please try again.");
     } finally {
       setCompleting(false);
+    }
+  }
+
+  async function handleGuidedFinish(summary: GuidedRunFinish) {
+    setGuiding(false);
+    if (!workout) return;
+    setActionError(null);
+    try {
+      const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          summary.distanceKm != null ? { actualKm: summary.distanceKm } : {}
+        ),
+      });
+      if (res.ok) {
+        haptic("success");
+        setWorkout((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      } else {
+        setActionError("Run saved locally, but we couldn't mark it complete. Try again.");
+      }
+    } catch {
+      setActionError("Run saved locally, but we couldn't mark it complete. Try again.");
     }
   }
 
@@ -498,19 +525,48 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         </section>
 
         {/* Primary action */}
-        <div className="pt-1">
+        <div className="pt-1 flex flex-col gap-2.5">
           {isCompleted ? (
             <div className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-input)] bg-elevated py-4 text-center text-[15px] font-bold text-text-2">
               <CheckCircle2 className="h-4 w-4 text-accent" strokeWidth={2.5} />
               Completed
             </div>
           ) : (
-            <Button variant="primary" full size="lg" busy={completing} onClick={handleComplete}>
-              {completing ? "Saving..." : "Start Workout"}
-            </Button>
+            <>
+              <Button
+                variant="primary"
+                full
+                size="lg"
+                onClick={() => {
+                  haptic("medium");
+                  setGuiding(true);
+                }}
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <Radio className="h-5 w-5" strokeWidth={2.2} />
+                  Start guided run
+                </span>
+              </Button>
+              <Button variant="secondary" full busy={completing} onClick={handleComplete}>
+                {completing ? "Saving..." : "Mark complete"}
+              </Button>
+            </>
           )}
         </div>
       </div>
+
+      {/* Guided run overlay */}
+      <AnimatePresence>
+        {guiding && (
+          <GuidedRun
+            title={workout.title}
+            blocks={workout.blocks}
+            useMiles={useMiles}
+            onFinish={handleGuidedFinish}
+            onClose={() => setGuiding(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Options sheet */}
       <OptionsSheet open={menuOpen} onClose={() => setMenuOpen(false)} onSkip={handleSkip} />

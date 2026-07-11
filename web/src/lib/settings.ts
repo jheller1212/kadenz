@@ -29,6 +29,18 @@ export interface UserSettings {
   kraftGetReady: boolean;
   /** Keep the screen awake during a session (Wake Lock) */
   kraftKeepAwake: boolean;
+
+  // ── Guided run preferences ───────────────────────────────────────────────
+  /** Master switch for guided-run audio cues (beeps + voice) */
+  runAudio: boolean;
+  /** Spoken run cues (requires runAudio) */
+  runVoice: boolean;
+  /** Use GPS for live distance, pace, and split announcements */
+  runGps: boolean;
+  /** Announce each completed km / mile split */
+  runSplitCues: boolean;
+  /** Keep the screen awake during a guided run (Wake Lock) */
+  runKeepAwake: boolean;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -45,6 +57,11 @@ export const DEFAULT_SETTINGS: UserSettings = {
   kraftVoice: true,
   kraftGetReady: true,
   kraftKeepAwake: true,
+  runAudio: true,
+  runVoice: true,
+  runGps: true,
+  runSplitCues: true,
+  runKeepAwake: true,
 };
 
 const STORAGE_KEY = "kadenz_settings";

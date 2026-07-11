@@ -421,6 +421,69 @@ export default function SettingsPage() {
           />
         </ListGroup>
 
+        {/* Guided run */}
+        <ListGroup header="Guided Run" footer="Live coaching while you run the workout step by step.">
+          <Row
+            title="GPS tracking"
+            subtitle="Live distance, pace, and split cues (needs location permission)"
+            accessory={
+              <Switch
+                checked={settings.runGps}
+                onChange={(v) => update({ runGps: v })}
+                aria-label="GPS tracking"
+              />
+            }
+          />
+          {settings.runGps && (
+            <Row
+              title="Split announcements"
+              subtitle={`Call out each completed ${settings.units === "miles" ? "mile" : "km"} and its time`}
+              accessory={
+                <Switch
+                  checked={settings.runSplitCues}
+                  onChange={(v) => update({ runSplitCues: v })}
+                  aria-label="Split announcements"
+                />
+              }
+            />
+          )}
+          <Row
+            title="Audio cues"
+            subtitle="Beeps for step changes and rest countdowns"
+            accessory={
+              <Switch
+                checked={settings.runAudio}
+                onChange={(v) => update({ runAudio: v })}
+                aria-label="Guided run audio cues"
+              />
+            }
+          />
+          {settings.runAudio && (
+            <Row
+              title="Spoken cues"
+              subtitle="Announce each step and its target out loud"
+              accessory={
+                <Switch
+                  checked={settings.runVoice}
+                  onChange={(v) => update({ runVoice: v })}
+                  aria-label="Guided run spoken cues"
+                />
+              }
+            />
+          )}
+          <Row
+            title="Keep screen awake"
+            subtitle="Stop the screen sleeping during a run"
+            accessory={
+              <Switch
+                checked={settings.runKeepAwake}
+                onChange={(v) => update({ runKeepAwake: v })}
+                aria-label="Keep screen awake during run"
+              />
+            }
+          />
+        </ListGroup>
+
         {/* Integrations */}
         <ListGroup header="Integrations">
           <StravaConnection />
