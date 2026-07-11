@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart3 , CalendarDays } from "lucide-react";
+import { BarChart3, CalendarDays, Trophy, Flame } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -64,6 +64,52 @@ function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
       })),
     })),
   };
+}
+
+// ── Performance (real activity data) types + formatters ──────────────────────
+
+interface PerfRecord {
+  key: string;
+  label: string;
+  timeSeconds: number | null;
+  paceSecKm: number | null;
+  date: string | null;
+}
+interface PerfBadge {
+  category: string;
+  label: string;
+  earned: boolean;
+  value: number;
+  target: number;
+}
+interface Performance {
+  hasData: boolean;
+  totals?: {
+    runCount: number;
+    totalKm: number;
+    totalSeconds: number;
+    totalElevation: number;
+    longestRunKm: number;
+    yearKm: number;
+    monthKm: number;
+    streakWeeks: number;
+  };
+  records?: PerfRecord[];
+  monthly?: { label: string; km: number }[];
+  badges?: PerfBadge[];
+}
+
+function fmtDuration(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+function fmtPace(secKm: number): string {
+  const m = Math.floor(secKm / 60);
+  const s = Math.round(secKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // ── Derived stats helpers ─────────────────────────────────────────────────────
@@ -195,6 +241,46 @@ function WorkoutTypeBar({
   );
 }
 
+// ── Monthly distance trend (trailing 12 months) ──────────────────────────────
+
+function MonthlyChart({ monthly }: { monthly: { label: string; km: number }[] }) {
+  const maxKm = Math.max(...monthly.map((m) => m.km), 1);
+  return (
+    <div>
+      <div className="flex items-end gap-1 h-24">
+        {monthly.map((m, i) => {
+          const pct = (m.km / maxKm) * 100;
+          const isCurrent = i === monthly.length - 1;
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+              <div
+                className="w-full rounded-sm transition-all"
+                style={{
+                  height: `${Math.max(pct, 3)}%`,
+                  backgroundColor: "var(--k-accent)",
+                  opacity: isCurrent ? 1 : 0.4,
+                }}
+                title={`${m.label}: ${m.km} km`}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex gap-1">
+        {monthly.map((m, i) => (
+          <span
+            key={i}
+            className="flex-1 text-center text-[9px] text-text-3"
+            style={{ opacity: i % 2 === 0 ? 1 : 0.55 }}
+          >
+            {m.label[0]}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Loading / empty states ────────────────────────────────────────────────────
 
 function StatsSkeleton() {
@@ -253,61 +339,87 @@ function NoPlanState() {
 
 export default function StatsPage() {
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
+  const [perf, setPerf] = useState<Performance | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadPlan() {
-      try {
-        const listRes = await apiFetch("/api/plans");
-        if (!listRes.ok) throw new Error("Failed to fetch plans");
-        const plans = await listRes.json();
-        const active = (plans as { id: string; status: string }[]).find(
-          (p) => p.status === "active"
-        );
-        if (!active) {
-          setLoaded(true);
-          return;
-        }
-        const res = await apiFetch(`/api/plans/${active.id}`);
-        if (!res.ok) throw new Error("Failed to fetch plan");
-        const raw = await res.json();
-        setPlan(adaptApiPlan(raw));
-      } catch {
-        setError("Couldn't load your stats. Pull to refresh and try again.");
-      } finally {
-        setLoaded(true);
+    async function load() {
+      // Performance (real activities) and the active plan load independently —
+      // either can be present without the other.
+      const [perfResult, planResult] = await Promise.allSettled([
+        (async () => {
+          const res = await apiFetch("/api/performance");
+          if (!res.ok) throw new Error("perf");
+          return (await res.json()) as Performance;
+        })(),
+        (async () => {
+          const listRes = await apiFetch("/api/plans");
+          if (!listRes.ok) throw new Error("plans");
+          const plans = await listRes.json();
+          const active = (plans as { id: string; status: string }[]).find(
+            (p) => p.status === "active"
+          );
+          if (!active) return null;
+          const res = await apiFetch(`/api/plans/${active.id}`);
+          if (!res.ok) throw new Error("plan");
+          return adaptApiPlan(await res.json());
+        })(),
+      ]);
+
+      if (perfResult.status === "fulfilled" && perfResult.value.hasData) {
+        setPerf(perfResult.value);
       }
+      if (planResult.status === "fulfilled") {
+        setPlan(planResult.value);
+      }
+      if (perfResult.status === "rejected" && planResult.status === "rejected") {
+        setError("Couldn't load your stats. Pull to refresh and try again.");
+      }
+      setLoaded(true);
     }
-    loadPlan();
+    load();
   }, []);
 
   if (!loaded) return <StatsSkeleton />;
-  if (!plan) return <NoPlanState />;
+  if (!plan && !perf) return <NoPlanState />;
 
-  const currentWeekIdx = getCurrentWeekIndex(plan);
-  const currentWeek = plan.weeks[currentWeekIdx];
-  const typeCounts = getWorkoutTypeCounts(plan);
-  const totalWorkouts = Object.values(typeCounts).reduce(
-    (sum, n) => sum + (n ?? 0),
-    0
-  );
-  const totalKm = plan.weeks.reduce((sum, w) => sum + w.targetKm, 0);
-
-  // This-week completion stats (workouts before or on today)
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
-  const thisWeekWorkouts = currentWeek?.workouts.filter(
-    (w) => w.type !== "rest"
-  ) ?? [];
-  const pastWorkoutsThisWeek = thisWeekWorkouts.filter(
-    (w) => w.date <= today
-  ).length;
-  const completionPct =
-    thisWeekWorkouts.length > 0
-      ? Math.round((pastWorkoutsThisWeek / thisWeekWorkouts.length) * 100)
-      : 0;
-  const planPct = Math.round(((currentWeekIdx + 1) / plan.planLengthWeeks) * 100);
+  // Plan-derived stats (only when an active plan exists).
+  const planStats = plan
+    ? (() => {
+        const currentWeekIdx = getCurrentWeekIndex(plan);
+        const currentWeek = plan.weeks[currentWeekIdx];
+        const typeCounts = getWorkoutTypeCounts(plan);
+        const totalWorkouts = Object.values(typeCounts).reduce(
+          (sum, n) => sum + (n ?? 0),
+          0
+        );
+        const totalKm = plan.weeks.reduce((sum, w) => sum + w.targetKm, 0);
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const thisWeekWorkouts =
+          currentWeek?.workouts.filter((w) => w.type !== "rest") ?? [];
+        const pastWorkoutsThisWeek = thisWeekWorkouts.filter(
+          (w) => w.date <= today
+        ).length;
+        const completionPct =
+          thisWeekWorkouts.length > 0
+            ? Math.round((pastWorkoutsThisWeek / thisWeekWorkouts.length) * 100)
+            : 0;
+        const planPct = Math.round(
+          ((currentWeekIdx + 1) / plan.planLengthWeeks) * 100
+        );
+        return {
+          currentWeekIdx,
+          currentWeek,
+          typeCounts,
+          totalWorkouts,
+          totalKm,
+          completionPct,
+          planPct,
+        };
+      })()
+    : null;
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -328,121 +440,281 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Plan progress */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
-          <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
-            Plan progress
-          </p>
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
-              <p className="text-[10px] uppercase tracking-wider text-text-3">
-                Week
+        {/* ── Performance (real activity data) ─────────────────────────── */}
+        {perf?.totals && (
+          <>
+            {/* Lifetime totals */}
+            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                All-time running
               </p>
-              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-accent">
-                {currentWeekIdx + 1}
-                <span className="text-text-3 text-xs font-semibold">
-                  /{plan.planLengthWeeks}
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[34px] font-extrabold tabular-nums leading-none text-accent">
+                    {Math.round(perf.totals.totalKm)}
+                    <span className="text-[15px] font-semibold text-text-3"> km</span>
+                  </p>
+                  <p className="mt-1.5 text-[13px] text-text-3">Total distance</p>
+                </div>
+                <div>
+                  <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
+                    {perf.totals.runCount}
+                  </p>
+                  <p className="mt-1.5 text-[13px] text-text-3">Runs logged</p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3">Time</p>
+                  <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
+                    {fmtDuration(perf.totals.totalSeconds).split(":").slice(0, 2).join(":")}
+                    <span className="text-[10px] font-semibold text-text-3">
+                      {perf.totals.totalSeconds >= 3600 ? " h" : " min"}
+                    </span>
+                  </p>
+                </div>
+                <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3">Longest</p>
+                  <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
+                    {perf.totals.longestRunKm}
+                    <span className="text-[10px] font-semibold text-text-3"> km</span>
+                  </p>
+                </div>
+                <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3">Elev.</p>
+                  <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
+                    {perf.totals.totalElevation}
+                    <span className="text-[10px] font-semibold text-text-3"> m</span>
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-4 text-[13px]">
+                <span className="text-text-2">
+                  <span className="font-bold tabular-nums text-text-1">
+                    {perf.totals.yearKm}
+                  </span>{" "}
+                  km this year
                 </span>
-              </p>
-            </div>
-            <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
-              <p className="text-[10px] uppercase tracking-wider text-text-3">
-                Total km
-              </p>
-              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
-                {Math.round(totalKm)}
-              </p>
-            </div>
-            <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
-              <p className="text-[10px] uppercase tracking-wider text-text-3">
-                Workouts
-              </p>
-              <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
-                {totalWorkouts}
-              </p>
-            </div>
-          </div>
-          {/* Plan-level progress: one dash per week (Benchmark style) */}
-          <div className="mt-4 flex gap-1.5">
-            {Array.from({ length: plan.planLengthWeeks }, (_, i) => (
-              <div
-                key={i}
-                className="h-1.5 flex-1 rounded-full"
-                style={{ backgroundColor: i <= currentWeekIdx ? "var(--k-text-1)" : "var(--k-elevated)" }}
-              />
-            ))}
-          </div>
-          <p className="mt-1.5 text-[11px] text-text-3 text-right">
-            {planPct}% through plan
-          </p>
-        </section>
+                <span className="text-text-2">
+                  <span className="font-bold tabular-nums text-text-1">
+                    {perf.totals.monthKm}
+                  </span>{" "}
+                  km this month
+                </span>
+                {perf.totals.streakWeeks > 1 && (
+                  <span className="ml-auto flex items-center gap-1 text-accent">
+                    <Flame className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    <span className="font-bold tabular-nums">{perf.totals.streakWeeks}</span>
+                    <span className="text-text-3">wk</span>
+                  </span>
+                )}
+              </div>
+            </section>
 
-        {/* This week */}
-        {currentWeek && (
-          <section className="rounded-[var(--radius-card)] bg-surface p-4">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
-              This week
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
-                  {completionPct}%
+            {/* Monthly trend */}
+            {perf.monthly && perf.monthly.some((m) => m.km > 0) && (
+              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                    Monthly distance
+                  </p>
+                  <p className="text-[11px] text-text-3">last 12 months</p>
+                </div>
+                <MonthlyChart monthly={perf.monthly} />
+              </section>
+            )}
+
+            {/* Personal records */}
+            {perf.records && perf.records.some((r) => r.timeSeconds != null) && (
+              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+                <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3 mb-4">
+                  Personal records
                 </p>
-                <p className="mt-1.5 text-[13px] text-text-3">Workouts done</p>
-              </div>
-              <div>
-                <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
-                  {currentWeek.targetKm}
-                  <span className="text-[15px] font-semibold text-text-3"> km</span>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {perf.records
+                    .filter((r) => r.timeSeconds != null)
+                    .map((r) => (
+                      <div
+                        key={r.key}
+                        className="rounded-[var(--radius-input)] bg-elevated px-3 py-3"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-text-3">
+                          {r.label}
+                        </p>
+                        <p className="mt-1 text-[20px] font-extrabold tabular-nums leading-none text-text-1">
+                          {r.key === "1k"
+                            ? `${fmtPace(r.paceSecKm!)}`
+                            : fmtDuration(r.timeSeconds!)}
+                          {r.key === "1k" && (
+                            <span className="text-[11px] font-semibold text-text-3"> /km</span>
+                          )}
+                        </p>
+                        {r.key !== "1k" && r.paceSecKm != null && (
+                          <p className="mt-1 text-[11px] tabular-nums text-text-3">
+                            {fmtPace(r.paceSecKm)}/km
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                </div>
+                <p className="mt-3 text-[11px] leading-snug text-text-3">
+                  Projected from your best sustained pace over each distance.
                 </p>
-                <p className="mt-1.5 text-[13px] text-text-3">Planned volume</p>
-              </div>
-            </div>
-            <div className="mt-5 h-2 overflow-hidden rounded-full bg-elevated">
-              <div
-                className="h-full rounded-full bg-accent transition-all"
-                style={{ width: `${completionPct}%` }}
-              />
-            </div>
-          </section>
+              </section>
+            )}
+
+            {/* Achievements */}
+            {perf.badges && perf.badges.length > 0 && (
+              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <Trophy className="h-4 w-4 text-accent" strokeWidth={2} />
+                  <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                    Achievements
+                  </p>
+                  <span className="ml-auto text-[11px] tabular-nums text-text-3">
+                    {perf.badges.filter((b) => b.earned).length}/{perf.badges.length}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {perf.badges.map((b, i) => (
+                    <span
+                      key={`${b.category}-${i}`}
+                      className={`rounded-full px-3 py-1.5 text-[12px] font-semibold ${
+                        b.earned
+                          ? "bg-accent/15 text-accent"
+                          : "bg-elevated text-text-3"
+                      }`}
+                    >
+                      {b.earned ? "✓ " : ""}
+                      {b.label}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
         )}
 
-        {/* Volume progression */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
-              Volume progression
-            </p>
-            <p className="text-[11px] text-text-3">km / week</p>
-          </div>
-          <VolumeChart weeks={plan.weeks} currentWeekIdx={currentWeekIdx} />
-          <div className="mt-2 flex justify-between text-[11px] text-text-3">
-            <span>Wk 1</span>
-            <span>Wk {plan.planLengthWeeks}</span>
-          </div>
-        </section>
+        {/* ── Plan-derived stats (only with an active plan) ────────────── */}
+        {plan && planStats && (
+          <>
+            {/* Plan progress */}
+            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                Plan progress
+              </p>
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3">
+                    Week
+                  </p>
+                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-accent">
+                    {planStats.currentWeekIdx + 1}
+                    <span className="text-text-3 text-xs font-semibold">
+                      /{plan.planLengthWeeks}
+                    </span>
+                  </p>
+                </div>
+                <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3">
+                    Total km
+                  </p>
+                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
+                    {Math.round(planStats.totalKm)}
+                  </p>
+                </div>
+                <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3">
+                    Workouts
+                  </p>
+                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
+                    {planStats.totalWorkouts}
+                  </p>
+                </div>
+              </div>
+              {/* Plan-level progress: one dash per week (Benchmark style) */}
+              <div className="mt-4 flex gap-1.5">
+                {Array.from({ length: plan.planLengthWeeks }, (_, i) => (
+                  <div
+                    key={i}
+                    className="h-1.5 flex-1 rounded-full"
+                    style={{ backgroundColor: i <= planStats.currentWeekIdx ? "var(--k-text-1)" : "var(--k-elevated)" }}
+                  />
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-text-3 text-right">
+                {planStats.planPct}% through plan
+              </p>
+            </section>
 
-        {/* Workout type distribution */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
-          <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3 mb-4">
-            Workout distribution
-          </p>
-          <div className="flex flex-col gap-3">
-            {(
-              Object.entries(typeCounts) as [WorkoutType, number][]
-            )
-              .sort(([, a], [, b]) => b - a)
-              .map(([type, count]) => (
-                <WorkoutTypeBar
-                  key={type}
-                  label={WORKOUT_LABELS[type]}
-                  count={count}
-                  total={totalWorkouts}
-                  color={WORKOUT_COLORS[type]}
-                />
-              ))}
-          </div>
-        </section>
+            {/* This week */}
+            {planStats.currentWeek && (
+              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+                <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                  This week
+                </p>
+                <div className="mt-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
+                      {planStats.completionPct}%
+                    </p>
+                    <p className="mt-1.5 text-[13px] text-text-3">Workouts done</p>
+                  </div>
+                  <div>
+                    <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
+                      {planStats.currentWeek.targetKm}
+                      <span className="text-[15px] font-semibold text-text-3"> km</span>
+                    </p>
+                    <p className="mt-1.5 text-[13px] text-text-3">Planned volume</p>
+                  </div>
+                </div>
+                <div className="mt-5 h-2 overflow-hidden rounded-full bg-elevated">
+                  <div
+                    className="h-full rounded-full bg-accent transition-all"
+                    style={{ width: `${planStats.completionPct}%` }}
+                  />
+                </div>
+              </section>
+            )}
+
+            {/* Volume progression */}
+            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                  Volume progression
+                </p>
+                <p className="text-[11px] text-text-3">km / week</p>
+              </div>
+              <VolumeChart weeks={plan.weeks} currentWeekIdx={planStats.currentWeekIdx} />
+              <div className="mt-2 flex justify-between text-[11px] text-text-3">
+                <span>Wk 1</span>
+                <span>Wk {plan.planLengthWeeks}</span>
+              </div>
+            </section>
+
+            {/* Workout type distribution */}
+            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3 mb-4">
+                Workout distribution
+              </p>
+              <div className="flex flex-col gap-3">
+                {(
+                  Object.entries(planStats.typeCounts) as [WorkoutType, number][]
+                )
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([type, count]) => (
+                    <WorkoutTypeBar
+                      key={type}
+                      label={WORKOUT_LABELS[type]}
+                      count={count}
+                      total={planStats.totalWorkouts}
+                      color={WORKOUT_COLORS[type]}
+                    />
+                  ))}
+              </div>
+            </section>
+          </>
+        )}
       </div>
 
       <BottomNav active="stats" />
