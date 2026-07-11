@@ -1,13 +1,19 @@
+import { NextRequest } from "next/server";
 import { db, plans, activities, strengthSessions } from "@/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, isNull } from "drizzle-orm";
+import { getActiveProfileId } from "@/lib/profiles";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const profileId = getActiveProfileId(request);
   try {
-    // 1. Get all Strava activities (the real data)
-    const allActivities = await db
-      .select()
-      .from(activities)
-      .orderBy(desc(activities.startDate), desc(activities.createdAt));
+    // 1. Get all Strava activities (the real data). Strava is the owner's
+    //    device — guest profiles see only their own in-app sessions.
+    const allActivities = profileId
+      ? []
+      : await db
+          .select()
+          .from(activities)
+          .orderBy(desc(activities.startDate), desc(activities.createdAt));
 
     // 2. Get active plan for linking workout details
     const [activePlan] = await db
@@ -80,7 +86,14 @@ export async function GET() {
     }
 
     // 5. Strength sessions — for a unified feed and to enrich linked activities.
-    const strengthRows = await db.select().from(strengthSessions);
+    const strengthRows = await db
+      .select()
+      .from(strengthSessions)
+      .where(
+        profileId
+          ? eq(strengthSessions.profileId, profileId)
+          : isNull(strengthSessions.profileId)
+      );
     const sessionMap = new Map(strengthRows.map((s) => [s.id, s]));
 
     // 6. Build unified response — recorded activities first (runs + strength).

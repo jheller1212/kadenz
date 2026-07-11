@@ -148,6 +148,40 @@ export const EXERCISES: ExerciseDef[] = [
     repHigh: 12,
     startWeightKg: 15,
   },
+
+  // Full-body day (household program — beginner-friendly starting loads)
+  {
+    slug: "goblet_squat",
+    name: "Goblet squat",
+    category: "full_body",
+    equipmentNote: "One dumbbell held at the chest",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 8,
+  },
+  {
+    slug: "one_arm_row",
+    name: "One-arm dumbbell row",
+    category: "full_body",
+    equipmentNote: "Support yourself on a chair or bench",
+    tempoNote: "Drive the elbow back, squeeze at top",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 10,
+  },
+  {
+    slug: "glute_bridge",
+    name: "Glute bridge",
+    category: "full_body",
+    equipmentNote: "Dumbbell resting on the hips",
+    tempoNote: "Pause and squeeze at the top",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 12.5,
+  },
 ];
 
 export const EXERCISE_BY_SLUG: Record<string, ExerciseDef> = Object.fromEntries(
@@ -182,6 +216,19 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "single_leg_hip_thrust", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
     ],
   },
+  full_body: {
+    type: "full_body",
+    title: "Full Body",
+    targetDurationMinutes: 38,
+    slots: [
+      { exerciseSlug: "goblet_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
+      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+    ],
+  },
   lower_achilles: {
     type: "lower_achilles",
     title: "Lower + Achilles — Kraft",
@@ -205,6 +252,7 @@ export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
   upper: 35,
   lower: 28,
   lower_achilles: 46,
+  full_body: 38,
 };
 
 // ── HSR calf-raise week-based prescription ───────────────────────────────────

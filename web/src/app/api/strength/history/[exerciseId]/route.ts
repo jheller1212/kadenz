@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, strengthExercises, painLogs } from "@/db";
+import { getActiveProfileId } from "@/lib/profiles";
 
 // ── GET /api/strength/history/[exerciseId] ────────────────────────────────────
 // Per-exercise chart data: top weight, total reps and estimated 1RM per
@@ -12,10 +13,11 @@ function e1rm(weightKg: number, reps: number): number {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ exerciseId: string }> }
 ) {
   const { exerciseId } = await params;
+  const profileId = getActiveProfileId(request);
   try {
     const [exercise] = await db
       .select()
@@ -38,7 +40,10 @@ export async function GET(
       .where(
         and(
           eq(strengthSets.exerciseId, exerciseId),
-          eq(strengthSessions.status, "completed")
+          eq(strengthSessions.status, "completed"),
+          profileId
+            ? eq(strengthSessions.profileId, profileId)
+            : isNull(strengthSessions.profileId)
         )
       )
       .orderBy(asc(strengthSessions.date), asc(strengthSets.setNumber));

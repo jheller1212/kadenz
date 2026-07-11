@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
+import { getActiveProfileId } from "@/lib/profiles";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
 import { buildPlannedSession } from "@/lib/strength/service";
@@ -10,7 +11,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 
 const CreateSchema = z.object({
-  type: z.enum(["upper", "lower", "lower_achilles"]),
+  type: z.enum(["upper", "lower", "lower_achilles", "full_body"]),
   date: z.string().datetime(),
   planId: z.string().uuid().optional(),
   force: z.boolean().optional(),
@@ -24,13 +25,19 @@ export async function GET(request: NextRequest) {
   const from = searchParams.get("from");
   const to = searchParams.get("to");
 
+  const profileId = getActiveProfileId(request);
+
   try {
-    const conds = [];
+    const conds = [
+      profileId
+        ? eq(strengthSessions.profileId, profileId)
+        : isNull(strengthSessions.profileId),
+    ];
     if (from) conds.push(gte(strengthSessions.date, new Date(from)));
     if (to) conds.push(lte(strengthSessions.date, new Date(to)));
 
     const rows = await db.query.strengthSessions.findMany({
-      where: conds.length ? and(...conds) : undefined,
+      where: and(...conds),
       orderBy: (s, { desc }) => [desc(s.date)],
       with: {
         sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] },
@@ -66,19 +73,25 @@ export async function POST(request: NextRequest) {
   const data = parsed.data;
   const date = new Date(data.date);
 
+  const profileId = getActiveProfileId(request);
+
   try {
-    // Resolve the active plan when none supplied.
-    let planId = data.planId ?? null;
-    if (!planId) {
-      const [active] = await db
-        .select({ id: plans.id })
-        .from(plans)
-        .where(eq(plans.status, "active"))
-        .limit(1);
-      planId = active?.id ?? null;
+    // Guest profiles live outside the run plan: no plan link, no run-schedule
+    // constraint engine, no calendar fan-out.
+    let planId: string | null = null;
+    if (!profileId) {
+      planId = data.planId ?? null;
+      if (!planId) {
+        const [active] = await db
+          .select({ id: plans.id })
+          .from(plans)
+          .where(eq(plans.status, "active"))
+          .limit(1);
+        planId = active?.id ?? null;
+      }
     }
 
-    // Gather context for the constraint engine.
+    // Gather context for the constraint engine (owner only, own sessions only).
     const runWorkouts: RunRef[] = planId
       ? (
           await db.query.workouts.findMany({
@@ -87,17 +100,22 @@ export async function POST(request: NextRequest) {
           })
         ).map((w) => ({ date: w.date, type: w.type }))
       : [];
-    const existingStrength: StrengthRef[] = (
-      await db
-        .select({ id: strengthSessions.id, date: strengthSessions.date, type: strengthSessions.type })
-        .from(strengthSessions)
-    ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
+    const existingStrength: StrengthRef[] = profileId
+      ? []
+      : (
+          await db
+            .select({ id: strengthSessions.id, date: strengthSessions.date, type: strengthSessions.type })
+            .from(strengthSessions)
+            .where(isNull(strengthSessions.profileId))
+        ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
-    const violations = validateStrengthPlacement({
-      session: { date, type: data.type },
-      runWorkouts,
-      strengthSessions: existingStrength,
-    });
+    const violations = profileId
+      ? []
+      : validateStrengthPlacement({
+          session: { date, type: data.type },
+          runWorkouts,
+          strengthSessions: existingStrength,
+        });
     const hasError = violations.some((v) => v.severity === "error");
     if (hasError && !data.force) {
       return Response.json(
@@ -111,6 +129,7 @@ export async function POST(request: NextRequest) {
       .insert(strengthSessions)
       .values({
         planId,
+        profileId,
         date,
         dayOfWeek: date.getDay(),
         type: data.type,
@@ -120,18 +139,20 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    // Fan out to Google Calendar if connected.
-    isConnected()
-      .then((connected) => {
-        if (connected) {
-          queueStrengthSessionSync(session.id, "create", "gcal").catch((err) =>
-            console.error("Failed to queue strength gcal sync:", err)
-          );
-        }
-      })
-      .catch(() => {});
+    // Fan out to Google Calendar if connected (owner sessions only).
+    if (!profileId) {
+      isConnected()
+        .then((connected) => {
+          if (connected) {
+            queueStrengthSessionSync(session.id, "create", "gcal").catch((err) =>
+              console.error("Failed to queue strength gcal sync:", err)
+            );
+          }
+        })
+        .catch(() => {});
+    }
 
-    const plannedExercises = await buildPlannedSession(data.type, date);
+    const plannedExercises = await buildPlannedSession(data.type, date, profileId);
     return Response.json({ session, plannedExercises, violations }, { status: 201 });
   } catch (err) {
     console.error("DB error creating strength session:", err);

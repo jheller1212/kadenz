@@ -1,10 +1,13 @@
-import { db } from "@/db";
-import { and, between } from "drizzle-orm";
+import { NextRequest } from "next/server";
+import { db, strengthSessions } from "@/db";
+import { and, between, eq, isNull } from "drizzle-orm";
+import { getActiveProfileId } from "@/lib/profiles";
 
 // ── GET /api/strength/today ───────────────────────────────────────────────────
 // This week's strength sessions + today's session, for the Today view.
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const profileId = getActiveProfileId(request);
   try {
     const now = new Date();
     const dayOfWeek = now.getDay();
@@ -17,7 +20,11 @@ export async function GET() {
     weekEnd.setHours(23, 59, 59, 999);
 
     const weekSessions = await db.query.strengthSessions.findMany({
-      where: (s) => and(between(s.date, weekStart, weekEnd)),
+      where: (s) =>
+        and(
+          between(s.date, weekStart, weekEnd),
+          profileId ? eq(strengthSessions.profileId, profileId) : isNull(strengthSessions.profileId)
+        ),
       orderBy: (s, { asc }) => [asc(s.date), asc(s.sortOrder)],
       with: { sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] } },
     });

@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, asc, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte } from "drizzle-orm";
 import { db, wellnessLogs } from "@/db";
+import { getActiveProfileId } from "@/lib/profiles";
 
 const UpsertSchema = z.object({
   date: z.string().datetime(),
@@ -27,14 +28,19 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
+  const profileId = getActiveProfileId(request);
   try {
-    const conds = [];
+    const conds = [
+      profileId
+        ? eq(wellnessLogs.profileId, profileId)
+        : isNull(wellnessLogs.profileId),
+    ];
     if (from) conds.push(gte(wellnessLogs.date, new Date(from)));
     if (to) conds.push(lte(wellnessLogs.date, new Date(to)));
     const rows = await db
       .select()
       .from(wellnessLogs)
-      .where(conds.length ? and(...conds) : undefined)
+      .where(and(...conds))
       .orderBy(asc(wellnessLogs.date));
     return Response.json(rows);
   } catch (err) {
@@ -63,10 +69,12 @@ export async function PUT(request: NextRequest) {
   }
   const data = parsed.data;
   const date = dayStart(new Date(data.date));
+  const profileId = getActiveProfileId(request);
 
   try {
     const values = {
       date,
+      profileId,
       restDay: data.restDay ?? false,
       illness: data.illness ?? false,
       injury: data.injury ?? false,
@@ -76,14 +84,27 @@ export async function PUT(request: NextRequest) {
       soreness: data.soreness ?? null,
       note: data.note ?? null,
     };
-    const [row] = await db
-      .insert(wellnessLogs)
-      .values(values)
-      .onConflictDoUpdate({
-        target: wellnessLogs.date,
-        set: { ...values, updatedAt: new Date() },
-      })
-      .returning();
+    // Manual upsert: the (date, profile) uniqueness is a COALESCE expression
+    // index (see 0005) that onConflictDoUpdate can't target.
+    const [existing] = await db
+      .select({ id: wellnessLogs.id })
+      .from(wellnessLogs)
+      .where(
+        and(
+          eq(wellnessLogs.date, date),
+          profileId
+            ? eq(wellnessLogs.profileId, profileId)
+            : isNull(wellnessLogs.profileId)
+        )
+      )
+      .limit(1);
+    const [row] = existing
+      ? await db
+          .update(wellnessLogs)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(wellnessLogs.id, existing.id))
+          .returning()
+      : await db.insert(wellnessLogs).values(values).returning();
     return Response.json(row);
   } catch (err) {
     console.error("DB error upserting wellness log:", err);

@@ -34,7 +34,7 @@ interface SessionDetail {
 interface ExerciseCatalogRow {
   slug: string;
   name: string;
-  category: "upper" | "lower" | "achilles";
+  category: "upper" | "lower" | "achilles" | "full_body";
   equipmentNote?: string | null;
   tempoNote?: string | null;
   flatGroundOnly: boolean;
@@ -50,6 +50,7 @@ const TYPE_META: Record<SessionType, { title: string; sub: string; color: string
   upper: { title: "Upper", sub: "5 lifts · ~35 min", color: "#60A5FA" },
   lower: { title: "Lower", sub: "4 lifts · ~28 min", color: "#C084FC" },
   lower_achilles: { title: "Lower + Achilles", sub: "7 lifts · ~46 min", color: "#FFB547" },
+  full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399" },
 };
 
 // Categories eligible for "Add exercise" per session type.
@@ -57,6 +58,7 @@ const ADD_CATEGORIES: Record<SessionType, Array<ExerciseCatalogRow["category"]>>
   upper: ["upper"],
   lower: ["lower"],
   lower_achilles: ["lower", "achilles"],
+  full_body: ["full_body", "upper", "lower"],
 };
 
 export default function StrengthPage() {

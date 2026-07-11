@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import {
   db,
   plans,
@@ -39,7 +39,8 @@ export async function getProgramWeek(date: Date): Promise<number> {
  * strictly before `before`. Used to prefill loads and drive progression.
  */
 export async function getExerciseHistoryBySlug(
-  before: Date
+  before: Date,
+  profileId: string | null = null
 ): Promise<Record<string, ExerciseSessionHistory[]>> {
   const rows = await db
     .select({
@@ -57,7 +58,11 @@ export async function getExerciseHistoryBySlug(
     .where(
       and(
         eq(strengthSessions.status, "completed"),
-        lte(strengthSessions.date, before)
+        lte(strengthSessions.date, before),
+        // Prefill loads only from the same person's history.
+        profileId
+          ? eq(strengthSessions.profileId, profileId)
+          : isNull(strengthSessions.profileId)
       )
     )
     .orderBy(desc(strengthSessions.date));
@@ -108,11 +113,12 @@ export async function getPainGate(
 /** Build the planned exercises for a session, with prefill + gate context. */
 export async function buildPlannedSession(
   type: StrengthSessionType,
-  date: Date
+  date: Date,
+  profileId: string | null = null
 ): Promise<PlannedExercise[]> {
   const [programWeek, historyBySlug, painGate] = await Promise.all([
     getProgramWeek(date),
-    getExerciseHistoryBySlug(date),
+    getExerciseHistoryBySlug(date, profileId),
     getPainGate(date),
   ]);
   return buildSessionPlan(type, { programWeek, historyBySlug, painGate });

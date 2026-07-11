@@ -101,12 +101,14 @@ export const strengthCategoryEnum = pgEnum("strength_category", [
   "upper",
   "lower",
   "achilles",
+  "full_body",
 ]);
 
 export const strengthSessionTypeEnum = pgEnum("strength_session_type", [
   "upper",
   "lower",
   "lower_achilles",
+  "full_body",
 ]);
 
 export const painTimingEnum = pgEnum("pain_timing", [
@@ -131,6 +133,18 @@ export const syncStatusEnum = pgEnum("sync_status", [
 ]);
 
 // ── Tables ───────────────────────────────────────────────────────────────────
+
+// Household members. The owner has NO row — a NULL profile_id on scoped tables
+// means "the owner". Guest profiles (e.g. partner) get their own strength
+// sessions and wellness logs, selected via the kadenz_profile cookie.
+export const profiles = pgTable("profiles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  color: text("color"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const plans = pgTable(
   "plans",
@@ -363,6 +377,10 @@ export const strengthSessions = pgTable(
     planId: uuid("plan_id").references(() => plans.id, {
       onDelete: "set null",
     }),
+    // NULL = owner; set = household guest profile
+    profileId: uuid("profile_id").references(() => profiles.id, {
+      onDelete: "cascade",
+    }),
     date: timestamp("date", { withTimezone: true }).notNull(),
     dayOfWeek: integer("day_of_week").notNull(), // 0=Sun … 6=Sat
     type: strengthSessionTypeEnum("type").notNull(),
@@ -383,6 +401,7 @@ export const strengthSessions = pgTable(
   },
   (t) => [
     index("strength_sessions_plan_id_idx").on(t.planId),
+    index("strength_sessions_profile_id_idx").on(t.profileId),
     index("strength_sessions_date_idx").on(t.date),
     index("strength_sessions_status_idx").on(t.status),
     index("strength_sessions_type_idx").on(t.type),
@@ -420,7 +439,13 @@ export const wellnessLogs = pgTable(
   "wellness_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    date: timestamp("date", { withTimezone: true }).notNull().unique(),
+    // Uniqueness is (date, profile) via a raw expression index in 0005 —
+    // COALESCE(profile_id, zero-uuid) — which Drizzle can't express here.
+    date: timestamp("date", { withTimezone: true }).notNull(),
+    // NULL = owner; set = household guest profile
+    profileId: uuid("profile_id").references(() => profiles.id, {
+      onDelete: "cascade",
+    }),
     restDay: boolean("rest_day").notNull().default(false),
     illness: boolean("illness").notNull().default(false),
     injury: boolean("injury").notNull().default(false),
@@ -436,7 +461,10 @@ export const wellnessLogs = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("wellness_logs_date_idx").on(t.date)]
+  (t) => [
+    index("wellness_logs_date_idx").on(t.date),
+    index("wellness_logs_profile_id_idx").on(t.profileId),
+  ]
 );
 
 export const painLogs = pgTable(

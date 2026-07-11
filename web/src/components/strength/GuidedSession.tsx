@@ -10,12 +10,12 @@ import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
 
-export type SessionType = "upper" | "lower" | "lower_achilles";
+export type SessionType = "upper" | "lower" | "lower_achilles" | "full_body";
 
 export interface PlannedExercise {
   slug: string;
   name: string;
-  category: "upper" | "lower" | "achilles";
+  category: "upper" | "lower" | "achilles" | "full_body";
   equipmentNote?: string;
   tempoNote?: string;
   flatGroundOnly: boolean;

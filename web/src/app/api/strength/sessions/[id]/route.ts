@@ -39,7 +39,8 @@ export async function GET(
     }
     const plannedExercises = await buildPlannedSession(
       session.type as StrengthSessionType,
-      new Date(session.date)
+      new Date(session.date),
+      session.profileId
     );
     return Response.json({ ...session, plannedExercises });
   } catch (err) {

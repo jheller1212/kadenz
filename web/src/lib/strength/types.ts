@@ -1,7 +1,7 @@
 // ── Strength module domain types ─────────────────────────────────────────────
 
-export type StrengthCategory = "upper" | "lower" | "achilles";
-export type StrengthSessionType = "upper" | "lower" | "lower_achilles";
+export type StrengthCategory = "upper" | "lower" | "achilles" | "full_body";
+export type StrengthSessionType = "upper" | "lower" | "lower_achilles" | "full_body";
 export type PainTiming = "during" | "after" | "next_day";
 
 // Role within an Achilles session — drives the "explosive first, slow heavy
