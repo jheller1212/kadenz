@@ -70,6 +70,33 @@ export default function StrengthPage() {
   const [catalogLoading, setCatalogLoading] = useState(false);
 
   const [summary, setSummary] = useState<GuidedFinishSummary | null>(null);
+  const [painLogged, setPainLogged] = useState(false);
+  const [painSaving, setPainSaving] = useState(false);
+  const [painError, setPainError] = useState<string | null>(null);
+
+  async function logPain(score: number) {
+    if (!session || painSaving) return;
+    setPainSaving(true);
+    setPainError(null);
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${session.id}/pain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ score, timing: "after" }),
+      });
+      if (res.ok) {
+        haptic("success");
+        setPainLogged(true);
+      } else {
+        haptic("warning");
+        setPainError("Couldn't save — try again.");
+      }
+    } catch {
+      setPainError("Couldn't save — try again.");
+    } finally {
+      setPainSaving(false);
+    }
+  }
 
   // ── Picker → create the session, but land on the overview (no clock yet) ────
   async function pickType(type: SessionType) {
@@ -173,6 +200,8 @@ export default function StrengthPage() {
 
   function handleFinish(s: GuidedFinishSummary) {
     setSummary(s);
+    setPainLogged(false);
+    setPainError(null);
     setPhase("summary");
   }
 
@@ -258,6 +287,40 @@ export default function StrengthPage() {
           <p className="mt-2 text-[15px] text-text-2">
             {summary.setsLogged}/{summary.totalSets} sets logged · {summary.durationMinutes} min
           </p>
+
+          {/* Achilles pain check-in — feeds the pain gate + history sparkline */}
+          {session && (
+            <div className="mt-6 rounded-[var(--radius-input)] bg-elevated p-4 text-left">
+              <p className="text-[13px] font-semibold text-text-2">
+                {painLogged ? "Pain logged — thanks." : "Any Achilles pain right now? (0 = none, 10 = worst)"}
+              </p>
+              {!painLogged && (
+                <div className="mt-3 grid grid-cols-11 gap-1">
+                  {Array.from({ length: 11 }, (_, n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={painSaving}
+                      onClick={() => logPain(n)}
+                      className={`press rounded-md py-2 text-[13px] font-bold tabular-nums ${
+                        n === 0
+                          ? "bg-surface text-text-1"
+                          : n <= 3
+                            ? "bg-surface text-[#4ADE80]"
+                            : n <= 6
+                              ? "bg-surface text-[#FFB547]"
+                              : "bg-surface text-[#FF4D4D]"
+                      } disabled:opacity-50`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {painError && <p className="mt-2 text-[12px] text-danger">{painError}</p>}
+            </div>
+          )}
+
           <div className="mt-6">
             <Button variant="primary" size="lg" full onClick={backToPicker}>
               Done
