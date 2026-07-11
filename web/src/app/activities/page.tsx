@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronRight, Activity as ActivityIcon, AlertCircle } from "lucide-react";
+import { ChevronRight, Activity as ActivityIcon, AlertCircle, Plus, CalendarDays } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { BottomNav } from "@/components/BottomNav";
 import { Segmented } from "@/components/ui/Segmented";
-import { Skeleton, EmptyState } from "@/components/ui/feedback";
+import { Sheet } from "@/components/ui/Sheet";
+import { Button } from "@/components/ui/Button";
 import { TransitionLink } from "@/components/ui/TransitionLink";
+import { haptic } from "@/lib/haptics";
+import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
@@ -643,13 +646,38 @@ export default function ActivitiesPage() {
 
   const { pull, refreshing } = usePullToRefresh(load);
   useScrollRestoration(!loading);
+  const [addOpen, setAddOpen] = useState(false);
 
   if (loading) return <ActivitiesSkeleton />;
 
   return (
     <main className="min-h-dvh bg-bg">
       <PullIndicator pull={pull} refreshing={refreshing} />
-      <NavBar title="Activities" large left={<ProfileAvatar />} />
+      <NavBar
+        title="Activities"
+        large={false}
+        centerAlways
+        left={<ProfileAvatar />}
+        right={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { haptic("light"); setAddOpen(true); }}
+              aria-label="Add manual activity"
+              className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+            >
+              <Plus className="h-4 w-4 text-text-2" strokeWidth={2} />
+            </button>
+            <TransitionLink
+              href="/plan"
+              aria-label="Calendar"
+              className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+            >
+              <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+            </TransitionLink>
+          </div>
+        }
+      />
 
       <div className="flex flex-col gap-4 px-4 pb-tabbar">
         {error && (
@@ -677,7 +705,116 @@ export default function ActivitiesPage() {
         )}
       </div>
 
+      <AddActivitySheet open={addOpen} onClose={() => setAddOpen(false)} onSaved={load} />
+
       <BottomNav active="activities" />
     </main>
+  );
+}
+
+// ── Manual activity entry ─────────────────────────────────────────────────────
+
+function AddActivitySheet({
+  open,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [distance, setDistance] = useState("");
+  const [hours, setHours] = useState(0);
+  const [minutes, setMinutes] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function save() {
+    const distanceKm = parseFloat(distance.replace(",", "."));
+    const durationSeconds = hours * 3600 + minutes * 60 + seconds;
+    if (!name.trim()) return setFormError("Give the activity a name.");
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0) return setFormError("Enter a distance.");
+    if (durationSeconds <= 0) return setFormError("Enter a duration.");
+    setSaving(true);
+    setFormError(null);
+    try {
+      const res = await apiFetch("/api/activities/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          date: new Date(`${date}T12:00:00`).toISOString(),
+          distanceKm,
+          durationSeconds,
+        }),
+      });
+      if (res.ok) {
+        haptic("success");
+        setName("");
+        setDistance("");
+        setHours(0); setMinutes(0); setSeconds(0);
+        onSaved();
+        onClose();
+      } else {
+        haptic("warning");
+        setFormError("Couldn't save the activity.");
+      }
+    } catch {
+      setFormError("Network error — couldn't save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls =
+    "w-full rounded-[var(--radius-input)] bg-elevated px-3.5 py-3 text-[16px] text-text-1 outline-none focus:ring-2 focus:ring-accent/40";
+  const numCls =
+    "w-16 rounded-[var(--radius-input)] bg-elevated px-2 py-2.5 text-center text-[16px] font-semibold text-text-1 outline-none tabular-nums focus:ring-2 focus:ring-accent/40";
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Add activity">
+      <div className="flex flex-col gap-4 pb-2">
+        <input
+          type="text"
+          placeholder="Name (e.g. Evening run)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className={inputCls}
+        />
+        <div className="flex items-center gap-3">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <input
+              type="number" inputMode="decimal" step="0.01" min={0} placeholder="0.0"
+              value={distance} onChange={(e) => setDistance(e.target.value)}
+              className="w-20 rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center text-[16px] font-semibold text-text-1 outline-none tabular-nums focus:ring-2 focus:ring-accent/40"
+            />
+            <span className="text-[13px] text-text-3">km</span>
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-2">
+          {([["h", hours, setHours, 23], ["m", minutes, setMinutes, 59], ["s", seconds, setSeconds, 59]] as const).map(
+            ([key, value, set, max], i) => (
+              <div key={key} className="flex items-center gap-2">
+                <input
+                  type="number" inputMode="numeric" min={0} max={max} value={value}
+                  onChange={(e) => set(Math.max(0, Math.min(max, parseInt(e.target.value) || 0)))}
+                  className={numCls}
+                />
+                {i < 2 && <span className="text-[17px] font-bold text-text-3">:</span>}
+              </div>
+            )
+          )}
+          <span className="ml-1 text-[12px] text-text-3">h : m : s</span>
+        </div>
+        {formError && <p className="text-center text-[13px] text-danger">{formError}</p>}
+        <Button full onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Add activity"}
+        </Button>
+      </div>
+    </Sheet>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart3 } from "lucide-react";
+import { BarChart3 , CalendarDays } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -200,7 +200,15 @@ function WorkoutTypeBar({
 function StatsSkeleton() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Stats" large left={<ProfileAvatar />} />
+      <NavBar title="Stats" large={false} centerAlways left={<ProfileAvatar />} right={
+          <TransitionLink
+            href="/plan"
+            aria-label="Calendar"
+            className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+          >
+            <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+          </TransitionLink>
+        } />
       <div className="px-4 pb-tabbar flex flex-col gap-3">
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-28 w-full" />
@@ -215,7 +223,15 @@ function StatsSkeleton() {
 function NoPlanState() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Stats" large left={<ProfileAvatar />} />
+      <NavBar title="Stats" large={false} centerAlways left={<ProfileAvatar />} right={
+          <TransitionLink
+            href="/plan"
+            aria-label="Calendar"
+            className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+          >
+            <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+          </TransitionLink>
+        } />
       <div className="pb-tabbar">
         <EmptyState
           icon={<BarChart3 className="h-10 w-10" strokeWidth={1.5} />}
@@ -295,7 +311,15 @@ export default function StatsPage() {
 
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Stats" large left={<ProfileAvatar />} />
+      <NavBar title="Stats" large={false} centerAlways left={<ProfileAvatar />} right={
+          <TransitionLink
+            href="/plan"
+            aria-label="Calendar"
+            className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+          >
+            <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+          </TransitionLink>
+        } />
 
       <div className="px-4 pb-tabbar flex flex-col gap-3">
         {error && (

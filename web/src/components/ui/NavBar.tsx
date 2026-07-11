@@ -3,16 +3,19 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 interface Props {
-  title: string;
+  title: ReactNode;
   /** Render the large inline title below the bar (iOS large-title style). */
   large?: boolean;
+  /** Always show the centered title (Benchmark-style persistent header) instead
+      of crossfading it in on scroll. Interactive titles stay tappable. */
+  centerAlways?: boolean;
   left?: ReactNode;
   right?: ReactNode;
 }
 
 // Fixed, blurred top navigation bar. The compact centered title crossfades in
 // as the page scrolls past the large inline title — the iOS large-title pattern.
-export function NavBar({ title, large = true, left, right }: Props) {
+export function NavBar({ title, large = true, centerAlways = false, left, right }: Props) {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -42,8 +45,8 @@ export function NavBar({ title, large = true, left, right }: Props) {
         >
           <div className="flex h-11 min-w-[64px] items-center">{left}</div>
           <h1
-            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 text-[17px] font-bold text-text-1 transition-opacity duration-200 ${
-              scrolled ? "opacity-100" : "opacity-0"
+            className={`absolute left-1/2 -translate-x-1/2 text-[17px] font-bold text-text-1 transition-opacity duration-200 ${
+              centerAlways || scrolled ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
             style={{ top: "calc(max(env(safe-area-inset-top), 8px) + 11px)" }}
           >

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X , CalendarDays } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -216,7 +216,15 @@ export default function StrengthPage() {
   if (phase === "picker") {
     return (
       <main className="min-h-dvh bg-bg">
-        <NavBar title="Kraft" large left={<ProfileAvatar />} />
+        <NavBar title="Kraft" large={false} centerAlways left={<ProfileAvatar />} right={
+          <TransitionLink
+            href="/plan"
+            aria-label="Calendar"
+            className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+          >
+            <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+          </TransitionLink>
+        } />
         <div className="px-4 pb-tabbar">
           <p className="text-[15px] text-text-2">
             Dumbbell program · loads snap to your DH FitLife 18-in-1 (18 levels, 2.5–23.5 kg).

@@ -302,54 +302,37 @@ function buildWeekDaysForDate(weekMonday: Date, allWorkouts: TodayApiWorkout[]):
 
 // ── Week selector bar (sits below the NavBar large title) ──────────────────
 
-function WeekBar({
+function WeekRingSelector({
   currentWeek,
   totalWeeks,
   onWeekDropdown,
-  viewingToday,
-  onBackToToday,
 }: {
   currentWeek: number;
   totalWeeks: number;
   onWeekDropdown: () => void;
-  viewingToday: boolean;
-  onBackToToday: () => void;
 }) {
-  const todayDate = new Date().getDate();
+  const pct = totalWeeks > 0 ? Math.min(1, currentWeek / totalWeeks) : 0;
+  const R = 8;
+  const C = 2 * Math.PI * R;
   return (
-    <header className="flex items-center justify-between px-5 pb-2">
-      <button
-        onClick={onWeekDropdown}
-        className="press flex items-center gap-1 text-text-2"
-      >
-        <span className="text-[15px] font-semibold text-text-1">Week {currentWeek}/{totalWeeks}</span>
-        <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.5} />
-      </button>
-
-      <div className="flex items-center gap-2">
-        {!viewingToday && (
-          <button
-            onClick={onBackToToday}
-            aria-label="Back to today"
-            className="press flex h-9 w-9 flex-col items-center justify-center rounded-lg bg-elevated"
-          >
-            <CalendarDays className="mt-0.5 h-4 w-4 text-accent" strokeWidth={1.9} />
-            <span className="mt-[1px] text-[9px] font-extrabold leading-none text-accent">{todayDate}</span>
-          </button>
-        )}
-        <TransitionLink
-          href="/plan"
-          aria-label="Calendar"
-          className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
-        >
-          <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
-        </TransitionLink>
-      </div>
-    </header>
+    <button
+      onClick={onWeekDropdown}
+      className="press pointer-events-auto flex items-center gap-2"
+      aria-label="Switch week"
+    >
+      <svg width="22" height="22" viewBox="0 0 22 22" className="-rotate-90">
+        <circle cx="11" cy="11" r={R} fill="none" stroke="var(--k-elevated)" strokeWidth="3.5" />
+        <circle
+          cx="11" cy="11" r={R} fill="none"
+          stroke="#2DD4BF" strokeWidth="3.5" strokeLinecap="round"
+          strokeDasharray={C} strokeDashoffset={C * (1 - pct)}
+        />
+      </svg>
+      <span className="text-[17px] font-bold text-text-1">Week {currentWeek}/{totalWeeks}</span>
+      <span className="text-[9px] leading-none text-text-1">▼</span>
+    </button>
   );
 }
-
-// ── Horizontal Calendar Strip ────────────────────────────────────────────
 
 function CalendarStrip({
   days,
@@ -987,21 +970,40 @@ export default function Home() {
     <main className="min-h-dvh bg-bg">
       <PullIndicator pull={pull} refreshing={refreshing} />
       <NavBar
-        title="Today"
-        large
+        large={false}
+        centerAlways
+        title={
+          <WeekRingSelector
+            currentWeek={displayedWeek}
+            totalWeeks={totalWeeks}
+            onWeekDropdown={() => setDropdownOpen(true)}
+          />
+        }
         left={<ProfileAvatar />}
+        right={
+          <div className="flex items-center gap-2">
+            {!viewingToday && (
+              <button
+                onClick={handleBackToToday}
+                aria-label="Back to today"
+                className="press flex h-9 w-9 flex-col items-center justify-center rounded-lg bg-elevated"
+              >
+                <CalendarDays className="mt-0.5 h-4 w-4 text-accent" strokeWidth={1.9} />
+                <span className="mt-[1px] text-[9px] font-extrabold leading-none text-accent">{new Date().getDate()}</span>
+              </button>
+            )}
+            <TransitionLink
+              href="/plan"
+              aria-label="Calendar"
+              className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+            >
+              <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+            </TransitionLink>
+          </div>
+        }
       />
 
-      <div className={`flex flex-col gap-4 ${showStickyButton ? "pb-[calc(var(--tabbar-h)+var(--sa-bottom)+88px)]" : "pb-tabbar"}`}>
-        {/* Week selector */}
-        <WeekBar
-          currentWeek={displayedWeek}
-          totalWeeks={totalWeeks}
-          onWeekDropdown={() => setDropdownOpen(true)}
-          viewingToday={viewingToday}
-          onBackToToday={handleBackToToday}
-        />
-
+      <div className={`flex flex-col gap-4 pt-2 ${showStickyButton ? "pb-[calc(var(--tabbar-h)+var(--sa-bottom)+88px)]" : "pb-tabbar"}`}>
         {/* Calendar Strip */}
         <CalendarStrip
           days={days}

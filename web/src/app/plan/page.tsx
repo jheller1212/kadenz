@@ -15,6 +15,7 @@ import {
   Trash2,
   X,
   AlertTriangle,
+  TrendingUp,
 } from "lucide-react";
 import {
   DndContext,
@@ -1205,34 +1206,45 @@ function PlanPageInner() {
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar
-        title="Plan"
-        large
+        title="Your Plan"
+        large={false}
+        centerAlways
         left={<ProfileAvatar />}
         right={
-          <div className="flex items-center gap-2">
-            <TransitionLink
-              href="/plan/edit"
-              aria-label="Edit plan"
-              className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
-            >
-              <SlidersHorizontal className="h-4 w-4 text-text-2" strokeWidth={2} />
-            </TransitionLink>
-            <TransitionLink
-              href="/create"
-              aria-label="New plan"
-              className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
-            >
-              <Plus className="h-4 w-4 text-text-2" strokeWidth={2} />
-            </TransitionLink>
-          </div>
+          <TransitionLink
+            href="/plan/edit"
+            aria-label="Manage plan"
+            className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-text-2" strokeWidth={2} />
+          </TransitionLink>
         }
       />
 
       <div
-        className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-tabbar"
+        className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-tabbar pt-2"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
+        {/* Quick actions (Benchmark-style row) */}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { href: "/plan/edit", label: "Manage Plan", Icon: SlidersHorizontal },
+            { href: "/pace-insights", label: "Pace Insights", Icon: TrendingUp },
+            { href: "/create", label: "New Plan", Icon: Plus },
+          ].map(({ href, label, Icon }) => (
+            <TransitionLink
+              key={href}
+              href={href}
+              className="press flex flex-col items-center gap-1.5 rounded-[var(--radius-card)] bg-surface py-3"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline">
+                <Icon className="h-4 w-4 text-text-1" strokeWidth={1.9} />
+              </span>
+              <span className="text-[11px] font-semibold text-text-2">{label}</span>
+            </TransitionLink>
+          ))}
+        </div>
         {/* Week selector + nav arrows */}
         <header className="flex items-center justify-between">
           <button
