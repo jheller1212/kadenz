@@ -203,6 +203,9 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
   useEffect(() => {
+    // Deferred to after hydration on purpose (localStorage isn't available
+    // during SSR, and reading it in render would cause a hydration mismatch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSettings(loadSettings());
   }, []);
 
@@ -328,6 +331,94 @@ export default function SettingsPage() {
               onClick={() => router.push("/settings/rpe")}
             />
           )}
+        </ListGroup>
+
+        {/* Kraft — strength sessions */}
+        <ListGroup header="Kraft — Strength Sessions" footer="Customize the guided workout player.">
+          <Row
+            title="Rest timer"
+            subtitle="Auto-start a countdown after each set"
+            accessory={
+              <Switch
+                checked={settings.kraftRestTimer}
+                onChange={(v) => update({ kraftRestTimer: v })}
+                aria-label="Rest timer"
+              />
+            }
+          />
+          {settings.kraftRestTimer && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="text-[15px] font-medium text-text-1">Rest length</span>
+              <Segmented
+                className="w-52"
+                options={[
+                  { value: "60", label: "60s" },
+                  { value: "75", label: "75s" },
+                  { value: "90", label: "90s" },
+                  { value: "120", label: "120s" },
+                ]}
+                value={String(settings.kraftRestSeconds)}
+                onChange={(v) => update({ kraftRestSeconds: parseInt(v) })}
+              />
+            </div>
+          )}
+          <Row
+            title="Set timer"
+            subtitle="Show a live timer while you perform a set"
+            accessory={
+              <Switch
+                checked={settings.kraftSetTimer}
+                onChange={(v) => update({ kraftSetTimer: v })}
+                aria-label="Set timer"
+              />
+            }
+          />
+          <Row
+            title='"Get ready" lead-in'
+            subtitle="5-second countdown after skipping rest before the set timer starts"
+            accessory={
+              <Switch
+                checked={settings.kraftGetReady}
+                onChange={(v) => update({ kraftGetReady: v })}
+                aria-label="Get ready lead-in"
+              />
+            }
+          />
+          <Row
+            title="Audio cues"
+            subtitle="Beeps for the last 5 seconds of rest & get-ready"
+            accessory={
+              <Switch
+                checked={settings.kraftAudio}
+                onChange={(v) => update({ kraftAudio: v })}
+                aria-label="Audio cues"
+              />
+            }
+          />
+          {settings.kraftAudio && (
+            <Row
+              title="Spoken cues"
+              subtitle="Announce exercises and counts out loud"
+              accessory={
+                <Switch
+                  checked={settings.kraftVoice}
+                  onChange={(v) => update({ kraftVoice: v })}
+                  aria-label="Spoken cues"
+                />
+              }
+            />
+          )}
+          <Row
+            title="Keep screen awake"
+            subtitle="Stop the screen sleeping during a session"
+            accessory={
+              <Switch
+                checked={settings.kraftKeepAwake}
+                onChange={(v) => update({ kraftKeepAwake: v })}
+                aria-label="Keep screen awake"
+              />
+            }
+          />
         </ListGroup>
 
         {/* Integrations */}

@@ -393,6 +393,7 @@ export const strengthSets = pgTable(
     weightKg: real("weight_kg"),
     reps: integer("reps"),
     rpe: real("rpe"),
+    durationSeconds: integer("duration_seconds"), // time under load for the set
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

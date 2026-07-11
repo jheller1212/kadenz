@@ -11,6 +11,7 @@ const SetSchema = z.object({
   weightKg: z.number().nonnegative().nullable().optional(),
   reps: z.number().int().nonnegative().nullable().optional(),
   rpe: z.number().min(1).max(10).nullable().optional(),
+  durationSeconds: z.number().int().nonnegative().nullable().optional(),
 });
 
 // ── POST /api/strength/sessions/[id]/sets ─────────────────────────────────────
@@ -87,7 +88,12 @@ export async function POST(
     if (existing[0]) {
       [row] = await db
         .update(strengthSets)
-        .set({ weightKg, reps: data.reps ?? null, rpe: data.rpe ?? null })
+        .set({
+          weightKg,
+          reps: data.reps ?? null,
+          rpe: data.rpe ?? null,
+          durationSeconds: data.durationSeconds ?? null,
+        })
         .where(eq(strengthSets.id, existing[0].id))
         .returning();
     } else {
@@ -100,6 +106,7 @@ export async function POST(
           weightKg,
           reps: data.reps ?? null,
           rpe: data.rpe ?? null,
+          durationSeconds: data.durationSeconds ?? null,
         })
         .returning();
     }

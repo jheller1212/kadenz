@@ -13,6 +13,22 @@ export interface UserSettings {
   workoutTargetMode: "pace" | "rpe";
   /** Theme: "dark" or "light" */
   theme: "dark" | "light";
+
+  // ── Kraft (strength) guided-session preferences ──────────────────────────
+  /** Auto-start a rest timer after each logged set */
+  kraftRestTimer: boolean;
+  /** Default rest length in seconds */
+  kraftRestSeconds: number;
+  /** Show a live timer while performing a set */
+  kraftSetTimer: boolean;
+  /** Master switch for all audio cues (beeps + voice) */
+  kraftAudio: boolean;
+  /** Spoken cues (requires kraftAudio) */
+  kraftVoice: boolean;
+  /** 5-second "get ready" lead-in after skipping/ending rest */
+  kraftGetReady: boolean;
+  /** Keep the screen awake during a session (Wake Lock) */
+  kraftKeepAwake: boolean;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -22,6 +38,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
   tempUnit: "celsius",
   workoutTargetMode: "pace",
   theme: "light",
+  kraftRestTimer: true,
+  kraftRestSeconds: 90,
+  kraftSetTimer: true,
+  kraftAudio: true,
+  kraftVoice: true,
+  kraftGetReady: true,
+  kraftKeepAwake: true,
 };
 
 const STORAGE_KEY = "kadenz_settings";
