@@ -362,12 +362,15 @@ export default function StatsPage() {
               </p>
             </div>
           </div>
-          {/* Plan-level progress bar */}
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-elevated">
-            <div
-              className="h-full rounded-full bg-accent transition-all"
-              style={{ width: `${planPct}%` }}
-            />
+          {/* Plan-level progress: one dash per week (Benchmark style) */}
+          <div className="mt-4 flex gap-1.5">
+            {Array.from({ length: plan.planLengthWeeks }, (_, i) => (
+              <div
+                key={i}
+                className="h-1.5 flex-1 rounded-full"
+                style={{ backgroundColor: i <= currentWeekIdx ? "var(--k-text-1)" : "var(--k-elevated)" }}
+              />
+            ))}
           </div>
           <p className="mt-1.5 text-[11px] text-text-3 text-right">
             {planPct}% through plan
