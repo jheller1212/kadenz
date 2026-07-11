@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ChevronRight, Activity as ActivityIcon, AlertCircle, Plus, CalendarDays } from "lucide-react";
+import { useState, useEffect, createContext, useContext } from "react";
+import { ChevronRight, Activity as ActivityIcon, AlertCircle, Plus, CalendarDays, Link2, Unlink, Check } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { BottomNav } from "@/components/BottomNav";
@@ -52,7 +52,15 @@ interface ActivityWorkout {
   dayOfWeek?: number;
   blocks: WorkoutBlock[];
   activity?: ActivityData | null;
+  // Unified-feed fields (runs + strength)
+  kind?: string;
+  stravaId?: string | null;
+  workoutId?: string | null;
+  strengthSessionId?: string | null;
 }
+
+// Lets any WorkoutRow open the Link sheet without prop-threading.
+const LinkContext = createContext<(a: ActivityWorkout) => void>(() => {});
 
 interface ActivitiesApiResponse {
   activities?: ActivityWorkout[];
@@ -220,6 +228,10 @@ function ActivitiesSkeleton() {
 // ── WorkoutRow ────────────────────────────────────────────────────────────────
 
 function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
+  const requestLink = useContext(LinkContext);
+  const isRecorded = !!workout.stravaId || !!workout.activity;
+  const isLinked = !!workout.workoutId || !!workout.strengthSessionId;
+  const canLink = isRecorded && !isLinked;
   const barColor = WORKOUT_COLORS[workout.type] ?? "#999";
   const date = new Date(workout.date);
   const dateStr = date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
@@ -268,7 +280,17 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
             <p className="mt-0.5 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
           </div>
 
-          {hasActivity && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
+          {canLink && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); haptic("light"); requestLink(workout); }}
+              className="press flex shrink-0 items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[12px] font-semibold text-text-2"
+            >
+              <Link2 className="h-3.5 w-3.5" strokeWidth={2} />
+              Link
+            </button>
+          )}
+          {hasActivity && !canLink && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
         </div>
 
         {/* Stats row */}
@@ -643,16 +665,18 @@ export default function ActivitiesPage() {
     }
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, []);
 
   const { pull, refreshing } = usePullToRefresh(load);
   useScrollRestoration(!loading);
   const [addOpen, setAddOpen] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<ActivityWorkout | null>(null);
 
   if (loading) return <ActivitiesSkeleton />;
 
   return (
+    <LinkContext.Provider value={setLinkTarget}>
     <main className="min-h-dvh bg-bg">
       <PullIndicator pull={pull} refreshing={refreshing} />
       <NavBar
@@ -717,9 +741,159 @@ export default function ActivitiesPage() {
       </div>
 
       <AddActivitySheet open={addOpen} onClose={() => setAddOpen(false)} onSaved={load} />
+      <LinkActivitySheet
+        activity={linkTarget}
+        onClose={() => setLinkTarget(null)}
+        onLinked={() => { setLinkTarget(null); load(); }}
+      />
 
       <BottomNav active="activities" />
     </main>
+    </LinkContext.Provider>
+  );
+}
+
+// ── Link activity → run workout or strength session ───────────────────────────
+
+interface LinkCandidateRun {
+  id: string;
+  date: string;
+  type: string;
+  title: string;
+  targetKm: number | null;
+}
+interface LinkCandidateStrength {
+  id: string;
+  date: string;
+  type: string;
+  title: string;
+  status: string;
+  linked: boolean;
+}
+
+function LinkActivitySheet({
+  activity,
+  onClose,
+  onLinked,
+}: {
+  activity: ActivityWorkout | null;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const [runs, setRuns] = useState<LinkCandidateRun[]>([]);
+  const [strength, setStrength] = useState<LinkCandidateStrength[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const activityId = activity?.activity?.id ?? activity?.id ?? null;
+
+  useEffect(() => {
+    if (!activityId) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/activities/${activityId}/candidates`);
+        if (r.ok && !cancelled) {
+          const d = await r.json();
+          setRuns(d.runs ?? []);
+          setStrength(d.strength ?? []);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activityId]);
+
+  async function link(body: Record<string, unknown>) {
+    if (!activityId) return;
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/activities/${activityId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) { haptic("success"); onLinked(); }
+      else haptic("warning");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtDay = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
+
+  return (
+    <Sheet open={!!activity} onClose={onClose} title="Link this activity">
+      <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto px-1 pb-2">
+        <p className="text-[13px] text-text-3">
+          Attach this recorded activity — with its HR — to a planned session, so it counts toward your plan.
+        </p>
+
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <>
+            {runs.length > 0 && (
+              <div>
+                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-3">Runs</p>
+                <div className="flex flex-col gap-1.5">
+                  {runs.map((w) => (
+                    <button
+                      key={w.id}
+                      disabled={busy}
+                      onClick={() => link({ workoutId: w.id })}
+                      className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-surface px-3 py-2.5 text-left disabled:opacity-50"
+                    >
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: WORKOUT_COLORS[w.type] ?? "#60A5FA" }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-semibold text-text-1">{w.title}</span>
+                        <span className="block text-[12px] text-text-3">{fmtDay(w.date)}{w.targetKm ? ` · ${w.targetKm} km` : ""}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {strength.length > 0 && (
+              <div>
+                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-3">Strength</p>
+                <div className="flex flex-col gap-1.5">
+                  {strength.map((s) => (
+                    <button
+                      key={s.id}
+                      disabled={busy || s.linked}
+                      onClick={() => link({ strengthSessionId: s.id })}
+                      className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-surface px-3 py-2.5 text-left disabled:opacity-40"
+                    >
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: "#F472B6" }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-semibold text-text-1">{s.title}</span>
+                        <span className="block text-[12px] text-text-3">{fmtDay(s.date)}{s.linked ? " · already linked" : ""}</span>
+                      </span>
+                      {s.linked && <Check className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {runs.length === 0 && strength.length === 0 && (
+              <p className="text-[13px] text-text-2">No planned sessions near this date to link to.</p>
+            )}
+          </>
+        )}
+
+        {(activity?.workoutId || activity?.strengthSessionId) && (
+          <Button variant="danger" size="md" full busy={busy} onClick={() => link({ unlink: true })}>
+            <Unlink className="mr-1.5 inline h-4 w-4" strokeWidth={2} /> Unlink
+          </Button>
+        )}
+      </div>
+    </Sheet>
   );
 }
 
