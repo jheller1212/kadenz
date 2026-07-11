@@ -40,6 +40,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
 import { PaceChart } from "@/components/PaceChart";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
+import { predictRaceTime, RACE_DISTANCES_M } from "@/lib/plan-engine/vdot";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import type {
@@ -619,6 +620,44 @@ const RACE_SHORT: Record<GeneratedPlan["raceDistance"], string> = {
   marathon: "26.2",
 };
 
+function formatRaceTime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const ss = Math.round(sec % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+    : `${m}:${String(ss).padStart(2, "0")}`;
+}
+
+function EstimatedRaceTime({ plan }: { plan: GeneratedPlan }) {
+  if (!plan.vdot) return null;
+  const distanceM = RACE_DISTANCES_M[plan.raceDistance];
+  if (!distanceM) return null;
+  const predicted = predictRaceTime(plan.vdot, distanceM);
+  const fast = predicted * 0.98;
+  const slow = predicted * 1.03;
+  const weeksLeft = Math.max(
+    0,
+    Math.ceil((new Date(plan.raceDate).getTime() - Date.now()) / (7 * 24 * 3600 * 1000))
+  );
+
+  return (
+    <div className="mt-4 rounded-[var(--radius-input)] bg-elevated px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">
+        Estimated race time
+      </p>
+      <div className="mt-1.5 flex items-center justify-between gap-3">
+        <p className="text-[20px] font-extrabold tabular-nums text-text-1">
+          {formatRaceTime(fast)} – {formatRaceTime(slow)}
+        </p>
+        <span className="shrink-0 text-[12px] font-semibold text-text-2">
+          {weeksLeft > 0 ? `in ${weeksLeft} ${weeksLeft === 1 ? "week" : "weeks"}` : "race week"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function PlanHeader({ plan }: { plan: GeneratedPlan }) {
   const totalKm = plan.weeks.reduce((sum, w) => sum + w.targetKm, 0);
   const maxKm = Math.max(...plan.weeks.map((w) => w.targetKm));
@@ -659,6 +698,9 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
           </div>
         ))}
       </div>
+
+      {/* Estimated race time (VDOT prediction, Benchmark-style) */}
+      <EstimatedRaceTime plan={plan} />
 
       {/* Micro volume chart */}
       <div className="mt-4 flex gap-0.5 items-end h-8">
