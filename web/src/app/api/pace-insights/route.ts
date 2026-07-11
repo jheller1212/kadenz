@@ -226,36 +226,49 @@ export async function GET() {
     // ── 11. Pace status ───────────────────────────────────────────────────────
     const allCompleted = [...speedWorkouts, ...longWorkouts];
 
-    let paceStatus: "on_point" | "needs_work" | "no_data";
+    let paceStatus: "on_point" | "ahead" | "review" | "variable" | "no_data";
     let statusMessage: string;
 
     if (allCompleted.length === 0) {
       paceStatus = "no_data";
       statusMessage = "Complete a speed or long workout to see pace feedback.";
     } else {
-      // Check the most recent 3 completed workouts with actual pace data
+      // Judge the most recent 5 completed workouts with actual pace data
       const withActual = allCompleted
         .filter((w) => w.actualAvgPace !== null)
-        .slice(-3);
+        .slice(-5);
 
       if (withActual.length === 0) {
         paceStatus = "no_data";
         statusMessage = "No activity data yet. Sync your workouts to see pace feedback.";
       } else {
-        const onPoint = withActual.every(
-          (w) =>
-            w.actualAvgPace !== null &&
-            w.actualAvgPace >= w.minPaceSecKm &&
-            w.actualAvgPace <= w.maxPaceSecKm
-        );
+        // Per workout: -1 = faster than the target band, 0 = in band, 1 = slower
+        const verdicts = withActual.map((w) => {
+          const p = w.actualAvgPace!;
+          if (p < w.minPaceSecKm) return -1;
+          if (p > w.maxPaceSecKm) return 1;
+          return 0;
+        });
+        const fast = verdicts.filter((v) => v === -1).length;
+        const slow = verdicts.filter((v) => v === 1).length;
+        const inBand = verdicts.length - fast - slow;
+        const majority = Math.ceil(verdicts.length / 2);
 
-        if (onPoint) {
+        if (inBand === verdicts.length) {
           paceStatus = "on_point";
           statusMessage = "Your recent paces are within target. Keep it up!";
-        } else {
-          paceStatus = "needs_work";
+        } else if (fast >= majority && slow === 0) {
+          paceStatus = "ahead";
           statusMessage =
-            "Some recent workouts were outside target pace. Review your zones below.";
+            "You're consistently faster than target — your fitness may have outgrown your paces. Consider updating your race times.";
+        } else if (slow >= majority && fast === 0) {
+          paceStatus = "review";
+          statusMessage =
+            "Recent workouts came in slower than target. Occasional off days are fine — if it keeps happening, ease your goal time or check recovery.";
+        } else {
+          paceStatus = "variable";
+          statusMessage =
+            "Your paces swing both faster and slower than target. Focus on starting controlled and holding an even effort.";
         }
       }
     }

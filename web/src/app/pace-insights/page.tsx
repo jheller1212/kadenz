@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Info, CheckCircle2, AlertTriangle, HelpCircle, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, CheckCircle2, AlertTriangle, HelpCircle, Plus, TrendingUp, Activity } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
@@ -51,7 +51,7 @@ interface PaceInsightsData {
   planName: string;
   vdot: number;
   updatedDate: string;
-  paceStatus: "on_point" | "needs_work" | "no_data";
+  paceStatus: PaceStatus;
   statusMessage: string;
   nextSpeedWorkout: NextSpeedWorkout | null;
   paceZones: Record<string, { minPaceSecKm: number; targetPaceSecKm: number; maxPaceSecKm: number }>;
@@ -114,11 +114,23 @@ function BackButton() {
 
 // ── Status Card ───────────────────────────────────────────────────────────────
 
+type PaceStatus = "on_point" | "ahead" | "review" | "variable" | "no_data";
+
+const VERDICTS: Record<
+  Exclude<PaceStatus, "no_data">,
+  { title: string; color: string; rgb: string; Icon: typeof CheckCircle2 }
+> = {
+  on_point: { title: "Pace on Point", color: "#22c55e", rgb: "34,197,94", Icon: CheckCircle2 },
+  ahead: { title: "Ahead of the Pack", color: "#60A5FA", rgb: "96,165,250", Icon: TrendingUp },
+  review: { title: "Let's Review Your Pace", color: "#FFB547", rgb: "255,181,71", Icon: AlertTriangle },
+  variable: { title: "Variable Pace Detected", color: "#C084FC", rgb: "192,132,252", Icon: Activity },
+};
+
 function StatusCard({
   paceStatus,
   statusMessage,
 }: {
-  paceStatus: "on_point" | "needs_work" | "no_data";
+  paceStatus: PaceStatus;
   statusMessage: string;
 }) {
   if (paceStatus === "no_data") {
@@ -137,41 +149,31 @@ function StatusCard({
     );
   }
 
-  const isOnPoint = paceStatus === "on_point";
+  const v = VERDICTS[paceStatus];
 
   return (
     <div className="rounded-[var(--radius-card)] bg-surface p-4">
       <div className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center mb-4">
-        {isOnPoint ? (
-          <CheckCircle2 className="h-5 w-5 text-text-2" strokeWidth={1.75} />
-        ) : (
-          <AlertTriangle className="h-5 w-5 text-text-2" strokeWidth={1.75} />
-        )}
+        <v.Icon className="h-5 w-5 text-text-2" strokeWidth={1.75} />
       </div>
 
-      <p className="text-[15px] font-bold text-text-1 mb-1">
-        {isOnPoint ? "Pace on point" : "Pace needs work"}
-      </p>
+      <p className="text-[15px] font-bold text-text-1 mb-1">{v.title}</p>
       <p className="text-[13px] text-text-2 leading-relaxed mb-6">{statusMessage}</p>
 
       <div className="flex items-center justify-center py-4">
         <div className="relative flex items-center justify-center">
           <div
             className="absolute w-28 h-28 rounded-full blur-2xl opacity-30"
-            style={{ backgroundColor: isOnPoint ? "#22c55e" : "#FFB547" }}
+            style={{ backgroundColor: v.color }}
           />
           <div
             className="relative w-20 h-20 rounded-full flex items-center justify-center"
             style={{
-              backgroundColor: isOnPoint ? "rgba(34,197,94,0.12)" : "rgba(255,181,71,0.12)",
-              border: `2px solid ${isOnPoint ? "rgba(34,197,94,0.3)" : "rgba(255,181,71,0.3)"}`,
+              backgroundColor: `rgba(${v.rgb},0.12)`,
+              border: `2px solid rgba(${v.rgb},0.3)`,
             }}
           >
-            {isOnPoint ? (
-              <CheckCircle2 className="w-9 h-9" style={{ color: "#22c55e" }} strokeWidth={2} />
-            ) : (
-              <AlertTriangle className="w-9 h-9" style={{ color: "#FFB547" }} strokeWidth={2} />
-            )}
+            <v.Icon className="w-9 h-9" style={{ color: v.color }} strokeWidth={2} />
           </div>
         </div>
       </div>
