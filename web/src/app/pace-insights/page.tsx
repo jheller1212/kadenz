@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Info, CheckCircle2, AlertTriangle, HelpCircl
 import { NavBar } from "@/components/ui/NavBar";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
+import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
@@ -471,6 +472,123 @@ function RaceTimesSection({
   );
 }
 
+// ── Race time entry sheet ────────────────────────────────────────────────────
+
+const timeInputCls =
+  "w-16 rounded-[var(--radius-input)] bg-elevated px-2 py-2.5 text-center text-[16px] font-semibold text-text-1 outline-none tabular-nums focus:ring-2 focus:ring-accent/40";
+
+function RaceTimeSheet({
+  open,
+  category,
+  existing,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  category: "short" | "long";
+  existing: RaceTime | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const options =
+    category === "short"
+      ? [
+          { value: "5k", label: "5K" },
+          { value: "10k", label: "10K" },
+        ]
+      : [
+          { value: "half", label: "Half" },
+          { value: "marathon", label: "Full" },
+        ];
+
+  const [distance, setDistance] = useState(options[0].value);
+  const [hours, setHours] = useState(0);
+  const [minutes, setMinutes] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Re-seed the form each time the sheet opens
+  useEffect(() => {
+    if (!open) return;
+    const dist = existing && options.some((o) => o.value === existing.distance)
+      ? existing.distance
+      : options[0].value;
+    const total = existing?.timeSeconds ?? 0;
+    setDistance(dist);
+    setHours(Math.floor(total / 3600));
+    setMinutes(Math.floor((total % 3600) / 60));
+    setSeconds(total % 60);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, category]);
+
+  async function save() {
+    const timeSeconds = hours * 3600 + minutes * 60 + seconds;
+    if (timeSeconds <= 0) {
+      setError("Enter a time.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/race-times", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ distance, timeSeconds, source: "race" }),
+      });
+      if (res.ok) {
+        haptic("success");
+        onSaved();
+        onClose();
+      } else {
+        haptic("warning");
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? "Couldn't save the time.");
+      }
+    } catch {
+      setError("Network error — couldn't save the time.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fields = [
+    { key: "h", value: hours, set: setHours, max: 9 },
+    { key: "m", value: minutes, set: setMinutes, max: 59 },
+    { key: "s", value: seconds, set: setSeconds, max: 59 },
+  ];
+
+  return (
+    <Sheet open={open} onClose={onClose} title={category === "short" ? "5K / 10K time" : "Half / marathon time"}>
+      <div className="flex flex-col gap-4 pb-2">
+        <Segmented value={distance} onChange={setDistance} options={options} />
+        <div className="flex items-center justify-center gap-2">
+          {fields.map(({ key, value, set, max }, i) => (
+            <div key={key} className="flex items-center gap-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={max}
+                value={value}
+                onChange={(e) => set(Math.max(0, Math.min(max, parseInt(e.target.value) || 0)))}
+                className={timeInputCls}
+              />
+              {i < 2 && <span className="text-[17px] font-bold text-text-3">:</span>}
+            </div>
+          ))}
+          <span className="ml-1 text-[12px] text-text-3">h : m : s</span>
+        </div>
+        {error && <p className="text-center text-[13px] text-[#FF4D4D]">{error}</p>}
+        <Button full onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save time"}
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PaceInsightsPage() {
@@ -479,8 +597,9 @@ export default function PaceInsightsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"speed" | "long">("speed");
+  const [timeSheet, setTimeSheet] = useState<"short" | "long" | null>(null);
 
-  useEffect(() => {
+  function loadInsights() {
     apiFetch("/api/pace-insights")
       .then((r) => {
         if (!r.ok) throw new Error("Failed to load pace insights");
@@ -489,11 +608,13 @@ export default function PaceInsightsPage() {
       .then(setData)
       .catch(() => setError("Couldn't load pace insights. Please try again."))
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadInsights, []);
 
   function handleAddTime(category: "short" | "long") {
-    // TODO: open race time entry modal/sheet
-    alert(`Add ${category} race time — coming soon`);
+    setTimeSheet(category);
   }
 
   if (loading) {
@@ -691,6 +812,18 @@ export default function PaceInsightsPage() {
         {/* Race times */}
         <RaceTimesSection raceTimes={data.raceTimes} onAddTime={handleAddTime} />
       </div>
+
+      <RaceTimeSheet
+        open={timeSheet !== null}
+        category={timeSheet ?? "short"}
+        existing={
+          timeSheet
+            ? data.raceTimes.find((r) => distanceCategory(r.distance) === timeSheet) ?? null
+            : null
+        }
+        onClose={() => setTimeSheet(null)}
+        onSaved={loadInsights}
+      />
     </main>
   );
 }

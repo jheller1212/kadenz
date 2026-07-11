@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Clock, ArrowLeftRight } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { useSettings } from "@/lib/useSettings";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
@@ -125,7 +125,7 @@ function paceToSpeed(secPerKm: number): string {
   return kmPerHour.toFixed(1);
 }
 
-// ── Options sheet (skip / add time / move) ─────────────────────────────────
+// ── Options sheet ────────────────────────────────────────────────────────────
 
 function OptionsSheet({
   open,
@@ -136,11 +136,7 @@ function OptionsSheet({
   onClose: () => void;
   onSkip: () => void;
 }) {
-  const actions = [
-    { label: "Skip workout", Icon: SkipForward, action: onSkip },
-    { label: "Add a workout time", Icon: Clock, action: () => {} },
-    { label: "Move workout", Icon: ArrowLeftRight, action: () => {} },
-  ];
+  const actions = [{ label: "Skip workout", Icon: SkipForward, action: onSkip }];
 
   return (
     <Sheet open={open} onClose={onClose} title="Workout options">

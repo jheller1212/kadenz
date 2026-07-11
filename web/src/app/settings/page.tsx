@@ -19,6 +19,7 @@ import { AlertCircle, Plus } from "lucide-react";
 function StravaConnection() {
   const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
   const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,10 +47,16 @@ function StravaConnection() {
   async function handleSyncNow() {
     setSyncing(true);
     setError(null);
+    setSyncResult(null);
     try {
       const res = await apiFetch("/api/strava/backfill", { method: "POST" });
       if (!res.ok) throw new Error("Sync failed");
+      const data = (await res.json().catch(() => null)) as { processed?: number } | null;
+      haptic("success");
+      const n = data?.processed ?? 0;
+      setSyncResult(n === 0 ? "Up to date — no new activities." : `Synced ${n} new ${n === 1 ? "activity" : "activities"}.`);
     } catch {
+      haptic("warning");
       setError("Sync failed. Try again later.");
     } finally {
       setSyncing(false);
@@ -99,6 +106,9 @@ function StravaConnection() {
         </div>
       )}
 
+      {syncResult && !error && (
+        <p className="mt-2 text-[12px] text-text-3">{syncResult}</p>
+      )}
       {error && (
         <p className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
