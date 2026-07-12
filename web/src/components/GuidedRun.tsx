@@ -567,7 +567,7 @@ export function GuidedRun({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.2 }}
-            className="w-full max-w-sm rounded-[var(--radius-card)] bg-surface p-6 text-center"
+            className="w-full max-w-sm k-card p-6 text-center"
           >
             <p className="text-[13px] font-semibold uppercase tracking-wider text-accent">
               Step {stepIdx + 1} of {steps.length}

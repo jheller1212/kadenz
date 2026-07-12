@@ -480,7 +480,7 @@ function StepPreferences({
       <div className="flex flex-col gap-2">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest">How many km did you run last week?</span>
         <p className="text-xs text-text-3">Your plan will start near this volume and build up gradually.</p>
-        <div className="rounded-[var(--radius-card)] bg-surface px-4 py-4">
+        <div className="k-card px-4 py-4">
           <div className="text-center mb-3">
             <span className="text-3xl font-extrabold text-text-1 tabular-nums">{currentWeeklyKm}</span>
             <span className="text-sm text-text-3 ml-1">km/week</span>
@@ -614,22 +614,22 @@ function StepPreview({ plan, useMiles }: { plan: GeneratedPlan; useMiles: boolea
 
       {/* Key stats */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-[var(--radius-card)] bg-surface p-4 flex flex-col gap-1">
+        <div className="k-card p-4 flex flex-col gap-1">
           <span className="text-xs text-text-3 uppercase tracking-wider">Weeks</span>
           <span className="text-2xl font-extrabold text-accent">{plan.planLengthWeeks}</span>
         </div>
-        <div className="rounded-[var(--radius-card)] bg-surface p-4 flex flex-col gap-1">
+        <div className="k-card p-4 flex flex-col gap-1">
           <span className="text-xs text-text-3 uppercase tracking-wider">Race pace</span>
           <span className="text-lg font-extrabold text-accent">{formatPace(paces.E.targetPaceSecKm > paces.M.targetPaceSecKm ? Math.round(plan.goalTimeSeconds / (plan.raceDistance === "5k" ? 5 : plan.raceDistance === "10k" ? 10 : plan.raceDistance === "half" ? 21.1 : 42.2)) : paces.M.targetPaceSecKm)}/km</span>
         </div>
-        <div className="rounded-[var(--radius-card)] bg-surface p-4 flex flex-col gap-1">
+        <div className="k-card p-4 flex flex-col gap-1">
           <span className="text-xs text-text-3 uppercase tracking-wider">Days/wk</span>
           <span className="text-2xl font-extrabold text-accent">{plan.daysPerWeek}</span>
         </div>
       </div>
 
       {/* Pace zones */}
-      <div className="rounded-[var(--radius-card)] bg-surface p-4 flex flex-col gap-1">
+      <div className="k-card p-4 flex flex-col gap-1">
         <span className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-2">Pace zones</span>
         <PaceRow label="Easy / Long" pace={`${formatPace(paces.E.targetPaceSecKm, useMiles)} /${useMiles ? "mi" : "km"}`} />
         <PaceRow label="Steady (M pace)" pace={`${formatPace(paces.M.targetPaceSecKm, useMiles)} /${useMiles ? "mi" : "km"}`} />

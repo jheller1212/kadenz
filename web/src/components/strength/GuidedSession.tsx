@@ -523,7 +523,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
 
         {/* Preceding sets (weight · reps · time) */}
         {loggedSets.length > 0 && (
-          <div className="mt-3 w-full max-w-xs rounded-[var(--radius-card)] bg-surface p-2">
+          <div className="mt-3 w-full max-w-xs k-card p-2">
             {arr.map((s, i) =>
               s.logged ? (
                 <div key={i} className="flex items-center justify-between px-2 py-1 text-[13px]">

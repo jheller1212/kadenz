@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { haptic } from "@/lib/haptics";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "signature";
 type Size = "sm" | "md" | "lg";
 
 interface Props {
@@ -20,11 +20,17 @@ interface Props {
   "aria-label"?: string;
 }
 
+/* v2: primary is "lit" via the accent gradient; secondary is a card surface
+   (gradient + ring), not a bordered inset. */
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-accent text-on-accent",
-  secondary: "bg-elevated text-text-1 hairline-b border border-hairline",
+  primary:
+    "text-on-accent [background:var(--k-accent-grad)] [background-color:var(--k-accent)] [box-shadow:var(--k-shadow-card)]",
+  secondary:
+    "text-text-1 [background:var(--k-surface-grad)] [background-color:var(--k-surface)] [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]",
   ghost: "bg-transparent text-accent",
   danger: "bg-danger/10 text-danger",
+  signature:
+    "[background:var(--k-signature-grad)] text-[var(--k-signature-ink)] [box-shadow:var(--k-shadow-card)]",
 };
 
 const SIZES: Record<Size, string> = {

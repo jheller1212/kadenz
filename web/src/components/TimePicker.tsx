@@ -75,7 +75,7 @@ function TimeColumn({
 
 export function TimePicker({ hours, minutes, seconds, onHours, onMinutes, onSeconds }: TimePickerProps) {
   return (
-    <div className="flex items-start justify-center gap-2 rounded-[var(--radius-card)] bg-surface border border-hairline py-4 px-3">
+    <div className="flex items-start justify-center gap-2 k-card border border-hairline py-4 px-3">
       <TimeColumn value={hours} onChange={onHours} max={9} label="hrs" />
       <span className="text-2xl font-bold text-text-3 mt-12">:</span>
       <TimeColumn value={minutes} onChange={onMinutes} max={59} label="min" />

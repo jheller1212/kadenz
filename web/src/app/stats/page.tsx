@@ -444,7 +444,7 @@ export default function StatsPage() {
         {perf?.totals && (
           <>
             {/* Lifetime totals */}
-            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+            <section className="k-card p-4">
               <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                 All-time running
               </p>
@@ -513,7 +513,7 @@ export default function StatsPage() {
 
             {/* Monthly trend */}
             {perf.monthly && perf.monthly.some((m) => m.km > 0) && (
-              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <section className="k-card p-4">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                     Monthly distance
@@ -526,7 +526,7 @@ export default function StatsPage() {
 
             {/* Personal records */}
             {perf.records && perf.records.some((r) => r.timeSeconds != null) && (
-              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <section className="k-card p-4">
                 <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3 mb-4">
                   Personal records
                 </p>
@@ -565,7 +565,7 @@ export default function StatsPage() {
 
             {/* Achievements */}
             {perf.badges && perf.badges.length > 0 && (
-              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <section className="k-card p-4">
                 <div className="flex items-center gap-2 mb-4">
                   <Trophy className="h-4 w-4 text-accent" strokeWidth={2} />
                   <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
@@ -599,7 +599,7 @@ export default function StatsPage() {
         {plan && planStats && (
           <>
             {/* Plan progress */}
-            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+            <section className="k-card p-4">
               <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                 Plan progress
               </p>
@@ -649,7 +649,7 @@ export default function StatsPage() {
 
             {/* This week */}
             {planStats.currentWeek && (
-              <section className="rounded-[var(--radius-card)] bg-surface p-4">
+              <section className="k-card p-4">
                 <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                   This week
                 </p>
@@ -678,7 +678,7 @@ export default function StatsPage() {
             )}
 
             {/* Volume progression */}
-            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+            <section className="k-card p-4">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                   Volume progression
@@ -693,7 +693,7 @@ export default function StatsPage() {
             </section>
 
             {/* Workout type distribution */}
-            <section className="rounded-[var(--radius-card)] bg-surface p-4">
+            <section className="k-card p-4">
               <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3 mb-4">
                 Workout distribution
               </p>

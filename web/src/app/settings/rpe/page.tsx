@@ -38,7 +38,7 @@ export default function RPEPage() {
 
       <div className="flex flex-col gap-3 px-4 pb-tabbar">
         {/* Intro */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+        <section className="k-card p-4">
           <h2 className="text-[17px] font-bold text-text-1">Rate of Perceived Exertion</h2>
           <p className="mt-2 text-[14px] leading-relaxed text-text-2">
             RPE is a way to measure workout intensity based on how hard the effort <em>feels</em> rather than
@@ -53,7 +53,7 @@ export default function RPEPage() {
         </section>
 
         {/* Modified Borg Scale */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+        <section className="k-card p-4">
           <h2 className="mb-3 text-[17px] font-bold text-text-1">The Modified Borg Scale</h2>
           <div className="flex flex-col gap-1">
             {RPE_SCALE.map(({ level, label, color, desc }) => (
@@ -74,7 +74,7 @@ export default function RPEPage() {
         </section>
 
         {/* When to use RPE */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+        <section className="k-card p-4">
           <h2 className="text-[17px] font-bold text-text-1">When to use RPE</h2>
           <div className="mt-3 flex flex-col gap-3">
             {[

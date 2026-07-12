@@ -41,7 +41,7 @@ export function TodayWorkoutCard({ workout, onComplete, completing }: Props) {
 
   return (
     <div
-      className="rounded-[var(--radius-card)] border border-hairline bg-surface p-5 flex flex-col gap-5"
+      className="k-card p-5 flex flex-col gap-5"
       role="region"
       aria-label="Today's workout"
     >

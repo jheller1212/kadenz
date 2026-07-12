@@ -133,7 +133,7 @@ export default function InsightsPage() {
 
         {/* Status banner */}
         {data.behindTypes.length > 0 ? (
-          <div className="rounded-[var(--radius-card)] bg-surface p-4">
+          <div className="k-card p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warn/10">
                 <AlertTriangle className="h-5 w-5 text-warn" strokeWidth={1.9} />
@@ -149,7 +149,7 @@ export default function InsightsPage() {
             </div>
           </div>
         ) : (
-          <div className="rounded-[var(--radius-card)] bg-surface p-4">
+          <div className="k-card p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10">
                 <CheckCircle2 className="h-5 w-5 text-accent" strokeWidth={1.9} />
@@ -165,7 +165,7 @@ export default function InsightsPage() {
         )}
 
         {/* Completed mileage */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+        <section className="k-card p-4">
           <h2 className="text-[17px] font-bold text-text-1 mb-3">Completed mileage</h2>
           <Segmented
             options={[
@@ -205,7 +205,7 @@ export default function InsightsPage() {
         </section>
 
         {/* Completed workouts */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+        <section className="k-card p-4">
           <h2 className="text-[17px] font-bold text-text-1 mb-3">Completed workouts</h2>
           <Segmented
             options={[

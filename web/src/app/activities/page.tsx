@@ -329,14 +329,14 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
       <TransitionLink
         href={`/activity/${workout.activity!.id}`}
         aria-label={`View activity details for ${workout.title}`}
-        className="press block overflow-hidden rounded-[var(--radius-card)] bg-surface"
+        className="press block overflow-hidden k-card"
       >
         {cardInner}
       </TransitionLink>
     );
   }
 
-  return <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">{cardInner}</div>;
+  return <div className="overflow-hidden k-card">{cardInner}</div>;
 }
 
 // ── MonthSection ──────────────────────────────────────────────────────────────
@@ -596,13 +596,13 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
       </div>
 
       {/* Weekly mileage bar chart */}
-      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="k-card p-4">
         <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-text-3">Weekly mileage</p>
         <WeeklyBarChart bars={bars} />
       </div>
 
       {/* Personal Records */}
-      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="k-card p-4">
         <div className="mb-4 flex items-center justify-between">
           <p className="text-[13px] font-semibold uppercase tracking-wider text-text-3">Personal Records</p>
           <TransitionLink href="/settings" className="text-[12px] font-semibold text-accent">Edit</TransitionLink>

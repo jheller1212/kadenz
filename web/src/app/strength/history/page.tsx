@@ -122,7 +122,7 @@ export default function StrengthHistoryPage() {
               return (
                 <div
                   key={it.exercise.id}
-                  className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-3.5"
+                  className="flex items-center gap-3 k-card p-3.5"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-bold text-text-1">{it.exercise.name}</p>

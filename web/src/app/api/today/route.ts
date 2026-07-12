@@ -11,6 +11,7 @@ export async function GET() {
       .select({
         id: plans.id,
         raceDate: plans.raceDate,
+        raceDistance: plans.raceDistance,
         planLengthWeeks: plans.planLengthWeeks,
         name: plans.name,
       })
@@ -108,6 +109,8 @@ export async function GET() {
       activePlan: true,
       planId: activePlan.id,
       planName: activePlan.name,
+      raceDistance: activePlan.raceDistance,
+      raceDate: activePlan.raceDate,
       currentWeek: currentWeekNumber,
       totalWeeks: activePlan.planLengthWeeks,
       todayWorkout,

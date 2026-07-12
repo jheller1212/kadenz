@@ -15,7 +15,7 @@ export function QuickStats({
 
   return (
     <div
-      className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4 flex gap-4"
+      className="k-card p-4 flex gap-4"
       role="region"
       aria-label="Weekly stats"
     >

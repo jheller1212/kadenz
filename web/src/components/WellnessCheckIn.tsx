@@ -101,7 +101,7 @@ export function WellnessCheckIn() {
   const done = savedAt !== null && Object.values(values).some((v) => v !== null);
 
   return (
-    <div className="mx-5 rounded-[var(--radius-card)] bg-surface">
+    <div className="mx-5 k-card">
       <button
         type="button"
         onClick={() => {

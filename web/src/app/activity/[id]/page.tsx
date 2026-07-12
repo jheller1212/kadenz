@@ -313,7 +313,7 @@ function AreaChart({
 
 function SummaryStats({ activity }: { activity: ActivityDetail }) {
   return (
-    <div className="rounded-[var(--radius-card)] bg-surface p-4">
+    <div className="k-card p-4">
       <div className="grid grid-cols-3 divide-x divide-hairline">
         <div className="pr-3 text-center">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Distance</p>
@@ -350,7 +350,7 @@ function BestEfforts({ efforts }: { efforts: ActivityDetail["bestEfforts"] }) {
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Best Efforts</h2>
-      <div className="divide-y divide-hairline overflow-hidden rounded-[var(--radius-card)] bg-surface">
+      <div className="divide-y divide-hairline overflow-hidden k-card">
         {sorted.map((effort, i) => {
           const pacePerKm = effort.distance > 0 ? (effort.elapsedTime / (effort.distance / 1000)) : 0;
           return (
@@ -393,7 +393,7 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
         <h2 className="text-[15px] font-bold text-text-1">Planned Workout</h2>
       </div>
 
-      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
+      <div className="overflow-hidden k-card">
         <div className="divide-y divide-hairline">
           {displayBlocks.map((block, i) => {
             const isWork = block.type === "work";
@@ -488,7 +488,7 @@ function LapsSection({
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Laps</h2>
 
       {/* Bar chart */}
-      <div className="mb-3 rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="mb-3 k-card p-4">
         <div className="flex flex-col gap-2">
           {laps.map((lap, i) => {
             const barPct = lapBarPct(lap.paceSecKm);
@@ -528,7 +528,7 @@ function LapsSection({
       </div>
 
       {/* Detail table */}
-      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
+      <div className="overflow-hidden k-card">
         <div className="grid grid-cols-4 border-b border-hairline px-4 py-2">
           {["LAP", "DIST", "TIME", "PACE"].map((h) => (
             <p key={h} className="text-right text-[10px] font-semibold uppercase tracking-wider text-text-3 first:text-left">{h}</p>
@@ -576,7 +576,7 @@ function SplitsSection({ splits }: { splits: ActivityDetail["splits"] }) {
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Splits</h2>
-      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
+      <div className="overflow-hidden k-card">
         <div className="grid grid-cols-[2rem_1fr_3rem] gap-2 border-b border-hairline px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">KM</p>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">AVG PACE</p>
@@ -644,7 +644,7 @@ function PaceChartSection({ activity }: { activity: ActivityDetail }) {
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Pace</h2>
-      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="k-card p-4">
         <AreaChart
           data={paceData}
           xData={distData}
@@ -686,7 +686,7 @@ function ElevationChartSection({ activity }: { activity: ActivityDetail }) {
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Elevation</h2>
-      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="k-card p-4">
         <AreaChart
           data={streams.altitude}
           xData={distData}
@@ -730,7 +730,7 @@ function HeartRateChartSection({ activity }: { activity: ActivityDetail }) {
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Heart Rate</h2>
-      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="k-card p-4">
         <AreaChart
           data={streams.heartrate}
           xData={distData}
@@ -775,7 +775,7 @@ function HrZonesSection({ activity }: { activity: ActivityDetail }) {
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Heart Rate Zones</h2>
-      <div className="divide-y divide-hairline overflow-hidden rounded-[var(--radius-card)] bg-surface">
+      <div className="divide-y divide-hairline overflow-hidden k-card">
         {zones.map((zone, i) => (
           <div key={i} className="px-4 py-3">
             <div className="mb-1.5 flex items-center justify-between">

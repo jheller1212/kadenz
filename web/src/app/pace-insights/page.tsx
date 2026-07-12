@@ -136,7 +136,7 @@ function StatusCard({
 }) {
   if (paceStatus === "no_data") {
     return (
-      <div className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="k-card p-4">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center shrink-0">
             <HelpCircle className="h-5 w-5 text-text-3" strokeWidth={1.75} />
@@ -153,7 +153,7 @@ function StatusCard({
   const v = VERDICTS[paceStatus];
 
   return (
-    <div className="rounded-[var(--radius-card)] bg-surface p-4">
+    <div className="k-card p-4">
       <div className="w-9 h-9 rounded-full bg-elevated flex items-center justify-center mb-4">
         <v.Icon className="h-5 w-5 text-text-2" strokeWidth={1.75} />
       </div>
@@ -415,7 +415,7 @@ function RaceTimesSection({
         {longTime ? (
           <button
             onClick={() => { haptic("light"); onAddTime("long"); }}
-            className="press w-full flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-4 text-left"
+            className="press w-full flex items-center gap-3 k-card p-4 text-left"
           >
             <HexBadge label={longTime.distance} />
             <div className="flex-1 min-w-0">
@@ -445,7 +445,7 @@ function RaceTimesSection({
         {shortTime ? (
           <button
             onClick={() => { haptic("light"); onAddTime("short"); }}
-            className="press w-full flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-4 text-left"
+            className="press w-full flex items-center gap-3 k-card p-4 text-left"
           >
             <HexBadge label={shortTime.distance} />
             <div className="flex-1 min-w-0">
@@ -754,7 +754,7 @@ export default function PaceInsightsPage() {
           </div>
 
           {activeWorkouts.length > 0 ? (
-            <div className="rounded-[var(--radius-card)] bg-surface p-4">
+            <div className="k-card p-4">
               <PaceInsightChart
                 workouts={activeWorkouts.map((wo) => ({
                   date: wo.date,
@@ -766,7 +766,7 @@ export default function PaceInsightsPage() {
               />
             </div>
           ) : (
-            <div className="rounded-[var(--radius-card)] bg-surface p-6 text-center">
+            <div className="k-card p-6 text-center">
               <p className="text-[13px] text-text-3">No pace data yet</p>
               <p className="text-[11px] text-text-3 mt-1">
                 {activeTab === "speed"
@@ -778,7 +778,7 @@ export default function PaceInsightsPage() {
         </section>
 
         {/* Explanation section */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4">
+        <section className="k-card p-4">
           {activeTab === "speed" ? (
             <div>
               <h2 className="text-[15px] font-bold text-text-1 mb-2">Speed run pace</h2>

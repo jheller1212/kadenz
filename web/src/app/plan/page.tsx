@@ -663,7 +663,7 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
   const maxKm = Math.max(...plan.weeks.map((w) => w.targetKm));
 
   return (
-    <section className="rounded-[var(--radius-card)] bg-surface p-5">
+    <section className="k-card p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-text-3">
@@ -1278,7 +1278,7 @@ function PlanPageInner() {
             <TransitionLink
               key={href}
               href={href}
-              className="press flex flex-col items-center gap-1.5 rounded-[var(--radius-card)] bg-surface py-3"
+              className="press flex flex-col items-center gap-1.5 k-card py-3"
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline">
                 <Icon className="h-4 w-4 text-text-1" strokeWidth={1.9} />

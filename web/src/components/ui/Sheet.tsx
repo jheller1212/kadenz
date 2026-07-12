@@ -39,7 +39,7 @@ export function Sheet({ open, onClose, children, title, noHandle }: Props) {
       {open && (
         <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true">
           <motion.div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 [background:var(--k-scrim)]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -47,7 +47,8 @@ export function Sheet({ open, onClose, children, title, noHandle }: Props) {
           />
           <motion.div
             className="absolute inset-x-0 bottom-0 mx-auto max-w-[430px] rounded-t-[var(--radius-sheet)]
-              bg-surface pb-[max(env(safe-area-inset-bottom),16px)] shadow-2xl"
+              [background:var(--k-float-grad)] [background-color:var(--k-float)] [box-shadow:var(--k-shadow-float)]
+              pb-[max(env(safe-area-inset-bottom),16px)]"
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}

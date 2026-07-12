@@ -431,7 +431,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Workout blocks */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4 flex flex-col gap-1">
+        <section className="k-card p-4 flex flex-col gap-1">
           {workout.blocks.map((block, i) => {
             const isWork = block.type === "work";
             const blockColor = isWork ? color : "var(--k-text-3)";
@@ -512,7 +512,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         </section>
 
         {/* Coaching tip */}
-        <section className="rounded-[var(--radius-card)] bg-surface p-4 flex items-start gap-3">
+        <section className="k-card p-4 flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/20 mt-0.5">
             <HeartPulse className="h-5 w-5 text-accent" strokeWidth={1.75} />
           </div>

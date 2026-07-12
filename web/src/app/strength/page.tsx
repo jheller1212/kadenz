@@ -248,7 +248,7 @@ export default function StrengthPage() {
                 whileTap={{ scale: busy ? 1 : 0.97 }}
                 transition={{ type: "spring", stiffness: 500, damping: 32 }}
                 style={{ touchAction: "manipulation" }}
-                className="flex items-center gap-3 rounded-[var(--radius-card)] bg-surface p-4 text-left disabled:opacity-50"
+                className="flex items-center gap-3 k-card p-4 text-left disabled:opacity-50"
               >
                 <span className="h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: TYPE_META[t].color }} />
                 <span className="min-w-0 flex-1">
@@ -293,7 +293,7 @@ export default function StrengthPage() {
   if (phase === "summary" && summary) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center bg-bg px-6">
-        <div className="w-full max-w-sm rounded-[var(--radius-card)] bg-surface p-6 text-center">
+        <div className="w-full max-w-sm k-card p-6 text-center">
           <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">Session complete</h1>
           <p className="mt-2 text-[15px] text-text-2">
             {summary.setsLogged}/{summary.totalSets} sets logged · {summary.durationMinutes} min
@@ -387,7 +387,7 @@ export default function StrengthPage() {
 
           <div className="mt-4 flex flex-col gap-3">
             {exercises.map((ex, ei) => (
-              <div key={ex.slug} className="flex items-start gap-3 rounded-[var(--radius-card)] bg-surface p-3.5">
+              <div key={ex.slug} className="flex items-start gap-3 k-card p-3.5">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
                   {ei + 1}
                 </span>

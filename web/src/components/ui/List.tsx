@@ -21,7 +21,7 @@ export function ListGroup({
           {header}
         </h3>
       )}
-      <div className="overflow-hidden rounded-[var(--radius-card)] bg-surface">
+      <div className="overflow-hidden k-card">
         {children}
       </div>
       {footer && (

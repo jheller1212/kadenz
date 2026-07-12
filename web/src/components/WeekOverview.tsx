@@ -40,7 +40,7 @@ function isPast(date: Date): boolean {
 export function WeekOverview({ days }: Props) {
   return (
     <div
-      className="rounded-[var(--radius-card)] border border-hairline bg-surface p-4"
+      className="k-card p-4"
       role="region"
       aria-label="Week overview"
     >

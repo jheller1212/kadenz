@@ -15,6 +15,7 @@ import {
   Sunrise,
   Sunset,
   RefreshCw,
+  Zap,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -65,6 +66,8 @@ interface TodayApiResponse {
   activePlan: boolean;
   planId?: string;
   planName?: string;
+  raceDistance?: string;
+  raceDate?: string;
   currentWeek?: number;
   totalWeeks?: number;
   todayWorkout?: TodayApiWorkout | null;
@@ -322,16 +325,68 @@ function WeekRingSelector({
       aria-label="Switch week"
     >
       <svg width="22" height="22" viewBox="0 0 22 22" className="-rotate-90">
+        <defs>
+          <linearGradient id="weekring-kinetic" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="var(--k-progress)" />
+            <stop offset="100%" stopColor="var(--k-progress-2)" />
+          </linearGradient>
+        </defs>
         <circle cx="11" cy="11" r={R} fill="none" stroke="var(--k-elevated)" strokeWidth="3.5" />
         <circle
           cx="11" cy="11" r={R} fill="none"
-          stroke="#2DD4BF" strokeWidth="3.5" strokeLinecap="round"
+          stroke="url(#weekring-kinetic)" strokeWidth="3.5" strokeLinecap="round"
           strokeDasharray={C} strokeDashoffset={C * (1 - pct)}
         />
       </svg>
       <span className="text-[17px] font-bold text-text-1">Week {currentWeek}/{totalWeeks}</span>
       <span className="text-[9px] leading-none text-text-1">▼</span>
     </button>
+  );
+}
+
+// ── Signature hero — the ONE gradient moment on this screen ─────────────────
+// Micro-label + display numerals only (no body text on gradients — DESIGN.md).
+
+const RACE_LABEL: Record<string, string> = {
+  "5k": "5K",
+  "10k": "10K",
+  half: "Half marathon",
+  marathon: "Marathon",
+};
+
+function PlanHeroCard({
+  raceDistance,
+  raceDate,
+  currentWeek,
+  totalWeeks,
+}: {
+  raceDistance?: string;
+  raceDate?: string;
+  currentWeek: number;
+  totalWeeks: number;
+}) {
+  const race = raceDistance ? RACE_LABEL[raceDistance] ?? raceDistance : null;
+  const dateLabel = raceDate
+    ? new Date(raceDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    : null;
+  return (
+    <TransitionLink
+      href="/plan"
+      className="k-signature press block rounded-[var(--radius-card)] p-4"
+      aria-label="View plan"
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] opacity-85">
+            {race ? `${race}${dateLabel ? ` · ${dateLabel}` : ""}` : "Training plan"}
+          </p>
+          <p className="mt-0.5 text-[22px] font-extrabold tracking-tight tabular-nums">
+            Week {currentWeek} of {totalWeeks}
+          </p>
+        </div>
+        <Zap className="h-6 w-6 opacity-90" strokeWidth={2} />
+      </div>
+    </TransitionLink>
   );
 }
 
@@ -373,7 +428,9 @@ function CalendarStrip({
               {DAY_LABELS[i]}
             </span>
             <div className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-colors ${
-              day.isToday ? "bg-text-1 text-bg" : isSelected ? "bg-elevated text-text-1" : missed ? "text-danger" : "text-text-2"
+              day.isToday
+                ? "text-on-accent [background:var(--k-accent-grad)] [background-color:var(--k-accent)] [box-shadow:var(--k-shadow-card)]"
+                : isSelected ? "bg-elevated text-text-1" : missed ? "text-danger" : "text-text-2"
             }`}>
               {day.dayNum}
             </div>
@@ -424,7 +481,7 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
       onClick={() => router.push(`/workout/${workout.id}`)}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 450, damping: 32 }}
-      className="w-full overflow-hidden rounded-[var(--radius-card)] bg-surface text-left"
+      className="w-full overflow-hidden k-card text-left"
     >
       <div className="flex">
         {/* Colored left strip */}
@@ -482,7 +539,7 @@ function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodaySt
   const workoutTypes = weekWorkouts.filter((d) => d.workout && d.workout.type !== "rest").map((d) => d.workout!);
 
   return (
-    <TransitionLink href="/plan" className="press block rounded-[var(--radius-card)] bg-surface p-4">
+    <TransitionLink href="/plan" className="press block k-card p-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-text-1">Week {currentWeek} Overview</p>
         <ChevronRight className="h-5 w-5 text-text-3" strokeWidth={2} />
@@ -569,7 +626,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
           {/* Row 1: Mileage + Pace */}
           <div className="grid grid-cols-2 gap-3">
             {/* Mileage card */}
-            <TransitionLink href="/insights" className="press block rounded-[var(--radius-card)] bg-surface p-4">
+            <TransitionLink href="/insights" className="press block k-card p-4">
               <div className="flex items-start justify-between">
                 <p className="text-sm font-bold text-text-1">{mileageTitle}</p>
                 <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
@@ -581,7 +638,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
             </TransitionLink>
             {/* Pace card */}
-            <TransitionLink href="/pace-insights" className="press block rounded-[var(--radius-card)] bg-surface p-4">
+            <TransitionLink href="/pace-insights" className="press block k-card p-4">
               <div className="flex items-start justify-between">
                 <p className="text-sm font-bold text-text-1">Pace on point</p>
                 <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
@@ -600,7 +657,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
           {/* Row 2: Weather + Week summary */}
           <div className="grid grid-cols-2 gap-3">
             {/* Weather card */}
-            <div className="flex min-h-[130px] flex-col justify-between rounded-[var(--radius-card)] bg-surface p-4">
+            <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">{todayLabel}</p>
                 {weather && (
@@ -634,7 +691,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
             </div>
 
             {/* Week summary card */}
-            <div className="flex min-h-[130px] flex-col justify-between rounded-[var(--radius-card)] bg-surface p-4">
+            <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Week {currentWeek}/{totalWeeks}</p>
                 <p className="mt-1 text-3xl font-extrabold text-text-1">{completedWorkouts.length}/{workoutDays.length}</p>
@@ -668,7 +725,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
             tabIndex={0}
             onClick={() => router.push("/activities")}
             onKeyDown={(e) => { if (e.key === "Enter") router.push("/activities"); }}
-            className="press flex cursor-pointer items-center gap-4 rounded-[var(--radius-card)] bg-surface p-4"
+            className="press flex cursor-pointer items-center gap-4 k-card p-4"
           >
             <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0">
               <circle cx="50" cy="50" r="40" fill="none" stroke="var(--k-elevated)" strokeWidth="8" />
@@ -708,7 +765,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
 
 function RestDayCard() {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] bg-surface p-6 text-center">
+    <div className="flex flex-col items-center gap-3 k-card p-6 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-elevated">
         <Moon className="h-6 w-6 text-text-3" strokeWidth={1.5} />
       </div>
@@ -1032,6 +1089,16 @@ export default function Home() {
 
         {/* Divider */}
         <div className="mx-5 h-px bg-hairline" />
+
+        {/* Signature hero — the one gradient moment on this screen */}
+        <div className="px-5">
+          <PlanHeroCard
+            raceDistance={data.raceDistance}
+            raceDate={data.raceDate}
+            currentWeek={displayedWeek}
+            totalWeeks={totalWeeks}
+          />
+        </div>
 
         {/* Missed-session adjustment tray (Benchmark-style) */}
         <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />
