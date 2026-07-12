@@ -80,6 +80,8 @@ export function WellnessCheckIn() {
       if (res.ok) {
         haptic("light");
         setSavedAt(Date.now());
+        // Let the readiness card (and anything else) recompute immediately.
+        window.dispatchEvent(new Event("kadenz:wellness-saved"));
       } else {
         setError("Couldn't save.");
       }

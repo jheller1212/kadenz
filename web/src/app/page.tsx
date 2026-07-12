@@ -30,6 +30,7 @@ import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
 import { WellnessCheckIn } from "@/components/WellnessCheckIn";
+import { ReadinessCard } from "@/components/ReadinessCard";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { haptic } from "@/lib/haptics";
 
@@ -1124,7 +1125,10 @@ export default function Home() {
           <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
         </div>
 
-        {/* Daily wellness check-in */}
+        {/* Readiness + daily wellness check-in */}
+        <div className="px-5">
+          <ReadinessCard />
+        </div>
         <WellnessCheckIn />
 
         {/* Divider */}
