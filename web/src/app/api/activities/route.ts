@@ -138,9 +138,22 @@ export async function GET(request: NextRequest) {
     const linkedSessionIds = new Set(
       allActivities.filter((a) => a.strengthSessionId).map((a) => a.strengthSessionId!)
     );
+    // A stale planned session is a duplicate when a completed session of the
+    // same type exists on the same day (the workout happened — via an ad-hoc
+    // start — and the planned row was simply left behind). Hide it.
+    const completedDayType = new Set(
+      strengthRows
+        .filter((s) => s.status === "completed")
+        .map((s) => `${new Date(s.date).toDateString()}:${s.type}`)
+    );
     const strengthItems = strengthRows
       .filter((s) => !linkedSessionIds.has(s.id))
       .filter((s) => s.status === "completed" || (s.status === "planned" && new Date(s.date) < now))
+      .filter(
+        (s) =>
+          s.status === "completed" ||
+          !completedDayType.has(`${new Date(s.date).toDateString()}:${s.type}`)
+      )
       .map((s) => ({
         id: `strength:${s.id}`,
         source: "session" as const,

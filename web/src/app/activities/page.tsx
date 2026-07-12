@@ -336,6 +336,19 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
     );
   }
 
+  // Standalone in-app strength session → read-only session summary
+  if (workout.strengthSessionId) {
+    return (
+      <TransitionLink
+        href={`/strength/session/${workout.strengthSessionId}`}
+        aria-label={`View strength session ${workout.title}`}
+        className="press block overflow-hidden k-card"
+      >
+        {cardInner}
+      </TransitionLink>
+    );
+  }
+
   return <div className="overflow-hidden k-card">{cardInner}</div>;
 }
 

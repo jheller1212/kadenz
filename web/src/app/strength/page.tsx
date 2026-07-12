@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Plus, X , CalendarDays } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
@@ -101,22 +101,48 @@ export default function StrengthPage() {
     }
   }
 
-  // ── Picker → create the session, but land on the overview (no clock yet) ────
+  // Session id created ad-hoc by this flow (vs adopted from the plan) — if the
+  // user backs out of the overview without logging anything, we delete it again
+  // so abandoned picker taps don't linger as phantom "missed" sessions.
+  const adHocIdRef = useRef<string | null>(null);
+
+  // ── Picker → adopt today's planned session of this type, or create one ──────
   async function pickType(type: SessionType) {
     setBusy(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/strength/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, date: new Date().toISOString(), force: true }),
-      });
-      if (!res.ok) {
-        setError("Couldn't start the session. Try again.");
-        return;
+      let sessionId: string | null = null;
+      adHocIdRef.current = null;
+
+      // Adopt: a planned session of this type scheduled for today.
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date();
+      dayEnd.setHours(23, 59, 59, 999);
+      const listRes = await apiFetch(
+        `/api/strength/sessions?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`
+      );
+      if (listRes.ok) {
+        const todays = (await listRes.json()) as Array<{ id: string; type: string; status: string }>;
+        sessionId = todays.find((s) => s.type === type && s.status === "planned")?.id ?? null;
       }
-      const { session: s } = await res.json();
-      const detailRes = await apiFetch(`/api/strength/sessions/${s.id}`);
+
+      if (!sessionId) {
+        const res = await apiFetch("/api/strength/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type, date: new Date().toISOString(), force: true }),
+        });
+        if (!res.ok) {
+          setError("Couldn't start the session. Try again.");
+          return;
+        }
+        const { session: s } = await res.json();
+        sessionId = s.id as string;
+        adHocIdRef.current = sessionId;
+      }
+
+      const detailRes = await apiFetch(`/api/strength/sessions/${sessionId}`);
       if (!detailRes.ok) {
         setError("Couldn't load the session. Try again.");
         return;
@@ -134,6 +160,12 @@ export default function StrengthPage() {
 
   function backToPicker() {
     haptic("light");
+    // Abandoning a just-created ad-hoc session before logging anything? Remove
+    // it again (adopted planned sessions are left untouched).
+    if (phase === "overview" && adHocIdRef.current && session?.id === adHocIdRef.current) {
+      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+    }
+    adHocIdRef.current = null;
     setPhase("picker");
     setSession(null);
     setExercises([]);
