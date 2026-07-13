@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
 import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
+import { getVideoId } from "@/lib/strength/videos";
+import { VideoSheet } from "@/components/strength/VideoSheet";
 import type { ExerciseDef } from "@/lib/strength/types";
 import type { CustomWorkoutInput } from "@/hooks/useCustomWorkouts";
 
@@ -47,6 +49,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
   const [slots, setSlots] = useState<DraftSlot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [videoSlug, setVideoSlug] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -260,30 +263,50 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
               </p>
               <div className="flex flex-col gap-1.5">
                 {list.map((ex) => (
-                  <button
+                  <div
                     key={ex.slug}
-                    type="button"
-                    onClick={() => addExercise(ex)}
-                    className="press rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-left"
+                    className="flex items-center rounded-[var(--radius-input)] bg-elevated"
                   >
-                    <span className="block text-[15px] font-semibold text-text-1">{ex.name}</span>
-                    {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
-                      <span className="block text-[12px] text-text-3">
-                        also {ex.secondaryMuscles.join(", ").toLowerCase()}
-                      </span>
+                    <button
+                      type="button"
+                      onClick={() => addExercise(ex)}
+                      className="press min-w-0 flex-1 px-3.5 py-2.5 text-left"
+                    >
+                      <span className="block text-[15px] font-semibold text-text-1">{ex.name}</span>
+                      {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
+                        <span className="block text-[12px] text-text-3">
+                          also {ex.secondaryMuscles.join(", ").toLowerCase()}
+                        </span>
+                      )}
+                      {(ex.equipmentNote || ex.tempoNote) && (
+                        <span className="block text-[12px] text-text-3">
+                          {ex.equipmentNote ?? ex.tempoNote}
+                        </span>
+                      )}
+                    </button>
+                    {getVideoId(ex.slug) && (
+                      <button
+                        type="button"
+                        aria-label={`Watch ${ex.name} demo`}
+                        onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
+                        className="press px-3 py-2.5 text-[13px] font-bold text-accent"
+                      >
+                        ▶
+                      </button>
                     )}
-                    {(ex.equipmentNote || ex.tempoNote) && (
-                      <span className="block text-[12px] text-text-3">
-                        {ex.equipmentNote ?? ex.tempoNote}
-                      </span>
-                    )}
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
           ))}
         </div>
       </Sheet>
+
+      <VideoSheet
+        slug={videoSlug}
+        title={videoSlug ? EXERCISES.find((e) => e.slug === videoSlug)?.name : undefined}
+        onClose={() => setVideoSlug(null)}
+      />
     </>
   );
 }

@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 import { Minus, Plus, Volume2, VolumeX, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
+import { VideoSheet } from "@/components/strength/VideoSheet";
+import { getVideoId } from "@/lib/strength/videos";
 import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 
@@ -145,6 +147,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
   const [prefs, setPrefs] = useState<UserSettings>(() => loadSettings());
   const [now, setNow] = useState<number>(() => Date.now());
   const [exIndex, setExIndex] = useState(0);
+  const [videoSlug, setVideoSlug] = useState<string | null>(null);
   const [work, setWork] = useState<Record<string, WorkSet[]>>(() => buildWork(exercises));
   const [timer, setTimer] = useState<Timer | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -520,6 +523,16 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
         <div className="mt-2 flex flex-wrap justify-center gap-1.5">
           {ex.flatGroundOnly && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>}
           {ex.painGated && <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">Eased — pain gate</span>}
+          {getVideoId(ex.slug) && (
+            <button
+              type="button"
+              onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
+              style={{ touchAction: "manipulation" }}
+              className="press rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-accent"
+            >
+              ▶ Watch demo
+            </button>
+          )}
         </div>
 
         {/* Preceding sets (weight · reps · time) */}
@@ -624,6 +637,12 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
         </div>
         <p className="mt-1.5 text-center text-[11px] text-text-3">Swipe left/right to move between exercises</p>
       </div>
+
+      <VideoSheet
+        slug={videoSlug}
+        title={videoSlug ? exercises.find((e) => e.slug === videoSlug)?.name : undefined}
+        onClose={() => setVideoSlug(null)}
+      />
     </div>
   );
 
