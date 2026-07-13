@@ -62,7 +62,7 @@ const TYPE_META: Record<SessionType, { title: string; sub: string; color: string
   upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#3B82F6" },
   lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#D8B4FE" },
   lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#A855F7" },
-  achilles: { title: "Achilles", sub: "5 lifts · ~25 min", color: "#FB923C" },
+  achilles: { title: "Achilles", sub: "4 lifts · ~20 min", color: "#FB923C" },
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399" },
 };
 

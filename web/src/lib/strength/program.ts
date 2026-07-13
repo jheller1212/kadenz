@@ -263,17 +263,16 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   achilles: {
     type: "achilles",
     title: "Achilles — Kraft",
-    targetDurationMinutes: 25,
+    targetDurationMinutes: 20,
     effortNote: "Explosive at 6 reps only; HSR at 2x/week only",
     slots: [
-      // Explosive
+      // Explosive first, then the 2 HSR lifts + toe walks — a focused tendon
+      // session needs no general lower work (that lives in the combo days).
       { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
-      { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 120 },
       // Slow heavy (HSR) — 2x per week
       { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
       { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
-      // Lower
-      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 120 },
     ],
   },
   lower_achilles: {
@@ -304,7 +303,7 @@ export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
   upper: 35,
   lower: 35,
   upper_achilles: 50,
-  achilles: 25,
+  achilles: 20,
   lower_achilles: 50,
   full_body: 38,
 };
