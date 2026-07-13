@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
@@ -182,8 +183,11 @@ function EditPlanInner() {
         title="Edit plan"
         large
         left={
-          <button onClick={() => router.back()} className="text-[17px] text-accent">
-            Cancel
+          <button
+            onClick={() => router.back()}
+            className="press flex h-11 w-11 items-center justify-center -ml-2 rounded-lg active:bg-elevated"
+          >
+            <ChevronLeft className="h-5 w-5 text-text-1" strokeWidth={2.5} />
           </button>
         }
       />

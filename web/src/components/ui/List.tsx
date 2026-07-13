@@ -52,15 +52,17 @@ export function Row({
   danger,
 }: RowProps) {
   const interactive = !!onClick;
+  const Element = interactive ? "button" : "div";
+
   return (
-    <button
-      disabled={!interactive}
-      onClick={() => {
-        if (!interactive) return;
-        haptic("light");
-        onClick();
-      }}
-      style={{ touchAction: "manipulation" }}
+    <Element
+      {...(interactive ? {
+        onClick: () => {
+          haptic("light");
+          onClick();
+        },
+        style: { touchAction: "manipulation" },
+      } : {})}
       className={`flex w-full items-center gap-3 px-4 py-3 text-left
         first:border-t-0 border-t border-hairline/60
         ${interactive ? "active:bg-elevated" : ""}`}
@@ -84,6 +86,6 @@ export function Row({
       </span>
       {accessory && <span className="shrink-0 text-[15px] text-text-2">{accessory}</span>}
       {chevron && <ChevronRight className="h-4 w-4 shrink-0 text-text-3" />}
-    </button>
+    </Element>
   );
 }
