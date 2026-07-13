@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/feedback";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
-import { AlertCircle, Check, Plus } from "lucide-react";
+import { AlertCircle, Check, Plus, ChevronLeft } from "lucide-react";
 import { getActiveProfile, switchProfile } from "@/lib/profile-client";
 
 // ── Household profiles ───────────────────────────────────────────────────────
@@ -308,7 +308,18 @@ export default function SettingsPage() {
 
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Me" large />
+      <NavBar
+        title="Me"
+        large
+        left={
+          <button
+            onClick={() => router.back()}
+            className="press flex h-11 w-11 items-center justify-center -ml-2 rounded-lg active:bg-elevated"
+          >
+            <ChevronLeft className="h-5 w-5 text-text-1" strokeWidth={2.5} />
+          </button>
+        }
+      />
 
       <div className="px-4 pb-tabbar">
         {/* Appearance */}
