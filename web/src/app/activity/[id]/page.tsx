@@ -805,6 +805,126 @@ function HrZonesSection({ activity }: { activity: ActivityDetail }) {
   );
 }
 
+// ── Link to a planned workout (manual fallback for unmatched activities) ─────
+
+interface LinkCandidates {
+  runs: Array<{ id: string; date: string; type: string; title: string; targetKm: number | null; status: string }>;
+  strength: Array<{ id: string; date: string; type: string; title: string; status: string; linked: boolean }>;
+}
+
+function LinkActivitySection({ activityId, onLinked }: { activityId: string; onLinked: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [cands, setCands] = useState<LinkCandidates | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function openSheet() {
+    haptic("light");
+    setOpen(true);
+    setErr(null);
+    if (cands) return;
+    try {
+      const res = await apiFetch(`/api/activities/${activityId}/candidates`);
+      if (!res.ok) throw new Error();
+      setCands(await res.json());
+    } catch {
+      setErr("Couldn't load nearby workouts.");
+    }
+  }
+
+  async function link(body: { workoutId: string } | { strengthSessionId: string }) {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await apiFetch(`/api/activities/${activityId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      haptic("success");
+      setOpen(false);
+      onLinked();
+    } catch {
+      setErr("Couldn't link — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const dayLabel = (d: string) =>
+    new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+
+  return (
+    <div className="k-card p-4">
+      <p className="text-[15px] font-bold text-text-1">Not linked to your plan</p>
+      <p className="mt-0.5 text-[13px] text-text-3">
+        Attach this activity to a planned session so your week counts it.
+      </p>
+      <Button variant="secondary" full className="mt-3" onClick={openSheet}>
+        Link to a workout
+      </Button>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title="Link activity">
+        <div className="max-h-[60dvh] overflow-y-auto px-4 pb-6">
+          {err && (
+            <p className="mb-3 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">{err}</p>
+          )}
+          {!cands && !err && <Skeleton className="h-24" />}
+          {cands && cands.runs.length === 0 && cands.strength.length === 0 && (
+            <p className="py-6 text-center text-[14px] text-text-3">
+              No planned sessions within 3 days of this activity.
+            </p>
+          )}
+          {cands && cands.runs.length > 0 && (
+            <div className="mb-4">
+              <p className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-text-3">Runs</p>
+              <div className="flex flex-col gap-1.5">
+                {cands.runs.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => link({ workoutId: w.id })}
+                    className="press rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-left disabled:opacity-50"
+                  >
+                    <span className="block text-[15px] font-semibold text-text-1">{w.title}</span>
+                    <span className="block text-[12px] text-text-3">
+                      {dayLabel(w.date)}{w.targetKm ? ` · ${w.targetKm} km` : ""}{w.status === "completed" ? " · already completed" : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {cands && cands.strength.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-text-3">Strength</p>
+              <div className="flex flex-col gap-1.5">
+                {cands.strength.map((sess) => (
+                  <button
+                    key={sess.id}
+                    type="button"
+                    disabled={busy || sess.linked}
+                    onClick={() => link({ strengthSessionId: sess.id })}
+                    className="press rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-left disabled:opacity-40"
+                  >
+                    <span className="block text-[15px] font-semibold text-text-1">{sess.title}</span>
+                    <span className="block text-[12px] text-text-3">
+                      {dayLabel(sess.date)}{sess.linked ? " · linked to another activity" : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
 // ── Loading Skeleton ──────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
@@ -840,20 +960,22 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
   const [error, setError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiFetch(`/api/activities/${id}`);
-        if (!res.ok) throw new Error("Not found");
-        const data: ActivityDetail = await res.json();
-        setActivity(data);
-      } catch {
-        setError(true);
-      } finally {
-        setLoading(false);
-      }
+  async function reload() {
+    try {
+      const res = await apiFetch(`/api/activities/${id}`);
+      if (!res.ok) throw new Error("Not found");
+      const data: ActivityDetail = await res.json();
+      setActivity(data);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
     }
-    load();
+  }
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (loading) return <LoadingSkeleton />;
@@ -941,6 +1063,9 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
 
         {/* Planned Workout */}
         {activity.plannedWorkout && <PlannedWorkoutSection workout={activity.plannedWorkout} />}
+        {!activity.plannedWorkout && (
+          <LinkActivitySection activityId={activity.id} onLinked={reload} />
+        )}
 
         {/* Laps */}
         {activity.laps.length > 0 && <LapsSection laps={activity.laps} targetPaceSecKm={targetPaceSecKm} />}
