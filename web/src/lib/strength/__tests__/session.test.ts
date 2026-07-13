@@ -46,7 +46,7 @@ describe("buildSessionPlan", () => {
   });
 
   it("hits the documented session time targets", () => {
-    expect(SESSION_TEMPLATES.upper.targetDurationMinutes).toBe(35);
+    expect(SESSION_TEMPLATES.upper.targetDurationMinutes).toBe(40);
     expect(SESSION_TEMPLATES.lower.targetDurationMinutes).toBe(35);
     expect(SESSION_TEMPLATES.lower_achilles.targetDurationMinutes).toBe(50);
   });

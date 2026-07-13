@@ -56,6 +56,16 @@ export const EXERCISES: ExerciseDef[] = [
     repHigh: 12,
     startWeightKg: 7.5,
   },
+  {
+    slug: "lateral_raise",
+    name: "Lateral raise",
+    category: "upper",
+    tempoNote: "Strict, no swing — light weight, controlled lower",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 15,
+    startWeightKg: 5,
+  },
 
   // Lower day
   {
@@ -207,14 +217,15 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   upper: {
     type: "upper",
     title: "Upper — Kraft",
-    targetDurationMinutes: 35,
+    targetDurationMinutes: 40,
     effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
       { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "renegade_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
+      { exerciseSlug: "lateral_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60 },
     ],
   },
   lower: {
@@ -300,7 +311,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
 };
 
 export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
-  upper: 35,
+  upper: 40,
   lower: 35,
   upper_achilles: 50,
   achilles: 20,

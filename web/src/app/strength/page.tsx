@@ -58,7 +58,7 @@ type Phase = "picker" | "overview" | "guided" | "summary";
 // shade), Lower days are purples (+ Achilles = deeper shade), standalone
 // Achilles is orange, Full Body green.
 const TYPE_META: Record<SessionType, { title: string; sub: string; color: string }> = {
-  upper: { title: "Upper", sub: "5 lifts · ~35 min", color: "#93C5FD" },
+  upper: { title: "Upper", sub: "6 lifts · ~40 min", color: "#93C5FD" },
   upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#3B82F6" },
   lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#D8B4FE" },
   lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#A855F7" },
