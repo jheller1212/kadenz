@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Plus, X , CalendarDays } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
@@ -19,6 +19,14 @@ import GuidedSession, {
   type PlannedExercise,
   type SessionType,
 } from "@/components/strength/GuidedSession";
+import { CustomWorkoutBuilder } from "@/components/strength/CustomWorkoutBuilder";
+import {
+  useCustomWorkouts,
+  type CustomWorkoutInput,
+  type CustomWorkoutTemplate,
+} from "@/hooks/useCustomWorkouts";
+import { estimateWorkoutDuration } from "@/lib/strength/estimate";
+import { EXERCISES } from "@/lib/strength/program";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
 
@@ -48,8 +56,10 @@ type Phase = "picker" | "overview" | "guided" | "summary";
 
 const TYPE_META: Record<SessionType, { title: string; sub: string; color: string }> = {
   upper: { title: "Upper", sub: "5 lifts · ~35 min", color: "#60A5FA" },
-  lower: { title: "Lower", sub: "4 lifts · ~28 min", color: "#C084FC" },
-  lower_achilles: { title: "Lower + Achilles", sub: "7 lifts · ~46 min", color: "#FFB547" },
+  lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#C084FC" },
+  upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#A78BFA" },
+  achilles: { title: "Achilles", sub: "5 lifts · ~25 min", color: "#FB923C" },
+  lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#FFB547" },
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399" },
 };
 
@@ -57,6 +67,8 @@ const TYPE_META: Record<SessionType, { title: string; sub: string; color: string
 const ADD_CATEGORIES: Record<SessionType, Array<ExerciseCatalogRow["category"]>> = {
   upper: ["upper"],
   lower: ["lower"],
+  upper_achilles: ["upper", "achilles"],
+  achilles: ["achilles"],
   lower_achilles: ["lower", "achilles"],
   full_body: ["full_body", "upper", "lower"],
 };
@@ -76,6 +88,14 @@ export default function StrengthPage() {
   const [painLogged, setPainLogged] = useState(false);
   const [painSaving, setPainSaving] = useState(false);
   const [painError, setPainError] = useState<string | null>(null);
+
+  const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
+  const { templates, listWorkouts, createWorkout, deleteWorkout } =
+    useCustomWorkouts();
+
+  useEffect(() => {
+    if (phase === "picker") listWorkouts();
+  }, [phase, listWorkouts]);
 
   async function logPain(score: number) {
     if (!session || painSaving) return;
@@ -173,6 +193,87 @@ export default function StrengthPage() {
     setError(null);
   }
 
+  async function handleSaveCustomWorkout(input: CustomWorkoutInput) {
+    await createWorkout(input);
+    haptic("success");
+  }
+
+  async function handleDeleteCustomWorkout(id: string) {
+    haptic("light");
+    try {
+      await deleteWorkout(id);
+    } catch {
+      setError("Couldn't delete the workout.");
+    }
+  }
+
+  // Start a saved custom workout: create an ad-hoc session to log against,
+  // then hand the template's slots to the overview/guided flow. Sets are
+  // logged by exercise slug, so no session-type coupling is needed.
+  async function startCustomWorkout(template: CustomWorkoutTemplate) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/strength/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "full_body",
+          date: new Date().toISOString(),
+          force: true,
+          title: template.name,
+          targetDurationMinutes: estimateWorkoutDuration(template.slots),
+        }),
+      });
+      if (!res.ok) {
+        setError("Couldn't start the session. Try again.");
+        return;
+      }
+      const { session: s } = await res.json();
+      adHocIdRef.current = s.id as string;
+
+      const planned: PlannedExercise[] = template.slots.map((slot) => {
+        const ex = EXERCISES.find((e) => e.slug === slot.exerciseSlug);
+        return {
+          slug: slot.exerciseSlug,
+          name: ex?.name ?? slot.exerciseSlug,
+          category: ex?.category ?? "full_body",
+          equipmentNote: ex?.equipmentNote,
+          tempoNote: ex?.tempoNote,
+          flatGroundOnly: ex?.flatGroundOnly ?? false,
+          perSide: false,
+          sets: slot.sets,
+          repLow: slot.repLow,
+          repHigh: slot.repHigh,
+          restSeconds: slot.restSeconds,
+          prescription:
+            slot.repLow === slot.repHigh
+              ? `${slot.sets} × ${slot.repLow}`
+              : `${slot.sets} × ${slot.repLow}–${slot.repHigh}`,
+          suggestedWeightKg: slot.weightKg ?? ex?.startWeightKg ?? null,
+          lastWeightKg: null,
+          painGated: false,
+          progression: { action: "same", reason: "Custom workout" },
+        };
+      });
+
+      setSession({
+        id: s.id,
+        type: "full_body",
+        title: template.name,
+        status: "planned",
+        targetDurationMinutes: estimateWorkoutDuration(template.slots),
+        plannedExercises: planned,
+      });
+      setExercises(planned);
+      setPhase("overview");
+    } catch {
+      setError("Network error — couldn't start the session.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function removeExercise(slug: string) {
     haptic("light");
     setExercises((exs) => exs.filter((e) => e.slug !== slug));
@@ -240,7 +341,13 @@ export default function StrengthPage() {
     setPhase("summary");
   }
 
-  function handleExitGuided() {
+  function handleExitGuided(setsLogged: number) {
+    // An ad-hoc session abandoned with nothing logged shouldn't linger as a
+    // phantom planned session on today.
+    if (setsLogged === 0 && adHocIdRef.current && session?.id === adHocIdRef.current) {
+      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+    }
+    adHocIdRef.current = null;
     setPhase("picker");
     setSession(null);
     setExercises([]);
@@ -292,6 +399,43 @@ export default function StrengthPage() {
             ))}
           </div>
 
+          <div className="mt-6">
+            <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
+              Custom
+            </p>
+            <div className="flex flex-col gap-3">
+              {templates.map((t) => (
+                <div key={t.id} className="flex items-center gap-3 k-card p-4">
+                  <span className="h-10 w-1.5 shrink-0 rounded-full bg-accent/60" />
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => startCustomWorkout(t)}
+                    className="min-w-0 flex-1 text-left disabled:opacity-50"
+                  >
+                    <span className="block text-[17px] font-bold text-text-1">{t.name}</span>
+                    <span className="block text-[13px] text-text-3">
+                      {t.slots.length} lift{t.slots.length === 1 ? "" : "s"} · ~
+                      {estimateWorkoutDuration(t.slots)} min
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${t.name}`}
+                    onClick={() => handleDeleteCustomWorkout(t.id)}
+                    className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated"
+                  >
+                    <X className="h-4 w-4 text-text-3" strokeWidth={1.9} />
+                  </button>
+                </div>
+              ))}
+              <Button variant="secondary" full onClick={() => setCustomBuilderOpen(true)}>
+                <Plus className="h-4 w-4" strokeWidth={2.2} />
+                Create custom workout
+              </Button>
+            </div>
+          </div>
+
           <TransitionLink
             href="/strength/history"
             className="mt-5 block text-center text-[15px] font-semibold text-accent"
@@ -299,6 +443,13 @@ export default function StrengthPage() {
             View history →
           </TransitionLink>
         </div>
+
+        <CustomWorkoutBuilder
+          open={customBuilderOpen}
+          onClose={() => setCustomBuilderOpen(false)}
+          onSave={handleSaveCustomWorkout}
+        />
+
         <BottomNav active="strength" />
       </main>
     );

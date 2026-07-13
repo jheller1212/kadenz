@@ -108,6 +108,8 @@ export const strengthSessionTypeEnum = pgEnum("strength_session_type", [
   "upper",
   "lower",
   "lower_achilles",
+  "upper_achilles",
+  "achilles",
   "full_body",
 ]);
 
@@ -486,6 +488,48 @@ export const painLogs = pgTable(
   (t) => [index("pain_logs_session_id_idx").on(t.sessionId)]
 );
 
+// User-defined custom workout templates. Profile-scoped (NULL = owner).
+export const customWorkoutTemplates = pgTable(
+  "custom_workout_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // NULL = owner; set = household guest profile
+    profileId: uuid("profile_id").references(() => profiles.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("custom_workout_templates_profile_id_idx").on(t.profileId)]
+);
+
+// Exercises within a custom workout template.
+export const customWorkoutSlots = pgTable(
+  "custom_workout_slots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => customWorkoutTemplates.id, { onDelete: "cascade" }),
+    exerciseSlug: text("exercise_slug").notNull(),
+    sets: integer("sets").notNull().default(3),
+    repLow: integer("rep_low").notNull(),
+    repHigh: integer("rep_high").notNull(),
+    weightKg: real("weight_kg"),
+    restSeconds: integer("rest_seconds").notNull().default(90),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("custom_workout_slots_template_id_idx").on(t.templateId)]
+);
+
 // ── Relations ─────────────────────────────────────────────────────────────────
 
 export const plansRelations = relations(plans, ({ many }) => ({
@@ -551,6 +595,23 @@ export const strengthSetsRelations = relations(strengthSets, ({ one }) => ({
     references: [strengthExercises.id],
   }),
 }));
+
+export const customWorkoutTemplatesRelations = relations(
+  customWorkoutTemplates,
+  ({ many }) => ({
+    slots: many(customWorkoutSlots),
+  })
+);
+
+export const customWorkoutSlotsRelations = relations(
+  customWorkoutSlots,
+  ({ one }) => ({
+    template: one(customWorkoutTemplates, {
+      fields: [customWorkoutSlots.templateId],
+      references: [customWorkoutTemplates.id],
+    }),
+  })
+);
 
 export const painLogsRelations = relations(painLogs, ({ one }) => ({
   session: one(strengthSessions, {

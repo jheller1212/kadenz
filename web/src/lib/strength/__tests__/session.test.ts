@@ -11,9 +11,13 @@ describe("buildSessionPlan", () => {
     expect(hsrIdx).toBeGreaterThan(explosiveIdx);
   });
 
-  it("swaps the Bulgarian split squat for the box step-up on Achilles days", () => {
+  it("keeps the Bulgarian split squat alongside the box step-up on Achilles days", () => {
+    // Coach feedback (Phase 1): the split squat stays on lower days at 15–25
+    // slow-eccentric reps; the explosive box step-up is added, not swapped in.
     const plan = buildSessionPlan("lower_achilles");
-    expect(plan.some((p) => p.slug === "bulgarian_split_squat")).toBe(false);
+    const split = plan.find((p) => p.slug === "bulgarian_split_squat");
+    expect(split?.repLow).toBe(15);
+    expect(split?.repHigh).toBe(25);
     expect(plan.some((p) => p.slug === "explosive_box_step_up")).toBe(true);
   });
 
@@ -43,8 +47,8 @@ describe("buildSessionPlan", () => {
 
   it("hits the documented session time targets", () => {
     expect(SESSION_TEMPLATES.upper.targetDurationMinutes).toBe(35);
-    expect(SESSION_TEMPLATES.lower.targetDurationMinutes).toBe(28);
-    expect(SESSION_TEMPLATES.lower_achilles.targetDurationMinutes).toBe(46);
+    expect(SESSION_TEMPLATES.lower.targetDurationMinutes).toBe(35);
+    expect(SESSION_TEMPLATES.lower_achilles.targetDurationMinutes).toBe(50);
   });
 });
 

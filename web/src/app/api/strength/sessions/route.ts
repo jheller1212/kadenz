@@ -11,10 +11,14 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 
 const CreateSchema = z.object({
-  type: z.enum(["upper", "lower", "lower_achilles", "full_body"]),
+  type: z.enum(["upper", "lower", "lower_achilles", "upper_achilles", "achilles", "full_body"]),
   date: z.string().datetime(),
   planId: z.string().uuid().optional(),
   force: z.boolean().optional(),
+  // Custom-workout sessions override the stock template's display fields so
+  // history and calendar fan-out show the template name, not "Full Body".
+  title: z.string().trim().min(1).max(120).optional(),
+  targetDurationMinutes: z.number().int().min(1).max(600).optional(),
 });
 
 // ── GET /api/strength/sessions?from=&to= ──────────────────────────────────────
@@ -133,8 +137,9 @@ export async function POST(request: NextRequest) {
         date,
         dayOfWeek: date.getDay(),
         type: data.type,
-        title: template.title,
-        targetDurationMinutes: template.targetDurationMinutes,
+        title: data.title ?? template.title,
+        targetDurationMinutes:
+          data.targetDurationMinutes ?? template.targetDurationMinutes,
         status: "planned",
       })
       .returning();

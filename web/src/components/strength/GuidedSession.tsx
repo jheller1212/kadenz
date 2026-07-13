@@ -10,7 +10,7 @@ import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
 
-export type SessionType = "upper" | "lower" | "lower_achilles" | "full_body";
+export type SessionType = "upper" | "lower" | "lower_achilles" | "upper_achilles" | "achilles" | "full_body";
 
 export interface PlannedExercise {
   slug: string;
@@ -54,7 +54,8 @@ interface WorkSet {
 interface Props {
   session: GuidedSessionInfo;
   exercises: PlannedExercise[];
-  onExit: () => void;
+  /** Called on early exit with how many sets were logged so far. */
+  onExit: (setsLogged: number) => void;
   onFinish: (summary: GuidedFinishSummary) => void;
 }
 
@@ -475,7 +476,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 pb-1">
-        <button type="button" onClick={() => { haptic("light"); onExit(); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">
+        <button type="button" onClick={() => { haptic("light"); onExit(Object.values(work).flat().filter((s) => s.logged).length); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">
           Exit
         </button>
         <div className="flex items-center gap-2">

@@ -82,10 +82,21 @@ export const EXERCISES: ExerciseDef[] = [
     name: "Bulgarian split squat (chair)",
     category: "lower",
     equipmentNote: "Rear foot on chair",
+    tempoNote: "Slow eccentric, 3-4 seconds down",
     defaultSets: 3,
-    repLow: 8,
-    repHigh: 12,
+    repLow: 15,
+    repHigh: 25,
     startWeightKg: 7.5,
+  },
+  {
+    slug: "single_leg_rdl",
+    name: "Single-leg Romanian deadlift",
+    category: "lower",
+    tempoNote: "Slow eccentric, 3-4 seconds down, hamstring stretch",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 25,
+    startWeightKg: 15,
   },
   {
     slug: "single_leg_hip_thrust",
@@ -197,29 +208,32 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     type: "upper",
     title: "Upper — Kraft",
     targetDurationMinutes: 35,
+    effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
       { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "renegade_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
     ],
   },
   lower: {
     type: "lower",
     title: "Lower — Kraft",
-    targetDurationMinutes: 28,
+    targetDurationMinutes: 35,
+    effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
       { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
-      { exerciseSlug: "single_leg_hip_thrust", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
+      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
+      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
     ],
   },
   full_body: {
     type: "full_body",
     title: "Full Body",
     targetDurationMinutes: 38,
+    effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
       { exerciseSlug: "goblet_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
@@ -229,29 +243,69 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
     ],
   },
+  upper_achilles: {
+    type: "upper_achilles",
+    title: "Upper + Achilles — Kraft",
+    targetDurationMinutes: 50,
+    effortNote: "1-2 reps in reserve on upper; explosive step-ups at 6 reps only",
+    slots: [
+      // Upper
+      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      // Achilles: explosive first, then HSR
+      { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
+      { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+      { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+    ],
+  },
+  achilles: {
+    type: "achilles",
+    title: "Achilles — Kraft",
+    targetDurationMinutes: 25,
+    effortNote: "Explosive at 6 reps only; HSR at 2x/week only",
+    slots: [
+      // Explosive
+      { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
+      { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 120 },
+      // Slow heavy (HSR) — 2x per week
+      { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+      { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+      // Lower
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+    ],
+  },
   lower_achilles: {
     type: "lower_achilles",
     title: "Lower + Achilles — Kraft",
-    targetDurationMinutes: 46,
+    targetDurationMinutes: 50,
+    effortNote: "1-2 reps in reserve on lower/upper; explosive at 6 reps only",
     slots: [
       // Explosive first
       { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
-      { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 90 },
+      // Slow heavy (HSR) second
+      { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+      { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+      // Toe walks third
+      { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 120 },
       // Main lower strength
       { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "single_leg_hip_thrust", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
-      // Slow heavy (HSR) last
-      { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
+      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
+      // Glute bridge last
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
     ],
   },
 };
 
 export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
   upper: 35,
-  lower: 28,
-  lower_achilles: 46,
+  lower: 35,
+  upper_achilles: 50,
+  achilles: 25,
+  lower_achilles: 50,
   full_body: 38,
 };
 

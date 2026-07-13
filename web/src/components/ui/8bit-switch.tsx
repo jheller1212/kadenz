@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import { haptic } from "@/lib/haptics";
 
 interface Props {
@@ -8,34 +9,44 @@ interface Props {
   "aria-label"?: string;
 }
 
-// 8bit retro toggle switch with pixelated border and hard edges.
+// Clean, modern toggle switch with smooth animations in Kadenz colors.
 export function Switch({ checked, onChange, ...aria }: Props) {
   return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      aria-label={aria["aria-label"]}
+    <label
       onClick={(e) => {
         e.stopPropagation();
-        haptic("light");
-        onChange(!checked);
       }}
-      style={{ touchAction: "manipulation" }}
-      className={`relative h-7 w-14 shrink-0 border-2 transition-colors ${
-        checked
-          ? "border-accent bg-accent"
-          : "border-text-3 bg-elevated"
-      }`}
+      className="h-7 px-1 flex items-center border border-transparent shadow-[inset_0px_0px_12px_rgba(0,0,0,0.25)] rounded-full w-[60px] relative cursor-pointer transition-colors duration-200"
+      style={{
+        backgroundColor: checked ? "var(--k-accent)" : "var(--k-elevated)",
+        borderColor: checked ? "transparent" : "var(--k-hairline)",
+      }}
     >
-      {/* Knob */}
-      <div
-        className={`absolute top-0.5 h-5 w-5 border-2 border-inherit transition-all duration-150 ${
-          checked ? "left-6.5 border-accent" : "left-0.5 border-text-3"
-        } ${checked ? "bg-accent" : "bg-surface"}`}
-        style={{
-          boxShadow: `inset 1px 1px 0 ${checked ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)"}`,
+      <motion.div
+        initial={false}
+        animate={{
+          x: checked ? 32 : 0,
         }}
+        transition={{
+          type: "spring",
+          stiffness: 500,
+          damping: 34,
+        }}
+        className="h-5 w-5 block rounded-full bg-white shadow-md z-10"
       />
-    </button>
+      {/* sr-only (not display:none) keeps the checkbox focusable, so the
+          switch stays keyboard- and screen-reader-operable. */}
+      <input
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        aria-label={aria["aria-label"]}
+        onChange={(e) => {
+          haptic("light");
+          onChange(e.target.checked);
+        }}
+        className="sr-only"
+      />
+    </label>
   );
 }
