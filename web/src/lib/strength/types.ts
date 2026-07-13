@@ -24,6 +24,10 @@ export interface ExerciseDef {
   startWeightKg?: number;
   /** Ordering role inside an Achilles block. */
   achillesRole?: AchillesRole;
+  /** Primary muscle the lift trains — drives the custom-builder grouping. */
+  primaryMuscle?: string;
+  /** Secondary muscles for compound lifts. */
+  secondaryMuscles?: string[];
 }
 
 /** A prescribed slot in a session template. */

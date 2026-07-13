@@ -8,6 +8,8 @@ export const EXERCISES: ExerciseDef[] = [
   // Upper day
   {
     slug: "overhead_press",
+    primaryMuscle: "Shoulders",
+    secondaryMuscles: ["Triceps", "Core"],
     name: "Standing overhead press",
     category: "upper",
     tempoNote: "Controlled, no leg drive",
@@ -19,6 +21,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bent_over_row",
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Rear delts"],
     name: "Bent-over row",
     category: "upper",
     tempoNote: "Flat back, squeeze at top",
@@ -29,6 +33,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "floor_press",
+    primaryMuscle: "Chest",
+    secondaryMuscles: ["Triceps", "Front delts"],
     name: "Floor press",
     category: "upper",
     equipmentNote: "Lying on floor, elbows rest between reps",
@@ -39,6 +45,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "renegade_row",
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Core", "Shoulders"],
     name: "Renegade row",
     category: "upper",
     equipmentNote: "Plank position on dumbbells",
@@ -49,6 +57,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "curl_to_press",
+    primaryMuscle: "Arms",
+    secondaryMuscles: ["Shoulders"],
     name: "Curl to press",
     category: "upper",
     defaultSets: 3,
@@ -58,6 +68,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "lateral_raise",
+    primaryMuscle: "Shoulders",
     name: "Lateral raise",
     category: "upper",
     tempoNote: "Strict, no swing — light weight, controlled lower",
@@ -70,6 +81,8 @@ export const EXERCISES: ExerciseDef[] = [
   // Lower day
   {
     slug: "db_squat",
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
     name: "Dumbbell squat",
     category: "lower",
     defaultSets: 3,
@@ -79,6 +92,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "romanian_deadlift",
+    primaryMuscle: "Hamstrings",
+    secondaryMuscles: ["Glutes", "Lower back"],
     name: "Romanian deadlift",
     category: "lower",
     tempoNote: "Hinge, soft knees, hamstring stretch",
@@ -89,6 +104,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bulgarian_split_squat",
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
     name: "Bulgarian split squat (chair)",
     category: "lower",
     equipmentNote: "Rear foot on chair",
@@ -100,6 +117,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "single_leg_rdl",
+    primaryMuscle: "Hamstrings",
+    secondaryMuscles: ["Glutes", "Core"],
     name: "Single-leg Romanian deadlift",
     category: "lower",
     tempoNote: "Slow eccentric, 3-4 seconds down, hamstring stretch",
@@ -110,6 +129,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "single_leg_hip_thrust",
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hamstrings"],
     name: "Single-leg hip thrust (chair)",
     category: "lower",
     equipmentNote: "Shoulders on chair; bodyweight, then 10 kg",
@@ -122,6 +143,8 @@ export const EXERCISES: ExerciseDef[] = [
   // Achilles block (explosive first, slow heavy after)
   {
     slug: "explosive_box_step_up",
+    primaryMuscle: "Calves & Achilles",
+    secondaryMuscles: ["Quads", "Glutes"],
     name: "Explosive box step-up",
     category: "achilles",
     equipmentNote: "Replaces Bulgarian split squat on Achilles days",
@@ -134,6 +157,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "loaded_toe_walk",
+    primaryMuscle: "Calves & Achilles",
     name: "Loaded toe walk",
     category: "achilles",
     equipmentNote: "2 × 25 kg, 20–30 m, 3 rounds",
@@ -145,6 +169,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "straight_knee_calf_raise",
+    primaryMuscle: "Calves & Achilles",
     name: "Straight-knee calf raise (HSR)",
     category: "achilles",
     equipmentNote: "Flat ground only — no step",
@@ -158,6 +183,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bent_knee_calf_raise",
+    primaryMuscle: "Calves & Achilles",
     name: "Bent-knee calf raise (HSR, soleus)",
     category: "achilles",
     equipmentNote: "Goblet hold, flat ground only",
@@ -173,6 +199,8 @@ export const EXERCISES: ExerciseDef[] = [
   // Full-body day (household program — beginner-friendly starting loads)
   {
     slug: "goblet_squat",
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
     name: "Goblet squat",
     category: "full_body",
     equipmentNote: "One dumbbell held at the chest",
@@ -183,6 +211,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "one_arm_row",
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Core"],
     name: "One-arm dumbbell row",
     category: "full_body",
     equipmentNote: "Support yourself on a chair or bench",
@@ -194,6 +224,8 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "glute_bridge",
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hamstrings"],
     name: "Glute bridge",
     category: "full_body",
     equipmentNote: "Dumbbell resting on the hips",

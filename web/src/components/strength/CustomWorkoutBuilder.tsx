@@ -27,12 +27,18 @@ interface Props {
   onSave: (input: CustomWorkoutInput) => Promise<void>;
 }
 
-const CATEGORY_LABEL: Record<ExerciseDef["category"], string> = {
-  upper: "Upper",
-  lower: "Lower",
-  achilles: "Achilles",
-  full_body: "Full body",
-};
+// Picker groups by the lift's primary muscle (falls back to "Other").
+const MUSCLE_ORDER = [
+  "Shoulders",
+  "Chest",
+  "Back",
+  "Arms",
+  "Quads",
+  "Hamstrings",
+  "Glutes",
+  "Calves & Achilles",
+  "Other",
+];
 
 let draftKey = 0;
 
@@ -121,13 +127,16 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
   }
 
   const grouped = useMemo(() => {
-    const g = new Map<ExerciseDef["category"], ExerciseDef[]>();
+    const g = new Map<string, ExerciseDef[]>();
     for (const ex of EXERCISES) {
-      const list = g.get(ex.category) ?? [];
+      const key = ex.primaryMuscle ?? "Other";
+      const list = g.get(key) ?? [];
       list.push(ex);
-      g.set(ex.category, list);
+      g.set(key, list);
     }
-    return g;
+    return [...g.entries()].sort(
+      (a, b) => MUSCLE_ORDER.indexOf(a[0]) - MUSCLE_ORDER.indexOf(b[0])
+    );
   }, []);
 
   return (
@@ -244,10 +253,10 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
 
       <Sheet open={pickerOpen} onClose={() => setPickerOpen(false)} title="Add exercise">
         <div className="max-h-[60dvh] overflow-y-auto px-4 pb-6">
-          {[...grouped.entries()].map(([category, list]) => (
-            <div key={category} className="mb-4">
+          {grouped.map(([muscle, list]) => (
+            <div key={muscle} className="mb-4">
               <p className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-text-3">
-                {CATEGORY_LABEL[category]}
+                {muscle}
               </p>
               <div className="flex flex-col gap-1.5">
                 {list.map((ex) => (
@@ -258,6 +267,11 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
                     className="press rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-left"
                   >
                     <span className="block text-[15px] font-semibold text-text-1">{ex.name}</span>
+                    {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
+                      <span className="block text-[12px] text-text-3">
+                        also {ex.secondaryMuscles.join(", ").toLowerCase()}
+                      </span>
+                    )}
                     {(ex.equipmentNote || ex.tempoNote) && (
                       <span className="block text-[12px] text-text-3">
                         {ex.equipmentNote ?? ex.tempoNote}
