@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Pencil, Minus, Plus } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { useSettings } from "@/lib/useSettings";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
@@ -51,6 +51,7 @@ interface WorkoutBlock {
 
 interface WorkoutDetail {
   id: string;
+  planId: string;
   type: string;
   title: string;
   description?: string | null;
@@ -58,6 +59,7 @@ interface WorkoutDetail {
   targetDurationMinutes?: number | null;
   status: string;
   rpe?: number | null;
+  edited?: boolean;
   date: string;
   dayOfWeek: number;
   blocks: WorkoutBlock[];
@@ -136,12 +138,17 @@ function OptionsSheet({
   open,
   onClose,
   onSkip,
+  onEdit,
 }: {
   open: boolean;
   onClose: () => void;
   onSkip: () => void;
+  onEdit: () => void;
 }) {
-  const actions = [{ label: "Skip workout", Icon: SkipForward, action: onSkip }];
+  const actions = [
+    { label: "Edit workout", Icon: Pencil, action: onEdit },
+    { label: "Skip workout", Icon: SkipForward, action: onSkip },
+  ];
 
   return (
     <Sheet open={open} onClose={onClose} title="Workout options">
@@ -167,6 +174,139 @@ function OptionsSheet({
             Cancel
           </Button>
         </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Edit workout (distance + pace override) ──────────────────────────────────
+
+function EditWorkoutSheet({
+  open,
+  onClose,
+  workout,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workout: WorkoutDetail;
+  onSaved: () => void;
+}) {
+  const [km, setKm] = useState<number | null>(workout.targetKm ?? null);
+  const [paceOffset, setPaceOffset] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setKm(workout.targetKm ?? null);
+      setPaceOffset(0);
+      setErr(null);
+    }
+  }, [open, workout.targetKm]);
+
+  const hasPace = workout.blocks.some((b) => b.targetPaceSecKm != null);
+  const kmChanged = km != null && workout.targetKm != null && km !== workout.targetKm;
+  const dirty = kmChanged || paceOffset !== 0;
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const body: Record<string, number> = {};
+      if (kmChanged && km != null) body.targetKm = km;
+      if (paceOffset !== 0) body.paceOffsetSecKm = paceOffset;
+      const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      haptic("success");
+      onSaved();
+    } catch {
+      setErr("Couldn't save the changes — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Edit workout">
+      <div className="flex flex-col gap-5 px-4 pb-6">
+        <p className="text-[13px] text-text-3">
+          Tunes this session only — the rest of the plan stays as coached.
+        </p>
+
+        {km != null && (
+          <div>
+            <p className="mb-2 text-[13px] font-semibold text-text-2">Distance</p>
+            <div className="flex items-center justify-center gap-5">
+              <button
+                type="button"
+                aria-label="Less distance"
+                onClick={() => { haptic("light"); setKm((v) => Math.max(1, Math.round(((v ?? 1) - 0.5) * 10) / 10)); }}
+                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
+              >
+                <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
+              </button>
+              <span className="min-w-[110px] text-center text-[28px] font-extrabold tabular-nums text-text-1">
+                {km.toFixed(1)} <span className="text-[15px] font-semibold text-text-3">km</span>
+              </span>
+              <button
+                type="button"
+                aria-label="More distance"
+                onClick={() => { haptic("light"); setKm((v) => Math.min(60, Math.round(((v ?? 0) + 0.5) * 10) / 10)); }}
+                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
+              >
+                <Plus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
+              </button>
+            </div>
+            <p className="mt-1.5 text-center text-[12px] text-text-3">
+              Warm-up and cool-down stay fixed; the main session scales.
+            </p>
+          </div>
+        )}
+
+        {hasPace && (
+          <div>
+            <p className="mb-2 text-[13px] font-semibold text-text-2">Pace targets</p>
+            <div className="flex items-center justify-center gap-5">
+              <button
+                type="button"
+                aria-label="Faster paces"
+                onClick={() => { haptic("light"); setPaceOffset((v) => Math.max(-60, v - 5)); }}
+                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
+              >
+                <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
+              </button>
+              <span className="min-w-[110px] text-center text-[28px] font-extrabold tabular-nums text-text-1">
+                {paceOffset > 0 ? "+" : ""}{paceOffset}
+                <span className="text-[15px] font-semibold text-text-3"> s/km</span>
+              </span>
+              <button
+                type="button"
+                aria-label="Slower paces"
+                onClick={() => { haptic("light"); setPaceOffset((v) => Math.min(60, v + 5)); }}
+                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
+              >
+                <Plus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
+              </button>
+            </div>
+            <p className="mt-1.5 text-center text-[12px] text-text-3">
+              + is easier (slower), − is harder. Applies to every pace in this session.
+            </p>
+          </div>
+        )}
+
+        {err && (
+          <p className="rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">{err}</p>
+        )}
+
+        <Button full busy={saving} disabled={!dirty} onClick={save}>
+          Save changes
+        </Button>
       </div>
     </Sheet>
   );
@@ -211,23 +351,27 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [completing, setCompleting] = useState(false);
   const [guiding, setGuiding] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiFetch(`/api/workouts/${id}`);
-        if (res.status === 404) {
-          setError("Workout not found.");
-          return;
-        }
-        if (!res.ok) throw new Error("Failed");
-        setWorkout(await res.json());
-      } catch {
-        setError("Couldn't load this workout. Please try again.");
-      } finally {
-        setLoading(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  async function loadWorkout() {
+    try {
+      const res = await apiFetch(`/api/workouts/${id}`);
+      if (res.status === 404) {
+        setError("Workout not found.");
+        return;
       }
+      if (!res.ok) throw new Error("Failed");
+      setWorkout(await res.json());
+    } catch {
+      setError("Couldn't load this workout. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    load();
+  }
+
+  useEffect(() => {
+    loadWorkout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function handleComplete() {
@@ -384,7 +528,12 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   {typeLabels[workout.type] ?? workout.type} · {dateStr}
                 </span>
               </div>
-              <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">{workout.title}</h1>
+              <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">
+                {workout.title}
+                {workout.edited && (
+                  <span className="ml-2 align-middle rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-text-3">Edited</span>
+                )}
+              </h1>
             </div>
             {isCompleted ? (
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -620,7 +769,21 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       </AnimatePresence>
 
       {/* Options sheet */}
-      <OptionsSheet open={menuOpen} onClose={() => setMenuOpen(false)} onSkip={handleSkip} />
+      <OptionsSheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onSkip={handleSkip}
+        onEdit={() => setEditOpen(true)}
+      />
+      <EditWorkoutSheet
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        workout={workout}
+        onSaved={() => {
+          setEditOpen(false);
+          loadWorkout();
+        }}
+      />
     </main>
   );
 }
