@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { NavBar } from "@/components/ui/NavBar";
 import { BottomNav } from "@/components/BottomNav";
 import { ListGroup, Row } from "@/components/ui/List";
-import { Switch } from "@/components/ui/Switch";
+import { Switch } from "@/components/ui/8bit-switch";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/feedback";
