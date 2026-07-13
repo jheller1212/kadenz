@@ -54,7 +54,7 @@ export function Row({
   const interactive = !!onClick;
   return (
     <button
-      disabled={!interactive}
+      disabled={false}
       onClick={() => {
         if (!interactive) return;
         haptic("light");
