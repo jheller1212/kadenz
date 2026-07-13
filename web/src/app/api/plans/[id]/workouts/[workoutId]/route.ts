@@ -59,56 +59,115 @@ export async function PATCH(
   }
 
   try {
-    const [updated] = await db
-      .update(workouts)
-      .set(setValues)
-      .where(and(eq(workouts.id, workoutId), eq(workouts.planId, id)))
-      .returning();
+    const hasOverrides = rest.targetKm !== undefined || paceOffsetSecKm !== undefined;
 
-    if (!updated) {
-      return Response.json({ error: "Workout not found" }, { status: 404 });
-    }
-
-    // Apply block-level overrides so the session view matches the new numbers.
-    if (rest.targetKm !== undefined || paceOffsetSecKm !== undefined) {
-      const blockRows = await db
+    // Validate overrides against the blocks BEFORE writing anything, so a bad
+    // request can't leave the workout row and its blocks disagreeing.
+    let blockRows: (typeof blocks.$inferSelect)[] = [];
+    const blockPatches: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    if (hasOverrides) {
+      blockRows = await db
         .select()
         .from(blocks)
         .where(eq(blocks.workoutId, workoutId));
 
-      // Distance: scale plain-distance work blocks so warm-up/cool-down stay
-      // fixed and the session sums to the new target. Rep-based interval
-      // blocks are left alone (edit pace instead).
-      let scale: number | null = null;
-      if (rest.targetKm !== undefined) {
-        const fixedKm = blockRows
-          .filter((b) => b.type !== "work" && b.distanceKm != null)
-          .reduce((sum, b) => sum + (b.distanceKm ?? 0), 0);
-        const plainWork = blockRows.filter(
-          (b) => b.type === "work" && b.distanceKm != null && !b.reps
+      const plainWork = blockRows.filter(
+        (b) => b.type === "work" && b.distanceKm != null && !b.reps
+      );
+      // Everything that can't scale is fixed: warm-up/cool-down/recovery
+      // distance plus any rep-based interval km.
+      const fixedKm =
+        blockRows
+          .filter((b) => !(b.type === "work" && b.distanceKm != null && !b.reps))
+          .reduce((sum, b) => sum + (b.distanceKm ?? 0), 0) +
+        blockRows.reduce(
+          (sum, b) => sum + (b.reps && b.repDistanceKm ? b.reps * b.repDistanceKm : 0),
+          0
         );
+
+      if (rest.targetKm !== undefined) {
+        // Distance edits only make sense when there is a plain-distance main
+        // session to scale — interval sessions keep their rep structure.
+        if (plainWork.length === 0) {
+          return Response.json(
+            { error: "This session's distance comes from its intervals — adjust pace instead." },
+            { status: 422 }
+          );
+        }
+        const minKm = Math.round((fixedKm + 0.2 * plainWork.length) * 10) / 10;
+        if (rest.targetKm < minKm) {
+          return Response.json(
+            { error: `Too short — warm-up and cool-down alone need ${minKm} km.`, minKm },
+            { status: 422 }
+          );
+        }
+
         const workKm = plainWork.reduce((sum, b) => sum + (b.distanceKm ?? 0), 0);
-        if (workKm > 0) {
-          scale = Math.max(0.1, (rest.targetKm - fixedKm) / workKm);
+        const newWorkKm = rest.targetKm - fixedKm;
+        const scale = newWorkKm / workKm;
+        // Round per block, then push the rounding remainder onto the largest
+        // block so the session always sums to the requested target.
+        const scaled = plainWork.map((b) => ({
+          id: b.id,
+          km: Math.max(0.2, Math.round((b.distanceKm ?? 0) * scale * 10) / 10),
+        }));
+        const sum = scaled.reduce((acc, x) => acc + x.km, 0);
+        const drift = Math.round((newWorkKm - sum) * 10) / 10;
+        if (drift !== 0) {
+          const largest = scaled.reduce((a, b) => (b.km > a.km ? b : a));
+          largest.km = Math.max(0.2, Math.round((largest.km + drift) * 10) / 10);
+        }
+        for (const x of scaled) {
+          blockPatches.push({ id: x.id, patch: { distanceKm: x.km } });
         }
       }
 
-      for (const b of blockRows) {
-        const patch: Record<string, unknown> = {};
-        if (scale != null && b.type === "work" && b.distanceKm != null && !b.reps) {
-          patch.distanceKm = Math.max(0.2, Math.round(b.distanceKm * scale * 10) / 10);
+      if (paceOffsetSecKm) {
+        // The offset applies uniformly or not at all — a per-field clamp would
+        // be non-invertible and could collapse a pace band onto its floor.
+        const paceFields = blockRows.flatMap((b) =>
+          [b.targetPaceSecKm, b.minPaceSecKm, b.maxPaceSecKm].filter(
+            (v): v is number => v != null
+          )
+        );
+        const minPace = paceFields.length ? Math.min(...paceFields) : null;
+        if (minPace != null && minPace + paceOffsetSecKm < 120) {
+          return Response.json(
+            { error: "That would push paces under 2:00/km — pick a smaller adjustment." },
+            { status: 422 }
+          );
         }
-        if (paceOffsetSecKm) {
-          const shift = (v: number | null) =>
-            v == null ? undefined : Math.max(120, v + paceOffsetSecKm);
-          if (b.targetPaceSecKm != null) patch.targetPaceSecKm = shift(b.targetPaceSecKm);
-          if (b.minPaceSecKm != null) patch.minPaceSecKm = shift(b.minPaceSecKm);
-          if (b.maxPaceSecKm != null) patch.maxPaceSecKm = shift(b.maxPaceSecKm);
-        }
-        if (Object.keys(patch).length > 0) {
-          await db.update(blocks).set(patch).where(eq(blocks.id, b.id));
+        for (const b of blockRows) {
+          const patch: Record<string, unknown> = {};
+          if (b.targetPaceSecKm != null) patch.targetPaceSecKm = b.targetPaceSecKm + paceOffsetSecKm;
+          if (b.minPaceSecKm != null) patch.minPaceSecKm = b.minPaceSecKm + paceOffsetSecKm;
+          if (b.maxPaceSecKm != null) patch.maxPaceSecKm = b.maxPaceSecKm + paceOffsetSecKm;
+          if (Object.keys(patch).length > 0) {
+            const existing = blockPatches.find((x) => x.id === b.id);
+            if (existing) Object.assign(existing.patch, patch);
+            else blockPatches.push({ id: b.id, patch });
+          }
         }
       }
+    }
+
+    // One transaction: the workout row and its blocks change together or not
+    // at all (a retried relative pace offset must never double-apply).
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(workouts)
+        .set(setValues)
+        .where(and(eq(workouts.id, workoutId), eq(workouts.planId, id)))
+        .returning();
+      if (!row) return null;
+      for (const { id: blockId, patch } of blockPatches) {
+        await tx.update(blocks).set(patch).where(eq(blocks.id, blockId));
+      }
+      return row;
+    });
+
+    if (!updated) {
+      return Response.json({ error: "Workout not found" }, { status: 404 });
     }
 
     // Reschedule fans out to Google Calendar (same pattern as complete).

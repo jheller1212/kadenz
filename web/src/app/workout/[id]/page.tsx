@@ -206,8 +206,28 @@ function EditWorkoutSheet({
   }, [open, workout.targetKm]);
 
   const hasPace = workout.blocks.some((b) => b.targetPaceSecKm != null);
+  // Distance edits only apply to sessions with a plain-distance main block —
+  // interval sessions keep their rep structure (adjust pace instead).
+  const plainWork = workout.blocks.filter(
+    (b) => b.type === "work" && b.distanceKm != null && !b.reps
+  );
+  const canEditDistance = plainWork.length > 0 && workout.targetKm != null;
+  const fixedKm =
+    workout.blocks
+      .filter((b) => !(b.type === "work" && b.distanceKm != null && !b.reps))
+      .reduce((sum, b) => sum + (b.distanceKm ?? 0), 0) +
+    workout.blocks.reduce(
+      (sum, b) => sum + (b.reps && b.repDistanceKm ? b.reps * b.repDistanceKm : 0),
+      0
+    );
+  const minKm = Math.max(1, Math.round((fixedKm + 0.2 * plainWork.length) * 10) / 10);
+  const paceFields = workout.blocks.flatMap((b) =>
+    [b.targetPaceSecKm, b.minPaceSecKm, b.maxPaceSecKm].filter((v): v is number => v != null)
+  );
+  const minPaceField = paceFields.length ? Math.min(...paceFields) : null;
+  const minOffset = minPaceField != null ? Math.max(-60, 120 - minPaceField) : -60;
   const kmChanged = km != null && workout.targetKm != null && km !== workout.targetKm;
-  const dirty = kmChanged || paceOffset !== 0;
+  const dirty = (canEditDistance && kmChanged) || paceOffset !== 0;
 
   async function save() {
     if (!dirty || saving) return;
@@ -215,14 +235,18 @@ function EditWorkoutSheet({
     setErr(null);
     try {
       const body: Record<string, number> = {};
-      if (kmChanged && km != null) body.targetKm = km;
+      if (canEditDistance && kmChanged && km != null) body.targetKm = km;
       if (paceOffset !== 0) body.paceOffsetSecKm = paceOffset;
       const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setErr(data?.error ?? "Couldn't save the changes — try again.");
+        return;
+      }
       haptic("success");
       onSaved();
     } catch {
@@ -239,14 +263,14 @@ function EditWorkoutSheet({
           Tunes this session only — the rest of the plan stays as coached.
         </p>
 
-        {km != null && (
+        {canEditDistance && km != null && (
           <div>
             <p className="mb-2 text-[13px] font-semibold text-text-2">Distance</p>
             <div className="flex items-center justify-center gap-5">
               <button
                 type="button"
                 aria-label="Less distance"
-                onClick={() => { haptic("light"); setKm((v) => Math.max(1, Math.round(((v ?? 1) - 0.5) * 10) / 10)); }}
+                onClick={() => { haptic("light"); setKm((v) => Math.max(minKm, Math.round(((v ?? 1) - 0.5) * 10) / 10)); }}
                 className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
               >
                 <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
@@ -269,6 +293,12 @@ function EditWorkoutSheet({
           </div>
         )}
 
+        {!canEditDistance && (
+          <p className="rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-[13px] text-text-3">
+            This session's distance comes from its intervals — adjust the pace instead.
+          </p>
+        )}
+
         {hasPace && (
           <div>
             <p className="mb-2 text-[13px] font-semibold text-text-2">Pace targets</p>
@@ -276,7 +306,7 @@ function EditWorkoutSheet({
               <button
                 type="button"
                 aria-label="Faster paces"
-                onClick={() => { haptic("light"); setPaceOffset((v) => Math.max(-60, v - 5)); }}
+                onClick={() => { haptic("light"); setPaceOffset((v) => Math.max(minOffset, v - 5)); }}
                 className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
               >
                 <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
