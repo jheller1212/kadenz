@@ -64,6 +64,15 @@ describe("computeReadiness", () => {
     expect(strained.score).toBe(neutral.score - 25);
   });
 
+  it("hard run effort subtracts; moderate runs don't", () => {
+    const neutral = computeReadiness(base());
+    const hardRun = computeReadiness(base({ recentRunRpe: 9 }));
+    expect(hardRun.score).toBe(neutral.score - 8);
+    expect(hardRun.reasons.some((r) => r.label === "Hard run effort")).toBe(true);
+    const moderate = computeReadiness(base({ recentRunRpe: 6 }));
+    expect(moderate.score).toBe(neutral.score);
+  });
+
   it("load spike subtracts only with a meaningful base", () => {
     const spiked = computeReadiness(base({ last7DaysKm: 50, priorWeeklyAvgKm: 30 }));
     expect(spiked.reasons.some((r) => r.label.includes("Load spike"))).toBe(true);

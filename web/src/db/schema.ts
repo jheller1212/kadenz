@@ -218,6 +218,8 @@ export const workouts = pgTable(
     status: workoutStatusEnum("status").notNull().default("planned"),
     targetKm: real("target_km"),
     actualKm: real("actual_km"),
+    // Post-run effort (Borg 0–10), captured on completion; feeds readiness.
+    rpe: real("rpe"),
     targetDurationMinutes: integer("target_duration_minutes"),
     gcalEventId: text("gcal_event_id"),
     garminWorkoutId: text("garmin_workout_id"),

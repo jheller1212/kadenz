@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { and, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull } from "drizzle-orm";
 import {
   db,
   activities,
@@ -7,6 +7,7 @@ import {
   strengthSessions,
   strengthSets,
   wellnessLogs,
+  workouts,
 } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
 import { computeReadiness } from "@/lib/readiness";
@@ -60,6 +61,17 @@ export async function GET(request: NextRequest) {
       ? rpeVals.reduce((s, v) => s + v, 0) / rpeVals.length
       : null;
 
+    // Highest run RPE in the last 36 h (owner's runs; guests have none)
+    let recentRunRpe: number | null = null;
+    if (!profileId) {
+      const runRpes = await db
+        .select({ rpe: workouts.rpe })
+        .from(workouts)
+        .where(and(gte(workouts.updatedAt, since36h), isNotNull(workouts.rpe)));
+      const vals = runRpes.map((r) => r.rpe).filter((v): v is number => v != null);
+      recentRunRpe = vals.length ? Math.max(...vals) : null;
+    }
+
     // Run load: last 7 days vs the 3 weeks before (owner's Strava data)
     let last7DaysKm = 0;
     let priorWeeklyAvgKm = 0;
@@ -92,6 +104,7 @@ export async function GET(request: NextRequest) {
         : null,
       maxRecentPain,
       recentStrengthRpe,
+      recentRunRpe,
       last7DaysKm,
       priorWeeklyAvgKm,
     });

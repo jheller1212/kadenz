@@ -57,6 +57,7 @@ interface WorkoutDetail {
   targetKm?: number | null;
   targetDurationMinutes?: number | null;
   status: string;
+  rpe?: number | null;
   date: string;
   dayOfWeek: number;
   blocks: WorkoutBlock[];
@@ -249,6 +250,29 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       setActionError("Couldn't save your workout. Please try again.");
     } finally {
       setCompleting(false);
+    }
+  }
+
+  const [rpeSaving, setRpeSaving] = useState(false);
+  async function handleRpe(rpe: number) {
+    if (!workout || rpeSaving) return;
+    setRpeSaving(true);
+    try {
+      const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rpe }),
+      });
+      if (res.ok) {
+        haptic("success");
+        setWorkout((prev) => (prev ? { ...prev, rpe } : prev));
+        // Readiness listens for this to recompute.
+        window.dispatchEvent(new Event("kadenz:wellness-saved"));
+      }
+    } catch {
+      /* leave chips visible for retry */
+    } finally {
+      setRpeSaving(false);
     }
   }
 
@@ -527,10 +551,37 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         {/* Primary action */}
         <div className="pt-1 flex flex-col gap-2.5">
           {isCompleted ? (
+            <>
             <div className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-input)] bg-elevated py-4 text-center text-[15px] font-bold text-text-2">
               <CheckCircle2 className="h-4 w-4 text-accent" strokeWidth={2.5} />
               Completed
             </div>
+            <div className="k-card p-4">
+              <p className="text-[13px] font-semibold text-text-2">
+                {workout.rpe != null
+                  ? `Effort logged: RPE ${workout.rpe}`
+                  : "How hard did it feel? (0 = nothing, 10 = max)"}
+              </p>
+              <div className="mt-3 grid grid-cols-11 gap-1">
+                {Array.from({ length: 11 }, (_, n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    disabled={rpeSaving}
+                    onClick={() => handleRpe(n)}
+                    style={{ touchAction: "manipulation" }}
+                    className={`press rounded-md py-2 text-[13px] font-bold ${
+                      workout.rpe === n
+                        ? "bg-accent text-on-accent"
+                        : "bg-elevated text-text-2"
+                    } disabled:opacity-50`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            </>
           ) : (
             <>
               <Button

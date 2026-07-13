@@ -25,6 +25,8 @@ export interface ReadinessInput {
   maxRecentPain: number | null;
   /** Average RPE of strength sets logged in the last 36 h, if any */
   recentStrengthRpe: number | null;
+  /** Highest run RPE (0–10) logged in the last 36 h, if any */
+  recentRunRpe?: number | null;
   /** Completed run km in the last 7 days */
   last7DaysKm: number;
   /** Average weekly completed km over the 3 weeks before that */
@@ -83,6 +85,10 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
 
   if (input.recentStrengthRpe != null && input.recentStrengthRpe >= 8.5) {
     add("Hard strength session", -10);
+  }
+
+  if (input.recentRunRpe != null && input.recentRunRpe >= 8) {
+    add("Hard run effort", -8);
   }
 
   if (

@@ -7,6 +7,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 
 const CompleteSchema = z.object({
   actualKm: z.number().nonnegative().optional(),
+  rpe: z.number().min(0).max(10).optional(),
 });
 
 // ── PATCH /api/workouts/[workoutId]/complete ──────────────────────────────────
@@ -34,11 +35,14 @@ export async function PATCH(
   }
 
   try {
+    // Only overwrite fields that were sent — a later RPE-only call must not
+    // null out a previously recorded distance.
     const [updated] = await db
       .update(workouts)
       .set({
         status: "completed",
-        actualKm: parsed.data.actualKm ?? null,
+        ...(parsed.data.actualKm !== undefined ? { actualKm: parsed.data.actualKm } : {}),
+        ...(parsed.data.rpe !== undefined ? { rpe: parsed.data.rpe } : {}),
         updatedAt: new Date(),
       })
       .where(eq(workouts.id, workoutId))
