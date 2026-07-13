@@ -15,7 +15,8 @@ export function Switch({ checked, onChange, ...aria }: Props) {
       role="switch"
       aria-checked={checked}
       aria-label={aria["aria-label"]}
-      onClick={() => {
+      onClick={(e) => {
+        e.stopPropagation();
         haptic("light");
         onChange(!checked);
       }}
