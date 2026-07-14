@@ -3,7 +3,7 @@
  *
  * Zone    %VO2max range    Purpose
  * ─────────────────────────────────
- * E       59–74%           Easy / long run
+ * E       59–75%           Easy / long run
  * M       75–84%           Marathon race pace
  * T       86–88%           Tempo / threshold
  * I       95–100%          Interval (VO2max)
@@ -63,7 +63,7 @@ export function getPaceZones(vdot: number): PaceZones {
   if (vdot <= 0) throw new Error("vdot must be positive");
 
   return {
-    E: zone(vdot, 0.59, 0.74, "E"),
+    E: zone(vdot, 0.59, 0.75, "E"),
     M: zone(vdot, 0.75, 0.84, "M"),
     T: zone(vdot, 0.86, 0.88, "T"),
     I: zone(vdot, 0.95, 1.0, "I"),

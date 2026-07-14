@@ -520,9 +520,10 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const workoutDate = new Date(workout.date);
   const dateStr = workoutDate.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
 
-  // Get max easy pace for coaching tip
+  // Fast cap for the coaching tip ("stay slower than X") — the E zone's
+  // fastest allowed pace, not its slow end.
   const easyBlock = workout.blocks.find((b) => b.type === "warmup" || b.type === "cooldown");
-  const maxPace = easyBlock?.maxPaceSecKm ?? workout.blocks[0]?.maxPaceSecKm;
+  const maxPace = easyBlock?.minPaceSecKm ?? workout.blocks[0]?.minPaceSecKm;
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -672,6 +673,17 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                           if (useRpe && block.targetPaceSecKm) {
                             return <span className="font-normal text-text-2"> at {ZONE_RPE[block.type] ?? TYPE_RPE[workout.type] ?? "RPE 5-6"}</span>;
                           }
+                          if (shouldShowPace && isEasy && block.minPaceSecKm) {
+                            // Easy running has a speed CAP, not a target — the
+                            // Benchmark framing: anything slower is on plan.
+                            const unit = useMiles ? "/mi" : "/km";
+                            return <span className="font-normal text-text-2">
+                              {mode === "treadmill"
+                                ? ` — no faster than ${paceToSpeed(block.minPaceSecKm)} km/h`
+                                : ` — no faster than ${formatPace(block.minPaceSecKm, useMiles)}${unit}`
+                              }
+                            </span>;
+                          }
                           if (shouldShowPace && block.targetPaceSecKm) {
                             const unit = useMiles ? "/mi" : "/km";
                             return <span className="font-normal text-text-2">
@@ -687,6 +699,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                       {(() => {
                         const isEasy = workout.type === "easy" || workout.type === "recovery";
                         const shouldShowPace = showPace && (isEasy ? showEasyPace : true) && !useRpe;
+                        if (isEasy) return null; // the cap line above says it all
                         if (!shouldShowPace || !block.minPaceSecKm || !block.maxPaceSecKm) return null;
                         const unit = useMiles ? "/mi" : "/km";
                         return (
