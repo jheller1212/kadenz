@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Pencil, Minus, Plus } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Pencil, Minus, Plus, RotateCcw } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { useSettings } from "@/lib/useSettings";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
@@ -139,16 +139,22 @@ function OptionsSheet({
   onClose,
   onSkip,
   onEdit,
+  onUncomplete,
+  isCompleted,
 }: {
   open: boolean;
   onClose: () => void;
   onSkip: () => void;
   onEdit: () => void;
+  onUncomplete: () => void;
+  isCompleted: boolean;
 }) {
-  const actions = [
-    { label: "Edit workout", Icon: Pencil, action: onEdit },
-    { label: "Skip workout", Icon: SkipForward, action: onSkip },
-  ];
+  const actions = isCompleted
+    ? [{ label: "Mark as not completed", Icon: RotateCcw, action: onUncomplete }]
+    : [
+        { label: "Edit workout", Icon: Pencil, action: onEdit },
+        { label: "Skip workout", Icon: SkipForward, action: onSkip },
+      ];
 
   return (
     <Sheet open={open} onClose={onClose} title="Workout options">
@@ -491,6 +497,25 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  async function handleUncomplete() {
+    if (!workout) return;
+    try {
+      const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "planned" }),
+      });
+      if (res.ok) {
+        haptic("light");
+        setWorkout((prev) => (prev ? { ...prev, status: "planned", rpe: null } : prev));
+      } else {
+        setActionError("Couldn't undo the completion. Please try again.");
+      }
+    } catch {
+      setActionError("Couldn't undo the completion. Please try again.");
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-dvh bg-bg">
@@ -804,6 +829,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         onClose={() => setMenuOpen(false)}
         onSkip={handleSkip}
         onEdit={() => setEditOpen(true)}
+        onUncomplete={handleUncomplete}
+        isCompleted={isCompleted}
       />
       <EditWorkoutSheet
         open={editOpen}
