@@ -10,7 +10,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { getVideoId } from "@/lib/strength/videos";
 import { VideoSheet } from "@/components/strength/VideoSheet";
-import type { ExerciseDef } from "@/lib/strength/types";
+import type { Equipment, ExerciseDef } from "@/lib/strength/types";
 import type { CustomWorkoutInput } from "@/hooks/useCustomWorkouts";
 
 interface DraftSlot {
@@ -43,6 +43,39 @@ const MUSCLE_ORDER = [
   "Other",
 ];
 
+const EQUIPMENT_OPTIONS: Array<{ key: Equipment; label: string; hint?: string }> = [
+  { key: "dumbbell", label: "Dumbbells" },
+  { key: "chair", label: "Chair" },
+  { key: "box", label: "Box / step" },
+  { key: "bench", label: "Bench" },
+  { key: "barbell", label: "Barbell" },
+  { key: "kettlebell", label: "Kettlebell" },
+  { key: "pullup_bar", label: "Pull-up bar" },
+  { key: "band", label: "Resistance band" },
+];
+
+const EQUIPMENT_STORAGE_KEY = "kadenz_equipment";
+const DEFAULT_EQUIPMENT: Equipment[] = ["dumbbell", "chair", "box"];
+
+function loadEquipment(): Equipment[] | null {
+  try {
+    const raw = localStorage.getItem(EQUIPMENT_STORAGE_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? (arr as Equipment[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveEquipment(eq: Equipment[]) {
+  try {
+    localStorage.setItem(EQUIPMENT_STORAGE_KEY, JSON.stringify(eq));
+  } catch {
+    /* private mode */
+  }
+}
+
 let draftKey = 0;
 
 export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
@@ -51,18 +84,37 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [videoSlug, setVideoSlug] = useState<string | null>(null);
+  const [equipment, setEquipment] = useState<Equipment[]>(DEFAULT_EQUIPMENT);
+  // First open ever: ask about equipment before showing the builder.
+  const [equipmentStep, setEquipmentStep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset the draft each time the sheet opens.
+  // Reset the draft each time the sheet opens; ask about equipment on the
+  // very first use (persisted afterwards, editable via the Equipment chip).
   useEffect(() => {
     if (open) {
       setName("");
       setSlots([]);
       setExpanded(null);
       setError(null);
+      const stored = loadEquipment();
+      setEquipment(stored ?? DEFAULT_EQUIPMENT);
+      setEquipmentStep(stored == null);
     }
   }, [open]);
+
+  function toggleEquipment(key: Equipment) {
+    haptic("light");
+    setEquipment((eq) =>
+      eq.includes(key) ? eq.filter((e) => e !== key) : [...eq, key]
+    );
+  }
+
+  function confirmEquipment() {
+    saveEquipment(equipment);
+    setEquipmentStep(false);
+  }
 
   const estMinutes = useMemo(
     () => (slots.length ? estimateWorkoutDuration(slots) : 0),
@@ -131,8 +183,11 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
   }
 
   const grouped = useMemo(() => {
+    const have = new Set(equipment);
     const g = new Map<string, ExerciseDef[]>();
     for (const ex of EXERCISES) {
+      // Available iff every required item is on hand (empty = bodyweight).
+      if ((ex.equipment ?? []).some((e) => !have.has(e))) continue;
       const key = ex.primaryMuscle ?? "Other";
       const list = g.get(key) ?? [];
       list.push(ex);
@@ -141,11 +196,53 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
     return [...g.entries()].sort(
       (a, b) => MUSCLE_ORDER.indexOf(a[0]) - MUSCLE_ORDER.indexOf(b[0])
     );
-  }, []);
+  }, [equipment]);
 
   return (
     <>
-      <Sheet open={open} onClose={onClose} title="New custom workout">
+      <Sheet
+        open={open}
+        onClose={onClose}
+        title={equipmentStep ? "What do you have?" : "New custom workout"}
+      >
+        {equipmentStep ? (
+          <div className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6">
+            <p className="text-[13px] text-text-3">
+              Pick everything you can easily use — bodyweight moves are always
+              included. You can change this anytime.
+            </p>
+            <div className="flex flex-col gap-2">
+              {EQUIPMENT_OPTIONS.map((opt) => {
+                const on = equipment.includes(opt.key);
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => toggleEquipment(opt.key)}
+                    className={`press flex items-center justify-between rounded-[var(--radius-input)] px-3.5 py-3 text-left ${
+                      on ? "bg-accent/15" : "bg-elevated"
+                    }`}
+                  >
+                    <span className="text-[15px] font-semibold text-text-1">{opt.label}</span>
+                    <span
+                      aria-hidden
+                      className={`flex h-6 w-6 items-center justify-center rounded-md border text-[13px] font-bold ${
+                        on
+                          ? "border-transparent bg-accent text-on-accent"
+                          : "border-hairline bg-transparent text-transparent"
+                      }`}
+                    >
+                      ✓
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <Button full onClick={confirmEquipment}>
+              Continue
+            </Button>
+          </div>
+        ) : (
         <div className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6">
           <input
             type="text"
@@ -237,6 +334,14 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
             Add exercise
           </Button>
 
+          <button
+            type="button"
+            onClick={() => { haptic("light"); setEquipmentStep(true); }}
+            className="press text-center text-[13px] font-semibold text-accent"
+          >
+            Equipment: {equipment.length ? EQUIPMENT_OPTIONS.filter((o) => equipment.includes(o.key)).map((o) => o.label).join(", ") : "bodyweight only"} — change
+          </button>
+
           {slots.length > 0 && (
             <p className="text-center text-[13px] text-text-3">
               {slots.length} exercise{slots.length === 1 ? "" : "s"} · ~{estMinutes} min
@@ -253,6 +358,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
             Save workout
           </Button>
         </div>
+        )}
       </Sheet>
 
       <Sheet open={pickerOpen} onClose={() => setPickerOpen(false)} title="Add exercise">

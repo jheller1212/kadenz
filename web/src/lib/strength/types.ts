@@ -1,6 +1,17 @@
 // ── Strength module domain types ─────────────────────────────────────────────
 
 export type StrengthCategory = "upper" | "lower" | "achilles" | "full_body";
+
+/** Equipment an exercise needs. Absent/empty = bodyweight + floor only. */
+export type Equipment =
+  | "dumbbell"
+  | "barbell"
+  | "bench"
+  | "chair"
+  | "box"
+  | "kettlebell"
+  | "pullup_bar"
+  | "band";
 export type StrengthSessionType = "upper" | "lower" | "lower_achilles" | "upper_achilles" | "achilles" | "full_body";
 export type PainTiming = "during" | "after" | "next_day";
 
@@ -28,6 +39,8 @@ export interface ExerciseDef {
   primaryMuscle?: string;
   /** Secondary muscles for compound lifts. */
   secondaryMuscles?: string[];
+  /** Required equipment; every item must be available. Empty = bodyweight. */
+  equipment?: Equipment[];
 }
 
 /** A prescribed slot in a session template. */

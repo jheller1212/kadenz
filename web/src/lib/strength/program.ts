@@ -8,6 +8,7 @@ export const EXERCISES: ExerciseDef[] = [
   // Upper day
   {
     slug: "overhead_press",
+    equipment: ["dumbbell"],
     primaryMuscle: "Shoulders",
     secondaryMuscles: ["Triceps", "Core"],
     name: "Standing overhead press",
@@ -21,6 +22,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bent_over_row",
+    equipment: ["dumbbell"],
     primaryMuscle: "Back",
     secondaryMuscles: ["Biceps", "Rear delts"],
     name: "Bent-over row",
@@ -33,6 +35,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "floor_press",
+    equipment: ["dumbbell"],
     primaryMuscle: "Chest",
     secondaryMuscles: ["Triceps", "Front delts"],
     name: "Floor press",
@@ -45,6 +48,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "renegade_row",
+    equipment: ["dumbbell"],
     primaryMuscle: "Back",
     secondaryMuscles: ["Core", "Shoulders"],
     name: "Renegade row",
@@ -57,6 +61,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "curl_to_press",
+    equipment: ["dumbbell"],
     primaryMuscle: "Arms",
     secondaryMuscles: ["Shoulders"],
     name: "Curl to press",
@@ -68,6 +73,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "lateral_raise",
+    equipment: ["dumbbell"],
     primaryMuscle: "Shoulders",
     name: "Lateral raise",
     category: "upper",
@@ -81,6 +87,7 @@ export const EXERCISES: ExerciseDef[] = [
   // Lower day
   {
     slug: "db_squat",
+    equipment: ["dumbbell"],
     primaryMuscle: "Quads",
     secondaryMuscles: ["Glutes", "Core"],
     name: "Dumbbell squat",
@@ -92,6 +99,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "romanian_deadlift",
+    equipment: ["dumbbell"],
     primaryMuscle: "Hamstrings",
     secondaryMuscles: ["Glutes", "Lower back"],
     name: "Romanian deadlift",
@@ -104,6 +112,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bulgarian_split_squat",
+    equipment: ["dumbbell", "chair"],
     primaryMuscle: "Quads",
     secondaryMuscles: ["Glutes", "Core"],
     name: "Bulgarian split squat (chair)",
@@ -117,6 +126,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "single_leg_rdl",
+    equipment: ["dumbbell"],
     primaryMuscle: "Hamstrings",
     secondaryMuscles: ["Glutes", "Core"],
     name: "Single-leg Romanian deadlift",
@@ -129,6 +139,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "single_leg_hip_thrust",
+    equipment: ["chair"],
     primaryMuscle: "Glutes",
     secondaryMuscles: ["Hamstrings"],
     name: "Single-leg hip thrust (chair)",
@@ -143,6 +154,7 @@ export const EXERCISES: ExerciseDef[] = [
   // Achilles block (explosive first, slow heavy after)
   {
     slug: "explosive_box_step_up",
+    equipment: ["box"],
     primaryMuscle: "Calves & Achilles",
     secondaryMuscles: ["Quads", "Glutes"],
     name: "Explosive box step-up",
@@ -157,6 +169,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "loaded_toe_walk",
+    equipment: ["dumbbell"],
     primaryMuscle: "Calves & Achilles",
     name: "Loaded toe walk",
     category: "achilles",
@@ -169,6 +182,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "straight_knee_calf_raise",
+    equipment: ["dumbbell"],
     primaryMuscle: "Calves & Achilles",
     name: "Straight-knee calf raise (HSR)",
     category: "achilles",
@@ -183,6 +197,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bent_knee_calf_raise",
+    equipment: ["dumbbell"],
     primaryMuscle: "Calves & Achilles",
     name: "Bent-knee calf raise (HSR, soleus)",
     category: "achilles",
@@ -199,6 +214,7 @@ export const EXERCISES: ExerciseDef[] = [
   // Full-body day (household program — beginner-friendly starting loads)
   {
     slug: "goblet_squat",
+    equipment: ["dumbbell"],
     primaryMuscle: "Quads",
     secondaryMuscles: ["Glutes", "Core"],
     name: "Goblet squat",
@@ -211,6 +227,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "one_arm_row",
+    equipment: ["dumbbell", "chair"],
     primaryMuscle: "Back",
     secondaryMuscles: ["Biceps", "Core"],
     name: "One-arm dumbbell row",
@@ -224,6 +241,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "glute_bridge",
+    equipment: ["dumbbell"],
     primaryMuscle: "Glutes",
     secondaryMuscles: ["Hamstrings"],
     name: "Glute bridge",
@@ -239,6 +257,7 @@ export const EXERCISES: ExerciseDef[] = [
   // + floor, no bench). Not part of any stock session template.
   {
     slug: "db_floor_fly",
+    equipment: ["dumbbell"],
     primaryMuscle: "Chest",
     secondaryMuscles: ["Front delts"],
     name: "Floor chest fly",
@@ -252,6 +271,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "push_up",
+    equipment: [],
     primaryMuscle: "Chest",
     secondaryMuscles: ["Triceps", "Core"],
     name: "Push-up",
@@ -263,6 +283,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "bicep_curl",
+    equipment: ["dumbbell"],
     primaryMuscle: "Arms",
     name: "Biceps curl",
     category: "upper",
@@ -274,6 +295,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "hammer_curl",
+    equipment: ["dumbbell"],
     primaryMuscle: "Arms",
     secondaryMuscles: ["Forearms"],
     name: "Hammer curl",
@@ -286,6 +308,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "overhead_triceps_extension",
+    equipment: ["dumbbell"],
     primaryMuscle: "Arms",
     name: "Overhead triceps extension",
     category: "upper",
@@ -298,6 +321,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "triceps_kickback",
+    equipment: ["dumbbell"],
     primaryMuscle: "Arms",
     name: "Triceps kickback",
     category: "upper",
@@ -310,6 +334,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "front_raise",
+    equipment: ["dumbbell"],
     primaryMuscle: "Shoulders",
     name: "Front raise",
     category: "upper",
@@ -321,6 +346,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "rear_delt_fly",
+    equipment: ["dumbbell"],
     primaryMuscle: "Shoulders",
     secondaryMuscles: ["Upper back"],
     name: "Rear-delt fly",
@@ -334,6 +360,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "arnold_press",
+    equipment: ["dumbbell"],
     primaryMuscle: "Shoulders",
     secondaryMuscles: ["Triceps"],
     name: "Arnold press",
@@ -347,6 +374,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "db_pullover",
+    equipment: ["dumbbell"],
     primaryMuscle: "Back",
     secondaryMuscles: ["Chest", "Core"],
     name: "Dumbbell pullover",
@@ -360,6 +388,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "db_shrug",
+    equipment: ["dumbbell"],
     primaryMuscle: "Back",
     name: "Dumbbell shrug",
     category: "upper",
@@ -371,6 +400,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "reverse_lunge",
+    equipment: ["dumbbell"],
     primaryMuscle: "Quads",
     secondaryMuscles: ["Glutes", "Core"],
     name: "Reverse lunge",
@@ -383,6 +413,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "sumo_squat",
+    equipment: ["dumbbell"],
     primaryMuscle: "Glutes",
     secondaryMuscles: ["Quads", "Inner thighs"],
     name: "Sumo squat",
@@ -396,6 +427,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "russian_twist",
+    equipment: ["dumbbell"],
     primaryMuscle: "Core",
     name: "Russian twist",
     category: "full_body",
@@ -408,6 +440,7 @@ export const EXERCISES: ExerciseDef[] = [
   },
   {
     slug: "weighted_situp",
+    equipment: ["dumbbell"],
     primaryMuscle: "Core",
     name: "Weighted sit-up",
     category: "full_body",
