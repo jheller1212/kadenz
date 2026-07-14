@@ -1,9 +1,9 @@
 import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
-import { db, strengthPlanSettings, strengthSessions } from "@/db";
+import { db, plans, strengthPlanSettings, strengthSessions, workouts } from "@/db";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
-import { pickSpreadDays } from "./schedule-days";
+import { placeStrengthWeek, type PlacementDay } from "./schedule-place";
 import type { StrengthSessionType } from "./types";
 
 // ── Weekly strength scheduler ────────────────────────────────────────────────
@@ -87,57 +87,95 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     );
   const taken = new Set(existing.map((s) => dayKey(s.date)));
 
-  const chosenDays = pickSpreadDays(
-    settings.availableDays,
-    settings.sessionsPerWeek
-  );
-  const chosenOrdered = chosenDays
-    .map((d) => (d + 6) % 7) // Monday-based ordering
-    .sort((a, b) => a - b);
+  // Run schedule in the window (owner's active plan) — the placement engine
+  // keeps heavy leg work off hard-run days and the day before.
+  const runByDay = new Map<string, string>();
+  if (!profileId) {
+    const runs = await db
+      .select({ date: workouts.date, type: workouts.type })
+      .from(workouts)
+      .innerJoin(plans, eq(workouts.planId, plans.id))
+      .where(
+        and(
+          eq(plans.status, "active"),
+          gte(workouts.date, windowStart),
+          lte(workouts.date, horizon)
+        )
+      );
+    for (const r of runs) {
+      if (r.type !== "rest") runByDay.set(dayKey(r.date), r.type);
+    }
+  }
 
+  const rotation2 = rotation; // rotation per week
   const gcal = !profileId ? await isConnected().catch(() => false) : false;
 
-  let created = 0;
-  // Start tomorrow — a session scheduled onto a nearly-over day is instantly
-  // "missed", which is worse than starting the plan a day later.
+  // Build the day strip (tomorrow → horizon) and cut it into Monday weeks.
+  const strip: Array<PlacementDay & { date: Date }> = [];
   for (let offset = 1; offset <= HORIZON_DAYS; offset++) {
     const day = new Date(anchor);
     day.setUTCDate(day.getUTCDate() + offset);
-    const dow = dowInTz(day);
-    if (!chosenDays.includes(dow)) continue;
-    if (taken.has(dayKey(day))) continue;
+    const key = dayKey(day);
+    const nextDay = new Date(day);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    strip.push({
+      key,
+      date: day,
+      dow: dowInTz(day),
+      runType: runByDay.get(key) ?? null,
+      nextDayRunType: runByDay.get(dayKey(nextDay)) ?? null,
+      taken: taken.has(key),
+    });
+  }
+  const weeks: Array<Array<PlacementDay & { date: Date }>> = [];
+  let current: Array<PlacementDay & { date: Date }> = [];
+  for (const d of strip) {
+    if (d.dow === 1 && current.length > 0) {
+      weeks.push(current);
+      current = [];
+    }
+    current.push(d);
+  }
+  if (current.length > 0) weeks.push(current);
 
-    // The day's position among the chosen days (Mon-based) fixes its session
-    // type, so a given weekday always hosts the same workout.
-    const slotIndex = chosenOrdered.indexOf((dow + 6) % 7);
-    const type = rotation[slotIndex % rotation.length];
-    const template = SESSION_TEMPLATES[type];
+  let created = 0;
+  for (const week of weeks) {
+    // A partial leading week may already hold this week's earlier sessions —
+    // count them so we only top up the remainder of the rotation.
+    const alreadyThisWeek = week.filter((d) => d.taken).length;
+    const remaining = rotation2.slice(
+      Math.min(alreadyThisWeek, rotation2.length)
+    );
+    if (remaining.length === 0) continue;
 
-    const [row] = await db
-      .insert(strengthSessions)
-      .values({
-        profileId,
-        date: day,
-        dayOfWeek: dow,
-        type,
-        title: template.title,
-        status: "planned",
-        targetDurationMinutes: settings.durationMinutes,
-        autoScheduled: true,
-      })
-      .onConflictDoNothing()
-      .returning({ id: strengthSessions.id });
-
-    taken.add(dayKey(day));
-    if (row) {
-      created++;
-      if (gcal) {
-        queueStrengthSessionSync(row.id, "create", "gcal").catch(() => {});
+    const placements = placeStrengthWeek(week, settings.availableDays, remaining);
+    for (const placement of placements) {
+      const day = week.find((d) => d.key === placement.key)!;
+      const template = SESSION_TEMPLATES[placement.type];
+      const [row] = await db
+        .insert(strengthSessions)
+        .values({
+          profileId,
+          date: day.date,
+          dayOfWeek: day.dow,
+          type: placement.type,
+          title: template.title,
+          status: "planned",
+          targetDurationMinutes: settings.durationMinutes,
+          autoScheduled: true,
+        })
+        .onConflictDoNothing()
+        .returning({ id: strengthSessions.id });
+      if (row) {
+        created++;
+        if (gcal) {
+          queueStrengthSessionSync(row.id, "create", "gcal").catch(() => {});
+        }
       }
     }
   }
 
-  return { created };
+    return { created };
 }
 
 /** Remove future auto-scheduled sessions the user never touched. */

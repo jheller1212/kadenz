@@ -171,7 +171,13 @@ function weekDaysFor(plan: GeneratedPlan, weekNum: number): Date[] {
 
 // ── Strength (folded into the unified day calendar) ───────────────────────────
 
-type SessionType = "upper" | "lower" | "lower_achilles";
+type SessionType =
+  | "upper"
+  | "lower"
+  | "upper_achilles"
+  | "achilles"
+  | "lower_achilles"
+  | "full_body";
 
 interface StrengthSession {
   id: string;
@@ -187,11 +193,24 @@ interface Violation {
   message: string;
 }
 
+// Family-aligned colors (match the Kraft picker): upper = blues, lower =
+// purples, standalone Achilles orange, full body green.
 const STRENGTH_META: Record<SessionType, { label: string; color: string }> = {
-  upper: { label: "Upper", color: "#60A5FA" },
-  lower: { label: "Lower", color: "#C084FC" },
-  lower_achilles: { label: "Lower + Achilles", color: "#FFB547" },
+  upper: { label: "Upper", color: "#93C5FD" },
+  upper_achilles: { label: "Upper + Achilles", color: "#3B82F6" },
+  lower: { label: "Lower", color: "#D8B4FE" },
+  lower_achilles: { label: "Lower + Achilles", color: "#A855F7" },
+  achilles: { label: "Achilles", color: "#FB923C" },
+  full_body: { label: "Full Body", color: "#34D399" },
 };
+
+// Sessions can carry types this UI hasn't heard of yet — never crash the
+// calendar over an unknown label.
+function strengthMeta(type: string): { label: string; color: string } {
+  return (
+    STRENGTH_META[type as SessionType] ?? { label: type, color: "#94A3B8" }
+  );
+}
 
 function formatFullDate(d: Date) {
   return d.toLocaleDateString("en-US", {
@@ -434,7 +453,7 @@ function StrengthChip({
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `strength:${session.id}`,
   });
-  const meta = STRENGTH_META[session.type];
+  const meta = strengthMeta(session.type);
 
   return (
     <div
@@ -1448,25 +1467,25 @@ function PlanPageInner() {
             ) : activeDrag?.kind === "strength" ? (
               <div
                 className="rounded-[var(--radius-input)] shadow-lg overflow-hidden opacity-95"
-                style={{ backgroundColor: `${STRENGTH_META[activeDrag.session.type].color}1A` }}
+                style={{ backgroundColor: `${strengthMeta(activeDrag.session.type).color}1A` }}
               >
                 <div className="flex items-center gap-2 py-2 px-2">
                   <div
                     className="w-1 self-stretch shrink-0"
-                    style={{ backgroundColor: STRENGTH_META[activeDrag.session.type].color }}
+                    style={{ backgroundColor: strengthMeta(activeDrag.session.type).color }}
                   />
                   <GripVertical
                     className="h-4 w-4"
                     strokeWidth={1.9}
-                    style={{ color: STRENGTH_META[activeDrag.session.type].color }}
+                    style={{ color: strengthMeta(activeDrag.session.type).color }}
                   />
                   <Dumbbell
                     className="h-3.5 w-3.5"
                     strokeWidth={2}
-                    style={{ color: STRENGTH_META[activeDrag.session.type].color }}
+                    style={{ color: strengthMeta(activeDrag.session.type).color }}
                   />
                   <span className="text-[13px] font-semibold text-text-1">
-                    {STRENGTH_META[activeDrag.session.type].label}
+                    {strengthMeta(activeDrag.session.type).label}
                   </span>
                 </div>
               </div>
@@ -1504,7 +1523,7 @@ function PlanPageInner() {
               <span className="font-semibold text-text-1">
                 {movePicker.kind === "run"
                   ? movePicker.workout.title
-                  : STRENGTH_META[movePicker.session.type].label}
+                  : strengthMeta(movePicker.session.type).label}
               </span>{" "}
               — pick a new day.
             </p>
@@ -1553,7 +1572,8 @@ function PlanPageInner() {
                 options={[
                   { value: "upper", label: "Upper" },
                   { value: "lower", label: "Lower" },
-                  { value: "lower_achilles", label: "L+Achilles" },
+                  { value: "lower_achilles", label: "L+Ach" },
+                  { value: "full_body", label: "Full" },
                 ]}
               />
             </div>

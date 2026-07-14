@@ -54,12 +54,12 @@ function sameDay(a: Date | string, b: Date | string): boolean {
 }
 
 export function hasAchillesBlock(type: StrengthSessionType): boolean {
-  return type === "lower_achilles";
+  return type === "lower_achilles" || type === "upper_achilles" || type === "achilles";
 }
 
 export function hasExplosiveWork(type: StrengthSessionType): boolean {
-  // Explosive Achilles work (box step-up, loaded toe walk) lives on these days.
-  return type === "lower_achilles";
+  // Explosive Achilles work (box step-up) lives on every Achilles-block day.
+  return hasAchillesBlock(type);
 }
 
 function isLowerDay(type: StrengthSessionType): boolean {
