@@ -798,6 +798,66 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
 
 // ── Rest Day ────────────────────────────────────────────────────────────────
 
+const STRENGTH_TYPE_COLORS: Record<string, string> = {
+  upper: "#93C5FD",
+  upper_achilles: "#3B82F6",
+  lower: "#D8B4FE",
+  lower_achilles: "#A855F7",
+  achilles: "#FB923C",
+  full_body: "#34D399",
+};
+
+// Today's scheduled Kraft session, shown alongside the run.
+function StrengthTodayCard() {
+  const router = useRouter();
+  const [session, setSession] = useState<{
+    id: string; type: string; title: string; status: string;
+    targetDurationMinutes: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/api/strength/today");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.todaySession) setSession(data.todaySession);
+      } catch {
+        /* card simply doesn't render */
+      }
+    })();
+  }, []);
+
+  if (!session) return null;
+  const color = STRENGTH_TYPE_COLORS[session.type] ?? "#94A3B8";
+  const done = session.status === "completed";
+
+  return (
+    <motion.button
+      onClick={() => router.push("/strength")}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 450, damping: 32 }}
+      className="w-full overflow-hidden k-card text-left"
+    >
+      <div className="flex">
+        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: color }} />
+        <div className="flex flex-1 items-center gap-3 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-bold text-text-1">{session.title}</p>
+            <p className="mt-0.5 text-xs text-text-3">
+              Strength{session.targetDurationMinutes ? ` · ~${session.targetDurationMinutes} min` : ""}
+              {done ? " · completed" : ""}
+            </p>
+          </div>
+          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${done ? "border-text-1 bg-text-1" : "border-hairline"}`}>
+            {done && <Check className="h-4 w-4 text-bg" strokeWidth={3} />}
+          </div>
+        </div>
+      </div>
+    </motion.button>
+  );
+}
+
 function RestDayCard() {
   return (
     <div className="flex flex-col items-center gap-3 k-card p-6 text-center">
@@ -1150,8 +1210,9 @@ export default function Home() {
         </div>
 
         {/* Main Workout Card */}
-        <div className="px-5">
+        <div className="px-5 flex flex-col gap-3">
           {isRestDay ? <RestDayCard /> : <WorkoutCard workout={activeWorkout!} />}
+          <StrengthTodayCard />
         </div>
 
         {/* Week Overview */}
