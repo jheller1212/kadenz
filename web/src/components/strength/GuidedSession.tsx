@@ -25,7 +25,7 @@ export interface PlannedExercise {
   sets: number;
   repLow: number;
   repHigh: number;
-  restSeconds?: number;
+  restSeconds: number;
   prescription: string;
   suggestedWeightKg: number | null;
   lastWeightKg: number | null;
