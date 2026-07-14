@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickSpreadDays } from "../schedule";
+import { pickSpreadDays } from "../schedule-days";
 
 describe("pickSpreadDays", () => {
   it("returns all days when availability is scarce", () => {
