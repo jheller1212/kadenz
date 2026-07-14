@@ -6,6 +6,7 @@ import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
+import { apiFetch } from "@/lib/api";
 import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { getVideoId } from "@/lib/strength/videos";
@@ -33,6 +34,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSave: (input: CustomWorkoutInput) => Promise<void>;
+  /** Prefill when editing a saved template (rename, add/remove/tune slots). */
+  initial?: { name: string; slots: Array<{ exerciseSlug: string; sets: number; repLow: number; repHigh: number; weightKg?: number | null; restSeconds: number }> } | null;
 }
 
 // Picker groups by the lift's primary muscle (falls back to "Other").
@@ -51,7 +54,7 @@ const MUSCLE_ORDER = [
 
 let draftKey = 0;
 
-export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
+export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) {
   const [name, setName] = useState("");
   const [slots, setSlots] = useState<DraftSlot[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -67,14 +70,46 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
   // very first use (persisted afterwards, editable via the Equipment chip).
   useEffect(() => {
     if (open) {
-      setName("");
-      setSlots([]);
+      setName(initial?.name ?? "");
+      setSlots(
+        (initial?.slots ?? []).map((sl) => ({
+          key: `d${draftKey++}`,
+          exerciseSlug: sl.exerciseSlug,
+          sets: sl.sets,
+          repLow: sl.repLow,
+          repHigh: sl.repHigh,
+          weightKg: sl.weightKg ?? undefined,
+          restSeconds: sl.restSeconds,
+        }))
+      );
       setExpanded(null);
       setError(null);
       const stored = loadEquipment();
       setEquipment(stored ?? DEFAULT_EQUIPMENT);
-      setEquipmentStep(stored == null);
+      setEquipmentStep(stored == null && !initial);
     }
+  }, [open, initial]);
+
+  // Last-used weight/reps per exercise, for prefilling new slots.
+  const [lastUsed, setLastUsed] = useState<Record<string, { weightKg: number | null; repLow: number; repHigh: number }>>({});
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const res = await apiFetch("/api/strength/exercises");
+        if (!res.ok) return;
+        const rows: Array<{ slug: string; lastWeightKg: number | null; lastRepLow: number | null; lastRepHigh: number | null }> = await res.json();
+        const map: Record<string, { weightKg: number | null; repLow: number; repHigh: number }> = {};
+        for (const r of rows) {
+          if (r.lastRepLow != null && r.lastRepHigh != null) {
+            map[r.slug] = { weightKg: r.lastWeightKg, repLow: r.lastRepLow, repHigh: r.lastRepHigh };
+          }
+        }
+        setLastUsed(map);
+      } catch {
+        /* defaults are fine */
+      }
+    })();
   }, [open]);
 
   function toggleEquipment(key: Equipment) {
@@ -96,13 +131,14 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
 
   function addExercise(ex: ExerciseDef) {
     haptic("light");
+    const last = lastUsed[ex.slug];
     const slot: DraftSlot = {
       key: `d${draftKey++}`,
       exerciseSlug: ex.slug,
       sets: ex.defaultSets ?? 3,
-      repLow: ex.repLow ?? 8,
-      repHigh: ex.repHigh ?? 12,
-      weightKg: ex.startWeightKg,
+      repLow: last?.repLow ?? ex.repLow ?? 8,
+      repHigh: last?.repHigh ?? ex.repHigh ?? 12,
+      weightKg: last?.weightKg ?? ex.startWeightKg,
       restSeconds: 90,
     };
     setSlots((s) => [...s, slot]);
@@ -176,7 +212,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
       <Sheet
         open={open}
         onClose={onClose}
-        title={equipmentStep ? "What do you have?" : "New custom workout"}
+        title={equipmentStep ? "What do you have?" : initial ? "Edit workout" : "New custom workout"}
       >
         {equipmentStep ? (
           <div className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6">
@@ -265,13 +301,23 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
                       fallback={3}
                       onChange={(v) => patchSlot(slot.key, { sets: clamp(v, 1, 20) })}
                     />
-                    <Field
-                      label="Rest (s)"
-                      value={slot.restSeconds}
-                      step={15}
-                      fallback={90}
-                      onChange={(v) => patchSlot(slot.key, { restSeconds: clamp(v, 0, 600) })}
-                    />
+                    <div>
+                      <span className="mb-1 block text-[12px] font-medium text-text-3">Rest</span>
+                      <div className="flex gap-1.5">
+                        {[30, 60, 90].map((sec) => (
+                          <button
+                            key={sec}
+                            type="button"
+                            onClick={() => { haptic("light"); patchSlot(slot.key, { restSeconds: sec }); }}
+                            className={`press flex-1 rounded-[var(--radius-input)] py-2 text-[13px] font-bold ${
+                              slot.restSeconds === sec ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                            }`}
+                          >
+                            {sec}s
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <Field
                       label="Reps from"
                       value={slot.repLow}
@@ -328,7 +374,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave }: Props) {
           )}
 
           <Button full busy={busy} onClick={save} disabled={!name.trim() || slots.length === 0}>
-            Save workout
+            {initial ? "Save changes" : "Save workout"}
           </Button>
         </div>
         )}

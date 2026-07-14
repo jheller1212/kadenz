@@ -1,16 +1,75 @@
-import { db, strengthExercises } from "@/db";
-import { asc } from "drizzle-orm";
+import { NextRequest } from "next/server";
+import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { db, strengthExercises, strengthSessions, strengthSets } from "@/db";
+import { getActiveProfileId } from "@/lib/profiles";
 
 // ── GET /api/strength/exercises ───────────────────────────────────────────────
-// The seeded exercise catalogue.
+// The seeded exercise catalogue, enriched with the athlete's last-used weight
+// and rep range (from the most recent session containing each exercise) so
+// pickers can prefill real numbers instead of catalogue defaults.
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const profileId = getActiveProfileId(request);
   try {
     const rows = await db
       .select()
       .from(strengthExercises)
       .orderBy(asc(strengthExercises.sortOrder));
-    return Response.json(rows);
+
+    // Newest-first logged sets; reduce to each exercise's latest session.
+    const sets = await db
+      .select({
+        exerciseId: strengthSets.exerciseId,
+        sessionId: strengthSets.sessionId,
+        weightKg: strengthSets.weightKg,
+        reps: strengthSets.reps,
+      })
+      .from(strengthSets)
+      .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
+      .where(
+        and(
+          isNotNull(strengthSets.reps),
+          profileId
+            ? eq(strengthSessions.profileId, profileId)
+            : isNull(strengthSessions.profileId)
+        )
+      )
+      .orderBy(desc(strengthSets.createdAt));
+
+    const latest = new Map<
+      string,
+      { sessionId: string; weightKg: number | null; repLow: number; repHigh: number }
+    >();
+    for (const s of sets) {
+      const cur = latest.get(s.exerciseId);
+      if (!cur) {
+        latest.set(s.exerciseId, {
+          sessionId: s.sessionId,
+          weightKg: s.weightKg,
+          repLow: s.reps!,
+          repHigh: s.reps!,
+        });
+      } else if (cur.sessionId === s.sessionId) {
+        // Same (latest) session: widen the rep range, keep the heaviest load.
+        cur.repLow = Math.min(cur.repLow, s.reps!);
+        cur.repHigh = Math.max(cur.repHigh, s.reps!);
+        if (s.weightKg != null && (cur.weightKg == null || s.weightKg > cur.weightKg)) {
+          cur.weightKg = s.weightKg;
+        }
+      }
+    }
+
+    return Response.json(
+      rows.map((r) => {
+        const l = latest.get(r.id);
+        return {
+          ...r,
+          lastWeightKg: l?.weightKg ?? null,
+          lastRepLow: l?.repLow ?? null,
+          lastRepHigh: l?.repHigh ?? null,
+        };
+      })
+    );
   } catch (err) {
     console.error("DB error listing strength exercises:", err);
     return Response.json({ error: "Failed to fetch exercises" }, { status: 500 });

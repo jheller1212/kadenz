@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Plus, X , CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -50,6 +50,9 @@ interface ExerciseCatalogRow {
   repLow: number | null;
   repHigh: number | null;
   startWeightKg: number | null;
+  lastWeightKg: number | null;
+  lastRepLow: number | null;
+  lastRepHigh: number | null;
 }
 
 type Phase = "picker" | "overview" | "guided" | "summary";
@@ -84,6 +87,7 @@ export default function StrengthPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
+  const [editIdx, setEditIdx] = useState<number | null>(null);
   const [catalog, setCatalog] = useState<ExerciseCatalogRow[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
 
@@ -111,8 +115,9 @@ export default function StrengthPage() {
       }
     })();
   }, []);
-  const { templates, listWorkouts, createWorkout, deleteWorkout } =
+  const { templates, listWorkouts, createWorkout, updateWorkout, deleteWorkout } =
     useCustomWorkouts();
+  const [editingTemplate, setEditingTemplate] = useState<CustomWorkoutTemplate | null>(null);
 
   useEffect(() => {
     if (phase === "picker") listWorkouts();
@@ -215,7 +220,12 @@ export default function StrengthPage() {
   }
 
   async function handleSaveCustomWorkout(input: CustomWorkoutInput) {
-    await createWorkout(input);
+    if (editingTemplate) {
+      await updateWorkout(editingTemplate.id, input);
+      setEditingTemplate(null);
+    } else {
+      await createWorkout(input);
+    }
     haptic("success");
   }
 
@@ -321,8 +331,10 @@ export default function StrengthPage() {
   function addExercise(row: ExerciseCatalogRow) {
     haptic("light");
     const sets = row.defaultSets ?? 3;
-    const repLow = row.repLow ?? 8;
-    const repHigh = row.repHigh ?? 12;
+    // Prefer what the athlete actually did last time; catalogue default next;
+    // 8–12 as the final fallback.
+    const repLow = row.lastRepLow ?? row.repLow ?? 8;
+    const repHigh = row.lastRepHigh ?? row.repHigh ?? 12;
     const planned: PlannedExercise = {
       slug: row.slug,
       name: row.name,
@@ -336,7 +348,7 @@ export default function StrengthPage() {
       repHigh,
       restSeconds: 90,
       prescription: repLow === repHigh ? `${sets} × ${repLow}` : `${sets} × ${repLow}–${repHigh}`,
-      suggestedWeightKg: row.startWeightKg ?? null,
+      suggestedWeightKg: row.lastWeightKg ?? row.startWeightKg ?? null,
       lastWeightKg: null,
       painGated: false,
       progression: { action: "same", reason: "Manually added" },
@@ -464,6 +476,14 @@ export default function StrengthPage() {
                   </button>
                   <button
                     type="button"
+                    aria-label={`Edit ${t.name}`}
+                    onClick={() => { haptic("light"); setEditingTemplate(t); setCustomBuilderOpen(true); }}
+                    className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated"
+                  >
+                    <Pencil className="h-4 w-4 text-text-3" strokeWidth={1.9} />
+                  </button>
+                  <button
+                    type="button"
                     aria-label={`Delete ${t.name}`}
                     onClick={() => handleDeleteCustomWorkout(t.id)}
                     className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated"
@@ -489,8 +509,9 @@ export default function StrengthPage() {
 
         <CustomWorkoutBuilder
           open={customBuilderOpen}
-          onClose={() => setCustomBuilderOpen(false)}
+          onClose={() => { setCustomBuilderOpen(false); setEditingTemplate(null); }}
           onSave={handleSaveCustomWorkout}
+          initial={editingTemplate ? { name: editingTemplate.name, slots: editingTemplate.slots } : null}
         />
 
         <BottomNav active="strength" />
@@ -575,6 +596,23 @@ export default function StrengthPage() {
         ADD_CATEGORIES[session.type].includes(r.category) &&
         !exercises.some((e) => e.slug === r.slug)
     );
+    // Group the add sheet by primary muscle (metadata lives in the code
+    // catalogue; the DB rows carry the last-used numbers).
+    const MUSCLE_ORDER = ["Shoulders", "Chest", "Back", "Arms", "Quads", "Hamstrings", "Glutes", "Calves & Achilles", "Core", "Other"];
+    const addGroups = new Map<string, ExerciseCatalogRow[]>();
+    for (const row of addable) {
+      const muscle = EXERCISES.find((e) => e.slug === row.slug)?.primaryMuscle ?? "Other";
+      const list = addGroups.get(muscle) ?? [];
+      list.push(row);
+      addGroups.set(muscle, list);
+    }
+    const sortedGroups = [...addGroups.entries()].sort(
+      (x, y) => MUSCLE_ORDER.indexOf(x[0]) - MUSCLE_ORDER.indexOf(y[0])
+    );
+    // Total time follows the current exercise list, not the stock template.
+    const liveEstimate = estimateWorkoutDuration(
+      exercises.map((e) => ({ sets: e.sets, repLow: e.repLow, repHigh: e.repHigh, restSeconds: e.restSeconds }))
+    );
 
     return (
       <main className="min-h-dvh bg-bg">
@@ -596,7 +634,7 @@ export default function StrengthPage() {
         <div className="px-4 pb-tabbar">
           <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
           <p className="mt-1 text-[13px] text-text-3">
-            {exercises.length} exercises · ~{session.targetDurationMinutes} min
+            {exercises.length} exercises · ~{liveEstimate} min
           </p>
 
           {session.type === "lower_achilles" && (
@@ -617,12 +655,19 @@ export default function StrengthPage() {
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
                   {ei + 1}
                 </span>
-                <div className="min-w-0 flex-1">
+                <div
+                  className="min-w-0 flex-1 cursor-pointer"
+                  onClick={() => { haptic("light"); setEditIdx(ei); }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter") setEditIdx(ei); }}
+                  aria-label={`Edit ${ex.name}`}
+                >
                   <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
                   <p className="mt-0.5 text-[12px] text-text-3">
                     {ex.sets} sets × {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps
                     {ex.suggestedWeightKg != null ? ` · ${ex.suggestedWeightKg} kg` : " · bodyweight"}
-                    {ex.perSide ? "/side" : ""}
+                    {ex.perSide ? "/side" : ""} · {ex.restSeconds}s rest
                   </p>
                   {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -681,20 +726,52 @@ export default function StrengthPage() {
           ) : addable.length === 0 ? (
             <EmptyState title="Nothing to add" message="All eligible exercises are already in this session." />
           ) : (
-            <ListGroup>
-              {addable.map((row) => (
-                <Row
-                  key={row.slug}
-                  title={row.name}
-                  subtitle={
-                    row.tempoNote ??
-                    `${row.defaultSets ?? 3} sets × ${row.repLow ?? 8}–${row.repHigh ?? 12} reps`
-                  }
-                  onClick={() => addExercise(row)}
-                  chevron
-                />
+            <div className="max-h-[60dvh] overflow-y-auto px-4 pb-6">
+              {sortedGroups.map(([muscle, list]) => (
+                <div key={muscle} className="mb-4">
+                  <p className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-text-3">{muscle}</p>
+                  <div className="flex flex-col gap-1.5">
+                    {list.map((row) => (
+                      <button
+                        key={row.slug}
+                        type="button"
+                        onClick={() => addExercise(row)}
+                        className="press rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-left"
+                      >
+                        <span className="block text-[15px] font-semibold text-text-1">{row.name}</span>
+                        <span className="block text-[12px] text-text-3">
+                          {row.lastWeightKg != null
+                            ? `Last: ${row.lastWeightKg} kg × ${row.lastRepLow === row.lastRepHigh ? row.lastRepLow : `${row.lastRepLow}–${row.lastRepHigh}`}`
+                            : row.tempoNote ?? `${row.defaultSets ?? 3} × ${row.repLow ?? 8}–${row.repHigh ?? 12}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
-            </ListGroup>
+            </div>
+          )}
+        </Sheet>
+
+        <Sheet open={editIdx != null} onClose={() => setEditIdx(null)} title="Edit exercise">
+          {editIdx != null && exercises[editIdx] && (
+            <ExerciseEditor
+              exercise={exercises[editIdx]}
+              onChange={(patch) =>
+                setExercises((exs) =>
+                  exs.map((e, i) => {
+                    if (i !== editIdx) return e;
+                    const next = { ...e, ...patch };
+                    next.prescription =
+                      next.repLow === next.repHigh
+                        ? `${next.sets} × ${next.repLow}`
+                        : `${next.sets} × ${next.repLow}–${next.repHigh}`;
+                    return next;
+                  })
+                )
+              }
+              onDone={() => setEditIdx(null)}
+            />
           )}
         </Sheet>
 
@@ -704,4 +781,98 @@ export default function StrengthPage() {
   }
 
   return null;
+}
+
+// ── Inline exercise editor (overview) ────────────────────────────────────────
+
+const REST_PRESETS = [30, 60, 90];
+
+function ExerciseEditor({
+  exercise,
+  onChange,
+  onDone,
+}: {
+  exercise: PlannedExercise;
+  onChange: (patch: Partial<PlannedExercise>) => void;
+  onDone: () => void;
+}) {
+  const stepBtn = "press flex h-10 w-10 items-center justify-center rounded-full bg-elevated";
+  function Stepper({
+    label,
+    value,
+    unit,
+    onDelta,
+  }: {
+    label: string;
+    value: string;
+    unit?: string;
+    onDelta: (d: number) => void;
+  }) {
+    return (
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-semibold text-text-2">{label}</span>
+        <div className="flex items-center gap-3">
+          <button type="button" aria-label={`Less ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(-1); }}>−</button>
+          <span className="min-w-[72px] text-center text-[17px] font-extrabold tabular-nums text-text-1">
+            {value}{unit && <span className="text-[12px] font-semibold text-text-3"> {unit}</span>}
+          </span>
+          <button type="button" aria-label={`More ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(1); }}>+</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 px-4 pb-6">
+      <p className="text-[15px] font-bold text-text-1">{exercise.name}</p>
+      <Stepper
+        label="Sets"
+        value={String(exercise.sets)}
+        onDelta={(d) => onChange({ sets: Math.min(10, Math.max(1, exercise.sets + d)) })}
+      />
+      <Stepper
+        label="Reps from"
+        value={String(exercise.repLow)}
+        onDelta={(d) => onChange({ repLow: Math.min(exercise.repHigh, Math.max(1, exercise.repLow + d)) })}
+      />
+      <Stepper
+        label="Reps to"
+        value={String(exercise.repHigh)}
+        onDelta={(d) => onChange({ repHigh: Math.min(100, Math.max(exercise.repLow, exercise.repHigh + d)) })}
+      />
+      <Stepper
+        label="Weight"
+        value={exercise.suggestedWeightKg != null ? String(exercise.suggestedWeightKg) : "BW"}
+        unit={exercise.suggestedWeightKg != null ? "kg" : undefined}
+        onDelta={(d) =>
+          onChange({
+            suggestedWeightKg: Math.max(0, (exercise.suggestedWeightKg ?? 0) + d * 2.5),
+          })
+        }
+      />
+      <div>
+        <p className="mb-2 text-[13px] font-semibold text-text-2">Rest between sets</p>
+        <div className="flex gap-2">
+          {REST_PRESETS.map((sec) => (
+            <button
+              key={sec}
+              type="button"
+              onClick={() => { haptic("light"); onChange({ restSeconds: sec }); }}
+              className={`press flex-1 rounded-[var(--radius-input)] py-2.5 text-[15px] font-bold ${
+                exercise.restSeconds === sec ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+              }`}
+            >
+              {sec}s
+            </button>
+          ))}
+          {!REST_PRESETS.includes(exercise.restSeconds) && (
+            <span className="flex flex-1 items-center justify-center rounded-[var(--radius-input)] bg-accent text-[15px] font-bold text-on-accent">
+              {exercise.restSeconds}s
+            </span>
+          )}
+        </div>
+      </div>
+      <Button full onClick={onDone}>Done</Button>
+    </div>
+  );
 }
