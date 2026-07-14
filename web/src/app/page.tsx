@@ -470,7 +470,34 @@ const typeLabel: Record<string, string> = {
 
 function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
   const router = useRouter();
-  const isCompleted = workout.status === "completed";
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const isCompleted = (localStatus ?? workout.status) === "completed";
+
+  async function toggleComplete(e: React.MouseEvent) {
+    e.stopPropagation(); // the card itself navigates
+    if (completing || isCompleted) {
+      // Completed taps just open the detail (undo lives there via options).
+      if (isCompleted) router.push(`/workout/${workout.id}`);
+      return;
+    }
+    setCompleting(true);
+    setLocalStatus("completed"); // optimistic
+    haptic("success");
+    try {
+      const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setLocalStatus(null);
+      haptic("warning");
+    } finally {
+      setCompleting(false);
+    }
+  }
   const barColor = workoutBarColor[workout.type] ?? "#999";
   const dateStr = new Date(workout.date).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" });
   const durationRange = workout.targetDurationMinutes
@@ -495,10 +522,17 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
               <p className="text-base font-bold text-text-1">{workout.title}</p>
               <p className="mt-0.5 text-xs text-text-3">{dateStr}{durationRange ? ` · ${durationRange}` : ""}</p>
             </div>
-            {/* Checkbox */}
-            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${isCompleted ? "border-text-1 bg-text-1" : "border-hairline"}`}>
+            {/* Complete toggle */}
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={isCompleted ? "Completed" : "Mark run complete"}
+              onClick={toggleComplete}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleComplete(e as unknown as React.MouseEvent); }}
+              className={`press flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 ${isCompleted ? "border-text-1 bg-text-1" : "border-hairline"} ${completing ? "opacity-50" : ""}`}
+            >
               {isCompleted && <Check className="h-4 w-4 text-bg" strokeWidth={3} />}
-            </div>
+            </span>
           </div>
 
           {/* Type + distance row */}
