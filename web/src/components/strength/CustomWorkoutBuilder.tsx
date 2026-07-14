@@ -39,6 +39,7 @@ const MUSCLE_ORDER = [
   "Hamstrings",
   "Glutes",
   "Calves & Achilles",
+  "Core",
   "Other",
 ];
 

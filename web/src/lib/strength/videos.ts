@@ -21,6 +21,22 @@ export const EXERCISE_VIDEOS: Record<string, string> = {
   bent_knee_calf_raise: "KoZ9x7TjXHc", // Lifelong Endurance (soleus)
   goblet_squat: "MeIiIdhvXT4", // ScottHermanFitness
   glute_bridge: "KjoL5FXJGQE", // Red Dot Fitness
+  // Extended library (verified 2026-07-14)
+  db_floor_fly: "bgC53-J-6gA", // PureGym
+  push_up: "WDIpL0pjun0", // NASM
+  bicep_curl: "ykJmrZ5v0Oo", // Howcast
+  hammer_curl: "zC3nLlEvin4", // ScottHermanFitness
+  overhead_triceps_extension: "-Vyt2QdsR7E", // ScottHermanFitness
+  triceps_kickback: "6SS6K3lAwZ8", // ScottHermanFitness
+  front_raise: "-t7fuZ0KhDA", // ScottHermanFitness
+  rear_delt_fly: "4Xr7bKE_fxE", // Buff Dudes
+  arnold_press: "ZsVxV2dV5YU", // Live Lean TV
+  db_pullover: "qALakTR1nRI", // Onnit Academy
+  db_shrug: "cJRVVxmytaM", // ScottHermanFitness
+  reverse_lunge: "sjlsISvHyZs", // ScottHermanFitness
+  sumo_squat: "GG92d1QZTZg", // T-Nation
+  russian_twist: "FShbaqrGGu4", // Leap Fitness
+  weighted_situp: "kZvSaq192cg", // LIVESTRONG
 };
 
 export function getVideoId(slug: string): string | null {
