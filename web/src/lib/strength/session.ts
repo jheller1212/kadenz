@@ -52,6 +52,8 @@ export interface BuildSessionOptions {
   historyBySlug?: Record<string, ExerciseSessionHistory[]>;
   /** Result of the Achilles pain gate for this athlete's recent logs. */
   painGate?: PainGateResult;
+  /** Strength ability from the weekly-plan wizard; scales sets and rest. */
+  ability?: "beginner" | "intermediate" | "advanced";
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -66,14 +68,28 @@ export function buildSessionPlan(
   const programWeek = opts.programWeek ?? 1;
   const historyBySlug = opts.historyBySlug ?? {};
   const painGate = opts.painGate ?? { triggered: false, reason: null };
+  const ability = opts.ability ?? "intermediate";
 
-  return template.slots.map((slot) => {
+  return template.slots.map((slot, slotIdx) => {
     const ex = EXERCISE_BY_SLUG[slot.exerciseSlug];
     const history = historyBySlug[slot.exerciseSlug] ?? [];
 
     let sets = slot.sets;
     let repLow = slot.repLow;
     let repHigh = slot.repHigh;
+    let restSeconds = slot.restSeconds;
+
+    // Ability scaling (HSR rehab work keeps its own scheme, applied below):
+    // beginners drop a set and rest longer; advanced athletes add a set to
+    // the first two main lifts of the session.
+    if (!isHsrExercise(slot.exerciseSlug)) {
+      if (ability === "beginner") {
+        sets = Math.max(2, sets - 1);
+        restSeconds = restSeconds + 30;
+      } else if (ability === "advanced" && slotIdx < 2) {
+        sets = sets + 1;
+      }
+    }
     let prescription = repRangeLabel(sets, repLow, repHigh);
 
     let progression = suggestProgression(ex, history);
@@ -111,7 +127,7 @@ export function buildSessionPlan(
       sets,
       repLow,
       repHigh,
-      restSeconds: slot.restSeconds,
+      restSeconds,
       prescription,
       suggestedWeightKg,
       lastWeightKg,
