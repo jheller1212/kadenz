@@ -8,16 +8,20 @@ import {
   pruneAutoSchedule,
 } from "@/lib/strength/schedule";
 
+const EQUIPMENT_VALUES = [
+  "dumbbell", "barbell", "bench", "chair", "box", "kettlebell", "pullup_bar", "band",
+] as const;
+
 const SettingsSchema = z.object({
   goal: z.enum(["running_focus", "all_round"]),
   durationMinutes: z.union([z.literal(30), z.literal(45), z.literal(60)]),
   sessionsPerWeek: z.number().int().min(1).max(4),
   ability: z.enum(["beginner", "intermediate", "advanced"]),
   availableDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
-  equipment: z.array(z.string().max(30)).max(12),
+  equipment: z.array(z.enum(EQUIPMENT_VALUES)).max(EQUIPMENT_VALUES.length),
   active: z.boolean().optional().default(true),
-}).refine((s) => s.availableDays.length >= s.sessionsPerWeek, {
-  message: "Pick at least as many days as sessions per week",
+}).refine((s) => new Set(s.availableDays).size >= s.sessionsPerWeek, {
+  message: "Pick at least as many distinct days as sessions per week",
 });
 
 function profCond(profileId: string | null) {
@@ -53,18 +57,26 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    const [existing] = await db
-      .select({ id: strengthPlanSettings.id })
-      .from(strengthPlanSettings)
-      .where(profCond(profileId));
-
-    if (existing) {
-      await db
-        .update(strengthPlanSettings)
-        .set({ ...data, updatedAt: new Date() })
-        .where(eq(strengthPlanSettings.id, existing.id));
-    } else {
-      await db.insert(strengthPlanSettings).values({ ...data, profileId });
+    // Update-first, insert-on-miss; the partial unique index (0015) makes the
+    // insert race-safe, and a lost race falls through to the update.
+    const values = { ...data, availableDays: [...new Set(data.availableDays)] };
+    const updated = await db
+      .update(strengthPlanSettings)
+      .set({ ...values, updatedAt: new Date() })
+      .where(profCond(profileId))
+      .returning({ id: strengthPlanSettings.id });
+    if (updated.length === 0) {
+      const inserted = await db
+        .insert(strengthPlanSettings)
+        .values({ ...values, profileId })
+        .onConflictDoNothing()
+        .returning({ id: strengthPlanSettings.id });
+      if (inserted.length === 0) {
+        await db
+          .update(strengthPlanSettings)
+          .set({ ...values, updatedAt: new Date() })
+          .where(profCond(profileId));
+      }
     }
 
     // Rebuild the upcoming auto schedule from the new preferences. Completed

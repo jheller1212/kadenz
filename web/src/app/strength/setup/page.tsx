@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, X, Check } from "lucide-react";
@@ -8,6 +8,11 @@ import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import type { Equipment } from "@/lib/strength/types";
+import {
+  DEFAULT_EQUIPMENT,
+  EQUIPMENT_OPTIONS,
+  saveEquipment,
+} from "@/lib/strength/equipment";
 
 // ── Benchmark-style stepped setup wizard for the weekly strength schedule ────────
 
@@ -52,16 +57,7 @@ const DAYS: Array<{ dow: number; label: string }> = [
   { dow: 0, label: "Sunday" },
 ];
 
-const EQUIPMENT_OPTIONS: Array<{ key: Equipment; label: string }> = [
-  { key: "dumbbell", label: "Dumbbells" },
-  { key: "chair", label: "Chair" },
-  { key: "box", label: "Box / step" },
-  { key: "bench", label: "Bench" },
-  { key: "barbell", label: "Barbell" },
-  { key: "kettlebell", label: "Kettlebell" },
-  { key: "pullup_bar", label: "Pull-up bar" },
-  { key: "band", label: "Resistance band" },
-];
+
 
 // Radial ability ring (Benchmark-style donut).
 function AbilityRing({ fill, active }: { fill: number; active: boolean }) {
@@ -146,36 +142,44 @@ export default function StrengthSetupPage() {
   const [frequency, setFrequency] = useState(2);
   const [ability, setAbility] = useState<Ability>("intermediate");
   const [days, setDays] = useState<number[]>([]);
-  const [equipment, setEquipment] = useState<Equipment[]>(["dumbbell", "chair", "box"]);
+  const [equipment, setEquipment] = useState<Equipment[]>(DEFAULT_EQUIPMENT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState(false);
 
-  // Prefill from saved settings when re-running the wizard.
+  // Prefill from saved settings when re-running the wizard — but never
+  // clobber choices the user already started making.
+  const interactedRef = useRef(false);
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const res = await apiFetch("/api/strength/plan-settings");
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const s = await res.json();
-        if (!s) return;
+        if (!s || cancelled || interactedRef.current) return;
         setExisting(true);
-        setGoal(s.goal);
-        setDuration(s.durationMinutes);
-        setFrequency(s.sessionsPerWeek);
-        setAbility(s.ability);
-        setDays(s.availableDays ?? []);
-        setEquipment(s.equipment ?? []);
+        if (s.goal === "running_focus" || s.goal === "all_round") setGoal(s.goal);
+        if ([30, 45, 60].includes(s.durationMinutes)) setDuration(s.durationMinutes);
+        if (s.sessionsPerWeek >= 1 && s.sessionsPerWeek <= 4) setFrequency(s.sessionsPerWeek);
+        if (["beginner", "intermediate", "advanced"].includes(s.ability)) setAbility(s.ability);
+        if (Array.isArray(s.availableDays)) setDays(s.availableDays);
+        if (Array.isArray(s.equipment)) setEquipment(s.equipment);
       } catch {
         /* fresh setup */
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   const canContinue = useMemo(() => {
     if (step === "days") return days.length >= Math.max(frequency, 1);
     return true;
   }, [step, days, frequency]);
+
+  function markInteracted() {
+    interactedRef.current = true;
+  }
 
   function back() {
     haptic("light");
@@ -212,6 +216,7 @@ export default function StrengthSetupPage() {
         return;
       }
       haptic("success");
+      saveEquipment(equipment); // the custom builder shares this choice
       router.push("/strength");
     } catch {
       setError("Network error — couldn't save.");
@@ -306,7 +311,7 @@ export default function StrengthSetupPage() {
                   <OptionCard
                     key={g.key}
                     selected={goal === g.key}
-                    onSelect={() => setGoal(g.key)}
+                    onSelect={() => { markInteracted(); setGoal(g.key); }}
                     title={g.title}
                     sub={g.sub}
                   />
@@ -317,7 +322,7 @@ export default function StrengthSetupPage() {
                   <OptionCard
                     key={d.value}
                     selected={duration === d.value}
-                    onSelect={() => setDuration(d.value)}
+                    onSelect={() => { markInteracted(); setDuration(d.value); }}
                     title={d.title}
                     sub={d.sub}
                   />
@@ -328,7 +333,7 @@ export default function StrengthSetupPage() {
                   <OptionCard
                     key={n}
                     selected={frequency === n}
-                    onSelect={() => setFrequency(n)}
+                    onSelect={() => { markInteracted(); setFrequency(n); }}
                     title={`${n} ${n === 1 ? "Day" : "Days"}`}
                   />
                 ))}
@@ -338,7 +343,7 @@ export default function StrengthSetupPage() {
                   <OptionCard
                     key={a.key}
                     selected={ability === a.key}
-                    onSelect={() => setAbility(a.key)}
+                    onSelect={() => { markInteracted(); setAbility(a.key); }}
                     title={a.title}
                     sub={a.sub}
                     leading={<AbilityRing fill={a.fill} active={ability === a.key} />}
@@ -350,7 +355,7 @@ export default function StrengthSetupPage() {
                   <OptionCard
                     key={d.dow}
                     selected={false}
-                    onSelect={() => toggleDay(d.dow)}
+                    onSelect={() => { markInteracted(); toggleDay(d.dow); }}
                     title={d.label}
                     trailing={<CheckBox on={days.includes(d.dow)} />}
                   />
@@ -361,7 +366,7 @@ export default function StrengthSetupPage() {
                   <OptionCard
                     key={o.key}
                     selected={false}
-                    onSelect={() => toggleEquipment(o.key)}
+                    onSelect={() => { markInteracted(); toggleEquipment(o.key); }}
                     title={o.label}
                     trailing={<CheckBox on={equipment.includes(o.key)} />}
                   />
