@@ -611,7 +611,7 @@ export default function StrengthPage() {
     );
     // Total time follows the current exercise list, not the stock template.
     const liveEstimate = estimateWorkoutDuration(
-      exercises.map((e) => ({ sets: e.sets, repLow: e.repLow, repHigh: e.repHigh, restSeconds: e.restSeconds }))
+      exercises.map((e) => ({ sets: e.sets, repLow: e.repLow, repHigh: e.repHigh, restSeconds: e.restSeconds ?? 90 }))
     );
 
     return (
