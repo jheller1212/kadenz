@@ -93,6 +93,24 @@ export default function StrengthPage() {
   const [painError, setPainError] = useState<string | null>(null);
 
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
+  const [planSettings, setPlanSettings] = useState<{
+    goal: string; sessionsPerWeek: number; durationMinutes: number; active: boolean;
+  } | null | undefined>(undefined); // undefined = loading
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/api/strength/plan-settings");
+        if (!res.ok) { setPlanSettings(null); return; }
+        const s = await res.json();
+        setPlanSettings(s);
+        // Opportunistic top-up of the next two weeks of auto sessions.
+        if (s?.active) apiFetch("/api/strength/plan-settings/ensure", { method: "POST" }).catch(() => {});
+      } catch {
+        setPlanSettings(null);
+      }
+    })();
+  }, []);
   const { templates, listWorkouts, createWorkout, deleteWorkout } =
     useCustomWorkouts();
 
@@ -379,6 +397,26 @@ export default function StrengthPage() {
               {error}
             </div>
           )}
+
+          <TransitionLink
+            href="/strength/setup"
+            className="press mt-4 block k-card p-4"
+          >
+            <span className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-[20px]">🏋️</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[16px] font-bold text-text-1">
+                  {planSettings ? "Weekly strength plan" : "Set up weekly strength"}
+                </span>
+                <span className="block text-[13px] text-text-3">
+                  {planSettings
+                    ? `${planSettings.sessionsPerWeek}×/week · ~${planSettings.durationMinutes} min · ${planSettings.goal === "running_focus" ? "Running focus" : "All-round"}`
+                    : "A recurring schedule built around your running"}
+                </span>
+              </span>
+              <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.9} />
+            </span>
+          </TransitionLink>
 
           <div className="mt-5 flex flex-col gap-3">
             {(Object.keys(TYPE_META) as SessionType[]).map((t) => (

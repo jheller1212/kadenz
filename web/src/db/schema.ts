@@ -397,6 +397,8 @@ export const strengthSessions = pgTable(
     notes: text("notes"),
     gcalEventId: text("gcal_event_id"),
     garminWorkoutId: text("garmin_workout_id"),
+    // Created by the weekly scheduler (safe to prune when settings change).
+    autoScheduled: boolean("auto_scheduled").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -490,6 +492,32 @@ export const painLogs = pgTable(
       .defaultNow(),
   },
   (t) => [index("pain_logs_session_id_idx").on(t.sessionId)]
+);
+
+// Recurring weekly strength schedule preferences (Benchmark-style setup wizard).
+// One row per profile (NULL = owner); the scheduler tops up planned sessions.
+export const strengthPlanSettings = pgTable(
+  "strength_plan_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id").references(() => profiles.id, {
+      onDelete: "cascade",
+    }),
+    goal: text("goal").notNull().default("running_focus"), // running_focus | all_round
+    durationMinutes: integer("duration_minutes").notNull().default(45),
+    sessionsPerWeek: integer("sessions_per_week").notNull().default(2),
+    ability: text("ability").notNull().default("intermediate"),
+    availableDays: integer("available_days").array().notNull(), // 0=Sun … 6=Sat
+    equipment: text("equipment").array().notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("strength_plan_settings_profile_idx").on(t.profileId)]
 );
 
 // User-defined custom workout templates. Profile-scoped (NULL = owner).
