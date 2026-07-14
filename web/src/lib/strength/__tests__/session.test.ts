@@ -52,6 +52,33 @@ describe("buildSessionPlan", () => {
   });
 });
 
+describe("ability scaling", () => {
+  it("beginner drops a set and rests longer on non-HSR lifts", () => {
+    const plan = buildSessionPlan("upper", { ability: "beginner" });
+    expect(plan[0].sets).toBe(2);
+    expect(plan[0].restSeconds).toBe(120);
+  });
+
+  it("advanced adds a set to the first two lifts only", () => {
+    const plan = buildSessionPlan("upper", { ability: "advanced" });
+    expect(plan[0].sets).toBe(4);
+    expect(plan[1].sets).toBe(4);
+    expect(plan[2].sets).toBe(3);
+  });
+
+  it("intermediate (and default) keeps the prescription", () => {
+    const plan = buildSessionPlan("upper", {});
+    expect(plan[0].sets).toBe(3);
+    expect(plan[0].restSeconds).toBe(90);
+  });
+
+  it("HSR calf work keeps its rehab scheme regardless of ability", () => {
+    const plan = buildSessionPlan("lower_achilles", { ability: "beginner", programWeek: 1 });
+    const calf = plan.find((p) => p.slug === "straight_knee_calf_raise")!;
+    expect(calf.sets).toBe(3); // week-based HSR scheme, not ability-scaled
+  });
+});
+
 describe("validateAchillesOrdering", () => {
   it("accepts explosive-before-slow-heavy", () => {
     const r = validateAchillesOrdering([

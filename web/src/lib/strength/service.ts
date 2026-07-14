@@ -3,6 +3,7 @@ import {
   db,
   plans,
   strengthExercises,
+  strengthPlanSettings,
   strengthSessions,
   strengthSets,
   painLogs,
@@ -116,12 +117,31 @@ export async function buildPlannedSession(
   date: Date,
   profileId: string | null = null
 ): Promise<PlannedExercise[]> {
-  const [programWeek, historyBySlug, painGate] = await Promise.all([
+  const [programWeek, historyBySlug, painGate, ability] = await Promise.all([
     getProgramWeek(date),
     getExerciseHistoryBySlug(date, profileId),
     getPainGate(date),
+    getAbility(profileId),
   ]);
-  return buildSessionPlan(type, { programWeek, historyBySlug, painGate });
+  return buildSessionPlan(type, { programWeek, historyBySlug, painGate, ability });
+}
+
+/** Strength ability from the weekly-plan wizard settings, if configured. */
+async function getAbility(
+  profileId: string | null
+): Promise<"beginner" | "intermediate" | "advanced" | undefined> {
+  const [row] = await db
+    .select({ ability: strengthPlanSettings.ability })
+    .from(strengthPlanSettings)
+    .where(
+      profileId
+        ? eq(strengthPlanSettings.profileId, profileId)
+        : isNull(strengthPlanSettings.profileId)
+    );
+  const a = row?.ability;
+  return a === "beginner" || a === "intermediate" || a === "advanced"
+    ? a
+    : undefined;
 }
 
 /** Map exercise slugs → ids (seeded catalogue). */
