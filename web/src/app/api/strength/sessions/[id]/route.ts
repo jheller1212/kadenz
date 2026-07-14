@@ -80,6 +80,9 @@ export async function PATCH(
 
   try {
     const set: Record<string, unknown> = { ...updates, updatedAt: new Date() };
+    // Any hand edit adopts an auto-scheduled session — the scheduler's prune
+    // must never delete something the user deliberately moved or annotated.
+    set.autoScheduled = false;
     if (updates.date) {
       const d = new Date(updates.date);
       set.date = d;

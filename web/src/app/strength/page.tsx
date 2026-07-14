@@ -398,6 +398,7 @@ export default function StrengthPage() {
             </div>
           )}
 
+          {planSettings !== undefined && (
           <TransitionLink
             href="/strength/setup"
             className="press mt-4 block k-card p-4"
@@ -410,13 +411,14 @@ export default function StrengthPage() {
                 </span>
                 <span className="block text-[13px] text-text-3">
                   {planSettings
-                    ? `${planSettings.sessionsPerWeek}×/week · ~${planSettings.durationMinutes} min · ${planSettings.goal === "running_focus" ? "Running focus" : "All-round"}`
+                    ? `${planSettings.sessionsPerWeek}×/week · ~${planSettings.durationMinutes} min · ${planSettings.goal === "running_focus" ? "Running focus" : "All-round"}${planSettings.active ? "" : " · paused"}`
                     : "A recurring schedule built around your running"}
                 </span>
               </span>
               <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.9} />
             </span>
           </TransitionLink>
+          )}
 
           <div className="mt-5 flex flex-col gap-3">
             {(Object.keys(TYPE_META) as SessionType[]).map((t) => (
