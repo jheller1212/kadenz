@@ -756,6 +756,20 @@ export default function StrengthPage() {
         <Sheet open={editIdx != null} onClose={() => setEditIdx(null)} title="Edit exercise">
           {editIdx != null && exercises[editIdx] && (
             <ExerciseEditor
+              index={editIdx}
+              count={exercises.length}
+              onMove={(dir) => {
+                haptic("light");
+                setExercises((exs) => {
+                  const i = editIdx;
+                  const j = i + dir;
+                  if (j < 0 || j >= exs.length) return exs;
+                  const next = [...exs];
+                  [next[i], next[j]] = [next[j], next[i]];
+                  return next;
+                });
+                setEditIdx((i) => (i == null ? i : Math.min(Math.max(i + dir, 0), exercises.length - 1)));
+              }}
               exercise={exercises[editIdx]}
               onChange={(patch) =>
                 setExercises((exs) =>
@@ -791,10 +805,16 @@ function ExerciseEditor({
   exercise,
   onChange,
   onDone,
+  onMove,
+  index,
+  count,
 }: {
   exercise: PlannedExercise;
   onChange: (patch: Partial<PlannedExercise>) => void;
   onDone: () => void;
+  onMove: (dir: -1 | 1) => void;
+  index: number;
+  count: number;
 }) {
   const stepBtn = "press flex h-10 w-10 items-center justify-center rounded-full bg-elevated";
   function Stepper({
@@ -870,6 +890,27 @@ function ExerciseEditor({
               {exercise.restSeconds}s
             </span>
           )}
+        </div>
+      </div>
+      <div>
+        <p className="mb-2 text-[13px] font-semibold text-text-2">Position in session</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={index === 0}
+            onClick={() => onMove(-1)}
+            className="press flex-1 rounded-[var(--radius-input)] bg-elevated py-2.5 text-[15px] font-bold text-text-1 disabled:opacity-40"
+          >
+            ↑ Earlier
+          </button>
+          <button
+            type="button"
+            disabled={index >= count - 1}
+            onClick={() => onMove(1)}
+            className="press flex-1 rounded-[var(--radius-input)] bg-elevated py-2.5 text-[15px] font-bold text-text-1 disabled:opacity-40"
+          >
+            ↓ Later
+          </button>
         </div>
       </div>
       <Button full onClick={onDone}>Done</Button>

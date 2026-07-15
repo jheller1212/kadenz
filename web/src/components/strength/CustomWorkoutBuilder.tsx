@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
@@ -155,6 +155,18 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
     setSlots((s) => s.filter((x) => x.key !== key));
   }
 
+  function moveSlot(key: string, dir: -1 | 1) {
+    haptic("light");
+    setSlots((s) => {
+      const i = s.findIndex((x) => x.key === key);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= s.length) return s;
+      const next = [...s];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+
   async function save() {
     if (!name.trim()) {
       setError("Give the workout a name.");
@@ -283,6 +295,22 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                   <motion.span animate={{ rotate: isOpen ? 180 : 0 }}>
                     <ChevronDown className="h-4 w-4 text-text-3" strokeWidth={1.9} />
                   </motion.span>
+                  <button
+                    type="button"
+                    aria-label="Move up"
+                    onClick={() => moveSlot(slot.key, -1)}
+                    className="press flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"
+                  >
+                    <ArrowUp className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Move down"
+                    onClick={() => moveSlot(slot.key, 1)}
+                    className="press flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"
+                  >
+                    <ArrowDown className="h-4 w-4 text-text-2" strokeWidth={1.9} />
+                  </button>
                   <button
                     type="button"
                     aria-label="Remove exercise"
