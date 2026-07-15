@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { db, plans, activities, strengthSessions } from "@/db";
-import { eq, desc, isNull } from "drizzle-orm";
+import { db, plans, activities, strengthSessions, strengthSets } from "@/db";
+import { eq, desc, isNull, and, inArray, isNotNull } from "drizzle-orm";
 import { getActiveProfileId } from "@/lib/profiles";
 
 export async function GET(request: NextRequest) {
@@ -96,6 +96,26 @@ export async function GET(request: NextRequest) {
       );
     const sessionMap = new Map(strengthRows.map((s) => [s.id, s]));
 
+    // Which sessions actually logged at least one set (reps recorded). Sessions
+    // with zero logged sets are treated as never-really-done and kept out of the
+    // standalone strength feed below.
+    const sessionsWithSets = new Set<string>();
+    if (strengthRows.length > 0) {
+      const setRows = await db
+        .selectDistinct({ sessionId: strengthSets.sessionId })
+        .from(strengthSets)
+        .where(
+          and(
+            inArray(
+              strengthSets.sessionId,
+              strengthRows.map((s) => s.id)
+            ),
+            isNotNull(strengthSets.reps)
+          )
+        );
+      for (const r of setRows) sessionsWithSets.add(r.sessionId);
+    }
+
     // 6. Build unified response — recorded activities first (runs + strength).
     const activityItems = allActivities.map((a) => {
       const linkedRun = a.workoutId ? workoutMap.get(a.workoutId) : null;
@@ -154,6 +174,9 @@ export async function GET(request: NextRequest) {
           s.status === "completed" ||
           !completedDayType.has(`${new Date(s.date).toDateString()}:${s.type}`)
       )
+      // Drop sessions that never logged a set — an opened-but-empty or
+      // missed session isn't an activity worth showing.
+      .filter((s) => sessionsWithSets.has(s.id))
       .map((s) => ({
         id: `strength:${s.id}`,
         source: "session" as const,
