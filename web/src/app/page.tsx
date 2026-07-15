@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
-import { PaceChart, PaceBadge } from "@/components/PaceChart";
+import { PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
@@ -580,20 +580,8 @@ function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: s
             )}
           </div>
 
-          {/* Pace structure chart */}
-          {workout.blocks.length > 0 && (
-            <div className="mt-3">
-              <PaceChart
-                blocks={workout.blocks}
-                workoutType={workout.type}
-                variant="compact"
-                color={barColor}
-              />
-            </div>
-          )}
-
           {/* Pace badge */}
-          <div className="mt-3">
+          <div className="mt-1.5">
             <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={barColor} />
           </div>
         </div>
