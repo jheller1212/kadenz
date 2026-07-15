@@ -43,7 +43,8 @@ function itemCompleted(item: DayItem): boolean {
   return (item.kind === "run" ? item.workout.status : item.session.status) === "completed";
 }
 
-// ── Day chip: solid type color, two-tone split, or completed blue check ──────
+// ── Day chip: keeps its workout colors (solid or two-tone split); a white
+// check overlays when everything that day is done ────────────────────────────
 
 function DayChip({ items }: { items: DayItem[] }) {
   const allDone = items.length > 0 && items.every(itemCompleted);
@@ -51,9 +52,7 @@ function DayChip({ items }: { items: DayItem[] }) {
   const strength = items.find((i) => i.kind === "strength");
 
   let style: React.CSSProperties;
-  if (allDone) {
-    style = { backgroundColor: STRENGTH_BLUE };
-  } else if (run && strength) {
+  if (run && strength) {
     const runColor = WORKOUT_BAR_COLOR[run.kind === "run" ? run.workout.type : "easy"];
     // Two-tone split: left half strength blue, right half the run color.
     style = {
@@ -71,7 +70,12 @@ function DayChip({ items }: { items: DayItem[] }) {
       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
       style={style}
     >
-      {allDone && <Check className="h-4 w-4 text-white" strokeWidth={3} />}
+      {allDone && (
+        <Check
+          className="h-4 w-4 text-white [filter:drop-shadow(0_1px_1px_rgba(0,0,0,0.45))]"
+          strokeWidth={3.5}
+        />
+      )}
     </span>
   );
 }
