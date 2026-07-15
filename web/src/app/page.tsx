@@ -826,6 +826,33 @@ function StrengthTodayCard() {
     id: string; type: string; title: string; status: string;
     targetDurationMinutes: number | null;
   } | null>(null);
+  const [completing, setCompleting] = useState(false);
+
+  async function toggleComplete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!session || completing) return;
+    if (session.status === "completed") {
+      router.push("/strength");
+      return;
+    }
+    setCompleting(true);
+    const prev = session.status;
+    setSession({ ...session, status: "completed" }); // optimistic
+    haptic("success");
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setSession((s) => (s ? { ...s, status: prev } : s));
+      haptic("warning");
+    } finally {
+      setCompleting(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -861,9 +888,16 @@ function StrengthTodayCard() {
               {done ? " · completed" : ""}
             </p>
           </div>
-          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${done ? "border-text-1 bg-text-1" : "border-hairline"}`}>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={done ? "Completed" : "Mark strength session complete"}
+            onClick={toggleComplete}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleComplete(e as unknown as React.MouseEvent); }}
+            className={`press flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 ${done ? "border-text-1 bg-text-1" : "border-hairline"} ${completing ? "opacity-50" : ""}`}
+          >
             {done && <Check className="h-4 w-4 text-bg" strokeWidth={3} />}
-          </div>
+          </span>
         </div>
       </div>
     </motion.button>
