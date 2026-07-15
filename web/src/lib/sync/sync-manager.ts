@@ -243,6 +243,8 @@ async function fetchStrengthSessionForSync(
       prescription: p.prescription,
       suggestedWeightKg: p.suggestedWeightKg,
       perSide: p.perSide,
+      dumbbells: p.dumbbells,
+      holdNote: p.holdNote,
     })),
   };
 }

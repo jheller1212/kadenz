@@ -1,5 +1,11 @@
 import { db, syncOutbox, activities, workouts, plans, strengthSessions } from "@/db";
 import { eq, and, gte, lte, ne, isNull, inArray } from "drizzle-orm";
+import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
+import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+
+// A Strava activity must be at least this long to auto-complete ("lock") a
+// planned strength session — guards against accidental / trivial recordings.
+const MIN_STRENGTH_MATCH_SECONDS = 5 * 60;
 
 // ── Token storage (same pattern as gcal-client.ts) ──────────────────────────
 
@@ -456,7 +462,13 @@ export async function processActivity(activityId: number): Promise<void> {
 
   // ── Strength: store + match to a strength session ──────────────────────────
   if (isStrength) {
-    const strengthSessionId = await findMatchingStrengthSession(activity);
+    // Only auto-assign/complete a session when the activity is a real session
+    // (≥ 5 min). Shorter ones are still stored, but left unlinked so the
+    // planned session (and its calendar event) stay put — link manually if wanted.
+    const longEnough = activity.moving_time >= MIN_STRENGTH_MATCH_SECONDS;
+    const strengthSessionId = longEnough
+      ? await findMatchingStrengthSession(activity)
+      : null;
     await db.insert(activities).values({
       strengthSessionId,
       sportType,
@@ -468,14 +480,36 @@ export async function processActivity(activityId: number): Promise<void> {
       maxHr,
     });
     if (strengthSessionId) {
+      // Grab the calendar event id before we clear it, so we can remove the
+      // now-completed session from the calendar (Benchmark-style auto-cleanup).
+      const [sess] = await db
+        .select({ gcalEventId: strengthSessions.gcalEventId })
+        .from(strengthSessions)
+        .where(eq(strengthSessions.id, strengthSessionId));
+
       await db
         .update(strengthSessions)
         .set({
           status: "completed",
           durationMinutes: Math.max(1, Math.round(activity.moving_time / 60)),
+          gcalEventId: null,
           updatedAt: new Date(),
         })
         .where(eq(strengthSessions.id, strengthSessionId));
+
+      if (sess?.gcalEventId) {
+        isGcalConnected()
+          .then((connected) => {
+            if (connected) {
+              return queueStrengthSessionSync(strengthSessionId, "delete", "gcal", {
+                gcalEventId: sess.gcalEventId,
+              });
+            }
+          })
+          .catch((err) =>
+            console.error("Failed to queue strength calendar cleanup:", err)
+          );
+      }
     }
     return;
   }

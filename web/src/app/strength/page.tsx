@@ -27,6 +27,7 @@ import {
 } from "@/hooks/useCustomWorkouts";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { EXERCISES } from "@/lib/strength/program";
+import { formatLoad } from "@/lib/strength/weights";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
 
@@ -273,6 +274,8 @@ export default function StrengthPage() {
           tempoNote: ex?.tempoNote,
           flatGroundOnly: ex?.flatGroundOnly ?? false,
           perSide: false,
+          dumbbells: ex?.dumbbells,
+          holdNote: ex?.holdNote,
           sets: slot.sets,
           repLow: slot.repLow,
           repHigh: slot.repHigh,
@@ -335,6 +338,7 @@ export default function StrengthPage() {
     // 8–12 as the final fallback.
     const repLow = row.lastRepLow ?? row.repLow ?? 8;
     const repHigh = row.lastRepHigh ?? row.repHigh ?? 12;
+    const cat = EXERCISES.find((e) => e.slug === row.slug);
     const planned: PlannedExercise = {
       slug: row.slug,
       name: row.name,
@@ -343,6 +347,8 @@ export default function StrengthPage() {
       tempoNote: row.tempoNote ?? undefined,
       flatGroundOnly: row.flatGroundOnly ?? false,
       perSide: false,
+      dumbbells: cat?.dumbbells,
+      holdNote: cat?.holdNote,
       sets,
       repLow,
       repHigh,
@@ -665,9 +671,10 @@ export default function StrengthPage() {
                 >
                   <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
                   <p className="mt-0.5 text-[12px] text-text-3">
-                    {ex.sets} sets × {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps
-                    {ex.suggestedWeightKg != null ? ` · ${ex.suggestedWeightKg} kg` : " · bodyweight"}
-                    {ex.perSide ? "/side" : ""} · {ex.restSeconds}s rest
+                    {ex.sets} sets × {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps · {ex.restSeconds}s rest
+                  </p>
+                  <p className="mt-0.5 text-[12px] font-medium text-text-2">
+                    {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}
                   </p>
                   {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
                   <div className="mt-1.5 flex flex-wrap gap-1.5">

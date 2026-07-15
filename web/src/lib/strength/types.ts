@@ -33,6 +33,11 @@ export interface ExerciseDef {
   repHigh?: number;
   /** Suggested start load per dumbbell (kg); undefined = bodyweight to start. */
   startWeightKg?: number;
+  /** Dumbbells the lift uses (1 or 2). Omit for bodyweight, or when a standard
+   *  pair (2, one per hand) is implied for a dumbbell lift. */
+  dumbbells?: 1 | 2;
+  /** Short note on how the load is held, e.g. "opposite hand", "goblet". */
+  holdNote?: string;
   /** Ordering role inside an Achilles block. */
   achillesRole?: AchillesRole;
   /** Primary muscle the lift trains — drives the custom-builder grouping. */

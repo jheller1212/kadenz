@@ -56,3 +56,42 @@ export function prevWeight(kg: number): number {
 export function isTopLevel(kg: number): boolean {
   return levelForWeight(kg) >= MAX_LEVEL;
 }
+
+// ── Load descriptor ───────────────────────────────────────────────────────────
+// One consistent way to answer "how many dumbbells and how heavy" across every
+// screen, so the athlete never has to guess whether a weight is per-hand or
+// total, or whether a single-leg lift uses one dumbbell or two.
+
+export interface LoadStyle {
+  /** Dumbbells used (1 or 2). Omit for a standard pair on a dumbbell lift. */
+  dumbbells?: 1 | 2;
+  /** How the load is held, e.g. "opposite hand", "goblet", "on hips". */
+  holdNote?: string;
+  /** Worked one side / leg at a time. */
+  perSide?: boolean;
+}
+
+/**
+ * Full, unambiguous load line, e.g.
+ *   "7.5 kg × 2 · one per hand · each leg"
+ *   "15 kg × 1 · opposite hand"
+ * Weight is always per dumbbell. Bodyweight when the load is null/0.
+ */
+export function formatLoad(
+  weightKg: number | null | undefined,
+  style: LoadStyle = {}
+): string {
+  const { dumbbells, holdNote, perSide } = style;
+  if (weightKg == null || weightKg <= 0) {
+    return perSide ? "Bodyweight · each side" : "Bodyweight";
+  }
+  const count = dumbbells === 1 ? "× 1" : "× 2";
+  const hold = holdNote ?? (dumbbells === 1 ? "single dumbbell" : "one per hand");
+  const side = perSide ? " · each side" : "";
+  return `${weightKg} kg ${count} · ${hold}${side}`;
+}
+
+/** Compact count suffix for a weight stepper label, e.g. "kg × 2". */
+export function loadUnitLabel(dumbbells?: 1 | 2): string {
+  return `kg × ${dumbbells === 1 ? 1 : 2}`;
+}

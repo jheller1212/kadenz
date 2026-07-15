@@ -123,6 +123,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 15,
     repHigh: 25,
     startWeightKg: 7.5,
+    dumbbells: 2,
+    holdNote: "one per hand",
   },
   {
     slug: "single_leg_rdl",
@@ -136,6 +138,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 15,
     repHigh: 25,
     startWeightKg: 15,
+    dumbbells: 1,
+    holdNote: "opposite hand",
   },
   {
     slug: "single_leg_hip_thrust",
@@ -149,6 +153,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 8,
     repHigh: 12,
     startWeightKg: undefined, // bodyweight to start
+    dumbbells: 1,
+    holdNote: "on hips",
   },
 
   // Achilles block (explosive first, slow heavy after)
@@ -209,6 +215,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 8,
     repHigh: 12,
     startWeightKg: 15,
+    dumbbells: 1,
+    holdNote: "goblet",
   },
 
   // Full-body day (household program — beginner-friendly starting loads)
@@ -224,6 +232,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 8,
     repHigh: 12,
     startWeightKg: 8,
+    dumbbells: 1,
+    holdNote: "at chest",
   },
   {
     slug: "one_arm_row",
@@ -238,6 +248,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 8,
     repHigh: 12,
     startWeightKg: 10,
+    dumbbells: 1,
+    holdNote: "working arm",
   },
   {
     slug: "glute_bridge",
@@ -252,6 +264,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 8,
     repHigh: 12,
     startWeightKg: 12.5,
+    dumbbells: 1,
+    holdNote: "on hips",
   },
   // ── Extended library (custom-workout builder; home setup: dumbbells + chair
   // + floor, no bench). Not part of any stock session template.
@@ -318,6 +332,8 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 10,
     repHigh: 15,
     startWeightKg: 10,
+    dumbbells: 1,
+    holdNote: "both hands",
   },
   {
     slug: "triceps_kickback",

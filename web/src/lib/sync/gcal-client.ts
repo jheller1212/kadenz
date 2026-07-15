@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { db, syncOutbox } from "@/db";
 import { eq } from "drizzle-orm";
+import { formatLoad } from "@/lib/strength/weights";
 
 // ── Token storage (in DB via sync_outbox with special entity) ────────────────
 
@@ -262,6 +263,8 @@ export interface StrengthEventInput {
     prescription: string;
     suggestedWeightKg?: number | null;
     perSide?: boolean;
+    dumbbells?: 1 | 2;
+    holdNote?: string;
   }>;
 }
 
@@ -275,7 +278,7 @@ function buildStrengthDescription(session: StrengthEventInput): string {
     for (const ex of session.exercises) {
       const load =
         ex.suggestedWeightKg != null
-          ? ` @ ${ex.suggestedWeightKg} kg${ex.perSide ? "/side" : ""}`
+          ? ` @ ${formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}`
           : "";
       lines.push(`  • ${ex.name} — ${ex.prescription}${load}`);
     }

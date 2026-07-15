@@ -33,6 +33,10 @@ export interface PlannedExercise {
   tempoNote?: string;
   flatGroundOnly: boolean;
   perSide: boolean;
+  /** Dumbbells used (1 or 2); undefined = bodyweight / standard pair. */
+  dumbbells?: 1 | 2;
+  /** How the load is held, e.g. "opposite hand", "goblet". */
+  holdNote?: string;
   sets: number;
   repLow: number;
   repHigh: number;
@@ -124,6 +128,8 @@ export function buildSessionPlan(
       tempoNote: ex.tempoNote,
       flatGroundOnly: ex.flatGroundOnly ?? false,
       perSide: slot.perSide ?? false,
+      dumbbells: ex.dumbbells,
+      holdNote: ex.holdNote,
       sets,
       repLow,
       repHigh,

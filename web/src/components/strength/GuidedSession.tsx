@@ -9,6 +9,7 @@ import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
 import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
+import { formatLoad, loadUnitLabel } from "@/lib/strength/weights";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
 
@@ -22,6 +23,8 @@ export interface PlannedExercise {
   tempoNote?: string;
   flatGroundOnly: boolean;
   perSide: boolean;
+  dumbbells?: 1 | 2;
+  holdNote?: string;
   sets: number;
   repLow: number;
   repHigh: number;
@@ -269,6 +272,10 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
     const repPart = ex.repLow === ex.repHigh ? `${ex.repLow}` : `${ex.repLow} to ${ex.repHigh}`;
     const bits = [`${ex.name}.`, `${ex.sets} sets of ${repPart} reps.`];
     if (ex.perSide) bits.push("Per side.");
+    if (ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0) {
+      const dbs = ex.dumbbells === 1 ? "one dumbbell" : "two dumbbells";
+      bits.push(`${dbs}${ex.holdNote ? `, ${ex.holdNote}` : ""}.`);
+    }
     if (ex.tempoNote) bits.push(`${ex.tempoNote}.`);
     speak(bits.join(" "));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,8 +327,10 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
   }
 
   function exercisesRestSeconds(slug: string): number {
+    // The athlete's global rest preference wins so it actually carries over
+    // between exercises; the template's per-exercise value is only a fallback.
     const ex = exercises.find((e) => e.slug === slug);
-    return ex?.restSeconds ?? prefsRef.current.kraftRestSeconds;
+    return prefsRef.current.kraftRestSeconds ?? ex?.restSeconds ?? 90;
   }
 
   // ── Set logging (weight/reps confirmed during rest) ──────────────────────────
@@ -519,6 +528,11 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
         <p className="mt-1 text-[14px] font-semibold text-text-2">
           {allLogged ? "All sets done" : `Set ${nextSi + 1} of ${ex.sets}`} · target {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps{ex.perSide ? " / side" : ""}
         </p>
+        {ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0 && (
+          <p className="mt-1 text-[13px] font-semibold text-accent">
+            {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}
+          </p>
+        )}
         {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
         <div className="mt-2 flex flex-wrap justify-center gap-1.5">
           {ex.flatGroundOnly && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>}
@@ -568,7 +582,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
               <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-elevated">
                 <div className="h-full rounded-full bg-accent" style={{ width: `${restPct}%` }} />
               </div>
-              {editSet && <WeightReps set={editSet} perSide={ex.perSide} onAdjust={(f, d) => adjustSet(ex.slug, editIndex, f, d)} />}
+              {editSet && <WeightReps set={editSet} perSide={ex.perSide} dumbbells={ex.dumbbells} onAdjust={(f, d) => adjustSet(ex.slug, editIndex, f, d)} />}
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <Button variant="secondary" size="md" full onClick={() => { adjustRest(-15); }}>−15s</Button>
                 <Button variant="secondary" size="md" full onClick={() => { adjustRest(15); }}>+15s</Button>
@@ -585,7 +599,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
                   <div className="text-[52px] font-extrabold leading-none tabular-nums text-text-1">{fmt(setRunSec)}</div>
                 </>
               )}
-              {editSet && <WeightReps set={editSet} perSide={ex.perSide} onAdjust={(f, d) => adjustSet(ex.slug, timerHere.setIndex, f, d)} />}
+              {editSet && <WeightReps set={editSet} perSide={ex.perSide} dumbbells={ex.dumbbells} onAdjust={(f, d) => adjustSet(ex.slug, timerHere.setIndex, f, d)} />}
               <div className="mt-5">
                 <Button variant="primary" size="lg" full onClick={doneSet}>Done — set {timerHere.setIndex + 1}</Button>
               </div>
@@ -598,12 +612,12 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
           ) : (
             // Idle — ready to start the next set
             <div className="flex flex-col items-center">
-              {editSet && <WeightReps set={editSet} perSide={ex.perSide} onAdjust={(f, d) => adjustSet(ex.slug, nextSi, f, d)} />}
+              {editSet && <WeightReps set={editSet} perSide={ex.perSide} dumbbells={ex.dumbbells} onAdjust={(f, d) => adjustSet(ex.slug, nextSi, f, d)} />}
               <div className="mt-5">
                 <Button variant="primary" size="lg" full onClick={() => beginSet(ex.slug, nextSi)}>Start set {nextSi + 1}</Button>
               </div>
               {ex.suggestedWeightKg != null && loggedSets.length === 0 && (
-                <p className="mt-2 text-[12px] text-text-3">Suggested {ex.suggestedWeightKg} kg{ex.perSide ? "/side" : ""} — carries from last time</p>
+                <p className="mt-2 text-[12px] text-text-3">Suggested {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })} — carries from last time</p>
               )}
             </div>
           )}
@@ -660,10 +674,12 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
 function WeightReps({
   set,
   perSide,
+  dumbbells,
   onAdjust,
 }: {
   set: WorkSet;
   perSide: boolean;
+  dumbbells?: 1 | 2;
   onAdjust: (field: "kg" | "reps", d: number) => void;
 }) {
   return (
@@ -672,7 +688,7 @@ function WeightReps({
         <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
         <span className="w-16 text-center leading-none">
           <b className="text-[24px] font-extrabold tabular-nums text-text-1">{set.kg}</b>
-          <span className="block text-[10px] uppercase tracking-wide text-text-3">kg{perSide ? "/side" : ""}</span>
+          <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
         </span>
         <Stepper onClick={() => onAdjust("kg", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
       </div>
