@@ -1,4 +1,6 @@
 import { type NextRequest } from "next/server";
+import { inArray } from "drizzle-orm";
+import { db, activities } from "@/db";
 import {
   getAccessToken,
   processActivity,
@@ -78,35 +80,43 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Process each activity, collecting results
-  let processed = 0;
-  let skipped = 0;
+  // Which of the fetched activities are actually NEW? Pre-check stored ids
+  // so the result reports real work, not the fetch-window size.
+  const fetchedIds = stravaActivities.map((a) => String(a.id));
+  const existing = fetchedIds.length
+    ? await db
+        .select({ stravaId: activities.stravaId })
+        .from(activities)
+        .where(inArray(activities.stravaId, fetchedIds))
+    : [];
+  const known = new Set(existing.map((e) => e.stravaId));
+
+  let inserted = 0;
+  let alreadySynced = 0;
   const errors: Array<{ id: number; error: string }> = [];
 
   for (const activity of stravaActivities) {
     try {
-      // processActivity is idempotent — it skips already-stored activities
-      // and ignores non-Run sport types internally
-      const beforeCount = processed;
+      if (known.has(String(activity.id))) {
+        alreadySynced++;
+        continue; // idempotent anyway, but skip the API round-trips
+      }
       await processActivity(activity.id);
-      // We can't easily distinguish "newly inserted" from "already existed"
-      // from processActivity's void return, so we count all non-error calls
-      processed++;
-      void beforeCount; // suppress unused warning
+      inserted++;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       errors.push({ id: activity.id, error: message });
     }
   }
 
-  skipped = stravaActivities.length - processed - errors.length;
-
   return Response.json({
     ok: true,
     since: new Date(sinceEpoch * 1000).toISOString(),
     total: stravaActivities.length,
-    processed,
-    skipped,
+    // `processed` kept for old clients; it now means genuinely new.
+    processed: inserted,
+    inserted,
+    alreadySynced,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
