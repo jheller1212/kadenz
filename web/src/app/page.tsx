@@ -486,17 +486,35 @@ const typeLabel: Record<string, string> = {
   race: "Race",
 };
 
-function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
+function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: string }) {
   const router = useRouter();
+  void router;
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const isCompleted = (localStatus ?? workout.status) === "completed";
 
   async function toggleComplete(e: React.MouseEvent) {
     e.stopPropagation(); // the card itself navigates
-    if (completing || isCompleted) {
-      // Completed taps just open the detail (undo lives there via options).
-      if (isCompleted) router.push(`/workout/${workout.id}`);
+    if (completing) return;
+    if (isCompleted) {
+      // Untick: back to planned.
+      if (!planId) return;
+      setCompleting(true);
+      setLocalStatus("planned");
+      haptic("light");
+      try {
+        const res = await apiFetch(`/api/plans/${planId}/workouts/${workout.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "planned" }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        setLocalStatus("completed");
+        haptic("warning");
+      } finally {
+        setCompleting(false);
+      }
       return;
     }
     setCompleting(true);
@@ -517,7 +535,7 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
     }
   }
   const barColor = workoutBarColor[workout.type] ?? "#999";
-  const dateStr = new Date(workout.date).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" });
+  const dateStr = new Date(workout.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
   const durationRange = workout.targetDurationMinutes
     ? `${Math.floor(Math.max(0, workout.targetDurationMinutes - 5) / 60) > 0 ? `${Math.floor(Math.max(0, workout.targetDurationMinutes - 5) / 60)}h` : ""}${Math.max(0, workout.targetDurationMinutes - 5) % 60}m - ${Math.floor((workout.targetDurationMinutes + 5) / 60) > 0 ? `${Math.floor((workout.targetDurationMinutes + 5) / 60)}h` : ""}${(workout.targetDurationMinutes + 5) % 60}m`
     : "";
@@ -588,8 +606,28 @@ function WorkoutCard({ workout }: { workout: TodayApiWorkout }) {
 
 // ── Week Overview Progress Card ──────────────────────────────────────────────
 
-function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodayStats; currentWeek: number; weekWorkouts: DayInfo[] }) {
-  const workoutTypes = weekWorkouts.filter((d) => d.workout && d.workout.type !== "rest").map((d) => d.workout!);
+function WeekOverviewCard({
+  stats,
+  currentWeek,
+  weekWorkouts,
+  strengthDays,
+}: {
+  stats: TodayStats;
+  currentWeek: number;
+  weekWorkouts: DayInfo[];
+  strengthDays: Record<string, string>;
+}) {
+  // One segment per workout this week — runs AND strength, Benchmark-style:
+  // completed = black bar, upcoming = light gray.
+  const segments: boolean[] = [];
+  for (const d of weekWorkouts) {
+    if (d.workout && d.workout.type !== "rest") {
+      segments.push(d.workout.status === "completed");
+    }
+    const st = strengthDays[d.date.toDateString()];
+    if (st) segments.push(st === "completed");
+  }
+  const done = segments.filter(Boolean).length;
 
   return (
     <TransitionLink href="/plan" className="press block k-card p-4">
@@ -600,21 +638,17 @@ function WeekOverviewCard({ stats, currentWeek, weekWorkouts }: { stats: TodaySt
 
       {/* Segmented progress bar */}
       <div className="mt-3 flex h-2 gap-1">
-        {workoutTypes.map((wo, i) => {
-          const completed = wo.status === "completed";
-          const color = workoutBarColor[wo.type] ?? "#999";
-          return (
-            <div
-              key={i}
-              className="flex-1 rounded-full"
-              style={{ backgroundColor: completed ? color : "var(--k-elevated)", border: completed ? "none" : `1.5px solid ${color}` }}
-            />
-          );
-        })}
+        {segments.map((completed, i) => (
+          <div
+            key={i}
+            className="flex-1 rounded-full"
+            style={{ backgroundColor: completed ? "var(--k-text-1)" : "var(--k-elevated)" }}
+          />
+        ))}
       </div>
 
       <div className="mt-2.5 flex items-center justify-between text-xs text-text-3">
-        <span>Workouts: <span className="font-semibold text-text-1">{stats.daysCompleted}/{stats.totalDays}</span></span>
+        <span>Workouts: <span className="font-semibold text-text-1">{done}/{segments.length}</span></span>
         <span>Distance: <span className="font-semibold text-text-1">{stats.completedKm}/{stats.plannedKm}KM</span></span>
       </div>
     </TransitionLink>
@@ -842,19 +876,16 @@ function StrengthTodayCard() {
   async function toggleComplete(e: React.MouseEvent) {
     e.stopPropagation();
     if (!session || completing) return;
-    if (session.status === "completed") {
-      router.push("/strength");
-      return;
-    }
+    const next = session.status === "completed" ? "planned" : "completed";
     setCompleting(true);
     const prev = session.status;
-    setSession({ ...session, status: "completed" }); // optimistic
-    haptic("success");
+    setSession({ ...session, status: next }); // optimistic
+    haptic(next === "completed" ? "success" : "light");
     try {
       const res = await apiFetch(`/api/strength/sessions/${session.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "completed" }),
+        body: JSON.stringify({ status: next }),
       });
       if (!res.ok) throw new Error();
     } catch {
@@ -884,20 +915,23 @@ function StrengthTodayCard() {
 
   return (
     <motion.button
-      onClick={() => router.push("/strength")}
+      onClick={() => router.push(`/strength/session/${session.id}`)}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 450, damping: 32 }}
       className="w-full overflow-hidden k-card text-left"
     >
       <div className="flex">
-        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: color }} />
+        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)", backgroundColor: color }} />
         <div className="flex flex-1 items-center gap-3 p-4">
           <div className="min-w-0 flex-1">
             <p className="text-base font-bold text-text-1">{session.title}</p>
             <p className="mt-0.5 text-xs text-text-3">
-              Strength{session.targetDurationMinutes ? ` · ~${session.targetDurationMinutes} min` : ""}
-              {done ? " · completed" : ""}
+              {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
+              {session.targetDurationMinutes
+                ? ` · ${Math.max(5, session.targetDurationMinutes - 5)}m - ${session.targetDurationMinutes + 5}m`
+                : ""}
             </p>
+            <p className="mt-1.5 text-sm font-semibold text-text-2">Strength</p>
           </div>
           <span
             role="button"
@@ -1286,14 +1320,14 @@ export default function Home() {
           {isRestDay && !strengthDays[(selectedDate ?? new Date()).toDateString()] ? (
             <RestDayCard />
           ) : (
-            !isRestDay && <WorkoutCard workout={activeWorkout!} />
+            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} />
           )}
           <StrengthTodayCard />
         </div>
 
         {/* Week Overview */}
         <div className="px-5">
-          <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} />
+          <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} strengthDays={strengthDays} />
         </div>
 
         {/* Readiness + daily wellness check-in */}
