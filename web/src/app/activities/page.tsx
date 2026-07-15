@@ -708,7 +708,7 @@ export default function ActivitiesPage() {
               <Plus className="h-4 w-4 text-text-2" strokeWidth={2} />
             </button>
             <TransitionLink
-              href="/plan"
+              href="/plan/rearrange"
               aria-label="Calendar"
               className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
             >

@@ -392,7 +392,7 @@ export default function StrengthPage() {
       <main className="min-h-dvh bg-bg">
         <NavBar title="Kraft" large={false} centerAlways left={<ProfileAvatar />} right={
           <TransitionLink
-            href="/plan"
+            href="/plan/rearrange"
             aria-label="Calendar"
             className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
           >
