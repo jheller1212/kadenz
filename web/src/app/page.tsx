@@ -1238,7 +1238,7 @@ export default function Home() {
               </button>
             )}
             <TransitionLink
-              href="/plan"
+              href="/plan/rearrange"
               aria-label="Calendar"
               className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
             >
