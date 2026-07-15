@@ -94,10 +94,16 @@ interface WeatherCache {
 }
 
 const LOCATION_CACHE_KEY = "kadenz_weather_location";
+const LOCATION_REFRESH_MS = 7 * 24 * 3600_000; // silent IP refresh cadence
+
+/** Local calendar date (YYYY-MM-DD) — the forecast API keys days locally. */
+function localDateKey(d: Date): string {
+  return d.toLocaleDateString("en-CA");
+}
 
 function useWeather(selectedDate: Date | null) {
   const [cache, setCache] = useState<WeatherCache>({ daily: {}, coords: null, location: "" });
-  const dateKey = (selectedDate ?? new Date()).toISOString().split("T")[0];
+  const dateKey = localDateKey(selectedDate ?? new Date());
 
   useEffect(() => {
     function fetchForecast(lat: number, lon: number, loc: string) {
@@ -124,7 +130,7 @@ function useWeather(selectedDate: Date | null) {
           }
           // Override today with current data
           if (d.current) {
-            const todayKey = new Date().toISOString().split("T")[0];
+            const todayKey = localDateKey(new Date());
             if (daily[todayKey]) {
               daily[todayKey] = { ...daily[todayKey], temp: Math.round(d.current.temperature_2m), code: d.current.weather_code };
             }
@@ -138,7 +144,7 @@ function useWeather(selectedDate: Date | null) {
 
     function resolveLocation(lat: number, lon: number, persist = false) {
       if (persist) {
-        try { localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ lat, lon })); } catch { /* storage unavailable */ }
+        try { localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ lat, lon, ts: Date.now() })); } catch { /* storage unavailable */ }
       }
       // Reverse geocode for location name
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m&timezone=auto`)
@@ -150,44 +156,68 @@ function useWeather(selectedDate: Date | null) {
         .catch(() => fetchForecast(lat, lon, "Your location"));
     }
 
-    // 1. localStorage cache — instant load from last known position
+    // 1. Cached position — instant, no prompt. The precise-location prompt
+    // happens exactly ONCE (first ever use); afterwards the cache is
+    // refreshed silently from IP geolocation in the background.
+    let cached: { lat: number; lon: number; ts?: number } | null = null;
     try {
       const stored = localStorage.getItem(LOCATION_CACHE_KEY);
       if (stored) {
-        const { lat, lon } = JSON.parse(stored) as { lat: number; lon: number };
-        if (typeof lat === "number" && typeof lon === "number") {
-          resolveLocation(lat, lon, false);
-        }
+        const parsed = JSON.parse(stored) as { lat: number; lon: number; ts?: number };
+        if (typeof parsed.lat === "number" && typeof parsed.lon === "number") cached = parsed;
       }
     } catch { /* storage unavailable or corrupt */ }
 
-    // 2. Browser geolocation — most accurate; updates cache on success
+    async function ipLocate(): Promise<{ lat: number; lon: number } | null> {
+      try {
+        const geoRes = await apiFetch("/api/geo");
+        if (geoRes.ok) {
+          const g = await geoRes.json() as { latitude: number; longitude: number };
+          if (g.latitude && g.longitude) return { lat: g.latitude, lon: g.longitude };
+        }
+      } catch { /* fall through */ }
+      try {
+        const d = await fetch("https://ipapi.co/json/").then((r) => r.json());
+        if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude };
+      } catch { /* offline */ }
+      return null;
+    }
+
+    if (cached) {
+      resolveLocation(cached.lat, cached.lon, false);
+      // Silent background refresh when the fix is old — never re-prompts.
+      const age = Date.now() - (cached.ts ?? 0);
+      if (age > LOCATION_REFRESH_MS) {
+        ipLocate().then((loc) => {
+          if (!loc) return;
+          const moved =
+            Math.abs(loc.lat - cached!.lat) > 0.2 || Math.abs(loc.lon - cached!.lon) > 0.2;
+          try {
+            localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ ...loc, ts: Date.now() }));
+          } catch { /* ignore */ }
+          if (moved) resolveLocation(loc.lat, loc.lon, false);
+        });
+      }
+      return;
+    }
+
+    // First ever use: one precise-location prompt, then IP fallbacks.
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude, true),
         async () => {
-          // 3. Vercel IP headers via server-side API
-          try {
-            const geoRes = await apiFetch("/api/geo");
-            if (geoRes.ok) {
-              const geoData = await geoRes.json() as { latitude: number; longitude: number };
-              if (geoData.latitude && geoData.longitude) {
-                resolveLocation(geoData.latitude, geoData.longitude, false);
-                return;
-              }
-            }
-          } catch { /* fall through */ }
-
-          // 4. ipapi.co as final fallback
-          fetch("https://ipapi.co/json/")
-            .then((r) => r.json())
-            .then((d) => {
-              if (d.latitude && d.longitude) resolveLocation(d.latitude, d.longitude, false);
-            })
-            .catch(() => {});
+          const loc = await ipLocate();
+          if (loc) {
+            try {
+              localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ ...loc, ts: Date.now() }));
+            } catch { /* ignore */ }
+            resolveLocation(loc.lat, loc.lon, false);
+          }
         },
         { timeout: 5000 }
       );
+    } else {
+      ipLocate().then((loc) => { if (loc) resolveLocation(loc.lat, loc.lon, false); });
     }
   }, [cache.coords]);
 
@@ -355,40 +385,16 @@ const RACE_LABEL: Record<string, string> = {
   marathon: "Marathon",
 };
 
-function PlanHeroCard({
-  raceDistance,
-  raceDate,
-  currentWeek,
-  totalWeeks,
-}: {
-  raceDistance?: string;
-  raceDate?: string;
-  currentWeek: number;
-  totalWeeks: number;
-}) {
-  const race = raceDistance ? RACE_LABEL[raceDistance] ?? raceDistance : null;
-  const dateLabel = raceDate
-    ? new Date(raceDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-    : null;
-  return (
-    <TransitionLink
-      href="/plan"
-      className="k-signature press block rounded-[var(--radius-card)] p-4"
-      aria-label="View plan"
-    >
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] opacity-85">
-            {race ? `${race}${dateLabel ? ` · ${dateLabel}` : ""}` : "Training plan"}
-          </p>
-          <p className="mt-0.5 text-[22px] font-extrabold tracking-tight tabular-nums">
-            Week {currentWeek} of {totalWeeks}
-          </p>
-        </div>
-        <Zap className="h-6 w-6 opacity-90" strokeWidth={2} />
-      </div>
-    </TransitionLink>
-  );
+
+// Open the phone's weather app (Apple Weather on iOS; web weather elsewhere).
+function openWeatherApp() {
+  haptic("light");
+  const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (isIos) {
+    window.location.href = "weather://";
+    return;
+  }
+  window.open("https://www.google.com/search?q=weather", "_blank");
 }
 
 function CalendarStrip({
@@ -704,7 +710,12 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
           {/* Row 2: Weather + Week summary */}
           <div className="grid grid-cols-2 gap-3">
             {/* Weather card */}
-            <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
+            <button
+              type="button"
+              onClick={openWeatherApp}
+              aria-label="Open weather app"
+              className="press flex min-h-[130px] flex-col justify-between k-card p-4 text-left"
+            >
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">{todayLabel}</p>
                 {weather && (
@@ -735,7 +746,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               <div className="mt-1">
                 <p className="text-[10px] font-medium text-text-3">{weather?.location ?? "Your location"}</p>
               </div>
-            </div>
+            </button>
 
             {/* Week summary card */}
             <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
@@ -1251,16 +1262,6 @@ export default function Home() {
         {/* Divider */}
         <div className="mx-5 h-px bg-hairline" />
 
-        {/* Signature hero — the one gradient moment on this screen */}
-        <div className="px-5">
-          <PlanHeroCard
-            raceDistance={data.raceDistance}
-            raceDate={data.raceDate}
-            currentWeek={displayedWeek}
-            totalWeeks={totalWeeks}
-          />
-        </div>
-
         {/* Missed-session adjustment tray (Benchmark-style) */}
         <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />
 
@@ -1268,16 +1269,25 @@ export default function Home() {
         <div className="flex items-center justify-between px-5">
           <p className="text-base font-bold text-text-1">Workouts</p>
           {weather && (
-            <div className="flex items-center gap-1.5 text-text-2">
+            <button
+              type="button"
+              onClick={openWeatherApp}
+              aria-label="Open weather app"
+              className="press flex items-center gap-1.5 text-text-2"
+            >
               <WeatherIcon code={weather.code} className="h-5 w-5" />
               <span className="text-sm font-semibold tabular-nums">{weather.temp}°</span>
-            </div>
+            </button>
           )}
         </div>
 
         {/* Main Workout Card */}
         <div className="px-5 flex flex-col gap-3">
-          {isRestDay ? <RestDayCard /> : <WorkoutCard workout={activeWorkout!} />}
+          {isRestDay && !strengthDays[(selectedDate ?? new Date()).toDateString()] ? (
+            <RestDayCard />
+          ) : (
+            !isRestDay && <WorkoutCard workout={activeWorkout!} />
+          )}
           <StrengthTodayCard />
         </div>
 
