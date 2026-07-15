@@ -196,6 +196,7 @@ interface StrengthSession {
   type: SessionType;
   title: string;
   status: string;
+  targetDurationMinutes?: number | null;
 }
 
 interface Violation {
@@ -362,7 +363,11 @@ function StrengthCard({
         </span>
         <span className="mt-0.5 flex items-center gap-1 text-[12px] text-text-3">
           <Dumbbell className="h-3 w-3 shrink-0" strokeWidth={2} />
-          <span>25m – 35m</span>
+          <span>
+            {session.targetDurationMinutes
+              ? `${Math.max(5, session.targetDurationMinutes - 5)}m – ${session.targetDurationMinutes + 5}m`
+              : "25m – 35m"}
+          </span>
         </span>
       </span>
     </button>
