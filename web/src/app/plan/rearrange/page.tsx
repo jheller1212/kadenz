@@ -20,7 +20,7 @@ import {
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -294,7 +294,7 @@ function RunCard({
         haptic("light");
         onOpen();
       }}
-      className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation ${
+      className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation select-none ${
         dimmed ? "opacity-50" : ""
       }`}
     >
@@ -350,7 +350,7 @@ function StrengthCard({
         haptic("light");
         onOpen();
       }}
-      className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation ${
+      className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation select-none ${
         dimmed ? "opacity-50" : ""
       }`}
     >
@@ -675,8 +675,11 @@ function PlanPageInner() {
 
   // DnD sensors — long-press (250ms) so taps open the sheet and scrolling
   // isn't hijacked; the whole card is the drag surface.
+  // MouseSensor + TouchSensor, NOT PointerSensor: on iOS the pointer sensor
+  // claims the gesture but cannot preventDefault the scroll pan, so drags
+  // activate and then never move. TouchSensor blocks scroll after the hold.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
