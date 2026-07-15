@@ -646,16 +646,24 @@ function WeekOverviewCard({
 
 // ── My Insights Section ──────────────────────────────────────────────────────
 
-function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts }: {
+function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts, weekStrength }: {
   stats: TodayStats;
   weather: WeatherData | null;
   currentWeek: number;
   totalWeeks: number;
   weekWorkouts: DayInfo[];
+  weekStrength: StrengthSessionLite[];
 }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const pct = stats.plannedKm > 0 ? Math.round((stats.completedKm / stats.plannedKm) * 100) : 0;
+  // The arc takes the color of the most recent completed run (Benchmark-style).
+  const lastCompletedRun = [...weekWorkouts]
+    .filter((d) => d.workout?.status === "completed" && d.workout.type !== "rest")
+    .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
+  const arcColor = lastCompletedRun?.workout
+    ? workoutColor(lastCompletedRun.workout.type).solid
+    : "#7BC232";
 
   // Week summary derived from weekWorkouts
   const workoutDays = weekWorkouts.filter((d) => d.workout && d.workout.type !== "rest");
@@ -771,30 +779,57 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
             </button>
 
-            {/* Week summary card */}
+            {/* Week summary card — Benchmark split: RUN and STRENGTH rows */}
             <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Week {currentWeek}/{totalWeeks}</p>
-                <p className="mt-1 text-3xl font-extrabold text-text-1">{completedWorkouts.length}/{workoutDays.length}</p>
+                <p className="mt-1 text-3xl font-extrabold text-text-1">
+                  {completedWorkouts.length + weekStrength.filter((x) => x.status === "completed").length}/
+                  {workoutDays.length + weekStrength.length}
+                </p>
               </div>
-              <div>
-                <div className="mb-2 flex items-center gap-1">
-                  <Play className="h-3 w-3 text-text-3" strokeWidth={1.9} />
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Run</span>
+              <div className="flex flex-col gap-2">
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Run</span>
+                    <span className="text-[11px] font-bold tabular-nums text-text-1">
+                      {completedWorkouts.length}/{workoutDays.length}
+                    </span>
+                  </div>
+                  <div className="flex h-1.5 gap-1">
+                    {workoutDays.map((d, i) => {
+                      const done = d.workout?.status === "completed";
+                      const color = workoutBarColor[d.workout!.type] ?? "#999";
+                      return (
+                        <div
+                          key={i}
+                          className="flex-1 rounded-full"
+                          style={{ backgroundColor: done ? color : "var(--k-elevated)" }}
+                        />
+                      );
+                    })}
+                    {workoutDays.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
+                  </div>
                 </div>
-                <div className="flex h-2 gap-1">
-                  {workoutDays.map((d, i) => {
-                    const color = workoutBarColor[d.workout!.type] ?? "#999";
-                    const done = d.workout?.status === "completed";
-                    return (
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Strength</span>
+                    <span className="text-[11px] font-bold tabular-nums text-text-1">
+                      {weekStrength.filter((x) => x.status === "completed").length}/{weekStrength.length}
+                    </span>
+                  </div>
+                  <div className="flex h-1.5 gap-1">
+                    {weekStrength.map((sess) => (
                       <div
-                        key={i}
+                        key={sess.id}
                         className="flex-1 rounded-full"
-                        style={{ backgroundColor: done ? color : "var(--k-elevated)", border: done ? "none" : `1.5px solid ${color}` }}
+                        style={{
+                          backgroundColor: sess.status === "completed" ? "#3B82F6" : "var(--k-elevated)",
+                        }}
                       />
-                    );
-                  })}
-                  {workoutDays.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
+                    ))}
+                    {weekStrength.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
+                  </div>
                 </div>
               </div>
             </div>
@@ -810,7 +845,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
           >
             <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0">
               <circle cx="50" cy="50" r="40" fill="none" stroke="var(--k-elevated)" strokeWidth="8" />
-              <circle cx="50" cy="50" r="40" fill="none" stroke="#4ADE80" strokeWidth="8"
+              <circle cx="50" cy="50" r="40" fill="none" stroke={arcColor} strokeWidth="8"
                 strokeDasharray={`${circPct * 251} 251`} strokeLinecap="round"
                 transform="rotate(-90 50 50)" />
               <text x="50" y="47" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-1)" fontSize="16" fontWeight="800">
@@ -1329,7 +1364,7 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* My Insights */}
-        <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} />
+        <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} />
       </div>
 
       {/* Sticky Bottom Button */}
