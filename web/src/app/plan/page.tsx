@@ -213,7 +213,7 @@ function HubEmptyState() {
 
 const QUICK_ACTIONS = [
   { href: "/plan/overview", label: "Plan Overview", Icon: LayoutList },
-  { href: "/plan/rearrange", label: "Rearrange Workouts", Icon: CalendarClock },
+  { href: "/plan/rearrange", label: "Training Calendar", Icon: CalendarClock },
   { href: "/pace-insights", label: "Pace Insights", Icon: TrendingUp },
   { href: "/plan/manage", label: "Manage Plan", Icon: SlidersHorizontal },
 ];

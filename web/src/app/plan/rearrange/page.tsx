@@ -1,17 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Plus,
-  ChevronDown,
   ChevronLeft,
   ChevronRight as ChevronRightIcon,
-  GripVertical,
   CalendarClock,
   SlidersHorizontal,
   Dumbbell,
+  Clock,
   Trash2,
   X,
   AlertTriangle,
@@ -22,6 +21,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDraggable,
@@ -38,7 +38,6 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Segmented } from "@/components/ui/Segmented";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
-import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
 import { predictRaceTime, RACE_DISTANCES_M } from "@/lib/plan-engine/vdot";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
@@ -141,8 +140,9 @@ function runSpine(type: WorkoutType): string {
 // Strength is uniformly blue (Benchmark-style), regardless of session type.
 const STRENGTH_SPINE = "linear-gradient(180deg, #60A5FA, #2563EB)";
 
-function formatDate(d: Date) {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+/** "13 Jul" — Benchmark-style day-first short date. */
+function formatDayMonth(d: Date) {
+  return `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`;
 }
 
 /** Monday of the week containing `d` (weeks start Monday in Kadenz). */
@@ -260,17 +260,17 @@ function isPastWeek(week: GeneratedWeek): boolean {
 function CompletedBadge() {
   return (
     <span
-      className="absolute right-1 top-1 z-10 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#0B0C0E]"
+      className="absolute right-1 top-1 z-10 flex h-[16px] w-[16px] items-center justify-center rounded-full bg-[#0B0C0E]"
       aria-label="Completed"
     >
-      <Check className="h-3 w-3 text-white" strokeWidth={3} />
+      <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
     </span>
   );
 }
 
-// ── Run chip (draggable) ──────────────────────────────────────────────────────
+// ── Run card (long-press to drag, tap to open) ────────────────────────────────
 
-function RunChip({
+function RunCard({
   workout,
   onOpen,
   dimmed,
@@ -284,62 +284,48 @@ function RunChip({
   });
 
   return (
-    <div
+    <button
       ref={setNodeRef}
+      {...attributes}
+      {...listeners}
       style={{ opacity: isDragging ? 0.4 : undefined }}
-      className={`relative h-full rounded-[var(--radius-input)] bg-surface overflow-hidden shadow-sm ${
+      onClick={() => {
+        haptic("light");
+        onOpen();
+      }}
+      className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation ${
         dimmed ? "opacity-50" : ""
       }`}
     >
       {workout.status === "completed" && <CompletedBadge />}
-      <div className="flex h-full items-stretch">
-        {/* Colored type accent spine */}
-        <div
-          className="w-1 shrink-0"
-          style={{ backgroundImage: runSpine(workout.type) }}
-        />
-
-        {/* Drag handle */}
-        <span
-          {...attributes}
-          {...listeners}
-          className="shrink-0 flex items-center justify-center w-6 cursor-grab active:cursor-grabbing touch-none text-text-3"
-          aria-label="Drag to another day"
-        >
-          <GripVertical className="h-4 w-4" strokeWidth={1.9} />
+      {/* Colored type accent spine */}
+      <span
+        className="w-[3px] shrink-0"
+        style={{ backgroundImage: runSpine(workout.type) }}
+      />
+      <span className="min-w-0 flex-1 px-2 py-2">
+        <span className="block truncate text-[15px] font-bold leading-tight text-text-1">
+          {workout.title}
         </span>
-
-        {/* Body — tap to open detail sheet */}
-        <button
-          className="press flex-1 min-w-0 py-2 pr-2 text-left"
-          onClick={() => {
-            haptic("light");
-            onOpen();
-          }}
-        >
-          <WorkoutTypeBadge type={workout.type} />
-          <p className="mt-0.5 text-[13px] font-medium text-text-1 truncate">
-            {workout.title}
-          </p>
-          {(workout.targetKm != null || workout.targetDurationMinutes != null) && (
-            <p className="mt-0.5 text-[11px] text-text-3 tabular-nums">
-              {workout.targetKm != null && (
-                <span className="font-bold text-text-1">{workout.targetKm} km</span>
-              )}
-              {workout.targetKm != null && workout.targetDurationMinutes != null && " · "}
-              {workout.targetDurationMinutes != null &&
-                formatDuration(workout.targetDurationMinutes)}
-            </p>
-          )}
-        </button>
-      </div>
-    </div>
+        {(workout.targetKm != null || workout.targetDurationMinutes != null) && (
+          <span className="mt-0.5 flex items-center gap-1 text-[12px] text-text-3 tabular-nums">
+            {workout.targetKm != null && <span>{workout.targetKm} km</span>}
+            {workout.targetKm == null && workout.targetDurationMinutes != null && (
+              <>
+                <Clock className="h-3 w-3 shrink-0" strokeWidth={2} />
+                <span>{formatDuration(workout.targetDurationMinutes)}</span>
+              </>
+            )}
+          </span>
+        )}
+      </span>
+    </button>
   );
 }
 
-// ── Strength chip (draggable) ─────────────────────────────────────────────────
+// ── Strength card (long-press to drag, tap to open) ───────────────────────────
 
-function StrengthChip({
+function StrengthCard({
   session,
   onOpen,
   dimmed,
@@ -354,51 +340,32 @@ function StrengthChip({
   const meta = strengthMeta(session.type);
 
   return (
-    <div
+    <button
       ref={setNodeRef}
+      {...attributes}
+      {...listeners}
       style={{ opacity: isDragging ? 0.4 : undefined }}
-      className={`relative h-full rounded-[var(--radius-input)] overflow-hidden ${
+      onClick={() => {
+        haptic("light");
+        onOpen();
+      }}
+      className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation ${
         dimmed ? "opacity-50" : ""
       }`}
     >
       {session.status === "completed" && <CompletedBadge />}
-      <div
-        className="flex h-full items-stretch"
-        style={{ backgroundColor: `${meta.color}1A` }}
-      >
-        {/* Blue gradient spine — strength is uniformly blue */}
-        <div className="w-1 shrink-0" style={{ backgroundImage: STRENGTH_SPINE }} />
-
-        {/* Drag handle */}
-        <span
-          {...attributes}
-          {...listeners}
-          className="shrink-0 flex items-center justify-center w-6 cursor-grab active:cursor-grabbing touch-none"
-          style={{ color: meta.color }}
-          aria-label="Drag to another day"
-        >
-          <GripVertical className="h-4 w-4" strokeWidth={1.9} />
+      {/* Blue gradient spine — strength is uniformly blue */}
+      <span className="w-[3px] shrink-0" style={{ backgroundImage: STRENGTH_SPINE }} />
+      <span className="min-w-0 flex-1 px-2 py-2">
+        <span className="block truncate text-[15px] font-bold leading-tight text-text-1">
+          {session.title || `${meta.label} Strength`}
         </span>
-
-        {/* Body — tap to open detail sheet */}
-        <button
-          onClick={() => {
-            haptic("light");
-            onOpen();
-          }}
-          className="press flex-1 min-w-0 flex items-center gap-1.5 py-2 pr-2 text-left"
-        >
-          <Dumbbell
-            className="h-3.5 w-3.5 shrink-0"
-            style={{ color: meta.color }}
-            strokeWidth={2}
-          />
-          <span className="truncate text-[13px] font-semibold text-text-1">
-            {meta.label}
-          </span>
-        </button>
-      </div>
-    </div>
+        <span className="mt-0.5 flex items-center gap-1 text-[12px] text-text-3">
+          <Dumbbell className="h-3 w-3 shrink-0" strokeWidth={2} />
+          <span>25m – 35m</span>
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -420,78 +387,69 @@ function DayRow({
   strength: StrengthSession | undefined;
   onOpenRun: (workout: GeneratedWorkout) => void;
   onOpenStrength: (session: StrengthSession) => void;
-  onAddStrength: (dayIdx: number) => void;
+  onAddStrength: (date: Date) => void;
   dimmed: boolean;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `day:${dayIdx}` });
+  const { setNodeRef, isOver } = useDroppable({ id: `day:${date.getTime()}` });
   const isToday = sameDay(date, new Date());
-  const isRest = run?.type === "rest";
-
-  const runCell = run ? (
-    isRest ? (
-      <div
-        className={`flex h-full items-center gap-2 rounded-[var(--radius-input)] px-2 py-2 ${
-          dimmed ? "opacity-50" : ""
-        }`}
-      >
-        <div className="w-1 self-stretch rounded-full bg-hairline shrink-0" />
-        <span className="text-[13px] text-text-3">Rest day</span>
-      </div>
-    ) : (
-      <RunChip workout={run} onOpen={() => onOpenRun(run)} dimmed={dimmed} />
-    )
-  ) : null;
+  const isRest = !run || run.type === "rest";
+  const isRestDay = isRest && !strength;
 
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-[var(--radius-card)] border px-2 py-2 transition-colors ${
-        isOver
-          ? "border-accent bg-accent/10"
-          : isToday
-          ? "border-accent/30 bg-accent/5"
-          : "border-hairline bg-surface"
+      className={`flex items-start gap-2 rounded-[var(--radius-input)] px-1 py-1 transition-colors ${
+        isOver ? "bg-accent/10 outline outline-1 outline-accent/50" : ""
       }`}
     >
-      <div className="flex items-start gap-2">
-        {/* Day label */}
-        <div className="w-10 shrink-0 pt-1.5 text-center">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-text-3">
-            {DOW[dayIdx]}
-          </p>
-          <p
-            className={`text-[15px] font-bold tabular-nums ${
-              isToday ? "text-accent" : "text-text-1"
-            }`}
-          >
+      {/* Day gutter */}
+      <div className="w-9 shrink-0 pt-0.5 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-text-3">
+          {DOW[dayIdx]}
+        </p>
+        {isToday ? (
+          <span className="mx-auto mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#0B0C0E] text-[13px] font-bold tabular-nums text-white">
+            {date.getDate()}
+          </span>
+        ) : (
+          <p className="text-[15px] font-bold tabular-nums text-text-1">
             {date.getDate()}
           </p>
-        </div>
+        )}
+      </div>
 
-        {/* Activity cells — strength left, run right when both exist;
-            a single item stays in the left column. */}
-        <div className="flex-1 min-w-0 grid grid-cols-2 gap-1.5 items-stretch">
-          {strength && (
-            <StrengthChip
+      {/* Activity cells — strength left, run right */}
+      {isRestDay ? (
+        <div className={`flex min-h-[36px] flex-1 items-center px-1 ${dimmed ? "opacity-50" : ""}`}>
+          <span className="text-[13px] text-text-3">Rest Day</span>
+        </div>
+      ) : (
+        <div className="grid min-w-0 flex-1 grid-cols-2 items-stretch gap-1.5">
+          {strength ? (
+            <StrengthCard
               session={strength}
               onOpen={() => onOpenStrength(strength)}
               dimmed={dimmed}
             />
-          )}
-
-          {runCell}
-
-          {!strength && (
+          ) : !isRest ? (
             <button
-              onClick={() => onAddStrength(dayIdx)}
-              className="press flex items-center justify-center gap-1.5 self-center justify-self-start rounded-[var(--radius-input)] border border-dashed border-hairline px-2.5 py-1.5 text-[12px] font-medium text-text-3"
+              onClick={() => onAddStrength(date)}
+              className="press flex items-center justify-center gap-1 self-stretch rounded-[var(--radius-input)] border border-dashed border-hairline text-[12px] font-medium text-text-3"
             >
               <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
-              Add strength
+              Add
             </button>
+          ) : (
+            <span />
+          )}
+
+          {run && !isRest ? (
+            <RunCard workout={run} onOpen={() => onOpenRun(run)} dimmed={dimmed} />
+          ) : (
+            <span />
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -618,28 +576,12 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
   );
 }
 
-// ── Phase divider ─────────────────────────────────────────────────────────────
-
-function PhaseDivider({ phase }: { phase: WeekPhase }) {
-  return (
-    <div className="flex items-center gap-3" role="separator">
-      <div className="h-px flex-1 bg-hairline" />
-      <span
-        className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${PHASE_BADGE[phase]}`}
-      >
-        {phase} phase
-      </span>
-      <div className="h-px flex-1 bg-hairline" />
-    </div>
-  );
-}
-
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 function PlanEmptyState() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Rearrange workouts" large left={<ProfileAvatar />} />
+      <NavBar title="Training calendar" large left={<ProfileAvatar />} />
       <div className="mx-auto flex w-full max-w-md flex-col px-4 pb-tabbar">
         <EmptyState
           icon={
@@ -666,7 +608,7 @@ function PlanEmptyState() {
 function LoadingSkeleton() {
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Rearrange workouts" large left={<ProfileAvatar />} />
+      <NavBar title="Training calendar" large left={<ProfileAvatar />} />
       <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-tabbar">
         <div className="h-16 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
         <div className="h-24 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
@@ -679,70 +621,7 @@ function LoadingSkeleton() {
   );
 }
 
-// ── Week selector sheet ──────────────────────────────────────────────────────
-
-function WeekSheet({
-  weeks,
-  selectedWeek,
-  onSelect,
-  open,
-  onClose,
-}: {
-  weeks: GeneratedWeek[];
-  selectedWeek: number;
-  onSelect: (n: number) => void;
-  open: boolean;
-  onClose: () => void;
-}) {
-  return (
-    <Sheet open={open} onClose={onClose} title="Select week">
-      <div className="pb-4">
-        {weeks.map((week) => {
-          const isCurrent = isCurrentWeek(week);
-          const isSelected = week.weekNumber === selectedWeek;
-          const firstDate = week.workouts[0]?.date;
-          const lastDate = week.workouts[week.workouts.length - 1]?.date;
-
-          return (
-            <button
-              key={week.weekNumber}
-              onClick={() => {
-                haptic("light");
-                onSelect(week.weekNumber);
-                onClose();
-              }}
-              className={`press w-full flex items-center justify-between px-3 py-3 rounded-[var(--radius-input)] text-left ${
-                isSelected ? "bg-accent/10" : "active:bg-elevated"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className={`text-[15px] font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>
-                  Week {week.weekNumber}
-                </span>
-                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[week.phase]}`}>
-                  {week.phase}
-                </span>
-                {isCurrent && (
-                  <span className="text-[9px] font-bold text-accent uppercase">Now</span>
-                )}
-              </div>
-              <div className="text-right">
-                {firstDate && lastDate && (
-                  <p className="text-[10px] text-text-3">
-                    {formatDate(firstDate)} – {formatDate(lastDate)}
-                  </p>
-                )}
-                <p className="text-[10px] text-text-3">{week.targetKm} km</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </Sheet>
-  );
-}
-
-// ── Main plan page (week-focused) ────────────────────────────────────────────
+// ── Main plan page (continuous calendar) ─────────────────────────────────────
 
 function PlanPageInner() {
   const searchParams = useSearchParams();
@@ -750,12 +629,9 @@ function PlanPageInner() {
 
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedWeekNum, setSelectedWeekNum] = useState<number>(1);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
 
-  // Strength sessions for the visible week.
+  // Strength sessions for the whole plan window.
   const [sessions, setSessions] = useState<StrengthSession[]>([]);
   const [strengthBusy, setStrengthBusy] = useState(false);
 
@@ -783,17 +659,20 @@ function PlanPageInner() {
   const [skipBusy, setSkipBusy] = useState(false);
 
   // Add-strength sheet state.
-  const [addDayIdx, setAddDayIdx] = useState<number | null>(null);
+  const [addDate, setAddDate] = useState<Date | null>(null);
   const [addType, setAddType] = useState<SessionType>("lower_achilles");
   const [violations, setViolations] = useState<Violation[]>([]);
   const [addBusy, setAddBusy] = useState(false);
 
-  // Swipe refs
-  const touchStartX = React.useRef(0);
+  // Auto-scroll to the current week on first render of the loaded plan.
+  const currentWeekRef = useRef<HTMLElement | null>(null);
+  const didAutoScroll = useRef(false);
 
-  // DnD sensors — must be at top level (hooks rules)
+  // DnD sensors — long-press (250ms) so taps open the sheet and scrolling
+  // isn't hijacked; the whole card is the drag surface.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
   useEffect(() => {
@@ -820,17 +699,7 @@ function PlanPageInner() {
         if (!res.ok) { setLoading(false); return; }
 
         const raw = await res.json();
-        const adapted = adaptApiPlan(raw);
-        setPlan(adapted);
-
-        // Default to current week on first load only (don't yank the view
-        // back after a reschedule reload).
-        if (reloadKey === 0) {
-          const currentIdx = adapted.weeks.findIndex((w) => isCurrentWeek(w));
-          if (currentIdx >= 0) {
-            setSelectedWeekNum(adapted.weeks[currentIdx].weekNumber);
-          }
-        }
+        setPlan(adaptApiPlan(raw));
       } catch {
         // silent
       } finally {
@@ -838,16 +707,26 @@ function PlanPageInner() {
       }
     }
     loadPlan();
-  }, [planId, reloadKey]);
+  }, [planId]);
 
-  // Fetch strength sessions for the visible week's date window.
+  // Scroll the current week into view once the plan has rendered.
+  useEffect(() => {
+    if (plan && !didAutoScroll.current && currentWeekRef.current) {
+      currentWeekRef.current.scrollIntoView({ block: "start" });
+      didAutoScroll.current = true;
+    }
+  }, [plan]);
+
+  // Fetch strength sessions for the whole plan's date window.
   const loadSessions = useCallback(async () => {
     if (!plan) return;
-    const days = weekDaysFor(plan, selectedWeekNum);
-    if (days.length === 0) return;
-    const from = new Date(days[0]);
-    from.setHours(0, 0, 0, 0);
-    const to = new Date(days[6]);
+    const firstWeek = plan.weeks[0];
+    const lastWeek = plan.weeks[plan.weeks.length - 1];
+    const firstDate = firstWeek?.workouts[0]?.date;
+    const lastDate = lastWeek?.workouts[lastWeek.workouts.length - 1]?.date;
+    if (!firstDate || !lastDate) return;
+    const from = mondayOf(firstDate);
+    const to = addDays(mondayOf(lastDate), 6);
     to.setHours(23, 59, 59, 999);
     try {
       const res = await apiFetch(
@@ -857,7 +736,7 @@ function PlanPageInner() {
     } catch {
       /* ignore — leave prior sessions in place */
     }
-  }, [plan, selectedWeekNum]);
+  }, [plan]);
 
   useEffect(() => {
     let cancelled = false;
@@ -868,21 +747,18 @@ function PlanPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [loadSessions, reloadKey]);
+  }, [loadSessions]);
 
   // Re-validate the add-strength sheet whenever its day/type changes.
   useEffect(() => {
-    if (addDayIdx == null || !plan) return;
-    const days = weekDaysFor(plan, selectedWeekNum);
-    const date = days[addDayIdx];
-    if (!date) return;
+    if (!addDate) return;
     let cancelled = false;
     (async () => {
       try {
         const res = await apiFetch("/api/strength/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: addType, date: date.toISOString() }),
+          body: JSON.stringify({ type: addType, date: addDate.toISOString() }),
         });
         if (res.ok && !cancelled) {
           const data = await res.json();
@@ -895,20 +771,12 @@ function PlanPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [addDayIdx, addType, plan, selectedWeekNum]);
+  }, [addDate, addType]);
 
   if (loading) return <LoadingSkeleton />;
   if (!plan) return <PlanEmptyState />;
 
-  const selectedWeek = plan.weeks.find((w) => w.weekNumber === selectedWeekNum) ?? plan.weeks[0];
-  const totalWeeks = plan.weeks.length;
-  const weekWorkouts = selectedWeek.workouts;
-  const days = weekDaysFor(plan, selectedWeekNum);
-  const isPast = isPastWeek(selectedWeek);
-
-  function goToWeek(n: number) {
-    setSelectedWeekNum(Math.max(1, Math.min(n, totalWeeks)));
-  }
+  const allWorkouts = plan.weeks.flatMap((w) => w.workouts);
 
   function showError(msg: string) {
     setErrorNote(msg);
@@ -946,7 +814,7 @@ function PlanPageInner() {
   // ── Run move / swap ───────────────────────────────────────────────────────
   // Every day (incl. rest) is a real workout row, so a run landing on an
   // occupied day swaps the two runs' dates (Benchmark behaviour). A run onto an
-  // empty pre-start day is a single move.
+  // empty day is a single move.
   function applyRunDates(
     runId: string,
     runDate: Date,
@@ -957,29 +825,26 @@ function PlanPageInner() {
       if (!prev) return prev;
       return {
         ...prev,
-        weeks: prev.weeks.map((wk) => {
-          if (wk.weekNumber !== selectedWeekNum) return wk;
-          return {
-            ...wk,
-            workouts: wk.workouts.map((w) => {
-              if (w.id === runId)
-                return { ...w, date: runDate, dayOfWeek: runDate.getDay() };
-              if (otherId && w.id === otherId)
-                return { ...w, date: otherDate, dayOfWeek: otherDate.getDay() };
-              return w;
-            }),
-          };
-        }),
+        weeks: prev.weeks.map((wk) => ({
+          ...wk,
+          workouts: wk.workouts.map((w) => {
+            if (w.id === runId)
+              return { ...w, date: runDate, dayOfWeek: runDate.getDay() };
+            if (otherId && w.id === otherId)
+              return { ...w, date: otherDate, dayOfWeek: otherDate.getDay() };
+            return w;
+          }),
+        })),
       };
     });
   }
 
-  async function moveRun(runId: string, targetDayIdx: number) {
-    const targetDate = days[targetDayIdx];
-    if (!targetDate) return;
-    const dragged = weekWorkouts.find((w) => w.id === runId);
+  async function moveRun(runId: string, targetDate: Date) {
+    const dragged = allWorkouts.find((w) => w.id === runId);
     if (!dragged || !dragged.id || sameDay(dragged.date, targetDate)) return;
-    const target = weekWorkouts.find((w) => sameDay(w.date, targetDate));
+    const target = allWorkouts.find(
+      (w) => w.id !== dragged.id && sameDay(w.date, targetDate)
+    );
     const oldDate = new Date(dragged.date);
 
     applyRunDates(dragged.id, targetDate, target?.id, oldDate);
@@ -1012,9 +877,7 @@ function PlanPageInner() {
     );
   }
 
-  async function moveStrength(sessionId: string, targetDayIdx: number) {
-    const targetDate = days[targetDayIdx];
-    if (!targetDate) return;
+  async function moveStrength(sessionId: string, targetDate: Date) {
     const dragged = sessions.find((s) => s.id === sessionId);
     if (!dragged || sameDay(new Date(dragged.date), targetDate)) return;
     const target = sessions.find(
@@ -1053,19 +916,17 @@ function PlanPageInner() {
   }
 
   async function confirmAddStrength() {
-    if (addDayIdx == null) return;
-    const date = days[addDayIdx];
-    if (!date) return;
+    if (!addDate) return;
     setAddBusy(true);
     try {
       const res = await apiFetch("/api/strength/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: addType, date: date.toISOString(), force: true }),
+        body: JSON.stringify({ type: addType, date: addDate.toISOString(), force: true }),
       });
       if (res.ok) {
         haptic("success");
-        setAddDayIdx(null);
+        setAddDate(null);
         await loadSessions();
       } else {
         haptic("warning");
@@ -1138,7 +999,7 @@ function PlanPageInner() {
   function handleDragStart(event: DragStartEvent) {
     const [kind, id] = String(event.active.id).split(":");
     if (kind === "run") {
-      const workout = weekWorkouts.find((w) => w.id === id);
+      const workout = allWorkouts.find((w) => w.id === id);
       if (workout) setActiveDrag({ kind: "run", workout });
     } else if (kind === "strength") {
       const session = sessions.find((s) => s.id === id);
@@ -1152,40 +1013,23 @@ function PlanPageInner() {
     const { active, over } = event;
     if (!over) return;
     const [kind, id] = String(active.id).split(":");
-    const targetIdx = Number(String(over.id).split(":")[1]);
-    if (Number.isNaN(targetIdx)) return;
-    if (kind === "run") moveRun(id, targetIdx);
-    else if (kind === "strength") moveStrength(id, targetIdx);
+    const targetMs = Number(String(over.id).split(":")[1]);
+    if (Number.isNaN(targetMs)) return;
+    const targetDate = new Date(targetMs);
+    if (kind === "run") moveRun(id, targetDate);
+    else if (kind === "strength") moveStrength(id, targetDate);
   }
 
   // ── Move-picker handler (sheet fallback) ──────────────────────────────────
-  function pickMoveDay(idx: number) {
+  function pickMoveDay(date: Date) {
     if (!movePicker) return;
     if (movePicker.kind === "run" && movePicker.workout.id) {
-      moveRun(movePicker.workout.id, idx);
+      moveRun(movePicker.workout.id, date);
     } else if (movePicker.kind === "strength") {
-      moveStrength(movePicker.session.id, idx);
+      moveStrength(movePicker.session.id, date);
     }
     setMovePicker(null);
   }
-
-  function handleTouchStart(e: React.TouchEvent) {
-    touchStartX.current = e.touches[0].clientX;
-  }
-
-  function handleTouchEnd(e: React.TouchEvent) {
-    const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) goToWeek(selectedWeekNum + 1); // swipe left → next
-      else goToWeek(selectedWeekNum - 1);           // swipe right → prev
-    }
-  }
-
-  const firstDate = weekWorkouts[0]?.date;
-  const lastDate = weekWorkouts[weekWorkouts.length - 1]?.date;
-  const nonRest = weekWorkouts.filter((w) => w.type !== "rest");
-  const isCurrent = isCurrentWeek(selectedWeek);
-  const hasError = violations.some((v) => v.severity === "error");
 
   // Derived values for the tap-detail sheet.
   const detailTitle =
@@ -1219,18 +1063,22 @@ function PlanPageInner() {
       ? detailSheet.session.status
       : undefined;
 
-  // The current day of the item being moved via the picker (disabled in grid).
+  // The current day of the item being moved via the picker (disabled in grid),
+  // and the Mon–Sun days of the week that item lives in.
   const movePickerDate =
     movePicker?.kind === "run"
       ? movePicker.workout.date
       : movePicker?.kind === "strength"
       ? new Date(movePicker.session.date)
       : null;
+  const movePickerDays = movePickerDate
+    ? Array.from({ length: 7 }, (_, i) => addDays(mondayOf(movePickerDate), i))
+    : [];
 
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar
-        title="Rearrange workouts"
+        title="Training calendar"
         large={false}
         centerAlways
         left={
@@ -1253,97 +1101,7 @@ function PlanPageInner() {
         }
       />
 
-      <div
-        className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-tabbar pt-2"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Week selector + nav arrows */}
-        <header className="flex items-center justify-between">
-          <button
-            onClick={() => {
-              haptic("light");
-              goToWeek(selectedWeekNum - 1);
-            }}
-            disabled={selectedWeekNum <= 1}
-            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated disabled:opacity-30"
-            aria-label="Previous week"
-          >
-            <ChevronLeft className="h-4 w-4 text-text-2" strokeWidth={2} />
-          </button>
-
-          {/* Week selector with sheet */}
-          <button
-            onClick={() => {
-              haptic("light");
-              setDropdownOpen(true);
-            }}
-            className="press flex items-center gap-1.5"
-          >
-            <span className="text-[17px] font-bold text-text-1">
-              Week {selectedWeekNum}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 text-text-3" strokeWidth={2.5} />
-          </button>
-
-          <button
-            onClick={() => {
-              haptic("light");
-              goToWeek(selectedWeekNum + 1);
-            }}
-            disabled={selectedWeekNum >= totalWeeks}
-            className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated disabled:opacity-30"
-            aria-label="Next week"
-          >
-            <ChevronRightIcon className="h-4 w-4 text-text-2" strokeWidth={2} />
-          </button>
-        </header>
-
-        {/* Week info bar */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {firstDate && lastDate && (
-              <span className="text-[13px] text-text-3">
-                {formatDate(firstDate)} – {formatDate(lastDate)}
-              </span>
-            )}
-            <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[selectedWeek.phase]}`}>
-              {selectedWeek.phase}
-            </span>
-            {selectedWeek.type !== "normal" && (
-              <span className="rounded-full bg-elevated px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-text-2">
-                {selectedWeek.type}
-              </span>
-            )}
-          </div>
-          <span className="text-[13px] font-semibold text-text-2 tabular-nums">
-            {selectedWeek.targetKm} km
-          </span>
-        </div>
-
-        {/* Coloured volume bar */}
-        <div className="flex gap-0.5 h-1.5">
-          {nonRest.map((w, i) => (
-            <div
-              key={i}
-              className="flex-1 rounded-full"
-              style={{ backgroundColor: WORKOUT_BAR_COLOR[w.type] }}
-            />
-          ))}
-        </div>
-
-        {/* Week summary */}
-        <div className="flex items-center justify-between text-[13px] text-text-3">
-          <span>
-            {nonRest.length} runs
-            {sessions.length > 0 && ` · ${sessions.length} strength`}
-          </span>
-          <span>
-            {isCurrent && <span className="text-accent font-semibold mr-1">Current week</span>}
-            {selectedWeekNum} of {totalWeeks}
-          </span>
-        </div>
-
+      <div className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pb-tabbar pt-2">
         {/* Error note */}
         <AnimatePresence>
           {errorNote && (
@@ -1351,7 +1109,7 @@ function PlanPageInner() {
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
-              className="flex items-center gap-2 rounded-[var(--radius-input)] bg-danger/10 px-3 py-2 text-[12.5px] text-danger"
+              className="sticky top-14 z-20 flex items-center gap-2 rounded-[var(--radius-input)] bg-danger/10 px-3 py-2 text-[12.5px] text-danger backdrop-blur"
             >
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
               <span>{errorNote}</span>
@@ -1359,79 +1117,110 @@ function PlanPageInner() {
           )}
         </AnimatePresence>
 
-        {/* Unified day calendar — drag any chip to another day */}
+        {/* Continuous calendar — every plan week, long-press a card to drag */}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex flex-col gap-1.5">
-            {days.map((day, idx) => {
-              const run = weekWorkouts.find((w) => sameDay(w.date, day));
-              const strength = sessions.find((s) => sameDay(new Date(s.date), day));
-              return (
-                <DayRow
-                  key={idx}
-                  dayIdx={idx}
-                  date={day}
-                  run={run}
-                  strength={strength}
-                  onOpenRun={(w) => setDetailSheet({ kind: "run", workout: w })}
-                  onOpenStrength={(s) => setDetailSheet({ kind: "strength", session: s })}
-                  onAddStrength={(dIdx) => {
-                    haptic("light");
-                    setAddType("lower_achilles");
-                    setViolations([]);
-                    setAddDayIdx(dIdx);
-                  }}
-                  dimmed={isPast}
-                />
-              );
-            })}
-          </div>
+          {plan.weeks.map((week) => {
+            const days = weekDaysFor(plan, week.weekNumber);
+            if (days.length === 0) return null;
+            const isCurrent = isCurrentWeek(week);
+            const dimmed = isPastWeek(week);
+
+            return (
+              <section
+                key={week.weekNumber}
+                ref={isCurrent ? currentWeekRef : undefined}
+                className={`scroll-mt-16 ${
+                  isCurrent
+                    ? "-mx-2 rounded-[var(--radius-card)] border border-accent/30 px-2 py-2"
+                    : ""
+                }`}
+              >
+                {/* Week header */}
+                <header className="mb-1.5 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[15px] font-bold text-text-1">
+                      {formatDayMonth(days[0])} – {formatDayMonth(days[6])}
+                    </span>
+                    <span className="rounded-full bg-[#0B0C0E] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                      Week {week.weekNumber}
+                    </span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${PHASE_BADGE[week.phase]}`}
+                    >
+                      {week.phase}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[12px] text-text-3 tabular-nums">
+                    Total: {week.targetKm} km
+                  </p>
+                </header>
+
+                <div className="flex flex-col gap-1">
+                  {days.map((day, idx) => {
+                    const run = week.workouts.find((w) => sameDay(w.date, day));
+                    const strength = sessions.find((s) =>
+                      sameDay(new Date(s.date), day)
+                    );
+                    return (
+                      <DayRow
+                        key={idx}
+                        dayIdx={idx}
+                        date={day}
+                        run={run}
+                        strength={strength}
+                        onOpenRun={(w) => setDetailSheet({ kind: "run", workout: w })}
+                        onOpenStrength={(s) =>
+                          setDetailSheet({ kind: "strength", session: s })
+                        }
+                        onAddStrength={(d) => {
+                          haptic("light");
+                          setAddType("lower_achilles");
+                          setViolations([]);
+                          setAddDate(d);
+                        }}
+                        dimmed={dimmed}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
 
           <DragOverlay dropAnimation={null}>
             {activeDrag?.kind === "run" ? (
-              <div className="rounded-[var(--radius-input)] bg-surface shadow-lg overflow-hidden opacity-95">
-                <div className="flex items-stretch">
-                  <div
-                    className="w-1 shrink-0"
-                    style={{ backgroundImage: runSpine(activeDrag.workout.type) }}
-                  />
-                  <div className="flex items-center gap-2 py-2 px-2">
-                    <GripVertical className="h-4 w-4 text-text-3" strokeWidth={1.9} />
-                    <div className="min-w-0">
-                      <WorkoutTypeBadge type={activeDrag.workout.type} />
-                      <p className="mt-0.5 text-[14px] font-medium text-text-1 truncate">
-                        {activeDrag.workout.title}
-                      </p>
-                    </div>
-                  </div>
+              <div className="flex items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated opacity-95 shadow-lg">
+                <div
+                  className="w-[3px] shrink-0"
+                  style={{ backgroundImage: runSpine(activeDrag.workout.type) }}
+                />
+                <div className="min-w-0 px-2 py-2">
+                  <p className="truncate text-[15px] font-bold leading-tight text-text-1">
+                    {activeDrag.workout.title}
+                  </p>
+                  {activeDrag.workout.targetKm != null && (
+                    <p className="mt-0.5 text-[12px] text-text-3 tabular-nums">
+                      {activeDrag.workout.targetKm} km
+                    </p>
+                  )}
                 </div>
               </div>
             ) : activeDrag?.kind === "strength" ? (
-              <div
-                className="rounded-[var(--radius-input)] shadow-lg overflow-hidden opacity-95"
-                style={{ backgroundColor: `${strengthMeta(activeDrag.session.type).color}1A` }}
-              >
-                <div className="flex items-center gap-2 py-2 px-2">
-                  <div
-                    className="w-1 self-stretch shrink-0"
-                    style={{ backgroundImage: STRENGTH_SPINE }}
-                  />
-                  <GripVertical
-                    className="h-4 w-4"
-                    strokeWidth={1.9}
-                    style={{ color: strengthMeta(activeDrag.session.type).color }}
-                  />
-                  <Dumbbell
-                    className="h-3.5 w-3.5"
-                    strokeWidth={2}
-                    style={{ color: strengthMeta(activeDrag.session.type).color }}
-                  />
-                  <span className="text-[13px] font-semibold text-text-1">
-                    {strengthMeta(activeDrag.session.type).label}
+              <div className="flex items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated opacity-95 shadow-lg">
+                <div
+                  className="w-[3px] shrink-0"
+                  style={{ backgroundImage: STRENGTH_SPINE }}
+                />
+                <div className="flex min-w-0 items-center gap-1.5 px-2 py-2">
+                  <Dumbbell className="h-3.5 w-3.5 shrink-0 text-text-3" strokeWidth={2} />
+                  <span className="truncate text-[15px] font-bold text-text-1">
+                    {activeDrag.session.title ||
+                      `${strengthMeta(activeDrag.session.type).label} Strength`}
                   </span>
                 </div>
               </div>
@@ -1440,22 +1229,13 @@ function PlanPageInner() {
         </DndContext>
 
         <p className="text-center text-[11px] text-text-3">
-          Drag a workout or strength chip to another day.
+          Press and hold a card to drag it to another day.
         </p>
 
         {/* Plan overview */}
         <div className="h-px bg-hairline mt-2" />
         <PlanHeader plan={plan} />
       </div>
-
-      {/* Week sheet */}
-      <WeekSheet
-        weeks={plan.weeks}
-        selectedWeek={selectedWeekNum}
-        onSelect={setSelectedWeekNum}
-        open={dropdownOpen}
-        onClose={() => setDropdownOpen(false)}
-      />
 
       {/* Card detail sheet (tap a card) */}
       <Sheet open={!!detailSheet} onClose={() => setDetailSheet(null)}>
@@ -1563,13 +1343,13 @@ function PlanPageInner() {
               — pick a new day.
             </p>
             <div className="grid grid-cols-7 gap-1.5">
-              {days.map((d, i) => {
+              {movePickerDays.map((d, i) => {
                 const current = sameDay(d, movePickerDate);
                 return (
                   <button
                     key={i}
                     disabled={current}
-                    onClick={() => pickMoveDay(i)}
+                    onClick={() => pickMoveDay(d)}
                     className={`flex flex-col items-center rounded-[var(--radius-input)] py-2.5 text-center transition-colors disabled:opacity-40 ${
                       current ? "bg-accent text-on-accent" : "bg-elevated text-text-2 press"
                     }`}
@@ -1591,11 +1371,11 @@ function PlanPageInner() {
 
       {/* Add-strength sheet */}
       <Sheet
-        open={addDayIdx != null}
-        onClose={() => setAddDayIdx(null)}
+        open={!!addDate}
+        onClose={() => setAddDate(null)}
         title="Add strength"
       >
-        {addDayIdx != null && days[addDayIdx] && (
+        {addDate && (
           <div className="flex flex-col gap-4 px-1 pb-2">
             <div>
               <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-3">
@@ -1616,7 +1396,7 @@ function PlanPageInner() {
             <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated px-3 py-2 text-[13px] text-text-2">
               <CalendarClock className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
               <span>
-                {days[addDayIdx].toLocaleDateString("en-US", {
+                {addDate.toLocaleDateString("en-US", {
                   weekday: "long",
                   month: "short",
                   day: "numeric",
@@ -1653,12 +1433,14 @@ function PlanPageInner() {
               full
               onClick={confirmAddStrength}
               busy={addBusy}
-              variant={hasError ? "danger" : "primary"}
+              variant={violations.some((v) => v.severity === "error") ? "danger" : "primary"}
             >
-              {hasError ? "Schedule anyway" : "Schedule session"}
+              {violations.some((v) => v.severity === "error")
+                ? "Schedule anyway"
+                : "Schedule session"}
             </Button>
             <button
-              onClick={() => setAddDayIdx(null)}
+              onClick={() => setAddDate(null)}
               className="press mx-auto flex items-center gap-1 text-[13px] font-medium text-text-3"
             >
               <X className="h-3.5 w-3.5" strokeWidth={2} />
