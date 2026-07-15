@@ -393,12 +393,14 @@ function PlanHeroCard({
 
 function CalendarStrip({
   days,
+  strengthDays,
   selectedDate,
   onSelectDate,
   onSwipeLeft,
   onSwipeRight,
 }: {
   days: DayInfo[];
+  strengthDays: Record<string, string>;
   selectedDate: Date | null;
   onSelectDate: (d: DayInfo) => void;
   onSwipeLeft: () => void;
@@ -415,6 +417,7 @@ function CalendarStrip({
     <div className="flex justify-between px-5" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {days.map((day, i) => {
         const hasWorkout = day.workout && day.workout.type !== "rest";
+        const strengthStatus = strengthDays[day.date.toDateString()];
         const completed = day.workout?.status === "completed";
         const dotColor = day.workout?.type ? workoutDotColor[day.workout.type] : null;
         const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth() && day.date.getFullYear() === selectedDate.getFullYear();
@@ -435,16 +438,25 @@ function CalendarStrip({
             }`}>
               {day.dayNum}
             </div>
-            <div className="flex h-2 items-center">
+            <div className="flex h-2 items-center gap-[3px]">
+              {/* Strength dot first (left), Benchmark-style uniform blue gradient */}
+              {strengthStatus && (
+                <div
+                  className="h-[7px] w-[7px] rounded-[2px]"
+                  style={{
+                    backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)",
+                    opacity: strengthStatus === "completed" ? 1 : 0.85,
+                  }}
+                />
+              )}
               {hasWorkout && (
                 <div
                   className="h-[7px] w-[7px] rounded-[2px]"
                   style={{
-                    backgroundColor: missed
-                      ? "var(--k-text-3)"
-                      : completed
-                        ? (dotColor ?? "var(--k-text-3)")
-                        : (dotColor ?? "var(--k-text-3)"),
+                    backgroundImage: missed
+                      ? "none"
+                      : `linear-gradient(180deg, ${dotColor ?? "var(--k-text-3)"}, ${dotColor ?? "var(--k-text-3)"}CC)`,
+                    backgroundColor: missed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)"),
                     opacity: completed ? 1 : 0.85,
                   }}
                 />
@@ -989,6 +1001,25 @@ export default function Home() {
   const [data, setData] = useState<TodayApiResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [days, setDays] = useState<DayInfo[]>([]);
+  // Calendar-day keys of this week's strength sessions (Benchmark-style 2nd dot).
+  const [strengthDays, setStrengthDays] = useState<Record<string, string>>({});
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/api/strength/today");
+        if (!res.ok) return;
+        const data = await res.json();
+        const map: Record<string, string> = {};
+        for (const sess of data?.weekSessions ?? []) {
+          if (sess.status === "skipped") continue;
+          map[new Date(sess.date).toDateString()] = sess.status;
+        }
+        setStrengthDays(map);
+      } catch {
+        /* strip just shows run dots */
+      }
+    })();
+  }, []);
   const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState(false);
@@ -1176,6 +1207,7 @@ export default function Home() {
         {/* Calendar Strip */}
         <CalendarStrip
           days={days}
+          strengthDays={strengthDays}
           selectedDate={selectedDate}
           onSelectDate={handleSelectDate}
           onSwipeLeft={() => setWeekOffset((o) => Math.min(o + 1, totalWeeks - currentWeek))}
