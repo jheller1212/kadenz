@@ -30,8 +30,6 @@ import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
-import { WellnessCheckIn } from "@/components/WellnessCheckIn";
-import { ReadinessCard } from "@/components/ReadinessCard";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { haptic } from "@/lib/haptics";
 
@@ -1351,11 +1349,6 @@ export default function Home() {
           <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} strengthDays={strengthDays} />
         </div>
 
-        {/* Readiness + daily wellness check-in */}
-        <div className="px-5">
-          <ReadinessCard />
-        </div>
-        <WellnessCheckIn />
 
         {/* Divider */}
         <div className="mx-5 h-px bg-hairline" />
