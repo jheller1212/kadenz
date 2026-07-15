@@ -436,9 +436,11 @@ function CalendarStrip({
               {DAY_LABELS[i]}
             </span>
             <div className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-colors ${
-              day.isToday
-                ? "text-on-accent [background:var(--k-accent-grad)] [background-color:var(--k-accent)] [box-shadow:var(--k-shadow-card)]"
-                : isSelected ? "bg-elevated text-text-1" : missed ? "text-danger" : "text-text-2"
+              isSelected || (!selectedDate && day.isToday)
+                ? "bg-text-1 text-bg [box-shadow:var(--k-shadow-card)]"
+                : day.isToday
+                  ? "bg-elevated text-text-1"
+                  : missed ? "text-danger" : "text-text-2"
             }`}>
               {day.dayNum}
             </div>
