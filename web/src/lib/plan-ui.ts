@@ -5,11 +5,11 @@
 import type { WorkoutType } from "@/lib/plan-engine/types";
 
 export const WORKOUT_BAR_COLOR: Record<WorkoutType, string> = {
-  easy:     "#4ADE80",
-  recovery: "#4ADE80",
-  long:     "#60A5FA",
-  tempo:    "#FFB547",
-  interval: "#C084FC",
+  easy:     "#7BC232",
+  recovery: "#7BC232",
+  long:     "#8655F0",
+  tempo:    "#F2A113",
+  interval: "#E0402E",
   race:     "#FF4D4D",
   rest:     "#2A2A2E",
 };
@@ -31,7 +31,7 @@ export function runSpine(type: WorkoutType): string {
   return `linear-gradient(180deg, ${c}, ${darken(c)})`;
 }
 
-export const STRENGTH_SPINE = `linear-gradient(180deg, #60A5FA, #2563EB)`;
+export const STRENGTH_SPINE = "linear-gradient(135deg, #60A5FA 0%, #2563EB 100%)";
 
 // ── Lean API row types (subset of the DB rows the routes return) ─────────────
 

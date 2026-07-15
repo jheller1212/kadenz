@@ -114,11 +114,11 @@ const PHASE_BADGE: Record<WeekPhase, string> = {
 };
 
 const WORKOUT_BAR_COLOR: Record<WorkoutType, string> = {
-  easy:     "#4ADE80",
-  recovery: "#4ADE80",
-  long:     "#60A5FA",
-  tempo:    "#FFB547",
-  interval: "#C084FC",
+  easy:     "#7BC232",
+  recovery: "#7BC232",
+  long:     "#8655F0",
+  tempo:    "#F2A113",
+  interval: "#E0402E",
   race:     "#FF4D4D",
   rest:     "#2A2A2E",
 };
