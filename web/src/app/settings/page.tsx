@@ -120,17 +120,28 @@ function StravaConnection() {
     }
   }
 
-  async function handleSyncNow() {
+  async function runSync(sinceMonths?: number) {
     setSyncing(true);
     setError(null);
     setSyncResult(null);
     try {
-      const res = await apiFetch("/api/strava/backfill", { method: "POST" });
+      const body = sinceMonths
+        ? JSON.stringify({ since: new Date(Date.now() - sinceMonths * 30.4 * 24 * 3600_000).toISOString() })
+        : undefined;
+      const res = await apiFetch("/api/strava/backfill", {
+        method: "POST",
+        ...(body ? { headers: { "Content-Type": "application/json" }, body } : {}),
+      });
       if (!res.ok) throw new Error("Sync failed");
-      const data = (await res.json().catch(() => null)) as { processed?: number } | null;
+      const data = (await res.json().catch(() => null)) as { inserted?: number; alreadySynced?: number } | null;
       haptic("success");
-      const n = data?.processed ?? 0;
-      setSyncResult(n === 0 ? "Up to date — no new activities." : `Synced ${n} new ${n === 1 ? "activity" : "activities"}.`);
+      const n = data?.inserted ?? 0;
+      const dup = data?.alreadySynced ?? 0;
+      setSyncResult(
+        n === 0
+          ? `Up to date — no new activities${dup ? ` (${dup} already synced)` : ""}.`
+          : `Synced ${n} new ${n === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}.`
+      );
     } catch {
       haptic("warning");
       setError("Sync failed. Try again later.");
@@ -173,13 +184,23 @@ function StravaConnection() {
 
       {status === "connected" && (
         <div className="mt-3 flex items-center gap-2">
-          <Button variant="secondary" size="sm" busy={syncing} onClick={handleSyncNow}>
+          <Button variant="secondary" size="sm" busy={syncing} onClick={() => runSync()}>
             Sync now
           </Button>
           <Button variant="danger" size="sm" busy={disconnecting} onClick={handleDisconnect}>
             Disconnect
           </Button>
         </div>
+      )}
+      {status === "connected" && (
+        <button
+          type="button"
+          disabled={syncing}
+          onClick={() => runSync(12)}
+          className="press mt-2 text-left text-[13px] font-semibold text-accent disabled:opacity-50"
+        >
+          Sync full history (last 12 months)
+        </button>
       )}
 
       {syncResult && !error && (
