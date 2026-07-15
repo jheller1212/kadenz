@@ -26,6 +26,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
+import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
@@ -281,23 +282,11 @@ function WeatherIcon({ code, className }: { code: number; className?: string }) 
 
 const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
-const workoutDotColor: Record<string, string> = {
-  easy: "#4ADE80",
-  recovery: "#4ADE80",
-  tempo: "#FFB547",
-  interval: "#C084FC",
-  long: "#60A5FA",
-  race: "#FF4D4D",
-};
+const workoutDotColor: Record<string, string> = Object.fromEntries(
+  Object.entries(WORKOUT_COLORS).map(([k, v]) => [k, v.solid])
+);
 
-const workoutBarColor: Record<string, string> = {
-  easy: "#4ADE80",
-  recovery: "#4ADE80",
-  tempo: "#FFB547",
-  interval: "#C084FC",
-  long: "#60A5FA",
-  race: "#FF4D4D",
-};
+const workoutBarColor = workoutDotColor;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -459,9 +448,9 @@ function CalendarStrip({
                 <div
                   className="h-[7px] w-[7px] rounded-[2px]"
                   style={{
-                    backgroundImage: missed
+                    backgroundImage: missed || !day.workout
                       ? "none"
-                      : `linear-gradient(180deg, ${dotColor ?? "var(--k-text-3)"}, ${dotColor ?? "var(--k-text-3)"}CC)`,
+                      : workoutColor(day.workout.type).grad,
                     backgroundColor: missed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)"),
                     opacity: completed ? 1 : 0.85,
                   }}
@@ -549,7 +538,7 @@ function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: s
     >
       <div className="flex">
         {/* Colored left strip */}
-        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
+        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundImage: workoutColor(workout.type).grad, backgroundColor: barColor }} />
 
         <div className="flex-1 p-4">
           {/* Title row */}

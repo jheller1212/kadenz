@@ -107,11 +107,11 @@ function formatPaceSeconds(totalSeconds: number): string {
 }
 
 const WORKOUT_COLORS: Record<string, string> = {
-  easy: "#4ADE80",
-  recovery: "#4ADE80",
-  tempo: "#FFB547",
-  interval: "#C084FC",
-  long: "#60A5FA",
+  easy: "#7BC232",
+  recovery: "#7BC232",
+  tempo: "#F2A113",
+  interval: "#E0402E",
+  long: "#8655F0",
   race: "#FF4D4D",
   run: "#60A5FA",
   strength: "#F472B6",

@@ -73,12 +73,22 @@
   --k-success: #34D399;
 
   /* Workout type spectrum (spines, dots, badges) — meaning, never decoration */
-  --k-type-easy: #4ADE80;
-  --k-type-recovery: #4ADE80;
-  --k-type-tempo: #FFB547;
-  --k-type-interval: #C084FC;
-  --k-type-long: #60A5FA;
+  /* Benchmark type palette: easy=lime→green, tempo=amber, interval=red,
+     long=purple, strength=blue. Gradients are the canonical rendering. */
+  --k-type-easy: #7BC232;
+  --k-type-easy-grad: linear-gradient(135deg, #C3D82E 0%, #5CB531 100%);
+  --k-type-recovery: #7BC232;
+  --k-type-recovery-grad: linear-gradient(135deg, #C3D82E 0%, #5CB531 100%);
+  --k-type-tempo: #F2A113;
+  --k-type-tempo-grad: linear-gradient(135deg, #F7B32B 0%, #ED8B00 100%);
+  --k-type-interval: #E0402E;
+  --k-type-interval-grad: linear-gradient(135deg, #F0562E 0%, #C62828 100%);
+  --k-type-long: #8655F0;
+  --k-type-long-grad: linear-gradient(135deg, #9B6BF3 0%, #7C3AED 100%);
   --k-type-race: #FF4D4D;
+  --k-type-race-grad: linear-gradient(135deg, #FF6B5E 0%, #D32F2F 100%);
+  --k-type-strength: #3B82F6;
+  --k-type-strength-grad: linear-gradient(135deg, #60A5FA 0%, #2563EB 100%);
 
   /* Elevation — dark uses lighter surfaces; shadows collapse to a 0.5px ring */
   --k-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
@@ -139,7 +149,7 @@ html.light {
     0 24px 60px rgba(23, 26, 31, 0.16);
   --k-ring-hairline: 0 0 0 0.5px rgba(23, 26, 31, 0.06);
 
-  --k-material: rgba(255, 255, 255, 0.72);
+  --k-material: rgba(238, 240, 244, 0.88);
   --k-material-border: rgba(0, 0, 0, 0.08);
   --k-scrim: rgba(10, 12, 16, 0.4);
   --k-desk: #C7C7CC;
