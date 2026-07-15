@@ -64,6 +64,15 @@ interface TodayApiWorkout {
   }>;
 }
 
+interface StrengthSessionLite {
+  id: string;
+  date: string;
+  type: string;
+  title: string;
+  status: string;
+  targetDurationMinutes: number | null;
+}
+
 interface TodayApiResponse {
   activePlan: boolean;
   planId?: string;
@@ -888,14 +897,12 @@ const STRENGTH_TYPE_COLORS: Record<string, string> = {
   full_body: "#34D399",
 };
 
-// Today's scheduled Kraft session, shown alongside the run.
-function StrengthTodayCard() {
+// The selected day's Kraft session, shown alongside the run.
+function StrengthTodayCard({ initial }: { initial: StrengthSessionLite }) {
   const router = useRouter();
-  const [session, setSession] = useState<{
-    id: string; type: string; title: string; status: string;
-    targetDurationMinutes: number | null;
-  } | null>(null);
+  const [session, setSession] = useState<StrengthSessionLite | null>(initial);
   const [completing, setCompleting] = useState(false);
+  useEffect(() => { setSession(initial); }, [initial]);
 
   async function toggleComplete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -920,19 +927,6 @@ function StrengthTodayCard() {
     }
   }
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiFetch("/api/strength/today");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data?.todaySession) setSession(data.todaySession);
-      } catch {
-        /* card simply doesn't render */
-      }
-    })();
-  }, []);
-
   if (!session) return null;
   const color = STRENGTH_TYPE_COLORS[session.type] ?? "#94A3B8";
   const done = session.status === "completed";
@@ -950,7 +944,7 @@ function StrengthTodayCard() {
           <div className="min-w-0 flex-1">
             <p className="text-base font-bold text-text-1">{session.title}</p>
             <p className="mt-0.5 text-xs text-text-3">
-              {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
+              {new Date(session.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
               {session.targetDurationMinutes
                 ? ` · ${Math.max(5, session.targetDurationMinutes - 5)}m - ${session.targetDurationMinutes + 5}m`
                 : ""}
@@ -1106,15 +1100,24 @@ export default function Home() {
   const [days, setDays] = useState<DayInfo[]>([]);
   // Calendar-day keys of this week's strength sessions (Benchmark-style 2nd dot).
   const [strengthDays, setStrengthDays] = useState<Record<string, string>>({});
+  const [weekStrength, setWeekStrength] = useState<StrengthSessionLite[]>([]);
   useEffect(() => {
+    if (days.length === 0) return;
+    const from = new Date(days[0].date);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(days[days.length - 1].date);
+    to.setHours(23, 59, 59, 999);
     (async () => {
       try {
-        const res = await apiFetch("/api/strength/today");
+        const res = await apiFetch(
+          `/api/strength/sessions?from=${from.toISOString()}&to=${to.toISOString()}`
+        );
         if (!res.ok) return;
-        const data = await res.json();
+        const sessions = (await res.json()) as StrengthSessionLite[];
+        const active = sessions.filter((sess) => sess.status !== "skipped");
+        setWeekStrength(active);
         const map: Record<string, string> = {};
-        for (const sess of data?.weekSessions ?? []) {
-          if (sess.status === "skipped") continue;
+        for (const sess of active) {
           map[new Date(sess.date).toDateString()] = sess.status;
         }
         setStrengthDays(map);
@@ -1122,7 +1125,7 @@ export default function Home() {
         /* strip just shows run dots */
       }
     })();
-  }, []);
+  }, [days]);
   const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState(false);
@@ -1346,7 +1349,13 @@ export default function Home() {
           ) : (
             !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} />
           )}
-          <StrengthTodayCard />
+          {(() => {
+            const shownKey = (selectedDate ?? new Date()).toDateString();
+            const sess = weekStrength.find(
+              (x) => new Date(x.date).toDateString() === shownKey
+            );
+            return sess ? <StrengthTodayCard key={sess.id} initial={sess} /> : null;
+          })()}
         </div>
 
         {/* Week Overview */}
