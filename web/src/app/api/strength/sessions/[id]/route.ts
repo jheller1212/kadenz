@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { db, strengthSessions } from "@/db";
+import { db, strengthSessions, activities } from "@/db";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -42,7 +42,25 @@ export async function GET(
       new Date(session.date),
       session.profileId
     );
-    return Response.json({ ...session, plannedExercises });
+
+    // A linked Strava activity contributes HR + duration to the logged sets.
+    const [linkedActivity] = await db
+      .select({
+        id: activities.id,
+        stravaId: activities.stravaId,
+        avgHr: activities.avgHr,
+        maxHr: activities.maxHr,
+        durationSeconds: activities.durationSeconds,
+      })
+      .from(activities)
+      .where(eq(activities.strengthSessionId, id))
+      .limit(1);
+
+    return Response.json({
+      ...session,
+      plannedExercises,
+      linkedActivity: linkedActivity ?? null,
+    });
   } catch (err) {
     console.error("DB error fetching strength session:", err);
     return Response.json({ error: "Failed to fetch session" }, { status: 500 });

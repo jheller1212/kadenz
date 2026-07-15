@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Heart } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -27,6 +27,12 @@ interface SessionDetail {
   date: string;
   durationMinutes: number | null;
   sets: SetRow[];
+  linkedActivity?: {
+    stravaId: string | null;
+    avgHr: number | null;
+    maxHr: number | null;
+    durationSeconds: number | null;
+  } | null;
 }
 
 interface CatalogRow {
@@ -118,6 +124,38 @@ export default function StrengthSessionPage({
                 </div>
               </div>
             </div>
+
+            {/* Heart rate from a linked Strava recording, shown alongside the
+                logged sets — the "combined" view. */}
+            {session.linkedActivity?.avgHr != null && (
+              <div className="k-card p-4">
+                <div className="flex items-center gap-2">
+                  <Heart className="h-4 w-4 text-danger" strokeWidth={2.2} fill="currentColor" />
+                  <p className="text-[13px] font-semibold text-text-1">Heart rate</p>
+                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-text-3">
+                    from Strava
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center gap-8">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-text-3">Average</p>
+                    <p className="text-[22px] font-extrabold tabular-nums text-text-1">
+                      {session.linkedActivity.avgHr}
+                      <span className="text-[12px] font-semibold text-text-3"> bpm</span>
+                    </p>
+                  </div>
+                  {session.linkedActivity.maxHr != null && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-text-3">Max</p>
+                      <p className="text-[22px] font-extrabold tabular-nums text-text-1">
+                        {session.linkedActivity.maxHr}
+                        <span className="text-[12px] font-semibold text-text-3"> bpm</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {bySlot.size === 0 ? (
               <EmptyState title="No sets logged" message="This session has no recorded sets." />
