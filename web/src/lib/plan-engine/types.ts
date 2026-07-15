@@ -104,6 +104,8 @@ export interface GeneratedBlock {
 export interface GeneratedWorkout {
   /** DB id — present when the workout was loaded from a saved plan. */
   id?: string;
+  /** DB status ("planned" | "completed" | "skipped" | "missed") — present when loaded from a saved plan. */
+  status?: string;
   dayOfWeek: number; // 0=Sun … 6=Sat
   date: Date;
   type: WorkoutType;

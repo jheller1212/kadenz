@@ -16,6 +16,8 @@ import {
   X,
   AlertTriangle,
   TrendingUp,
+  Check,
+  SkipForward,
 } from "lucide-react";
 import {
   DndContext,
@@ -38,8 +40,6 @@ import { Segmented } from "@/components/ui/Segmented";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { WorkoutTypeBadge } from "@/components/WorkoutTypeBadge";
-import { PaceChart } from "@/components/PaceChart";
-import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { predictRaceTime, RACE_DISTANCES_M } from "@/lib/plan-engine/vdot";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
@@ -79,6 +79,7 @@ function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
       targetKm: (week.targetKm as number) ?? 0,
       workouts: ((week.workouts as Record<string, unknown>[]) ?? []).map((wo) => ({
         id: wo.id as string | undefined,
+        status: wo.status as string | undefined,
         dayOfWeek: wo.dayOfWeek as number,
         date: new Date(wo.date as string),
         type: wo.type as GeneratedWorkout["type"],
@@ -123,12 +124,23 @@ const WORKOUT_BAR_COLOR: Record<WorkoutType, string> = {
   rest:     "#2A2A2E",
 };
 
-const BLOCK_LABEL: Record<string, string> = {
-  warmup:   "Warm-up",
-  work:     "Work",
-  recovery: "Recovery",
-  cooldown: "Cool-down",
-};
+/** Darken a #RRGGBB hex color by `amount` (0–1). */
+function darken(hex: string, amount = 0.2): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 0xff) * (1 - amount));
+  const g = Math.round(((n >> 8) & 0xff) * (1 - amount));
+  const b = Math.round((n & 0xff) * (1 - amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
+/** Subtle vertical gradient spine for run cards (type color → 20% darker). */
+function runSpine(type: WorkoutType): string {
+  const c = WORKOUT_BAR_COLOR[type];
+  return `linear-gradient(180deg, ${c}, ${darken(c)})`;
+}
+
+// Strength is uniformly blue (Benchmark-style), regardless of session type.
+const STRENGTH_SPINE = "linear-gradient(180deg, #60A5FA, #2563EB)";
 
 function formatDate(d: Date) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -244,55 +256,16 @@ function isPastWeek(week: GeneratedWeek): boolean {
   return end < new Date();
 }
 
-// ── Block detail row ──────────────────────────────────────────────────────────
+// ── Completed badge (Benchmark-style check on the card's top-right) ───────────────
 
-function BlockRow({
-  block,
-  index,
-  total,
-}: {
-  block: GeneratedBlock;
-  index: number;
-  total: number;
-}) {
-  const isWork = block.type === "work";
+function CompletedBadge() {
   return (
-    <div className="flex items-start gap-3">
-      <div className="flex flex-col items-center pt-0.5 shrink-0">
-        <div
-          className={`w-2 h-2 rounded-full ${isWork ? "bg-accent" : "bg-hairline"}`}
-        />
-        {index < total - 1 && (
-          <div className="w-px flex-1 bg-hairline mt-0.5 min-h-[20px]" />
-        )}
-      </div>
-      <div className="flex-1 flex items-start justify-between pb-3">
-        <div>
-          <p className="text-sm font-medium text-text-1">
-            {BLOCK_LABEL[block.type] ?? block.type}
-            {block.reps && block.repDistanceKm && (
-              <span className="text-text-3 font-normal ml-1.5">
-                {block.reps}×{block.repDistanceKm * 1000}m
-              </span>
-            )}
-          </p>
-          {block.distanceKm != null && (
-            <p className="text-xs text-text-3">{block.distanceKm} km</p>
-          )}
-          {block.durationMinutes != null && (
-            <p className="text-xs text-text-3">{block.durationMinutes} min rest</p>
-          )}
-          {block.repRestSeconds != null && block.reps && (
-            <p className="text-xs text-text-3">{block.repRestSeconds}s rest between reps</p>
-          )}
-        </div>
-        {block.targetPaceSecKm != null && (
-          <p className="text-xs font-semibold text-text-2 tabular-nums shrink-0 ml-2">
-            {formatPace(block.targetPaceSecKm)}/km
-          </p>
-        )}
-      </div>
-    </div>
+    <span
+      className="absolute right-1 top-1 z-10 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#0B0C0E]"
+      aria-label="Completed"
+    >
+      <Check className="h-3 w-3 text-white" strokeWidth={3} />
+    </span>
   );
 }
 
@@ -300,15 +273,11 @@ function BlockRow({
 
 function RunChip({
   workout,
-  expanded,
-  onToggle,
-  onMove,
+  onOpen,
   dimmed,
 }: {
   workout: GeneratedWorkout;
-  expanded: boolean;
-  onToggle: () => void;
-  onMove?: () => void;
+  onOpen: () => void;
   dimmed: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -319,118 +288,52 @@ function RunChip({
     <div
       ref={setNodeRef}
       style={{ opacity: isDragging ? 0.4 : undefined }}
-      className={`rounded-[var(--radius-input)] bg-surface overflow-hidden shadow-sm ${
+      className={`relative h-full rounded-[var(--radius-input)] bg-surface overflow-hidden shadow-sm ${
         dimmed ? "opacity-50" : ""
       }`}
     >
-      <div className="flex items-stretch">
-        {/* Colored type accent strip */}
+      {workout.status === "completed" && <CompletedBadge />}
+      <div className="flex h-full items-stretch">
+        {/* Colored type accent spine */}
         <div
           className="w-1 shrink-0"
-          style={{ backgroundColor: WORKOUT_BAR_COLOR[workout.type] }}
+          style={{ backgroundImage: runSpine(workout.type) }}
         />
 
         {/* Drag handle */}
         <span
           {...attributes}
           {...listeners}
-          className="shrink-0 flex items-center justify-center w-7 cursor-grab active:cursor-grabbing touch-none text-text-3"
+          className="shrink-0 flex items-center justify-center w-6 cursor-grab active:cursor-grabbing touch-none text-text-3"
           aria-label="Drag to another day"
         >
           <GripVertical className="h-4 w-4" strokeWidth={1.9} />
         </span>
 
-        {/* Body — tap to expand */}
+        {/* Body — tap to open detail sheet */}
         <button
-          className="press flex-1 min-w-0 flex items-center gap-2 py-2 pr-2 text-left"
+          className="press flex-1 min-w-0 py-2 pr-2 text-left"
           onClick={() => {
             haptic("light");
-            onToggle();
+            onOpen();
           }}
-          aria-expanded={expanded}
         >
-          <div className="flex-1 min-w-0">
-            <WorkoutTypeBadge type={workout.type} />
-            <p className="mt-0.5 text-[14px] font-medium text-text-1 truncate">
-              {workout.title}
+          <WorkoutTypeBadge type={workout.type} />
+          <p className="mt-0.5 text-[13px] font-medium text-text-1 truncate">
+            {workout.title}
+          </p>
+          {(workout.targetKm != null || workout.targetDurationMinutes != null) && (
+            <p className="mt-0.5 text-[11px] text-text-3 tabular-nums">
+              {workout.targetKm != null && (
+                <span className="font-bold text-text-1">{workout.targetKm} km</span>
+              )}
+              {workout.targetKm != null && workout.targetDurationMinutes != null && " · "}
+              {workout.targetDurationMinutes != null &&
+                formatDuration(workout.targetDurationMinutes)}
             </p>
-          </div>
-          <div className="shrink-0 text-right">
-            {workout.targetKm != null && (
-              <p className="text-[14px] font-bold text-text-1 tabular-nums">
-                {workout.targetKm} km
-              </p>
-            )}
-            {workout.targetDurationMinutes != null && (
-              <p className="text-[11px] text-text-3">
-                {formatDuration(workout.targetDurationMinutes)}
-              </p>
-            )}
-          </div>
-          <ChevronDown
-            className={`h-4 w-4 text-text-3 shrink-0 transition-transform duration-200 ${
-              expanded ? "rotate-180" : ""
-            }`}
-            strokeWidth={2}
-            aria-hidden="true"
-          />
+          )}
         </button>
       </div>
-
-      {/* Expanded detail */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 420, damping: 40 }}
-            className="overflow-hidden"
-          >
-            <div className="px-3 pb-3 border-t border-hairline pt-3">
-              {workout.description && (
-                <p className="text-[13px] text-text-2 mb-3 leading-relaxed">
-                  {workout.description}
-                </p>
-              )}
-              {workout.blocks.length > 0 && (
-                <>
-                  <div className="mb-3">
-                    <PaceChart
-                      blocks={workout.blocks}
-                      workoutType={workout.type}
-                      variant="full"
-                      color={WORKOUT_BAR_COLOR[workout.type]}
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    {workout.blocks.map((block, i) => (
-                      <BlockRow
-                        key={i}
-                        block={block}
-                        index={i}
-                        total={workout.blocks.length}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-              {onMove && workout.id && (
-                <button
-                  onClick={() => {
-                    haptic("light");
-                    onMove();
-                  }}
-                  className="press mt-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-elevated py-2.5 text-[13px] font-semibold text-text-2"
-                >
-                  <CalendarClock className="h-4 w-4" strokeWidth={2} />
-                  Move to another day
-                </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -439,16 +342,12 @@ function RunChip({
 
 function StrengthChip({
   session,
-  onMove,
-  onDelete,
+  onOpen,
   dimmed,
-  busy,
 }: {
   session: StrengthSession;
-  onMove: () => void;
-  onDelete: () => void;
+  onOpen: () => void;
   dimmed: boolean;
-  busy: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `strength:${session.id}`,
@@ -459,35 +358,36 @@ function StrengthChip({
     <div
       ref={setNodeRef}
       style={{ opacity: isDragging ? 0.4 : undefined }}
-      className={`rounded-[var(--radius-input)] overflow-hidden ${
+      className={`relative h-full rounded-[var(--radius-input)] overflow-hidden ${
         dimmed ? "opacity-50" : ""
       }`}
     >
+      {session.status === "completed" && <CompletedBadge />}
       <div
-        className="flex items-stretch"
+        className="flex h-full items-stretch"
         style={{ backgroundColor: `${meta.color}1A` }}
       >
-        {/* Colored type accent strip */}
-        <div className="w-1 shrink-0" style={{ backgroundColor: meta.color }} />
+        {/* Blue gradient spine — strength is uniformly blue */}
+        <div className="w-1 shrink-0" style={{ backgroundImage: STRENGTH_SPINE }} />
 
         {/* Drag handle */}
         <span
           {...attributes}
           {...listeners}
-          className="shrink-0 flex items-center justify-center w-7 cursor-grab active:cursor-grabbing touch-none"
+          className="shrink-0 flex items-center justify-center w-6 cursor-grab active:cursor-grabbing touch-none"
           style={{ color: meta.color }}
           aria-label="Drag to another day"
         >
           <GripVertical className="h-4 w-4" strokeWidth={1.9} />
         </span>
 
-        {/* Body — tap to move */}
+        {/* Body — tap to open detail sheet */}
         <button
           onClick={() => {
             haptic("light");
-            onMove();
+            onOpen();
           }}
-          className="press flex-1 min-w-0 flex items-center gap-2 py-2 text-left"
+          className="press flex-1 min-w-0 flex items-center gap-1.5 py-2 pr-2 text-left"
         >
           <Dumbbell
             className="h-3.5 w-3.5 shrink-0"
@@ -497,27 +397,6 @@ function StrengthChip({
           <span className="truncate text-[13px] font-semibold text-text-1">
             {meta.label}
           </span>
-          {session.status === "completed" && (
-            <span
-              className="ml-auto text-[10px] font-bold uppercase"
-              style={{ color: "#4ADE80" }}
-            >
-              done
-            </span>
-          )}
-        </button>
-
-        {/* Delete */}
-        <button
-          onClick={() => {
-            haptic("medium");
-            onDelete();
-          }}
-          disabled={busy}
-          aria-label="Remove strength session"
-          className="press flex h-9 w-9 shrink-0 items-center justify-center text-text-3 disabled:opacity-40"
-        >
-          <Trash2 className="h-4 w-4" strokeWidth={2} />
         </button>
       </div>
     </div>
@@ -531,31 +410,38 @@ function DayRow({
   date,
   run,
   strength,
-  expandedRunId,
-  onToggleRun,
-  onMoveRun,
-  onMoveStrength,
-  onDeleteStrength,
+  onOpenRun,
+  onOpenStrength,
   onAddStrength,
   dimmed,
-  strengthBusy,
 }: {
   dayIdx: number;
   date: Date;
   run: GeneratedWorkout | undefined;
   strength: StrengthSession | undefined;
-  expandedRunId: string | null;
-  onToggleRun: (id: string) => void;
-  onMoveRun: (workout: GeneratedWorkout) => void;
-  onMoveStrength: (session: StrengthSession) => void;
-  onDeleteStrength: (id: string) => void;
+  onOpenRun: (workout: GeneratedWorkout) => void;
+  onOpenStrength: (session: StrengthSession) => void;
   onAddStrength: (dayIdx: number) => void;
   dimmed: boolean;
-  strengthBusy: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${dayIdx}` });
   const isToday = sameDay(date, new Date());
   const isRest = run?.type === "rest";
+
+  const runCell = run ? (
+    isRest ? (
+      <div
+        className={`flex h-full items-center gap-2 rounded-[var(--radius-input)] px-2 py-2 ${
+          dimmed ? "opacity-50" : ""
+        }`}
+      >
+        <div className="w-1 self-stretch rounded-full bg-hairline shrink-0" />
+        <span className="text-[13px] text-text-3">Rest day</span>
+      </div>
+    ) : (
+      <RunChip workout={run} onOpen={() => onOpenRun(run)} dimmed={dimmed} />
+    )
+  ) : null;
 
   return (
     <div
@@ -583,42 +469,23 @@ function DayRow({
           </p>
         </div>
 
-        {/* Activity chips */}
-        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-          {run &&
-            (isRest ? (
-              <div
-                className={`flex items-center gap-2 rounded-[var(--radius-input)] px-2 py-2 ${
-                  dimmed ? "opacity-50" : ""
-                }`}
-              >
-                <div className="w-1 self-stretch rounded-full bg-hairline shrink-0" />
-                <span className="text-[13px] text-text-3">Rest day</span>
-              </div>
-            ) : (
-              <RunChip
-                workout={run}
-                expanded={expandedRunId === run.id}
-                onToggle={() => run.id && onToggleRun(run.id)}
-                onMove={run.id ? () => onMoveRun(run) : undefined}
-                dimmed={dimmed}
-              />
-            ))}
-
+        {/* Activity cells — strength left, run right when both exist;
+            a single item stays in the left column. */}
+        <div className="flex-1 min-w-0 grid grid-cols-2 gap-1.5 items-stretch">
           {strength && (
             <StrengthChip
               session={strength}
-              onMove={() => onMoveStrength(strength)}
-              onDelete={() => onDeleteStrength(strength.id)}
+              onOpen={() => onOpenStrength(strength)}
               dimmed={dimmed}
-              busy={strengthBusy}
             />
           )}
+
+          {runCell}
 
           {!strength && (
             <button
               onClick={() => onAddStrength(dayIdx)}
-              className="press flex items-center gap-1.5 self-start rounded-[var(--radius-input)] border border-dashed border-hairline px-2.5 py-1.5 text-[12px] font-medium text-text-3"
+              className="press flex items-center justify-center gap-1.5 self-center justify-self-start rounded-[var(--radius-input)] border border-dashed border-hairline px-2.5 py-1.5 text-[12px] font-medium text-text-3"
             >
               <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
               Add strength
@@ -886,7 +753,6 @@ function PlanPageInner() {
   const [loading, setLoading] = useState(true);
   const [selectedWeekNum, setSelectedWeekNum] = useState<number>(1);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null);
   const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -908,6 +774,14 @@ function PlanPageInner() {
     | { kind: "strength"; session: StrengthSession }
     | null
   >(null);
+
+  // Half-screen detail sheet (tap a card to open).
+  const [detailSheet, setDetailSheet] = useState<
+    | { kind: "run"; workout: GeneratedWorkout }
+    | { kind: "strength"; session: StrengthSession }
+    | null
+  >(null);
+  const [skipBusy, setSkipBusy] = useState(false);
 
   // Add-strength sheet state.
   const [addDayIdx, setAddDayIdx] = useState<number | null>(null);
@@ -1203,6 +1077,64 @@ function PlanPageInner() {
     }
   }
 
+  // ── Skip (from the detail sheet) ──────────────────────────────────────────
+  async function skipDetailItem() {
+    if (!detailSheet) return;
+    setSkipBusy(true);
+    try {
+      let ok = false;
+      if (detailSheet.kind === "run") {
+        const id = detailSheet.workout.id;
+        if (!id || !resolvedPlanId) return;
+        const res = await apiFetch(`/api/plans/${resolvedPlanId}/workouts/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "skipped" }),
+        });
+        ok = res.ok;
+        if (ok) {
+          setPlan((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              weeks: prev.weeks.map((wk) => ({
+                ...wk,
+                workouts: wk.workouts.map((w) =>
+                  w.id === id ? { ...w, status: "skipped" } : w
+                ),
+              })),
+            };
+          });
+        }
+      } else {
+        const id = detailSheet.session.id;
+        const res = await apiFetch(`/api/strength/sessions/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "skipped" }),
+        });
+        ok = res.ok;
+        if (ok) {
+          setSessions((prev) =>
+            prev.map((s) => (s.id === id ? { ...s, status: "skipped" } : s))
+          );
+        }
+      }
+      if (ok) {
+        haptic("success");
+        setDetailSheet(null);
+      } else {
+        haptic("warning");
+        showError("Couldn't skip that workout. Try again.");
+      }
+    } catch {
+      haptic("warning");
+      showError("Couldn't skip that workout. Try again.");
+    } finally {
+      setSkipBusy(false);
+    }
+  }
+
   // ── Drag lifecycle ────────────────────────────────────────────────────────
   function handleDragStart(event: DragStartEvent) {
     const [kind, id] = String(event.active.id).split(":");
@@ -1255,6 +1187,38 @@ function PlanPageInner() {
   const nonRest = weekWorkouts.filter((w) => w.type !== "rest");
   const isCurrent = isCurrentWeek(selectedWeek);
   const hasError = violations.some((v) => v.severity === "error");
+
+  // Derived values for the tap-detail sheet.
+  const detailTitle =
+    detailSheet?.kind === "run"
+      ? detailSheet.workout.title
+      : detailSheet?.kind === "strength"
+      ? detailSheet.session.title || strengthMeta(detailSheet.session.type).label
+      : "";
+  const detailTypeLabel =
+    detailSheet?.kind === "run"
+      ? detailSheet.workout.type.charAt(0).toUpperCase() + detailSheet.workout.type.slice(1)
+      : detailSheet?.kind === "strength"
+      ? `Strength · ${strengthMeta(detailSheet.session.type).label}`
+      : "";
+  const detailDate =
+    detailSheet?.kind === "run"
+      ? detailSheet.workout.date
+      : detailSheet?.kind === "strength"
+      ? new Date(detailSheet.session.date)
+      : null;
+  const detailHref =
+    detailSheet?.kind === "run"
+      ? `/workout/${detailSheet.workout.id}`
+      : detailSheet?.kind === "strength"
+      ? `/strength/session/${detailSheet.session.id}`
+      : "#";
+  const detailStatus =
+    detailSheet?.kind === "run"
+      ? detailSheet.workout.status
+      : detailSheet?.kind === "strength"
+      ? detailSheet.session.status
+      : undefined;
 
   // The current day of the item being moved via the picker (disabled in grid).
   const movePickerDate =
@@ -1425,13 +1389,8 @@ function PlanPageInner() {
                   date={day}
                   run={run}
                   strength={strength}
-                  expandedRunId={expandedWorkout}
-                  onToggleRun={(id) =>
-                    setExpandedWorkout(expandedWorkout === id ? null : id)
-                  }
-                  onMoveRun={(w) => setMovePicker({ kind: "run", workout: w })}
-                  onMoveStrength={(s) => setMovePicker({ kind: "strength", session: s })}
-                  onDeleteStrength={deleteStrength}
+                  onOpenRun={(w) => setDetailSheet({ kind: "run", workout: w })}
+                  onOpenStrength={(s) => setDetailSheet({ kind: "strength", session: s })}
                   onAddStrength={(dIdx) => {
                     haptic("light");
                     setAddType("lower_achilles");
@@ -1439,7 +1398,6 @@ function PlanPageInner() {
                     setAddDayIdx(dIdx);
                   }}
                   dimmed={isPast}
-                  strengthBusy={strengthBusy}
                 />
               );
             })}
@@ -1451,7 +1409,7 @@ function PlanPageInner() {
                 <div className="flex items-stretch">
                   <div
                     className="w-1 shrink-0"
-                    style={{ backgroundColor: WORKOUT_BAR_COLOR[activeDrag.workout.type] }}
+                    style={{ backgroundImage: runSpine(activeDrag.workout.type) }}
                   />
                   <div className="flex items-center gap-2 py-2 px-2">
                     <GripVertical className="h-4 w-4 text-text-3" strokeWidth={1.9} />
@@ -1472,7 +1430,7 @@ function PlanPageInner() {
                 <div className="flex items-center gap-2 py-2 px-2">
                   <div
                     className="w-1 self-stretch shrink-0"
-                    style={{ backgroundColor: strengthMeta(activeDrag.session.type).color }}
+                    style={{ backgroundImage: STRENGTH_SPINE }}
                   />
                   <GripVertical
                     className="h-4 w-4"
@@ -1510,6 +1468,95 @@ function PlanPageInner() {
         open={dropdownOpen}
         onClose={() => setDropdownOpen(false)}
       />
+
+      {/* Card detail sheet (tap a card) */}
+      <Sheet open={!!detailSheet} onClose={() => setDetailSheet(null)}>
+        {detailSheet && detailDate && (
+          <div className="flex flex-col gap-3 px-1 pb-2 pt-2">
+            <div>
+              <h2 className="text-[19px] font-bold leading-tight text-text-1">
+                {detailTitle}
+              </h2>
+              <p className="mt-1 text-[13px] text-text-3">
+                {detailTypeLabel} ·{" "}
+                {detailDate.toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </p>
+            </div>
+
+            {/* View full detail */}
+            <TransitionLink
+              href={detailHref}
+              onClick={() => setDetailSheet(null)}
+              className="press flex items-center justify-between rounded-[var(--radius-input)] bg-elevated px-4 py-3"
+            >
+              <span className="text-[14px] font-semibold text-text-1">
+                View {detailSheet.kind === "run" ? "workout" : "session"}
+              </span>
+              <ChevronRightIcon className="h-4 w-4 text-text-3" strokeWidth={2} />
+            </TransitionLink>
+
+            {/* Move (accessible fallback for drag) */}
+            <button
+              onClick={() => {
+                haptic("light");
+                setMovePicker(detailSheet);
+                setDetailSheet(null);
+              }}
+              className="press flex items-center justify-between rounded-[var(--radius-input)] bg-elevated px-4 py-3"
+            >
+              <span className="flex items-center gap-2 text-[14px] font-semibold text-text-1">
+                <CalendarClock className="h-4 w-4 text-text-3" strokeWidth={2} />
+                Move to another day
+              </span>
+            </button>
+
+            {/* Skip */}
+            {detailStatus !== "completed" && detailStatus !== "skipped" && (
+              <button
+                onClick={skipDetailItem}
+                disabled={skipBusy}
+                className="press flex items-center justify-between rounded-[var(--radius-input)] bg-elevated px-4 py-3 disabled:opacity-40"
+              >
+                <span className="flex items-center gap-2 text-[14px] font-semibold text-warn">
+                  <SkipForward className="h-4 w-4" strokeWidth={2} />
+                  Skip workout
+                </span>
+              </button>
+            )}
+
+            {/* Remove (strength only) */}
+            {detailSheet.kind === "strength" && (
+              <button
+                onClick={() => {
+                  haptic("medium");
+                  deleteStrength(detailSheet.session.id);
+                  setDetailSheet(null);
+                }}
+                disabled={strengthBusy}
+                className="press flex items-center justify-between rounded-[var(--radius-input)] bg-elevated px-4 py-3 disabled:opacity-40"
+              >
+                <span className="flex items-center gap-2 text-[14px] font-semibold text-danger">
+                  <Trash2 className="h-4 w-4" strokeWidth={2} />
+                  Remove session
+                </span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setDetailSheet(null)}
+              className="press mx-auto mt-1 flex items-center gap-1 text-[13px] font-medium text-text-3"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2} />
+              Cancel
+            </button>
+          </div>
+        )}
+      </Sheet>
 
       {/* Move-to-another-day picker (tap fallback for drag) */}
       <Sheet
