@@ -69,7 +69,7 @@ export default function HrZonesPage() {
 
   function save() {
     haptic("success");
-    saveSettings({ hrZoneBounds: bounds, maxHrOverride: maxHr });
+    saveSettings({ ...loadSettings(), hrZoneBounds: bounds, maxHrOverride: maxHr });
     setDirty(false);
     router.push("/settings");
   }
@@ -80,7 +80,7 @@ export default function HrZonesPage() {
     const max = estimateMaxHr(age);
     setMaxHr(max);
     setBounds(defaultsFor(max));
-    saveSettings({ hrZoneBounds: null, maxHrOverride: null });
+    saveSettings({ ...loadSettings(), hrZoneBounds: null, maxHrOverride: null });
     setDirty(false);
   }
 
@@ -88,7 +88,7 @@ export default function HrZonesPage() {
     const year = parseInt(v, 10);
     const valid = Number.isFinite(year) && year > 1920 && year <= new Date().getFullYear() - 5;
     setBirthYear(valid ? year : null);
-    saveSettings({ birthYear: valid ? year : null });
+    saveSettings({ ...loadSettings(), birthYear: valid ? year : null });
     const s = loadSettings();
     if (!s.hrZoneBounds && !s.maxHrOverride && valid) {
       const max = estimateMaxHr(new Date().getFullYear() - year);
