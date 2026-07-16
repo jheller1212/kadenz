@@ -27,6 +27,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
+import { displayTemp } from "@/lib/units";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
@@ -769,7 +770,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
               <div className="mt-2 flex items-center gap-2">
                 {weather && <WeatherIcon code={weather.code} className="h-7 w-7 text-text-2" />}
-                <p className="text-3xl font-extrabold text-text-1">{weather ? `${weather.temp}°` : "—"}</p>
+                <p className="text-3xl font-extrabold text-text-1">{weather ? `${displayTemp(weather.temp)}°` : "—"}</p>
               </div>
               <div className="mt-1">
                 <p className="text-[10px] font-medium text-text-3">{weather?.location ?? "Your location"}</p>
@@ -1325,7 +1326,7 @@ export default function Home() {
               className="press flex items-center gap-1.5 text-text-2"
             >
               <WeatherIcon code={weather.code} className="h-5 w-5" />
-              <span className="text-sm font-semibold tabular-nums">{weather.temp}°</span>
+              <span className="text-sm font-semibold tabular-nums">{displayTemp(weather.temp)}°</span>
             </button>
           )}
         </div>

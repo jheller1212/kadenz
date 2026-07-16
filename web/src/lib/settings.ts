@@ -21,6 +21,8 @@ export interface UserSettings {
   birthYear: number | null;
   /** Measured max HR override (bpm); null = estimate from age */
   maxHrOverride: number | null;
+  /** Custom HR zone upper bounds (zones 1-4, bpm); null = derived from age */
+  hrZoneBounds: number[] | null;
 
   // ── Kraft (strength) guided-session preferences ──────────────────────────
   /** Auto-start a rest timer after each logged set */
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   hapticsEnabled: true,
   birthYear: null,
   maxHrOverride: null,
+  hrZoneBounds: null,
   kraftRestTimer: true,
   kraftRestSeconds: 90,
   kraftSetTimer: true,

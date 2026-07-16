@@ -26,6 +26,7 @@ import {
   type CustomWorkoutTemplate,
 } from "@/hooks/useCustomWorkouts";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
+import { displayWeight, formatWeightKg, weightUnitLabel } from "@/lib/units";
 import { EXERCISES } from "@/lib/strength/program";
 import { formatLoad } from "@/lib/strength/weights";
 
@@ -748,7 +749,7 @@ export default function StrengthPage() {
                         <span className="block text-[15px] font-semibold text-text-1">{row.name}</span>
                         <span className="block text-[12px] text-text-3">
                           {row.lastWeightKg != null
-                            ? `Last: ${row.lastWeightKg} kg × ${row.lastRepLow === row.lastRepHigh ? row.lastRepLow : `${row.lastRepLow}–${row.lastRepHigh}`}`
+                            ? `Last: ${formatWeightKg(row.lastWeightKg)} × ${row.lastRepLow === row.lastRepHigh ? row.lastRepLow : `${row.lastRepLow}–${row.lastRepHigh}`}`
                             : row.tempoNote ?? `${row.defaultSets ?? 3} × ${row.repLow ?? 8}–${row.repHigh ?? 12}`}
                         </span>
                       </button>
@@ -869,8 +870,8 @@ function ExerciseEditor({
       />
       <Stepper
         label="Weight"
-        value={exercise.suggestedWeightKg != null ? String(exercise.suggestedWeightKg) : "BW"}
-        unit={exercise.suggestedWeightKg != null ? "kg" : undefined}
+        value={exercise.suggestedWeightKg != null ? String(displayWeight(exercise.suggestedWeightKg)) : "BW"}
+        unit={exercise.suggestedWeightKg != null ? weightUnitLabel() : undefined}
         onDelta={(d) =>
           onChange({
             suggestedWeightKg: Math.max(0, (exercise.suggestedWeightKg ?? 0) + d * 2.5),
