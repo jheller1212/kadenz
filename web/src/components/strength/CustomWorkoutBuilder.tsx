@@ -10,6 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { getVideoId } from "@/lib/strength/videos";
+import { formatWeightKg } from "@/lib/units";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import type { Equipment, ExerciseDef } from "@/lib/strength/types";
 import {
@@ -289,7 +290,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                     </span>
                     <span className="block text-[13px] text-text-3">
                       {slot.sets} × {slot.repLow === slot.repHigh ? slot.repLow : `${slot.repLow}–${slot.repHigh}`}
-                      {slot.weightKg != null ? ` · ${slot.weightKg} kg` : ""} · {slot.restSeconds}s rest
+                      {slot.weightKg != null ? ` · ${formatWeightKg(slot.weightKg)}` : ""} · {slot.restSeconds}s rest
                     </span>
                   </button>
                   <motion.span animate={{ rotate: isOpen ? 180 : 0 }}>

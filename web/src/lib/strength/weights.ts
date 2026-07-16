@@ -88,10 +88,21 @@ export function formatLoad(
   const count = dumbbells === 1 ? "× 1" : "× 2";
   const hold = holdNote ?? (dumbbells === 1 ? "single dumbbell" : "one per hand");
   const side = perSide ? " · each side" : "";
-  return `${weightKg} kg ${count} · ${hold}${side}`;
+  const { value, label } = displayLoad(weightKg);
+  return `${value} ${label} ${count} · ${hold}${side}`;
 }
 
 /** Compact count suffix for a weight stepper label, e.g. "kg × 2". */
 export function loadUnitLabel(dumbbells?: 1 | 2): string {
-  return `kg × ${dumbbells === 1 ? 1 : 2}`;
+  return `${displayLoad(1).label} × ${dumbbells === 1 ? 1 : 2}`;
+}
+
+/** Convert a stored kg load to the display unit from settings. */
+function displayLoad(kg: number): { value: number; label: "kg" | "lbs" } {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem("kadenz_settings") : null;
+    const unit = raw ? (JSON.parse(raw).weightUnit as string | undefined) : undefined;
+    if (unit === "lbs") return { value: Math.round(kg * 2.20462 * 2) / 2, label: "lbs" };
+  } catch { /* default */ }
+  return { value: kg, label: "kg" };
 }

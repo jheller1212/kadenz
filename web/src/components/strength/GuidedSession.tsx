@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
+import { displayWeight } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { formatLoad, loadUnitLabel } from "@/lib/strength/weights";
@@ -557,7 +558,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
                 <div key={i} className="flex items-center justify-between px-2 py-1 text-[13px]">
                   <span className="font-semibold text-text-3">Set {i + 1}</span>
                   <span className="tabular-nums text-text-1">
-                    <b>{s.kg}</b> kg × <b>{s.reps}</b>
+                    <b>{displayWeight(s.kg)}</b> {weightUnitLabel()} × <b>{s.reps}</b>
                   </span>
                   <span className="tabular-nums text-text-3">{fmt(s.durationSec)}</span>
                   <Check className="h-3.5 w-3.5" style={{ color: "#4ADE80" }} strokeWidth={3} />
@@ -687,7 +688,7 @@ function WeightReps({
       <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
         <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
         <span className="w-16 text-center leading-none">
-          <b className="text-[24px] font-extrabold tabular-nums text-text-1">{set.kg}</b>
+          <b className="text-[24px] font-extrabold tabular-nums text-text-1">{displayWeight(set.kg)}</b>
           <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
         </span>
         <Stepper onClick={() => onAdjust("kg", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
