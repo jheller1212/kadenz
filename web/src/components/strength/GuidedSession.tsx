@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
-import { displayWeight } from "@/lib/units";
+import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { formatLoad, loadUnitLabel } from "@/lib/strength/weights";
