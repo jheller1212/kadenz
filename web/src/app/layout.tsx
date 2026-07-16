@@ -46,7 +46,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `
           try {
             var s = JSON.parse(localStorage.getItem('kadenz_settings') || '{}');
-            if ((s.theme || 'light') === 'dark') document.documentElement.classList.remove('light');
+            var t = s.theme || 'light';
+            if (t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches))
+              document.documentElement.classList.remove('light');
           } catch(e) {}
         `}} />
       </head>
