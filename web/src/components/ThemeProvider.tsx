@@ -15,17 +15,20 @@ export function ThemeProvider() {
       meta.content = color;
     }
 
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+
     function applyTheme() {
       try {
         const raw = localStorage.getItem("kadenz_settings");
         const settings = raw ? JSON.parse(raw) : {};
         const theme = settings.theme ?? "light";
-        if (theme === "light") {
-          document.documentElement.classList.add("light");
-          setThemeColor("#EEF0F4");
-        } else {
+        const dark = theme === "dark" || (theme === "system" && media.matches);
+        if (dark) {
           document.documentElement.classList.remove("light");
           setThemeColor("#0A0A0B");
+        } else {
+          document.documentElement.classList.add("light");
+          setThemeColor("#EEF0F4");
         }
       } catch {
         document.documentElement.classList.add("light");
@@ -34,12 +37,15 @@ export function ThemeProvider() {
     }
 
     applyTheme();
-    // Same-tab saves dispatch SETTINGS_CHANGED_EVENT; "storage" covers other tabs
+    // Same-tab saves dispatch SETTINGS_CHANGED_EVENT; "storage" covers other
+    // tabs; the media listener keeps "system" in sync with live OS changes.
     window.addEventListener(SETTINGS_CHANGED_EVENT, applyTheme);
     window.addEventListener("storage", applyTheme);
+    media.addEventListener("change", applyTheme);
     return () => {
       window.removeEventListener(SETTINGS_CHANGED_EVENT, applyTheme);
       window.removeEventListener("storage", applyTheme);
+      media.removeEventListener("change", applyTheme);
     };
   }, []);
 

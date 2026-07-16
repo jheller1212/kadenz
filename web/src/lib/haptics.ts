@@ -48,8 +48,20 @@ const isIOS = (): boolean =>
   (/iP(hone|ad|od)/.test(navigator.platform) ||
     (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform)));
 
+function hapticsEnabled(): boolean {
+  // Read localStorage directly (cheap) so callers don't need the settings hook.
+  try {
+    const raw = localStorage.getItem("kadenz_settings");
+    if (!raw) return true;
+    return JSON.parse(raw).hapticsEnabled !== false;
+  } catch {
+    return true;
+  }
+}
+
 /** Fire a haptic. Safe to call anywhere; silently degrades. */
 export function haptic(pattern: Pattern = "light"): void {
+  if (typeof window === "undefined" || !hapticsEnabled()) return;
   const ms =
     typeof pattern === "number" || Array.isArray(pattern)
       ? pattern

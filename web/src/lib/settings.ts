@@ -11,8 +11,16 @@ export interface UserSettings {
   tempUnit: "celsius" | "fahrenheit";
   /** Workout target mode: "pace" or "rpe" */
   workoutTargetMode: "pace" | "rpe";
-  /** Theme: "dark" or "light" */
-  theme: "dark" | "light";
+  /** Weight unit for strength tracking */
+  weightUnit: "kg" | "lbs";
+  /** Theme: "system" follows the device, otherwise forced light/dark */
+  theme: "system" | "dark" | "light";
+  /** Master switch for in-app haptic feedback */
+  hapticsEnabled: boolean;
+  /** Birth year, used to estimate max heart rate (Tanaka) */
+  birthYear: number | null;
+  /** Measured max HR override (bpm); null = estimate from age */
+  maxHrOverride: number | null;
 
   // ── Kraft (strength) guided-session preferences ──────────────────────────
   /** Auto-start a rest timer after each logged set */
@@ -49,7 +57,11 @@ export const DEFAULT_SETTINGS: UserSettings = {
   units: "km",
   tempUnit: "celsius",
   workoutTargetMode: "pace",
+  weightUnit: "kg",
   theme: "light",
+  hapticsEnabled: true,
+  birthYear: null,
+  maxHrOverride: null,
   kraftRestTimer: true,
   kraftRestSeconds: 90,
   kraftSetTimer: true,

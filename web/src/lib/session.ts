@@ -44,6 +44,11 @@ export async function makeSessionCookie(): Promise<string> {
   return `${COOKIE_NAME}=${signed}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 30}`;
 }
 
+/** Expired cookie header that clears the session (logout). */
+export function clearSessionCookie(): string {
+  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
 export async function validateSessionCookie(cookieHeader: string | null): Promise<boolean> {
   if (!cookieHeader) return false;
   const cookies = Object.fromEntries(
