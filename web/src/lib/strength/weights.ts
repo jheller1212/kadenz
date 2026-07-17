@@ -1,15 +1,18 @@
-// ── Dumbbell weight ladder ────────────────────────────────────────────────────
+// ── Weight ladder ─────────────────────────────────────────────────────────────
 //
-// Loads snap to the discrete stops of the athlete's adjustable dumbbells.
-// These are the real levels of the DH FitLife 18-in-1 (18 weight levels per
-// dumbbell, confirmed from the product), which the handoff's "18 levels" note
-// referred to. The steps are non-uniform, so "+1 level" varies in kg. Snapping,
-// progression, and deload are all derived from this list — to change hardware,
-// replace it with the new stops and nothing else needs to change.
+// Standard universal increments (hardware-agnostic): 0.5 kg steps up to 25 kg,
+// then 1 kg steps up to 50 kg. Snapping, progression, and deload are all
+// derived from this list — to change the scheme, replace it and nothing else
+// needs to change.
 
-export const DUMBBELL_LEVELS_KG: readonly number[] = [
-  2.5, 4, 5, 6.5, 8, 9, 10.5, 12, 13, 14.5, 16, 17, 18, 19.5, 21, 22, 23, 23.5,
-] as const;
+function buildStandardLevels(): number[] {
+  const levels: number[] = [];
+  for (let kg = 1; kg <= 25; kg += 0.5) levels.push(Math.round(kg * 10) / 10);
+  for (let kg = 26; kg <= 50; kg += 1) levels.push(kg);
+  return levels;
+}
+
+export const DUMBBELL_LEVELS_KG: readonly number[] = buildStandardLevels();
 
 export const MIN_LEVEL = 0;
 export const MAX_LEVEL = DUMBBELL_LEVELS_KG.length - 1;
