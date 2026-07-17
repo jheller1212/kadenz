@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Minus, Plus } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
-import { Button } from "@/components/ui/Button";
+import { WheelPicker } from "@/components/ui/WheelPicker";
 import { haptic } from "@/lib/haptics";
 import { loadSettings, saveSettings } from "@/lib/settings";
 import { estimateMaxHr } from "@/lib/plan-engine/hr-zones";
@@ -177,46 +177,28 @@ export default function HrZonesPage() {
         </div>
       </div>
 
-      <Sheet
-        open={adjusting != null}
-        onClose={() => setAdjusting(null)}
-        title={adjusting === 4 ? "Adjust Max HR" : `Adjust Zone ${(adjusting ?? 0) + 1}`}
-      >
-        <div className="flex flex-col gap-5 px-4 pb-6">
-          <div className="flex items-center justify-center gap-5">
+      <Sheet open={adjusting != null} onClose={() => setAdjusting(null)}>
+        <div className="flex flex-col gap-3 px-1 pb-4">
+          <div className="flex items-center justify-between">
             <button
               type="button"
-              aria-label="Lower"
-              onClick={() => { haptic("light"); setDraft((v) => v - 1); }}
-              className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
+              onClick={() => { haptic("light"); setAdjusting(null); }}
+              className="press text-[15px] font-medium text-text-2"
             >
-              <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
+              Cancel
             </button>
-            <span className="min-w-[120px] text-center text-[34px] font-extrabold tabular-nums text-text-1">
-              {draft} <span className="text-[15px] font-semibold text-text-3">bpm</span>
-            </span>
+            <p className="text-[17px] font-bold text-text-1">
+              {adjusting === 4 ? "Adjust Max HR" : `Adjust Zone ${(adjusting ?? 0) + 1}`}
+            </p>
             <button
               type="button"
-              aria-label="Higher"
-              onClick={() => { haptic("light"); setDraft((v) => v + 1); }}
-              className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
+              onClick={applyDraft}
+              className="press text-[15px] font-bold text-accent"
             >
-              <Plus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
+              Done
             </button>
           </div>
-          <div className="flex justify-center gap-2">
-            {[-5, +5].map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => { haptic("light"); setDraft((v) => v + d); }}
-                className="press rounded-full bg-elevated px-4 py-1.5 text-[13px] font-bold text-text-2"
-              >
-                {d > 0 ? `+${d}` : d}
-              </button>
-            ))}
-          </div>
-          <Button full onClick={applyDraft}>Done</Button>
+          <WheelPicker min={60} max={230} value={draft} onChange={setDraft} unit="bpm" />
         </div>
       </Sheet>
     </main>

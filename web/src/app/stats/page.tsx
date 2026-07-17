@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
+import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration } from "@/lib/hr-zone-time";
 import type {
   GeneratedPlan,
   GeneratedWeek,
@@ -241,6 +242,60 @@ function WorkoutTypeBar({
   );
 }
 
+// ── Time in HR zones (current month) ──────────────────────────────────────────
+
+interface ZoneTimes {
+  seconds: number[];
+  total: number;
+}
+
+function TimeInZonesCard({ zones }: { zones: ZoneTimes }) {
+  return (
+    <section className="k-card p-4">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+          Time in zones
+        </p>
+        <p className="text-[11px] text-text-3">this month</p>
+      </div>
+
+      {/* Stacked bar — one segment per zone with time in it */}
+      <div className="flex h-3 gap-px overflow-hidden rounded-full">
+        {zones.seconds.map((s, i) =>
+          s > 0 ? (
+            <div
+              key={i}
+              className="h-full"
+              style={{
+                width: `${(s / zones.total) * 100}%`,
+                backgroundColor: HR_ZONE_META[i].color,
+              }}
+            />
+          ) : null
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="mt-4 flex flex-col gap-2.5">
+        {zones.seconds.map((s, i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: HR_ZONE_META[i].color }}
+            />
+            <span className="text-[13px] text-text-2">
+              {HR_ZONE_META[i].label} · {HR_ZONE_META[i].name}
+            </span>
+            <span className="ml-auto text-[13px] font-semibold tabular-nums text-text-1">
+              {s > 0 ? formatZoneDuration(s) : "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── Monthly distance trend (trailing 12 months) ──────────────────────────────
 
 function MonthlyChart({ monthly }: { monthly: { label: string; km: number }[] }) {
@@ -340,8 +395,32 @@ function NoPlanState() {
 export default function StatsPage() {
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
   const [perf, setPerf] = useState<Performance | null>(null);
+  const [zoneTimes, setZoneTimes] = useState<ZoneTimes | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Time in zones for the displayed (current) month. Zone bounds live in
+  // client settings, so we pass them to the API. Fails silently — the card
+  // just stays hidden.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { bounds, max } = getUserZoneBounds();
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const res = await apiFetch(
+          `/api/stats/hr-zones?month=${month}&bounds=${bounds.join(",")}&max=${max}`
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { zones: { seconds: number }[] };
+        const seconds = data.zones.map((z) => z.seconds);
+        const total = seconds.reduce((s, n) => s + n, 0);
+        if (total > 0) setZoneTimes({ seconds, total });
+      } catch {
+        // no HR data / offline — hide the card
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -523,6 +602,9 @@ export default function StatsPage() {
                 <MonthlyChart monthly={perf.monthly} />
               </section>
             )}
+
+            {/* Time in HR zones (current month) */}
+            {zoneTimes && <TimeInZonesCard zones={zoneTimes} />}
 
             {/* Personal records */}
             {perf.records && perf.records.some((r) => r.timeSeconds != null) && (

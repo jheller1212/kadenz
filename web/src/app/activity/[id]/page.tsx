@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
 import { useSwipeBack } from "@/lib/useSwipeBack";
+import { getUserZoneBounds, computeZoneSeconds, formatZoneTime } from "@/lib/hr-zone-time";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,51 +86,6 @@ function formatEffortTime(seconds: number): string {
   const s = seconds % 60;
   if (m === 0) return `${s}s`;
   return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-// ── HR Zone calculation ───────────────────────────────────────────────────────
-
-interface HrZone {
-  label: string;
-  min: number;
-  max: number;
-  color: string;
-  seconds: number;
-  pct: number;
-}
-
-function computeHrZones(
-  hrStream: number[] | undefined,
-  timeStream: number[],
-  maxHr = 190
-): HrZone[] {
-  const zones: HrZone[] = [
-    { label: "Zone 1", min: 0,                max: Math.round(maxHr * 0.6),  color: "#6B7280", seconds: 0, pct: 0 },
-    { label: "Zone 2", min: Math.round(maxHr * 0.6),  max: Math.round(maxHr * 0.7),  color: "#3B82F6", seconds: 0, pct: 0 },
-    { label: "Zone 3", min: Math.round(maxHr * 0.7),  max: Math.round(maxHr * 0.8),  color: "#22C55E", seconds: 0, pct: 0 },
-    { label: "Zone 4", min: Math.round(maxHr * 0.8),  max: Math.round(maxHr * 0.9),  color: "#F97316", seconds: 0, pct: 0 },
-    { label: "Zone 5", min: Math.round(maxHr * 0.9),  max: 999,                       color: "#EF4444", seconds: 0, pct: 0 },
-  ];
-
-  if (!hrStream || hrStream.length < 2) return zones;
-
-  for (let i = 1; i < hrStream.length; i++) {
-    const dt = (timeStream[i] ?? 0) - (timeStream[i - 1] ?? 0);
-    const hr = hrStream[i];
-    for (const z of zones) {
-      if (hr >= z.min && hr < z.max) {
-        z.seconds += dt;
-        break;
-      }
-    }
-  }
-
-  const total = zones.reduce((s, z) => s + z.seconds, 0);
-  for (const z of zones) {
-    z.pct = total > 0 ? Math.round((z.seconds / total) * 100) : 0;
-  }
-
-  return zones;
 }
 
 // ── Smooth area chart via SVG ─────────────────────────────────────────────────
@@ -767,8 +723,8 @@ function HrZonesSection({ activity }: { activity: ActivityDetail }) {
   const streams = activity.streams;
   if (!streams?.heartrate || streams.heartrate.length < 2) return null;
 
-  const estimatedMax = activity.maxHr ?? 190;
-  const zones = computeHrZones(streams.heartrate, streams.time, estimatedMax);
+  const zoneBounds = getUserZoneBounds();
+  const zones = computeZoneSeconds(streams.heartrate, streams.time, zoneBounds);
   const anyTime = zones.some((z) => z.seconds > 0);
   if (!anyTime) return null;
 
@@ -781,12 +737,14 @@ function HrZonesSection({ activity }: { activity: ActivityDetail }) {
             <div className="mb-1.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: zone.color }} />
-                <span className="text-[13px] font-semibold text-text-1">{zone.label}</span>
-                <span className="text-[10px] tabular-nums text-text-3">{zone.min}–{zone.max === 999 ? `${estimatedMax}+` : zone.max} bpm</span>
+                <span className="text-[13px] font-semibold text-text-1">{zone.label} · {zone.name}</span>
+                <span className="text-[10px] tabular-nums text-text-3">
+                  {i === 4 ? `${zone.minHr}+` : `${zone.minHr}–${zone.maxHr}`} bpm
+                </span>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-[13px] tabular-nums text-text-3">{zone.pct}%</span>
-                <span className="w-14 text-right text-[13px] tabular-nums text-text-2">{formatDuration(zone.seconds)}</span>
+                <span className="w-14 text-right text-[13px] tabular-nums text-text-2">{formatZoneTime(zone.seconds)}</span>
               </div>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-elevated">
