@@ -507,7 +507,7 @@ const typeLabel: Record<string, string> = {
   race: "Race",
 };
 
-function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWorkout; planId?: string; onStatusChange?: (id: string, status: string) => void }) {
+function WorkoutCard({ workout, planId, onStatusChange, onOpen }: { workout: TodayApiWorkout; planId?: string; onStatusChange?: (id: string, status: string) => void; onOpen?: (w: TodayApiWorkout) => void }) {
   const router = useRouter();
   void router;
   const [localStatus, setLocalStatus] = useState<string | null>(null);
@@ -563,7 +563,7 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
 
   return (
     <motion.button
-      onClick={() => router.push(`/workout/${workout.id}`)}
+      onClick={() => (onOpen ? onOpen(workout) : router.push(`/workout/${workout.id}`))}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 450, damping: 32 }}
       className="w-full overflow-hidden k-card text-left"
@@ -1244,6 +1244,7 @@ export default function Home() {
   // Post-run celebration: when a background refresh shows a workout that a
   // Strava sync flipped to completed (not ticked by hand here), celebrate once.
   const [celebration, setCelebration] = useState<TodayApiWorkout | null>(null);
+  const [sheetWorkout, setSheetWorkout] = useState<TodayApiWorkout | null>(null);
   const locallyTicked = useRef<Set<string>>(new Set());
   const prevStatuses = useRef<Map<string, string>>(new Map());
   useEffect(() => {
@@ -1505,7 +1506,7 @@ export default function Home() {
           {isRestDay && !strengthDays[(selectedDate ?? new Date()).toDateString()] ? (
             <RestDayCard />
           ) : (
-            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} onStatusChange={applyWorkoutStatus} />
+            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} onStatusChange={applyWorkoutStatus} onOpen={setSheetWorkout} />
           )}
           {(() => {
             const shownKey = (selectedDate ?? new Date()).toDateString();
@@ -1561,6 +1562,14 @@ export default function Home() {
         totalWeeks={totalWeeks}
         currentWeek={displayedWeek}
         onSelectWeek={(week) => { setWeekOffset(week - currentWeek); setSelectedDate(null); setSelectedWorkout(null); }}
+      />
+
+      {/* Workout half-sheet (Benchmark-style card tap) */}
+      <WorkoutHalfSheet
+        workout={sheetWorkout}
+        planId={data?.planId}
+        onClose={() => setSheetWorkout(null)}
+        onStatusChange={applyWorkoutStatus}
       />
 
       {/* Post-run celebration (sync completed a planned workout) */}
@@ -1669,6 +1678,97 @@ function CelebrationSheet({
             }}
           >
             View workout
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+
+// ── Workout half-sheet ───────────────────────────────────────────────────────
+// Benchmark-style: tapping the Today workout card opens a compact action sheet
+// instead of navigating straight to the full preview.
+
+function WorkoutHalfSheet({
+  workout,
+  planId,
+  onClose,
+  onStatusChange,
+}: {
+  workout: TodayApiWorkout | null;
+  planId?: string;
+  onClose: () => void;
+  onStatusChange: (id: string, status: string) => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  if (!workout) return null;
+  const color = workoutColor(workout.type);
+  const done = workout.status === "completed";
+  const dateStr = new Date(workout.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+
+  async function setStatus(status: string) {
+    if (!workout || busy) return;
+    setBusy(true);
+    try {
+      const r =
+        status === "completed"
+          ? await mutateWithQueue(`/api/workouts/${workout.id}/complete`, { method: "PATCH", body: "{}" })
+          : await mutateWithQueue(`/api/plans/${planId}/workouts/${workout.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ status }),
+            });
+      if (!r.ok) throw new Error();
+      haptic(status === "completed" ? "success" : "light");
+      onStatusChange(workout.id, status);
+      onClose();
+    } catch {
+      haptic("warning");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet open onClose={onClose}>
+      <div className="flex flex-col gap-4 pb-2">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-1.5 shrink-0 rounded-full" style={{ backgroundImage: color.grad }} />
+          <div className="min-w-0">
+            <p className="truncate text-base font-bold text-text-1">{workout.title}</p>
+            <p className="mt-0.5 text-xs text-text-3">
+              {dateStr}
+              {workout.targetKm ? ` · ${displayDistance(workout.targetKm)} ${distanceUnitLabel()}` : ""}
+              {workout.targetDurationMinutes ? ` · ~${workout.targetDurationMinutes}m` : ""}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Button onClick={() => { onClose(); router.push(`/workout/${workout.id}`); }}>
+            View workout
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={busy || (!done && false)}
+            onClick={() => setStatus(done ? "planned" : "completed")}
+          >
+            {done ? "Mark as not done" : "Mark as complete"}
+          </Button>
+          {!done && (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => setStatus("skipped")}
+            >
+              Skip workout
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            onClick={() => { onClose(); router.push("/plan/rearrange"); }}
+          >
+            Move in training calendar
           </Button>
         </div>
       </div>
