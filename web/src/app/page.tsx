@@ -504,7 +504,7 @@ const typeLabel: Record<string, string> = {
   race: "Race",
 };
 
-function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: string }) {
+function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWorkout; planId?: string; onStatusChange?: (id: string, status: string) => void }) {
   const router = useRouter();
   void router;
   const [localStatus, setLocalStatus] = useState<string | null>(null);
@@ -527,6 +527,7 @@ function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: s
           body: JSON.stringify({ status: "planned" }),
         });
         if (!res.ok) throw new Error();
+        onStatusChange?.(workout.id, "planned");
       } catch {
         setLocalStatus("completed");
         haptic("warning");
@@ -545,6 +546,7 @@ function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: s
         body: "{}",
       });
       if (!res.ok) throw new Error();
+      onStatusChange?.(workout.id, "completed");
     } catch {
       setLocalStatus(null);
       haptic("warning");
@@ -937,7 +939,7 @@ const STRENGTH_TYPE_COLORS: Record<string, string> = {
 };
 
 // The selected day's Kraft session, shown alongside the run.
-function StrengthTodayCard({ initial }: { initial: StrengthSessionLite }) {
+function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessionLite; onStatusChange?: (id: string, status: string) => void }) {
   const router = useRouter();
   const [session, setSession] = useState<StrengthSessionLite | null>(initial);
   const [completing, setCompleting] = useState(false);
@@ -958,6 +960,7 @@ function StrengthTodayCard({ initial }: { initial: StrengthSessionLite }) {
         body: JSON.stringify({ status: next }),
       });
       if (!res.ok) throw new Error();
+      onStatusChange?.(session.id, next);
     } catch {
       setSession((s) => (s ? { ...s, status: prev } : s));
       haptic("warning");
@@ -1181,7 +1184,7 @@ export default function Home() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const weather = useWeather(selectedDate);
 
-  const applyToday = useCallback((json: TodayApiResponse) => {
+  const applyToday = useCallback((json: TodayApiResponse, opts?: { keepSelection?: boolean }) => {
     setData(json);
     if (json.activePlan && json.weekWorkouts && json.weekWorkouts.length > 0) {
       // Use the first workout's date to determine which week to show
@@ -1190,7 +1193,13 @@ export default function Home() {
       const monday = getMondayOfWeek(firstWorkoutDate);
       setDays(buildWeekDaysForDate(monday, json.weekWorkouts));
 
-      if (json.todayWorkout) {
+      if (opts?.keepSelection) {
+        // Background refresh: update the selected workout's data in place
+        // without yanking the user back to today.
+        setSelectedWorkout((prev) =>
+          prev ? json.weekWorkouts!.find((w) => w.id === prev.id) ?? prev : prev
+        );
+      } else if (json.todayWorkout) {
         setSelectedWorkout(json.todayWorkout);
         setSelectedDate(new Date(json.todayWorkout.date));
       } else {
@@ -1211,7 +1220,7 @@ export default function Home() {
       const res = await apiFetch("/api/today");
       if (!res.ok) throw new Error("Failed");
       const json: TodayApiResponse = await res.json();
-      applyToday(json);
+      applyToday(json, { keepSelection: opts?.silent });
       writeCache("today", json);
 
       if (json.activePlan && json.planId) {
@@ -1231,6 +1240,63 @@ export default function Home() {
       setLoading(false);
     }
   }, [applyToday]);
+
+  // Optimistic status change: update stats/data instantly so Insights and the
+  // week overview react before the server round-trip completes.
+  const applyWorkoutStatus = useCallback((id: string, status: string) => {
+    const flip = <T extends { id: string; status: string }>(w: T): T =>
+      w.id === id ? { ...w, status } : w;
+    setAllWorkouts((prev) => prev.map(flip));
+    setSelectedWorkout((prev) => (prev && prev.id === id ? { ...prev, status } : prev));
+    setData((prev) => {
+      if (!prev) return prev;
+      const week = prev.weekWorkouts?.map(flip);
+      let stats = prev.stats;
+      if (week && stats) {
+        const nonRest = week.filter((w) => w.type !== "rest");
+        const done = nonRest.filter((w) => w.status === "completed");
+        stats = {
+          ...stats,
+          completedKm: Math.round(done.reduce((sum, w) => sum + (w.targetKm ?? 0), 0) * 10) / 10,
+          daysCompleted: done.length,
+        };
+      }
+      return {
+        ...prev,
+        todayWorkout: prev.todayWorkout ? flip(prev.todayWorkout) : prev.todayWorkout,
+        weekWorkouts: week,
+        stats,
+      };
+    });
+    loadData({ silent: true });
+  }, [loadData]);
+
+  const applyStrengthStatus = useCallback((id: string, status: string) => {
+    setWeekStrength((prev) => {
+      const next = prev.map((sess) => (sess.id === id ? { ...sess, status } : sess));
+      const map: Record<string, string> = {};
+      for (const sess of next) map[new Date(sess.date).toDateString()] = sess.status;
+      setStrengthDays(map);
+      return next;
+    });
+  }, []);
+
+  // Live updates: refetch silently when the app regains focus and on a slow
+  // interval while visible — webhook-synced Strava activities appear without
+  // a manual reload.
+  useEffect(() => {
+    function refresh() {
+      if (document.visibilityState === "visible") loadData({ silent: true });
+    }
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    const interval = setInterval(refresh, 60_000);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      clearInterval(interval);
+    };
+  }, [loadData]);
 
   // Instant open: paint from the last snapshot, then refresh silently.
   // Hydration happens post-mount so the first client render still matches the
@@ -1284,21 +1350,7 @@ export default function Home() {
       const res = await apiFetch(`/api/workouts/${wo.id}/complete`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
       if (res.ok) {
         haptic("success");
-        // Optimistic: flip status in place, refresh in the background (no skeleton flash)
-        const flip = <T extends { id: string; status: string }>(w: T) =>
-          w.id === wo.id ? { ...w, status: "completed" } : w;
-        setSelectedWorkout((prev) => (prev && prev.id === wo.id ? { ...prev, status: "completed" } : prev));
-        setAllWorkouts((prev) => prev.map(flip));
-        setData((prev) =>
-          prev
-            ? {
-                ...prev,
-                todayWorkout: prev.todayWorkout ? flip(prev.todayWorkout) : prev.todayWorkout,
-                weekWorkouts: prev.weekWorkouts?.map(flip),
-              }
-            : prev
-        );
-        loadData({ silent: true });
+        applyWorkoutStatus(wo.id, "completed");
       } else {
         haptic("warning");
         setCompleteError(true);
@@ -1412,14 +1464,14 @@ export default function Home() {
           {isRestDay && !strengthDays[(selectedDate ?? new Date()).toDateString()] ? (
             <RestDayCard />
           ) : (
-            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} />
+            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} onStatusChange={applyWorkoutStatus} />
           )}
           {(() => {
             const shownKey = (selectedDate ?? new Date()).toDateString();
             const sess = weekStrength.find(
               (x) => new Date(x.date).toDateString() === shownKey
             );
-            return sess ? <StrengthTodayCard key={sess.id} initial={sess} /> : null;
+            return sess ? <StrengthTodayCard key={sess.id} initial={sess} onStatusChange={applyStrengthStatus} /> : null;
           })()}
         </div>
 
