@@ -31,6 +31,8 @@ export async function GET(
       .select({
         sessionId: strengthSessions.id,
         date: strengthSessions.date,
+        sessionType: strengthSessions.type,
+        sessionTitle: strengthSessions.title,
         setNumber: strengthSets.setNumber,
         weightKg: strengthSets.weightKg,
         reps: strengthSets.reps,
@@ -71,6 +73,32 @@ export async function GET(
       (a, b) => a.date.getTime() - b.date.getTime()
     );
 
+    // Full per-session detail (sets in order) for the exercise detail view.
+    const sessionsById = new Map<
+      string,
+      {
+        sessionId: string;
+        date: Date;
+        type: string;
+        title: string;
+        sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null }>;
+      }
+    >();
+    for (const r of rows) {
+      const cur = sessionsById.get(r.sessionId) ?? {
+        sessionId: r.sessionId,
+        date: new Date(r.date),
+        type: r.sessionType,
+        title: r.sessionTitle,
+        sets: [],
+      };
+      cur.sets.push({ setNumber: r.setNumber, weightKg: r.weightKg, reps: r.reps });
+      sessionsById.set(r.sessionId, cur);
+    }
+    const sessions = [...sessionsById.values()].sort(
+      (a, b) => a.date.getTime() - b.date.getTime()
+    );
+
     let pain: Array<{ date: Date; score: number }> = [];
     if (exercise.category === "achilles") {
       const pl = await db
@@ -80,7 +108,7 @@ export async function GET(
       pain = pl.map((p) => ({ date: p.date, score: p.score }));
     }
 
-    return Response.json({ exercise, points, pain });
+    return Response.json({ exercise, points, sessions, pain });
   } catch (err) {
     console.error("DB error fetching exercise history:", err);
     return Response.json({ error: "Failed to fetch history" }, { status: 500 });
