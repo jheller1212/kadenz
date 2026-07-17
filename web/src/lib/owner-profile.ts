@@ -1,8 +1,7 @@
-/** Owner profile (name, email, avatar photo) stored in localStorage. */
+/** Owner profile (name, avatar photo) stored in localStorage. */
 
 export interface OwnerProfile {
   name: string;
-  email: string;
 }
 
 const PROFILE_KEY = "kadenz_owner_profile";
@@ -12,17 +11,16 @@ const AVATAR_KEY = "kadenz_owner_avatar";
 export const PROFILE_CHANGED_EVENT = "kadenz:profile-changed";
 
 export function loadOwnerProfile(): OwnerProfile {
-  if (typeof window === "undefined") return { name: "", email: "" };
+  if (typeof window === "undefined") return { name: "" };
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
-    if (!raw) return { name: "", email: "" };
+    if (!raw) return { name: "" };
     const parsed = JSON.parse(raw);
     return {
       name: typeof parsed.name === "string" ? parsed.name : "",
-      email: typeof parsed.email === "string" ? parsed.email : "",
     };
   } catch {
-    return { name: "", email: "" };
+    return { name: "" };
   }
 }
 
