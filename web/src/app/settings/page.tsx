@@ -68,7 +68,6 @@ function EditProfileSheet({
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -77,7 +76,6 @@ function EditProfileSheet({
     const p = loadOwnerProfile();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- sync from localStorage on open
     setName(p.name);
-    setEmail(p.email);
     setPhoto(loadOwnerAvatar());
   }, [open]);
 
@@ -94,7 +92,7 @@ function EditProfileSheet({
   }
 
   function save() {
-    saveOwnerProfile({ name: name.trim(), email: email.trim() });
+    saveOwnerProfile({ name: name.trim() });
     haptic("success");
     onClose();
   }
@@ -144,17 +142,6 @@ function EditProfileSheet({
             className={inputClass}
           />
         </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-semibold text-text-2">Email</span>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            className={inputClass}
-          />
-        </label>
 
         <Button onClick={save}>Save</Button>
       </div>
@@ -178,7 +165,7 @@ const PREFERENCE_ROWS = [
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [profile, setProfile] = useState<{ name: string; email: string } | null>(null);
+  const [profile, setProfile] = useState<{ name: string } | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -247,9 +234,6 @@ export default function SettingsPage() {
           <h2 className="mt-3 text-[22px] font-extrabold tracking-tight text-text-1">
             {displayName}
           </h2>
-          {profile?.email?.trim() && (
-            <p className="mt-0.5 text-[13px] text-text-3">{profile.email.trim()}</p>
-          )}
           <button
             type="button"
             onClick={() => {
