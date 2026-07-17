@@ -7,7 +7,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { WheelPicker } from "@/components/ui/WheelPicker";
 import { haptic } from "@/lib/haptics";
 import { loadSettings, saveSettings } from "@/lib/settings";
-import { estimateMaxHr } from "@/lib/plan-engine/hr-zones";
+import { estimateMaxHr, getHrZones } from "@/lib/plan-engine/hr-zones";
 
 // ── Heart Rate Zones — Benchmark-style: the user adjusts each zone's upper bound
 // directly; age only seeds the defaults. ─────────────────────────────────────
@@ -22,7 +22,12 @@ const ZONES = [
 
 const DEFAULT_PCTS = [0.75, 0.82, 0.86, 0.91];
 
-function defaultsFor(maxHr: number): number[] {
+/** Default zone upper bounds: Karvonen (HRR) when resting HR is known, else flat %-of-max. */
+function defaultsFor(maxHr: number, restingHr: number | null): number[] {
+  if (restingHr != null && restingHr > 0 && restingHr < maxHr) {
+    const z = getHrZones(restingHr, 35, maxHr);
+    return [z.z1.max, z.z2.max, z.z3.max, z.z4.max];
+  }
   return DEFAULT_PCTS.map((p) => Math.round(maxHr * p));
 }
 
@@ -30,30 +35,39 @@ export default function HrZonesPage() {
   const router = useRouter();
   const [birthYear, setBirthYear] = useState<number | null>(null);
   const [maxHr, setMaxHr] = useState(185);
-  const [bounds, setBounds] = useState<number[]>(defaultsFor(185));
+  const [restingHr, setRestingHr] = useState<number | null>(null);
+  const [bounds, setBounds] = useState<number[]>(defaultsFor(185, null));
+  const [customBounds, setCustomBounds] = useState(false); // user-adjusted zone bounds
   const [dirty, setDirty] = useState(false);
-  const [adjusting, setAdjusting] = useState<number | null>(null); // 0-3 = zone bound, 4 = max
+  const [adjusting, setAdjusting] = useState<number | null>(null); // 0-3 = zone bound, 4 = max, 5 = resting
   const [draft, setDraft] = useState(0);
 
   useEffect(() => {
     const s = loadSettings();
     const age = s.birthYear ? new Date().getFullYear() - s.birthYear : 35;
     const max = s.maxHrOverride ?? estimateMaxHr(age);
+    const custom = !!(s.hrZoneBounds && s.hrZoneBounds.length === 4);
     setBirthYear(s.birthYear ?? null);
     setMaxHr(max);
-    setBounds(s.hrZoneBounds && s.hrZoneBounds.length === 4 ? s.hrZoneBounds : defaultsFor(max));
+    setRestingHr(s.restingHr ?? null);
+    setCustomBounds(custom);
+    setBounds(custom ? s.hrZoneBounds! : defaultsFor(max, s.restingHr ?? null));
   }, []);
 
   function openAdjust(idx: number) {
     haptic("light");
     setAdjusting(idx);
-    setDraft(idx === 4 ? maxHr : bounds[idx]);
+    setDraft(idx === 5 ? restingHr ?? 60 : idx === 4 ? maxHr : bounds[idx]);
   }
 
   function applyDraft() {
     if (adjusting == null) return;
     haptic("medium");
-    if (adjusting === 4) {
+    if (adjusting === 5) {
+      const next = Math.max(35, Math.min(90, draft));
+      setRestingHr(next);
+      if (!customBounds) setBounds(defaultsFor(maxHr, next));
+    } else if (adjusting === 4) {
       const next = Math.max(bounds[3] + 1, Math.min(230, draft));
       setMaxHr(next);
     } else {
@@ -62,6 +76,7 @@ export default function HrZonesPage() {
       const next = [...bounds];
       next[adjusting] = Math.max(lo, Math.min(hi, draft));
       setBounds(next);
+      setCustomBounds(true);
     }
     setDirty(true);
     setAdjusting(null);
@@ -69,7 +84,13 @@ export default function HrZonesPage() {
 
   function save() {
     haptic("success");
-    saveSettings({ ...loadSettings(), hrZoneBounds: bounds, maxHrOverride: maxHr });
+    const s = loadSettings();
+    saveSettings({
+      ...s,
+      hrZoneBounds: customBounds ? bounds : s.hrZoneBounds,
+      maxHrOverride: maxHr,
+      restingHr,
+    });
     setDirty(false);
     router.push("/settings");
   }
@@ -79,7 +100,8 @@ export default function HrZonesPage() {
     const age = birthYear ? new Date().getFullYear() - birthYear : 35;
     const max = estimateMaxHr(age);
     setMaxHr(max);
-    setBounds(defaultsFor(max));
+    setBounds(defaultsFor(max, restingHr));
+    setCustomBounds(false);
     saveSettings({ ...loadSettings(), hrZoneBounds: null, maxHrOverride: null });
     setDirty(false);
   }
@@ -93,7 +115,7 @@ export default function HrZonesPage() {
     if (!s.hrZoneBounds && !s.maxHrOverride && valid) {
       const max = estimateMaxHr(new Date().getFullYear() - year);
       setMaxHr(max);
-      setBounds(defaultsFor(max));
+      setBounds(defaultsFor(max, s.restingHr ?? null));
     }
   }
 
@@ -120,8 +142,10 @@ export default function HrZonesPage() {
       <div className="px-4">
         <p className="mt-2 text-[14px] leading-relaxed text-text-2">
           Heart rate zones indicate how much training load a run puts on your
-          body. By default they're estimated from your age — adjust any
-          boundary to match what you know from testing or your watch.
+          body. By default they're estimated from your age — set your resting
+          HR to refine the defaults with the heart-rate reserve (Karvonen)
+          method, or adjust any boundary to match what you know from testing
+          or your watch.
         </p>
 
         <div className="mt-4 k-card p-4">
@@ -163,6 +187,20 @@ export default function HrZonesPage() {
 
         <div className="mt-6 flex items-center justify-between k-card p-4">
           <div>
+            <p className="text-[14px] font-semibold text-text-1">Resting HR</p>
+            <p className="text-[12px] text-text-3">When set, default zones use heart-rate reserve</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => openAdjust(5)}
+            className="press rounded-full bg-elevated px-3.5 py-1.5 text-[15px] font-bold tabular-nums text-text-1"
+          >
+            {restingHr != null ? `${restingHr} bpm` : "—"}
+          </button>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between k-card p-4">
+          <div>
             <p className="text-[14px] font-semibold text-text-1">Birth year</p>
             <p className="text-[12px] text-text-3">Seeds the age-based defaults</p>
           </div>
@@ -188,7 +226,11 @@ export default function HrZonesPage() {
               Cancel
             </button>
             <p className="text-[17px] font-bold text-text-1">
-              {adjusting === 4 ? "Adjust Max HR" : `Adjust Zone ${(adjusting ?? 0) + 1}`}
+              {adjusting === 5
+                ? "Adjust Resting HR"
+                : adjusting === 4
+                  ? "Adjust Max HR"
+                  : `Adjust Zone ${(adjusting ?? 0) + 1}`}
             </p>
             <button
               type="button"
@@ -198,7 +240,13 @@ export default function HrZonesPage() {
               Done
             </button>
           </div>
-          <WheelPicker min={60} max={230} value={draft} onChange={setDraft} unit="bpm" />
+          <WheelPicker
+            min={adjusting === 5 ? 35 : 60}
+            max={adjusting === 5 ? 90 : 230}
+            value={draft}
+            onChange={setDraft}
+            unit="bpm"
+          />
         </div>
       </Sheet>
     </main>
