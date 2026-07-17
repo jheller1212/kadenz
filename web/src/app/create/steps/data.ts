@@ -45,6 +45,10 @@ export interface PopularRace {
 }
 
 export const POPULAR_RACES: PopularRace[] = [
+  // Dates verified against official race sources 2026-07-17. London 2027 is a
+  // one-off two-day edition (24-25 Apr); we list the Sunday mass day.
+  // Copenhagen's 2026 half is the World Athletics Road Running Championships
+  // (CPH Half proper skips 2026).
   { id: "berlin-2026", name: "Berlin Marathon", location: "Berlin, Germany", date: "2026-09-27", distance: "marathon" },
   { id: "chicago-2026", name: "Chicago Marathon", location: "Chicago, USA", date: "2026-10-11", distance: "marathon" },
   { id: "amsterdam-2026", name: "Amsterdam Marathon", location: "Amsterdam, Netherlands", date: "2026-10-18", distance: "marathon" },
@@ -53,7 +57,7 @@ export const POPULAR_RACES: PopularRace[] = [
   { id: "tokyo-2027", name: "Tokyo Marathon", location: "Tokyo, Japan", date: "2027-03-07", distance: "marathon" },
   { id: "boston-2027", name: "Boston Marathon", location: "Boston, USA", date: "2027-04-19", distance: "marathon" },
   { id: "london-2027", name: "London Marathon", location: "London, UK", date: "2027-04-25", distance: "marathon" },
-  { id: "copenhagen-half-2026", name: "Copenhagen Half Marathon", location: "Copenhagen, Denmark", date: "2026-09-20", distance: "half" },
+  { id: "copenhagen-half-2026", name: "Copenhagen Half (WRRC 26)", location: "Copenhagen, Denmark", date: "2026-09-20", distance: "half" },
   { id: "valencia-half-2026", name: "Valencia Half Marathon", location: "Valencia, Spain", date: "2026-10-25", distance: "half" },
   { id: "egmond-half-2027", name: "Egmond Half Marathon", location: "Egmond aan Zee, Netherlands", date: "2027-01-10", distance: "half" },
   { id: "cpc-half-2027", name: "CPC Loop Den Haag", location: "The Hague, Netherlands", date: "2027-03-14", distance: "half" },
