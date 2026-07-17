@@ -1,4 +1,4 @@
-import { db, syncOutbox, activities, workouts, plans, strengthSessions } from "@/db";
+import { db, syncOutbox, activities, workouts, plans, strengthSessions, deletedActivities } from "@/db";
 import { eq, and, gte, lte, ne, isNull, inArray } from "drizzle-orm";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
@@ -442,6 +442,14 @@ async function findMatchingStrengthSession(
 
 /** Process a Strava activity: store it and match to a workout/session. */
 export async function processActivity(activityId: number): Promise<void> {
+  // Never resurrect an activity the user deleted in Kadenz.
+  const [tombstone] = await db
+    .select({ stravaId: deletedActivities.stravaId })
+    .from(deletedActivities)
+    .where(eq(deletedActivities.stravaId, String(activityId)))
+    .limit(1);
+  if (tombstone) return;
+
   // Skip if already processed
   const [existing] = await db
     .select({ id: activities.id })

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { db, activities, workouts, blocks, strengthSessions } from "@/db";
+import { db, activities, workouts, blocks, strengthSessions, deletedActivities } from "@/db";
 import { eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
 
@@ -397,6 +397,12 @@ export async function DELETE(
         .update(strengthSessions)
         .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
         .where(eq(strengthSessions.id, activity.strengthSessionId));
+    }
+    if (activity.stravaId) {
+      await db
+        .insert(deletedActivities)
+        .values({ stravaId: activity.stravaId })
+        .onConflictDoNothing();
     }
     await db.delete(activities).where(eq(activities.id, id));
     return Response.json({ ok: true });

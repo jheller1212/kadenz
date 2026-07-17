@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { inArray } from "drizzle-orm";
-import { db, activities } from "@/db";
+import { db, activities, deletedActivities } from "@/db";
 import {
   getAccessToken,
   processActivity,
@@ -90,6 +90,14 @@ export async function POST(request: NextRequest) {
         .where(inArray(activities.stravaId, fetchedIds))
     : [];
   const known = new Set(existing.map((e) => e.stravaId));
+  // Tombstoned (user-deleted) activities are treated as already handled.
+  const tombstones = fetchedIds.length
+    ? await db
+        .select({ stravaId: deletedActivities.stravaId })
+        .from(deletedActivities)
+        .where(inArray(deletedActivities.stravaId, fetchedIds))
+    : [];
+  for (const t of tombstones) known.add(t.stravaId);
 
   let inserted = 0;
   let alreadySynced = 0;
