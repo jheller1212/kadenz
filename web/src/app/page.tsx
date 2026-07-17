@@ -27,7 +27,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
-import { displayTemp } from "@/lib/units";
+import { displayTemp, displayDistance, distanceUnitLabel } from "@/lib/units";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
@@ -594,7 +594,7 @@ function WorkoutCard({ workout, planId }: { workout: TodayApiWorkout; planId?: s
             {workout.targetKm != null && (
               <>
                 <span>·</span>
-                <span className="font-semibold">{workout.targetKm}km</span>
+                <span className="font-semibold">{displayDistance(workout.targetKm)}{distanceUnitLabel()}</span>
               </>
             )}
           </div>
@@ -655,7 +655,7 @@ function WeekOverviewCard({
 
       <div className="mt-2.5 flex items-center justify-between text-xs text-text-3">
         <span>Workouts: <span className="font-semibold text-text-1">{done}/{segments.length}</span></span>
-        <span>Distance: <span className="font-semibold text-text-1">{stats.completedKm}/{stats.plannedKm}KM</span></span>
+        <span>Distance: <span className="font-semibold text-text-1">{displayDistance(stats.completedKm)}/{displayDistance(stats.plannedKm)}{distanceUnitLabel().toUpperCase()}</span></span>
       </div>
     </TransitionLink>
   );
@@ -890,10 +890,10 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                 strokeDasharray={`${circPct * 251} 251`} strokeLinecap="round"
                 transform="rotate(-90 50 50)" />
               <text x="50" y="47" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-1)" fontSize="16" fontWeight="800">
-                {stats.completedKm}/{stats.plannedKm}
+                {displayDistance(stats.completedKm)}/{displayDistance(stats.plannedKm)}
               </text>
               <text x="50" y="62" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-3)" fontSize="10">
-                km
+                {distanceUnitLabel()}
               </text>
             </svg>
             <div className="min-w-0 flex-1">

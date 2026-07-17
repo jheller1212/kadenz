@@ -40,6 +40,7 @@ import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { predictRaceTime, RACE_DISTANCES_M } from "@/lib/plan-engine/vdot";
 import { apiFetch } from "@/lib/api";
+import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import { haptic } from "@/lib/haptics";
 import type {
   GeneratedPlan,
@@ -311,7 +312,7 @@ function RunCard({
         </span>
         {(workout.targetKm != null || workout.targetDurationMinutes != null) && (
           <span className="mt-0.5 flex items-center gap-1 text-[12px] text-text-3 tabular-nums">
-            {workout.targetKm != null && <span>{workout.targetKm} km</span>}
+            {workout.targetKm != null && <span>{displayDistance(workout.targetKm)} {distanceUnitLabel()}</span>}
             {workout.targetKm == null && workout.targetDurationMinutes != null && (
               <>
                 <Clock className="h-3 w-3 shrink-0" strokeWidth={2} />
@@ -533,7 +534,7 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
         {[
           { label: "Weeks", value: String(plan.planLengthWeeks) },
-          { label: "Total km", value: String(Math.round(totalKm)) },
+          { label: `Total ${distanceUnitLabel()}`, value: String(displayDistance(totalKm, 0)) },
           { label: "Days/wk", value: String(plan.daysPerWeek) },
         ].map(({ label, value }) => (
           <div
@@ -570,7 +571,7 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
                 backgroundColor: color,
                 opacity: 0.65,
               }}
-              title={`Week ${week.weekNumber}: ${week.targetKm} km`}
+              title={`Week ${week.weekNumber}: ${displayDistance(week.targetKm)} ${distanceUnitLabel()}`}
             />
           );
         })}
@@ -1165,7 +1166,7 @@ function PlanPageInner() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-[12px] text-text-3 tabular-nums">
-                    Total: {week.targetKm} km
+                    Total: {displayDistance(week.targetKm)} {distanceUnitLabel()}
                   </p>
                 </header>
 
@@ -1214,7 +1215,7 @@ function PlanPageInner() {
                   </p>
                   {activeDrag.workout.targetKm != null && (
                     <p className="mt-0.5 text-[12px] text-text-3 tabular-nums">
-                      {activeDrag.workout.targetKm} km
+                      {displayDistance(activeDrag.workout.targetKm)} {distanceUnitLabel()}
                     </p>
                   )}
                 </div>

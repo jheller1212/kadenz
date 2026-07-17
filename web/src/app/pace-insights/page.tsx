@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
+import { displayDistance, distanceUnitLabel, formatDistance } from "@/lib/units";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 
@@ -717,7 +718,7 @@ export default function PaceInsightsPage() {
                 {workoutTypeLabel[data.nextSpeedWorkout.type] ?? data.nextSpeedWorkout.type}
               </span>
               <span className="text-text-3">·</span>
-              <span className="text-[13px] text-text-2">{data.nextSpeedWorkout.targetKm}km</span>
+              <span className="text-[13px] text-text-2">{displayDistance(data.nextSpeedWorkout.targetKm)}{distanceUnitLabel()}</span>
             </div>
           </div>
         )}
@@ -798,7 +799,7 @@ export default function PaceInsightsPage() {
               </p>
               <ExpandableSection title="Incompatible runs">
                 <p className="text-[13px] text-text-2 leading-relaxed">
-                  Runs with GPS signal issues, incomplete recordings, or distances under 10km are excluded from the long run pace chart to keep the data reliable.
+                  Runs with GPS signal issues, incomplete recordings, or distances under {formatDistance(10)} are excluded from the long run pace chart to keep the data reliable.
                 </p>
               </ExpandableSection>
             </div>

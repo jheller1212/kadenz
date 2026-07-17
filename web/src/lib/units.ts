@@ -19,6 +19,35 @@ export function displayWeight(kg: number, unit?: "kg" | "lbs"): number {
   return u === "lbs" ? Math.round(kg * 2.20462 * 2) / 2 : kg;
 }
 
+const KM_PER_MILE = 1.60934;
+
+/** Convert a stored-km distance to the display unit (km or miles). Storage stays km. */
+export function displayDistance(km: number, digits = 1, unit?: "km" | "miles"): number {
+  const u = unit ?? loadSettings().units;
+  const value = u === "miles" ? km / KM_PER_MILE : km;
+  const factor = Math.pow(10, digits);
+  return Math.round(value * factor) / factor;
+}
+
+export function distanceUnitLabel(unit?: "km" | "miles"): "km" | "mi" {
+  return (unit ?? loadSettings().units) === "miles" ? "mi" : "km";
+}
+
+export function formatDistance(km: number, digits = 1, unit?: "km" | "miles"): string {
+  const u = unit ?? loadSettings().units;
+  return `${displayDistance(km, digits, u)} ${distanceUnitLabel(u)}`;
+}
+
+/** Convert a stored sec/km pace to seconds per displayed unit (sec/mi when miles). */
+export function displayPace(secPerKm: number, unit?: "km" | "miles"): number {
+  const u = unit ?? loadSettings().units;
+  return u === "miles" ? secPerKm * KM_PER_MILE : secPerKm;
+}
+
+export function paceUnitLabel(unit?: "km" | "miles"): "/km" | "/mi" {
+  return (unit ?? loadSettings().units) === "miles" ? "/mi" : "/km";
+}
+
 export function displayTemp(celsius: number, unit?: "celsius" | "fahrenheit"): number {
   const u = unit ?? loadSettings().tempUnit;
   return u === "fahrenheit" ? Math.round(celsius * 1.8 + 32) : Math.round(celsius);

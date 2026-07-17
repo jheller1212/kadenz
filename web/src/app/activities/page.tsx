@@ -12,6 +12,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
+import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
@@ -177,7 +178,7 @@ function computeWeeklyBars(workouts: ActivityWorkout[], weekStart: Date): WeekBa
       .reduce((sum, wo) => sum + (wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0), 0);
 
     const label = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    bars.push({ label, km: Math.round(km * 10) / 10, startDate: start });
+    bars.push({ label, km: displayDistance(km), startDate: start });
   }
   return bars;
 }
@@ -298,7 +299,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
           {distKm != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Distance</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{distKm.toFixed(2)} km</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{displayDistance(distKm, 2).toFixed(2)} {distanceUnitLabel()}</p>
             </div>
           )}
           {durationDisplay != null && (
@@ -310,7 +311,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
           {avgPaceSecKm != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Avg pace</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(avgPaceSecKm)} /km</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(displayPace(avgPaceSecKm))} {paceUnitLabel()}</p>
             </div>
           )}
           {workout.activity?.avgHr != null && (
@@ -374,7 +375,7 @@ function MonthSection({ group }: { group: MonthGroup }) {
           </p>
         </div>
         <p className="pt-0.5 text-[15px] font-bold tabular-nums text-text-2">
-          {Math.round(group.totalKm * 10) / 10} km
+          {displayDistance(group.totalKm)} {distanceUnitLabel()}
         </p>
       </div>
 
@@ -499,7 +500,7 @@ function WeeklyBarChart({ bars }: { bars: WeekBar[] }) {
                   backgroundColor: isCurrent ? "var(--k-accent)" : "var(--k-elevated)",
                   minHeight: bar.km > 0 ? 6 : 2,
                 }}
-                title={`${bar.label}: ${bar.km} km`}
+                title={`${bar.label}: ${bar.km} ${distanceUnitLabel()}`}
               />
             </div>
           );
@@ -863,7 +864,7 @@ function LinkActivitySheet({
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: WORKOUT_COLORS[w.type] ?? "#60A5FA" }} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[14px] font-semibold text-text-1">{w.title}</span>
-                        <span className="block text-[12px] text-text-3">{fmtDay(w.date)}{w.targetKm ? ` · ${w.targetKm} km` : ""}</span>
+                        <span className="block text-[12px] text-text-3">{fmtDay(w.date)}{w.targetKm ? ` · ${displayDistance(w.targetKm)} ${distanceUnitLabel()}` : ""}</span>
                       </span>
                     </button>
                   ))}
