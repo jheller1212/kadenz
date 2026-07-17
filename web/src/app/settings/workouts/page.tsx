@@ -45,6 +45,16 @@ export default function WorkoutSettingsPage() {
               />
             }
           />
+          <Row
+            title="Pace Targets on Long Run"
+            accessory={
+              <Switch
+                checked={settings.paceTargetsLongRuns}
+                onChange={(v) => update({ paceTargetsLongRuns: v })}
+                aria-label="Pace targets on long runs"
+              />
+            }
+          />
         </ListGroup>
       )}
     </SettingsSubpage>

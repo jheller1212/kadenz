@@ -14,7 +14,7 @@ const PlanConfigSchema = z.object({
   goalTimeSeconds: z.number().int().positive(),
   startDate: z.string().datetime(),
   raceDate: z.string().datetime(),
-  daysPerWeek: z.number().int().min(3).max(6),
+  daysPerWeek: z.number().int().min(2).max(6),
   trainingVolume: z.enum(["beginner", "low", "medium", "high", "elite"]),
   trainingDifficulty: z.enum(["easy", "moderate", "hard"]),
   preferredLongRunDay: z.number().int().min(0).max(6),
@@ -23,6 +23,8 @@ const PlanConfigSchema = z.object({
   currentWeeklyKm: z.number().nonnegative(),
   longRunCapKm: z.number().nonnegative(),
   easyRunMinKm: z.number().nonnegative().default(0),
+  runnerLevel: z.enum(["beginner", "intermediate", "advanced", "elite"]).nullish(),
+  availableDays: z.array(z.number().int().min(0).max(6)).min(2).max(7).nullish(),
 });
 
 // ── POST /api/plans ───────────────────────────────────────────────────────────
@@ -92,6 +94,8 @@ export async function POST(request: NextRequest) {
         longRunCapKm: generatedPlan.longRunCapKm,
         easyRunMinKm: generatedPlan.easyRunMinKm,
         hillyArea: generatedPlan.hillyArea,
+        runnerLevel: generatedPlan.runnerLevel ?? null,
+        availableDays: generatedPlan.availableDays ?? null,
         status: "active",
       })
       .returning();

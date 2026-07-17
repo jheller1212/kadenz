@@ -55,10 +55,15 @@ const fiveKConfig: PlanConfig = {
 // ── Validation ────────────────────────────────────────────────────────────────
 
 describe("generatePlan — input validation", () => {
-  it("throws when daysPerWeek < 3", () => {
+  it("throws when daysPerWeek < 2", () => {
     expect(() =>
-      generatePlan({ ...marathonConfig, daysPerWeek: 2 })
+      generatePlan({ ...marathonConfig, daysPerWeek: 1 })
     ).toThrow("daysPerWeek");
+  });
+
+  it("accepts daysPerWeek of 2 (Benchmark-style onboarding minimum)", () => {
+    const plan = generatePlan({ ...marathonConfig, daysPerWeek: 2 });
+    expect(plan.daysPerWeek).toBe(2);
   });
 
   it("throws when daysPerWeek > 6", () => {
@@ -587,6 +592,92 @@ describe("generatePlan — preferred long run day", () => {
       if (longRun) {
         expect(longRun.dayOfWeek).toBe(3);
       }
+    }
+  });
+});
+
+// ── Explicit available days ──────────────────────────────────────────────────
+
+describe("generatePlan — availableDays", () => {
+  const chosenDays = [2, 4, 6, 0]; // Tue, Thu, Sat, Sun
+  const configWithDays: PlanConfig = {
+    ...marathonConfig,
+    daysPerWeek: 4,
+    preferredLongRunDay: 0, // Sunday — in the set
+    availableDays: chosenDays,
+  };
+
+  it("schedules runs ONLY on the chosen days (non-race weeks)", () => {
+    const plan = generatePlan(configWithDays);
+    const allowed = new Set(chosenDays);
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue; // race day may override
+      for (const workout of week.workouts) {
+        if (workout.type === "rest") continue;
+        expect(allowed.has(workout.dayOfWeek)).toBe(true);
+      }
+    }
+  });
+
+  it("places the long run on the preferred day when it is in the set", () => {
+    const plan = generatePlan(configWithDays);
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue;
+      const longRun = week.workouts.find((w) => w.type === "long");
+      expect(longRun?.dayOfWeek).toBe(0);
+    }
+  });
+
+  it("falls back to the latest available day when preferred long-run day is not in the set", () => {
+    const plan = generatePlan({
+      ...configWithDays,
+      preferredLongRunDay: 1, // Monday — NOT in [Tue, Thu, Sat, Sun]
+    });
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue;
+      const longRun = week.workouts.find((w) => w.type === "long");
+      // Latest Mon-first day of the set is Sunday (0)
+      expect(longRun?.dayOfWeek).toBe(0);
+    }
+  });
+
+  it("still generates 7 workout slots per week (rest days fill the gaps)", () => {
+    const plan = generatePlan(configWithDays);
+    for (const week of plan.weeks) {
+      expect(week.workouts).toHaveLength(7);
+    }
+  });
+
+  it("keeps legacy derived-pattern behavior when availableDays is absent", () => {
+    const withoutDays = generatePlan(marathonConfig);
+    const withNull = generatePlan({ ...marathonConfig, availableDays: null });
+    const daysA = withoutDays.weeks[2].workouts.filter((w) => w.type !== "rest").map((w) => w.dayOfWeek);
+    const daysB = withNull.weeks[2].workouts.filter((w) => w.type !== "rest").map((w) => w.dayOfWeek);
+    expect(daysB).toEqual(daysA);
+  });
+
+  it("echoes normalized availableDays and runnerLevel on the generated plan", () => {
+    const plan = generatePlan({ ...configWithDays, runnerLevel: "intermediate" });
+    expect(plan.availableDays).toEqual([2, 4, 6, 0]); // Monday-first order
+    expect(plan.runnerLevel).toBe("intermediate");
+  });
+
+  it("supports a 2-day week with explicit days", () => {
+    const plan = generatePlan({
+      ...marathonConfig,
+      daysPerWeek: 2,
+      preferredLongRunDay: 6,
+      availableDays: [3, 6],
+    });
+    const allowed = new Set([3, 6]);
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue;
+      for (const workout of week.workouts) {
+        if (workout.type === "rest") continue;
+        expect(allowed.has(workout.dayOfWeek)).toBe(true);
+      }
+      const longRun = week.workouts.find((w) => w.type === "long");
+      expect(longRun?.dayOfWeek).toBe(6);
     }
   });
 });

@@ -378,6 +378,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const useMiles = settings.units === "miles";
   const showPace = settings.paceTargets;
   const showEasyPace = settings.paceTargetsEasyRuns;
+  const showLongPace = settings.paceTargetsLongRuns;
   const useRpe = settings.workoutTargetMode === "rpe";
   const [workout, setWorkout] = useState<WorkoutDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -695,7 +696,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                         }
                         {(() => {
                           const isEasy = workout.type === "easy" || workout.type === "recovery";
-                          const shouldShowPace = showPace && (isEasy ? showEasyPace : true);
+                          const isLong = workout.type === "long";
+                          const shouldShowPace = showPace && (isEasy ? showEasyPace : isLong ? showLongPace : true);
                           if (useRpe && block.targetPaceSecKm) {
                             return <span className="font-normal text-text-2"> at {ZONE_RPE[block.type] ?? TYPE_RPE[workout.type] ?? "RPE 5-6"}</span>;
                           }
@@ -724,7 +726,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                       </p>
                       {(() => {
                         const isEasy = workout.type === "easy" || workout.type === "recovery";
-                        const shouldShowPace = showPace && (isEasy ? showEasyPace : true) && !useRpe;
+                        const isLong = workout.type === "long";
+                        const shouldShowPace = showPace && (isEasy ? showEasyPace : isLong ? showLongPace : true) && !useRpe;
                         if (isEasy) return null; // the cap line above says it all
                         if (!shouldShowPace || !block.minPaceSecKm || !block.maxPaceSecKm) return null;
                         const unit = paceUnitLabel(settings.units);

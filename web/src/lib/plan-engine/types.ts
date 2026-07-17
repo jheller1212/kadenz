@@ -46,6 +46,7 @@ export interface VdotResult {
 
 export type TrainingVolume = "beginner" | "low" | "medium" | "high" | "elite";
 export type TrainingDifficulty = "easy" | "moderate" | "hard";
+export type RunnerLevel = "beginner" | "intermediate" | "advanced" | "elite";
 export type RaceElevation = "flat" | "rolling" | "hilly" | "mountainous";
 export type WeekPhase = "base" | "build" | "peak" | "taper";
 export type WeekType = "normal" | "deload" | "race";
@@ -86,6 +87,15 @@ export interface PlanConfig {
   longRunCapKm: number;
   /** Minimum easy run distance (km); 0 = no minimum */
   easyRunMinKm: number;
+  /**
+   * Explicit training days (JS weekdays, 0=Sun … 6=Sat). When present, these
+   * are used verbatim as the weekly training-day set instead of the derived
+   * spacing patterns. The long run lands on preferredLongRunDay when it is in
+   * the set, otherwise on the latest (Monday-first) available day.
+   */
+  availableDays?: number[] | null;
+  /** Self-reported runner level from onboarding (informational; drives wizard defaults) */
+  runnerLevel?: RunnerLevel | null;
 }
 
 export interface GeneratedBlock {
@@ -142,5 +152,7 @@ export interface GeneratedPlan {
   longRunCapKm: number;
   easyRunMinKm: number;
   hillyArea: boolean;
+  availableDays?: number[] | null;
+  runnerLevel?: RunnerLevel | null;
   weeks: GeneratedWeek[];
 }

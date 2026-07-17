@@ -612,6 +612,7 @@ function buildRaceWorkout(
  * These patterns maximize spacing between workouts.
  */
 const DAY_PATTERNS: Record<number, number[][]> = {
+  2: [[3, 6]], // Wed, Sat — maximum recovery between the two runs
   3: [[1, 3, 6]], // Mon, Wed, Sat — 1 rest between each
   4: [[1, 3, 5, 0]], // Mon, Wed, Fri, Sun — alternating
   5: [[1, 2, 4, 5, 0]], // Mon, Tue, Thu, Fri, Sun — 2 on, 1 off pattern
@@ -876,6 +877,18 @@ function distributeVolume(
 
 // ── Week builder ─────────────────────────────────────────────────────────────
 
+/** Monday-first sort for JS weekdays (Sun=0 treated as 7). */
+function sortMondayFirst(days: number[]): number[] {
+  return [...days].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+}
+
+/** Sanitize an explicit available-days set: valid weekdays, deduped, Mon-first. */
+function normalizeAvailableDays(days: number[] | null | undefined): number[] | null {
+  if (!days || days.length === 0) return null;
+  const clean = [...new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))];
+  return clean.length >= 2 ? sortMondayFirst(clean) : null;
+}
+
 function buildWeek(
   weekNumber: number,
   weekStartDate: Date,
@@ -886,15 +899,24 @@ function buildWeek(
   paces: PaceZones,
   skipBeforeDate?: Date
 ): GeneratedWeek {
-  const trainingDays = pickTrainingDays(
-    config.daysPerWeek,
-    config.preferredLongRunDay
-  );
+  // Explicit availability wins: schedule ONLY on the user's chosen days.
+  // Otherwise keep the legacy derived spacing patterns.
+  const explicitDays = normalizeAvailableDays(config.availableDays);
+  const trainingDays =
+    explicitDays ??
+    pickTrainingDays(config.daysPerWeek, config.preferredLongRunDay);
+
+  // Long run must land on a chosen day. Fall back to the latest available day
+  // of the week (Mon-first) if the preferred day isn't in the set.
+  const longRunDay =
+    explicitDays && !explicitDays.includes(config.preferredLongRunDay)
+      ? explicitDays[explicitDays.length - 1]
+      : config.preferredLongRunDay;
 
   const qualityDays = QUALITY_DAYS[config.trainingDifficulty];
   // For race week, use the actual race date's day of week
   const raceDayOfWeek = config.raceDate.getDay(); // 0=Sun...6=Sat
-  const longOrRaceDay = type === "race" ? raceDayOfWeek : config.preferredLongRunDay;
+  const longOrRaceDay = type === "race" ? raceDayOfWeek : longRunDay;
 
   // For race week, ensure the race day is in the training days
   let effectiveTrainingDays = trainingDays;
@@ -1023,8 +1045,8 @@ function buildWeek(
  */
 export function generatePlan(config: PlanConfig): GeneratedPlan {
   // Validate inputs
-  if (config.daysPerWeek < 3 || config.daysPerWeek > 6) {
-    throw new Error("daysPerWeek must be between 3 and 6");
+  if (config.daysPerWeek < 2 || config.daysPerWeek > 6) {
+    throw new Error("daysPerWeek must be between 2 and 6");
   }
   if (config.goalTimeSeconds <= 0) {
     throw new Error("goalTimeSeconds must be positive");
@@ -1097,6 +1119,8 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     longRunCapKm: config.longRunCapKm,
     easyRunMinKm: config.easyRunMinKm ?? 0,
     hillyArea: config.hillyArea,
+    availableDays: normalizeAvailableDays(config.availableDays),
+    runnerLevel: config.runnerLevel ?? null,
     weeks,
   };
 }

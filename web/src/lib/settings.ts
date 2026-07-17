@@ -5,6 +5,8 @@ export interface UserSettings {
   paceTargets: boolean;
   /** Show pace targets on easy runs specifically */
   paceTargetsEasyRuns: boolean;
+  /** Show pace targets on long runs specifically */
+  paceTargetsLongRuns: boolean;
   /** Unit system: "km" or "miles" */
   units: "km" | "miles";
   /** Temperature unit */
@@ -56,6 +58,7 @@ export interface UserSettings {
 export const DEFAULT_SETTINGS: UserSettings = {
   paceTargets: true,
   paceTargetsEasyRuns: true,
+  paceTargetsLongRuns: true,
   units: "km",
   tempUnit: "celsius",
   workoutTargetMode: "pace",
