@@ -673,6 +673,25 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
 }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(null);
+  useEffect(() => {
+    apiFetch("/api/pace-insights")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.paceStatus) setPace({ status: d.paceStatus, inBandPct: d.inBandPct ?? null });
+      })
+      .catch(() => {});
+  }, []);
+  const paceTitle =
+    pace === null || pace.status === "no_data"
+      ? "Pace insights"
+      : pace.status === "on_point"
+      ? "Pace on point"
+      : pace.status === "ahead"
+      ? "Faster than target"
+      : pace.status === "review"
+      ? "Pace needs review"
+      : "Pace variable";
   const pct = stats.plannedKm > 0 ? Math.round((stats.completedKm / stats.plannedKm) * 100) : 0;
   // The arc takes the color of the most recent completed run (Benchmark-style).
   const lastCompletedRun = [...weekWorkouts]
@@ -741,7 +760,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
             {/* Pace card */}
             <TransitionLink href="/pace-insights" className="press block k-card p-4">
               <div className="flex items-start justify-between">
-                <p className="text-sm font-bold text-text-1">Pace on point</p>
+                <p className="text-sm font-bold text-text-1">{paceTitle}</p>
                 <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
               </div>
               <p className="mt-1 text-xs text-text-3">
@@ -749,7 +768,11 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </p>
               <div className="mt-3 flex h-2 items-center justify-center">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
-                  <div className="h-full rounded-full bg-[var(--k-type-easy)]" style={{ width: `${Math.min(100, pct)}%` }} />
+                  {/* Share of the last judged workouts that hit their pace band */}
+                  <div
+                    className="h-full rounded-full bg-[var(--k-type-easy)]"
+                    style={{ width: `${Math.min(100, pace?.inBandPct ?? 0)}%` }}
+                  />
                 </div>
               </div>
             </TransitionLink>
