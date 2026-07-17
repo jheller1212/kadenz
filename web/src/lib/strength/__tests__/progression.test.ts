@@ -37,13 +37,13 @@ describe("suggestProgression", () => {
   it("starts at the prescribed (snapped) weight with no history", () => {
     const s = suggestProgression(squat, []);
     expect(s.action).toBe("hold");
-    expect(s.suggestedWeightKg).toBe(12); // 12.5 snaps down to 12
+    expect(s.suggestedWeightKg).toBe(12.5); // 12.5 is a real stop now
   });
 
   it("increases one level when all sets hit the top of the range", () => {
     const s = suggestProgression(squat, [session("2026-06-10", [12, 12, 12], 12)]);
     expect(s.action).toBe("increase");
-    expect(s.suggestedWeightKg).toBe(13); // one level up from 12
+    expect(s.suggestedWeightKg).toBe(12.5); // +0.5 kg from 12
   });
 
   it("holds when reps are mid-range", () => {
@@ -58,7 +58,7 @@ describe("suggestProgression", () => {
       session("2026-06-10", [7, 8, 8], 13),
     ]);
     expect(s.action).toBe("decrease");
-    expect(s.suggestedWeightKg).toBe(12); // one level down from 13
+    expect(s.suggestedWeightKg).toBe(12.5); // -0.5 kg from 13
   });
 
   it("does not deload on a single bad session", () => {
@@ -81,11 +81,11 @@ describe("suggestProgression", () => {
       session("2026-06-10", [12, 12, 12], 8),
     ]);
     expect(twoClean.action).toBe("increase");
-    expect(twoClean.suggestedWeightKg).toBe(9);
+    expect(twoClean.suggestedWeightKg).toBe(8.5);
   });
 
   it("holds at the ceiling instead of increasing past it", () => {
-    const s = suggestProgression(squat, [session("2026-06-10", [12, 12, 12], 23.5)]);
+    const s = suggestProgression(squat, [session("2026-06-10", [12, 12, 12], 50)]);
     expect(s.action).toBe("hold");
     expect(s.atCeiling).toBe(true);
   });
@@ -114,6 +114,6 @@ describe("pain gate", () => {
     expect(base.action).toBe("increase");
     const gated = applyPainGate(base, { triggered: true, reason: "pain" });
     expect(gated.action).toBe("decrease");
-    expect(gated.suggestedWeightKg).toBe(14.5); // one level down from 16
+    expect(gated.suggestedWeightKg).toBe(15.5); // -0.5 kg from 16
   });
 });
