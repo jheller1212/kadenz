@@ -41,7 +41,15 @@ export async function GET(request: NextRequest) {
       string,
       { sessionId: string; date: Date; weightKg: number | null; repLow: number; repHigh: number }
     >();
+    // Distinct sessions each exercise appeared in — powers "sort by frequency".
+    const sessionsPerExercise = new Map<string, Set<string>>();
     for (const s of sets) {
+      let seen = sessionsPerExercise.get(s.exerciseId);
+      if (!seen) {
+        seen = new Set();
+        sessionsPerExercise.set(s.exerciseId, seen);
+      }
+      seen.add(s.sessionId);
       const cur = latest.get(s.exerciseId);
       if (!cur) {
         latest.set(s.exerciseId, {
@@ -70,6 +78,7 @@ export async function GET(request: NextRequest) {
           lastRepLow: l?.repLow ?? null,
           lastRepHigh: l?.repHigh ?? null,
           lastDate: l?.date.toISOString() ?? null,
+          timesPerformed: sessionsPerExercise.get(r.id)?.size ?? 0,
         };
       })
     );
