@@ -38,35 +38,60 @@ function StravaConnection() {
     }
   }
 
-  async function runSync(sinceMonths?: number) {
+  interface BackfillResult {
+    inserted?: number;
+    alreadySynced?: number;
+    oldest?: string | null;
+    remaining?: number;
+    rateLimited?: boolean;
+    done?: boolean;
+  }
+
+  async function runSync(opts?: { full?: boolean }) {
     setSyncing(true);
     setError(null);
     setSyncResult(null);
     try {
-      const body = sinceMonths
-        ? JSON.stringify({ since: new Date(Date.now() - sinceMonths * 30.4 * 24 * 3600_000).toISOString() })
-        : undefined;
-      const res = await apiFetch("/api/strava/backfill", {
-        method: "POST",
-        ...(body ? { headers: { "Content-Type": "application/json" }, body } : {}),
-      });
-      if (!res.ok) throw new Error("Sync failed");
-      const data = (await res.json().catch(() => null)) as {
-        inserted?: number;
-        alreadySynced?: number;
-        oldest?: string | null;
-      } | null;
+      let totalInserted = 0;
+      let dup = 0;
+      let oldestSeen: string | null = null;
+      let rateLimited = false;
+      // Full history imports in chunks (the server caps per-invocation work to
+      // respect Strava's shared app quota) — loop until done.
+      for (let pass = 0; pass < 25; pass++) {
+        const res = await apiFetch("/api/strava/backfill", {
+          method: "POST",
+          ...(opts?.full
+            ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full: true }) }
+            : {}),
+        });
+        if (!res.ok) throw new Error("Sync failed");
+        const data = (await res.json().catch(() => null)) as BackfillResult | null;
+        totalInserted += data?.inserted ?? 0;
+        dup = data?.alreadySynced ?? dup;
+        if (data?.oldest) oldestSeen = data.oldest;
+        if (data?.rateLimited) {
+          rateLimited = true;
+          break;
+        }
+        if (!opts?.full || data?.done !== false) break;
+        setSyncResult(`Importing history… ${totalInserted} so far (${data?.remaining ?? "?"} to go)`);
+      }
       haptic("success");
-      const n = data?.inserted ?? 0;
-      const dup = data?.alreadySynced ?? 0;
-      const oldest = data?.oldest
-        ? ` · history back to ${new Date(data.oldest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+      const oldest = oldestSeen
+        ? ` · history back to ${new Date(oldestSeen).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
         : "";
-      setSyncResult(
-        n === 0
-          ? `Up to date — no new activities${dup ? ` (${dup} already synced)` : ""}${oldest}.`
-          : `Synced ${n} new ${n === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}${oldest}.`
-      );
+      if (rateLimited) {
+        setSyncResult(
+          `Imported ${totalInserted} — Strava's rate limit reached. Run again in ~15 minutes to continue where it left off.`
+        );
+      } else {
+        setSyncResult(
+          totalInserted === 0
+            ? `Up to date — no new activities${dup ? ` (${dup} already synced)` : ""}${oldest}.`
+            : `Synced ${totalInserted} new ${totalInserted === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}${oldest}.`
+        );
+      }
     } catch {
       haptic("warning");
       setError("Sync failed. Try again later.");
@@ -121,10 +146,10 @@ function StravaConnection() {
         <button
           type="button"
           disabled={syncing}
-          onClick={() => runSync(12)}
+          onClick={() => runSync({ full: true })}
           className="press mt-2 text-left text-[13px] font-semibold text-accent disabled:opacity-50"
         >
-          Sync full history (last 12 months)
+          Sync entire history
         </button>
       )}
 
