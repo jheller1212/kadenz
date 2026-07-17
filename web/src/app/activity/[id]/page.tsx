@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
+import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -917,6 +918,9 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   async function reload() {
     try {
@@ -1045,7 +1049,7 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       {/* Action sheet */}
-      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
+      <Sheet open={menuOpen} onClose={() => { setMenuOpen(false); setDeleteArmed(false); }}>
         <div className="flex flex-col gap-2 pb-2">
           <a
             href={`https://www.strava.com/activities/${activity.stravaId}`}
@@ -1061,14 +1065,29 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
             View on Strava
           </a>
           <button
-            onClick={() => {
-              haptic("warning");
-              setMenuOpen(false);
+            onClick={async () => {
+              if (!deleteArmed) {
+                haptic("warning");
+                setDeleteArmed(true);
+                return;
+              }
+              setDeleting(true);
+              try {
+                const res = await apiFetch(`/api/activities/${activity.id}`, { method: "DELETE" });
+                if (!res.ok) throw new Error("delete failed");
+                haptic("success");
+                router.replace("/activities");
+              } catch {
+                haptic("warning");
+                setDeleting(false);
+                setDeleteArmed(false);
+              }
             }}
-            className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-elevated px-4 py-3.5 text-left text-[15px] font-medium text-danger"
+            disabled={deleting}
+            className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-elevated px-4 py-3.5 text-left text-[15px] font-medium text-danger disabled:opacity-60"
           >
             <Trash2 className="h-5 w-5 shrink-0 text-danger" strokeWidth={1.75} />
-            Delete activity
+            {deleting ? "Deleting…" : deleteArmed ? "Tap again to confirm" : "Delete activity"}
           </button>
         </div>
       </Sheet>

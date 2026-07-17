@@ -371,3 +371,37 @@ export async function PATCH(
     return Response.json({ error: "Failed to link activity" }, { status: 500 });
   }
 }
+
+// ── DELETE /api/activities/[id] ──────────────────────────────────────────────
+// Removes a synced activity. Any workout / strength session it completed is
+// reverted to planned. Note: a later manual backfill can re-import the same
+// Strava activity.
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const [activity] = await db.select().from(activities).where(eq(activities.id, id));
+    if (!activity) return Response.json({ error: "Activity not found" }, { status: 404 });
+
+    if (activity.workoutId) {
+      await db
+        .update(workouts)
+        .set({ status: "planned", actualKm: null, stravaActivityId: null, updatedAt: new Date() })
+        .where(eq(workouts.id, activity.workoutId));
+    }
+    if (activity.strengthSessionId) {
+      await db
+        .update(strengthSessions)
+        .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
+        .where(eq(strengthSessions.id, activity.strengthSessionId));
+    }
+    await db.delete(activities).where(eq(activities.id, id));
+    return Response.json({ ok: true });
+  } catch (err) {
+    console.error("DB error deleting activity:", err);
+    return Response.json({ error: "Failed to delete activity" }, { status: 500 });
+  }
+}
