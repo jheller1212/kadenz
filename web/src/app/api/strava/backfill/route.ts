@@ -109,10 +109,18 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Earliest activity Strava returned for the window — lets the client show
+  // how far back the athlete's history actually goes.
+  const oldest = stravaActivities.reduce<string | null>(
+    (min, a) => (min === null || a.start_date < min ? a.start_date : min),
+    null
+  );
+
   return Response.json({
     ok: true,
     since: new Date(sinceEpoch * 1000).toISOString(),
     total: stravaActivities.length,
+    oldest,
     // `processed` kept for old clients; it now means genuinely new.
     processed: inserted,
     inserted,

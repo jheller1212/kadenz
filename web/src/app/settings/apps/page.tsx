@@ -51,14 +51,21 @@ function StravaConnection() {
         ...(body ? { headers: { "Content-Type": "application/json" }, body } : {}),
       });
       if (!res.ok) throw new Error("Sync failed");
-      const data = (await res.json().catch(() => null)) as { inserted?: number; alreadySynced?: number } | null;
+      const data = (await res.json().catch(() => null)) as {
+        inserted?: number;
+        alreadySynced?: number;
+        oldest?: string | null;
+      } | null;
       haptic("success");
       const n = data?.inserted ?? 0;
       const dup = data?.alreadySynced ?? 0;
+      const oldest = data?.oldest
+        ? ` · history back to ${new Date(data.oldest).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+        : "";
       setSyncResult(
         n === 0
-          ? `Up to date — no new activities${dup ? ` (${dup} already synced)` : ""}.`
-          : `Synced ${n} new ${n === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}.`
+          ? `Up to date — no new activities${dup ? ` (${dup} already synced)` : ""}${oldest}.`
+          : `Synced ${n} new ${n === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}${oldest}.`
       );
     } catch {
       haptic("warning");
