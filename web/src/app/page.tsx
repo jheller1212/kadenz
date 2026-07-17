@@ -51,6 +51,8 @@ interface TodayApiWorkout {
   description?: string | null;
   targetKm?: number | null;
   targetDurationMinutes?: number | null;
+  actualKm?: number | null;
+  rpe?: number | null;
   status: string;
   date: string;
   dayOfWeek: number;
@@ -1241,9 +1243,45 @@ export default function Home() {
     }
   }, [applyToday]);
 
+  // Post-run celebration: when a background refresh shows a workout that a
+  // Strava sync flipped to completed (not ticked by hand here), celebrate once.
+  const [celebration, setCelebration] = useState<TodayApiWorkout | null>(null);
+  const locallyTicked = useRef<Set<string>>(new Set());
+  const prevStatuses = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const week = data?.weekWorkouts ?? [];
+    const prev = prevStatuses.current;
+    let celebrated: string[] = [];
+    try {
+      celebrated = JSON.parse(localStorage.getItem("kadenz_celebrated") ?? "[]") as string[];
+    } catch { /* fresh list */ }
+    for (const w of week) {
+      const was = prev.get(w.id);
+      if (
+        was !== undefined &&
+        was !== "completed" &&
+        w.status === "completed" &&
+        w.type !== "rest" &&
+        !locallyTicked.current.has(w.id) &&
+        !celebrated.includes(w.id)
+      ) {
+        setCelebration(w);
+        try {
+          localStorage.setItem(
+            "kadenz_celebrated",
+            JSON.stringify([...celebrated, w.id].slice(-50))
+          );
+        } catch { /* best effort */ }
+        break;
+      }
+    }
+    prevStatuses.current = new Map(week.map((w) => [w.id, w.status]));
+  }, [data]);
+
   // Optimistic status change: update stats/data instantly so Insights and the
   // week overview react before the server round-trip completes.
   const applyWorkoutStatus = useCallback((id: string, status: string) => {
+    locallyTicked.current.add(id);
     const flip = <T extends { id: string; status: string }>(w: T): T =>
       w.id === id ? { ...w, status } : w;
     setAllWorkouts((prev) => prev.map(flip));
@@ -1522,7 +1560,115 @@ export default function Home() {
         onSelectWeek={(week) => { setWeekOffset(week - currentWeek); setSelectedDate(null); setSelectedWorkout(null); }}
       />
 
+      {/* Post-run celebration (sync completed a planned workout) */}
+      <CelebrationSheet
+        workout={celebration}
+        onClose={() => setCelebration(null)}
+        onSaved={() => loadData({ silent: true })}
+      />
+
       <BottomNav active="today" />
     </main>
+  );
+}
+
+
+// ── Post-run celebration ─────────────────────────────────────────────────────
+// Shown once when a background sync marks a planned workout completed.
+
+function CelebrationSheet({
+  workout,
+  onClose,
+  onSaved,
+}: {
+  workout: TodayApiWorkout | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [rpe, setRpe] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setRpe(workout?.rpe ?? null);
+  }, [workout]);
+  if (!workout) return null;
+
+  const km = workout.actualKm ?? workout.targetKm;
+  const color = workoutColor(workout.type);
+
+  async function saveRpe(value: number) {
+    if (!workout || saving) return;
+    setSaving(true);
+    setRpe(value);
+    try {
+      const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rpe: value }),
+      });
+      if (res.ok) {
+        haptic("success");
+        onSaved();
+      }
+    } catch {
+      /* chips stay for retry */
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet open onClose={onClose}>
+      <div className="flex flex-col items-center gap-4 pb-2 text-center">
+        <div
+          className="flex h-14 w-14 items-center justify-center rounded-full"
+          style={{ backgroundImage: color.grad }}
+        >
+          <Check className="h-7 w-7 text-white" strokeWidth={3} />
+        </div>
+        <div>
+          <p className="text-lg font-bold text-text-1">Workout complete</p>
+          <p className="mt-1 text-sm text-text-2">{workout.title}</p>
+          <p className="mt-0.5 text-xs text-text-3">
+            {new Date(workout.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
+            {km ? ` · ${displayDistance(km)} ${distanceUnitLabel()}` : ""}
+          </p>
+        </div>
+        <div className="w-full rounded-[var(--radius-input)] bg-elevated p-4 text-left">
+          <p className="text-[13px] font-semibold text-text-2">
+            {rpe != null ? `Effort logged: RPE ${rpe}` : "How hard did it feel? (0 = nothing, 10 = max)"}
+          </p>
+          <div className="mt-3 grid grid-cols-11 gap-1">
+            {Array.from({ length: 11 }, (_, n) => (
+              <button
+                key={n}
+                type="button"
+                disabled={saving}
+                onClick={() => saveRpe(n)}
+                style={{ touchAction: "manipulation" }}
+                className={`press rounded-md py-2 text-[13px] font-bold ${
+                  rpe === n ? "bg-accent text-on-accent" : "bg-surface text-text-2"
+                } disabled:opacity-50`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex w-full gap-2">
+          <Button variant="secondary" className="flex-1" onClick={onClose}>
+            Done
+          </Button>
+          <Button
+            className="flex-1"
+            onClick={() => {
+              onClose();
+              window.location.href = `/workout/${workout.id}`;
+            }}
+          >
+            View workout
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
