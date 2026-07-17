@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Minus, Plus, Volume2, VolumeX, Check } from "lucide-react";
+import { Minus, Plus, Volume2, VolumeX, Check, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { haptic } from "@/lib/haptics";
@@ -17,7 +17,7 @@ import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
 import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
-import { formatLoad, loadUnitLabel } from "@/lib/strength/weights";
+import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
 
@@ -66,8 +66,13 @@ interface Props {
   exercises: PlannedExercise[];
   /** Restore a previously saved in-progress session at its saved position. */
   resume?: { exIndex: number; work: Record<string, WorkSet[]>; startedAt: number } | null;
-  /** Called on early exit with how many sets were logged so far. */
+  /**
+   * Minimize: leave the guided view without ending the workout. The snapshot
+   * stays so the session can be resumed. Receives how many sets are logged.
+   */
   onExit: (setsLogged: number) => void;
+  /** Discard: the session's sets were deleted and the snapshot cleared. */
+  onDiscard: () => void;
   onFinish: (summary: GuidedFinishSummary) => void;
 }
 
@@ -78,13 +83,6 @@ type Timer =
   | { kind: "rest"; slug: string; setIndex: number; endMs: number; totalMs: number }
   | { kind: "getready"; slug: string; setIndex: number; endMs: number };
 
-// Dumbbell ladder (mirrors the server) for the +/- steppers.
-const LEVELS = [2.5, 4, 5, 6.5, 8, 9, 10.5, 12, 13, 14.5, 16, 17, 18, 19.5, 21, 22, 23, 23.5];
-const snap = (kg: number) => LEVELS.reduce((a, b) => (Math.abs(b - kg) < Math.abs(a - kg) ? b : a), LEVELS[0]);
-const stepW = (kg: number, d: number) => {
-  const i = LEVELS.indexOf(snap(kg));
-  return LEVELS[Math.max(0, Math.min(LEVELS.length - 1, i + d))];
-};
 const GET_READY_SECONDS = 5;
 
 const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
@@ -155,7 +153,13 @@ function buildWork(exercises: PlannedExercise[]): Record<string, WorkSet[]> {
   return w;
 }
 
-export default function GuidedSession({ session, exercises, resume, onExit, onFinish }: Props) {
+// Previous performance of one exercise (dated per-set detail from history).
+interface LastPerf {
+  date: string;
+  sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null }>;
+}
+
+export default function GuidedSession({ session, exercises, resume, onExit, onDiscard, onFinish }: Props) {
   const [prefs, setPrefs] = useState<UserSettings>(() => loadSettings());
   const [now, setNow] = useState<number>(() => Date.now());
   const [exIndex, setExIndex] = useState(() =>
@@ -177,14 +181,21 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
   const [timer, setTimer] = useState<Timer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
+  // Wall-clock ms when the workout was paused, or null while running.
+  const [pausedAt, setPausedAt] = useState<number | null>(null);
+  // slug → previous performance (null = fetched, nothing on record).
+  const [lastPerf, setLastPerf] = useState<Record<string, LastPerf | null>>({});
 
   const sessionStartRef = useRef<number>(resume?.startedAt ?? Date.now());
   const prefsRef = useRef(prefs);
   const workRef = useRef(work);
   const timerRef = useRef(timer);
   const exIndexRef = useRef(exIndex);
+  const pausedAtRef = useRef(pausedAt);
   const lastBeepRef = useRef<number>(-1);
+  const lastPerfFetched = useRef<Set<string>>(new Set());
   const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -192,6 +203,24 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
   useEffect(() => { workRef.current = work; }, [work]);
   useEffect(() => { timerRef.current = timer; }, [timer]);
   useEffect(() => { exIndexRef.current = exIndex; }, [exIndex]);
+  useEffect(() => { pausedAtRef.current = pausedAt; }, [pausedAt]);
+
+  // ── Last performance per exercise — fetched lazily, cached for the session ──
+  useEffect(() => {
+    const ex = exercises[exIndex];
+    if (!ex || lastPerfFetched.current.has(ex.slug)) return;
+    lastPerfFetched.current.add(ex.slug);
+    apiFetch(`/api/strength/history/${ex.slug}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { sessions?: LastPerf[] } | null) => {
+        const sessions = json?.sessions ?? [];
+        const last = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+        setLastPerf((m) => ({ ...m, [ex.slug]: last }));
+      })
+      .catch(() => setLastPerf((m) => ({ ...m, [ex.slug]: null })));
+    // exercises are stable for the lifetime of this mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exIndex]);
 
   // ── Resumable snapshot — persist position + logged sets on every change ─────
   useEffect(() => {
@@ -204,9 +233,10 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
       exIndex,
       work,
     });
-    // session/exercises are stable for the lifetime of this mount.
+    // session/exercises are stable for the lifetime of this mount. pausedAt is
+    // included so the shifted start time persists after a resume.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exIndex, work]);
+  }, [exIndex, work, pausedAt]);
 
   // ── Browser back — ask before leaving instead of dropping the workout ───────
   useEffect(() => {
@@ -223,6 +253,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
 
   // ── Audio helpers ───────────────────────────────────────────────────────────
   function speak(text: string) {
+    if (pausedAtRef.current != null) return;
     const p = prefsRef.current;
     if (!p.kraftAudio || !p.kraftVoice) return;
     const vol = CUE_VOLUME_GAIN[p.cueVolume];
@@ -238,6 +269,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
     }
   }
   function beep(freq = 660, durationMs = 80) {
+    if (pausedAtRef.current != null) return;
     if (!prefsRef.current.kraftAudio) return;
     const peak = CUE_VOLUME_GAIN[prefsRef.current.cueVolume];
     if (peak <= 0) return;
@@ -285,6 +317,9 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
   // ── The single clock: advance `now`, fire countdown audio, drive transitions ──
   useEffect(() => {
     function tick() {
+      // Paused: freeze the displayed clocks and fire no cues or transitions —
+      // the anchors are shifted forward on resume instead.
+      if (pausedAtRef.current != null) return;
       const t = Date.now();
       setNow(t);
       const tm = timerRef.current;
@@ -305,7 +340,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
     const iv = setInterval(tick, 250);
     function onVis() {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
-        setNow(Date.now());
+        if (pausedAtRef.current == null) setNow(Date.now());
         setPrefs(loadSettings());
         // Re-acquire the wake lock (it's dropped when the tab is hidden).
         if (prefsRef.current.kraftKeepAwake && !wakeRef.current) {
@@ -435,7 +470,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
       const cur = arr[setIndex];
       if (!cur) return w;
       arr[setIndex] =
-        field === "kg" ? { ...cur, kg: stepW(cur.kg, d) } : { ...cur, reps: Math.max(1, cur.reps + d) };
+        field === "kg" ? { ...cur, kg: stepWeight(cur.kg, d > 0 ? 1 : -1) } : { ...cur, reps: Math.max(1, cur.reps + d) };
       // Carrying forward keeps future sets in step while you tweak.
       if (!cur.logged) {
         for (let i = setIndex + 1; i < arr.length; i++) {
@@ -484,6 +519,54 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
     const next = { ...prefsRef.current, kraftAudio: !prefsRef.current.kraftAudio };
     saveSettings(next);
     setPrefs(next);
+  }
+
+  // ── Pause / resume — freezes the work timer, rest countdown and cues ─────────
+  function togglePause() {
+    haptic("light");
+    const p = pausedAtRef.current;
+    if (p == null) {
+      try {
+        if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+      } catch {
+        /* best-effort */
+      }
+      setPausedAt(Date.now());
+    } else {
+      // Shift every wall-clock anchor forward by the paused duration so the
+      // timers resume exactly where they stopped.
+      const dur = Date.now() - p;
+      sessionStartRef.current += dur;
+      setTimer((tm) =>
+        !tm ? tm : tm.kind === "set" ? { ...tm, startMs: tm.startMs + dur } : { ...tm, endMs: tm.endMs + dur }
+      );
+      setPausedAt(null);
+      setNow(Date.now());
+    }
+  }
+
+  // ── Discard — delete this session's logged sets, back to planned state ───────
+  async function discardWorkout() {
+    if (discarding) return;
+    setDiscarding(true);
+    setError(null);
+    haptic("warning");
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${session.id}/sets`, { method: "DELETE" });
+      if (!res.ok) {
+        setError("Couldn't discard the workout. Try again.");
+        setDiscarding(false);
+        setConfirmExit(false);
+        return;
+      }
+      clearGuidedSnapshot();
+      setConfirmExit(false);
+      onDiscard();
+    } catch {
+      setError("Network error — couldn't discard the workout.");
+      setDiscarding(false);
+      setConfirmExit(false);
+    }
   }
 
   async function finish() {
@@ -536,6 +619,9 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
   const editIndex = timerHere && (timerHere.kind === "rest" || timerHere.kind === "set") ? timerHere.setIndex : allLogged ? arr.length - 1 : nextSi;
   const editSet = arr[editIndex];
   const isLast = exIndex === exercises.length - 1;
+  const paused = pausedAt != null;
+  const last = lastPerf[ex.slug];
+  const setsLoggedTotal = Object.values(work).flat().filter((s) => s.logged).length;
 
   return (
     <div
@@ -549,13 +635,24 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
         <button type="button" onClick={() => { haptic("light"); setConfirmExit(true); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">
           Exit
         </button>
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-danger animate-pulse" />
+        <div className={`flex items-center gap-2 ${paused ? "opacity-50" : ""}`}>
+          <span className={`h-2 w-2 rounded-full bg-danger ${paused ? "" : "animate-pulse"}`} />
           <span className="text-[17px] font-extrabold tabular-nums text-text-1">{fmt(elapsed)}</span>
         </div>
-        <button type="button" onClick={toggleMute} aria-label={prefs.kraftAudio ? "Mute audio cues" : "Unmute audio cues"} style={{ touchAction: "manipulation" }} className="text-text-2">
-          {prefs.kraftAudio ? <Volume2 className="h-5 w-5" strokeWidth={2} /> : <VolumeX className="h-5 w-5" strokeWidth={2} />}
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={togglePause}
+            aria-label={paused ? "Resume workout" : "Pause workout"}
+            style={{ touchAction: "manipulation" }}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-elevated text-text-1"
+          >
+            {paused ? <Play className="h-4 w-4" strokeWidth={2.2} /> : <Pause className="h-4 w-4" strokeWidth={2.2} />}
+          </button>
+          <button type="button" onClick={toggleMute} aria-label={prefs.kraftAudio ? "Mute audio cues" : "Unmute audio cues"} style={{ touchAction: "manipulation" }} className="text-text-2">
+            {prefs.kraftAudio ? <Volume2 className="h-5 w-5" strokeWidth={2} /> : <VolumeX className="h-5 w-5" strokeWidth={2} />}
+          </button>
+        </div>
       </div>
 
       <p className="px-4 text-center text-[13px] font-medium text-text-3">
@@ -606,6 +703,18 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
             </button>
           )}
         </div>
+
+        {/* Previous performance of THIS exercise (dated per-set detail) */}
+        {last && last.sets.length > 0 && (
+          <div className="mt-3 w-full max-w-xs rounded-[var(--radius-input)] bg-elevated px-3 py-2 text-left">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-text-3">
+              Last time · {formatRecency(last.date)}
+            </p>
+            <p className="mt-0.5 text-[13px] font-semibold tabular-nums leading-snug text-text-1">
+              {formatLastSets(last.sets)}
+            </p>
+          </div>
+        )}
 
         {/* Preceding sets (weight · reps · time) */}
         {loggedSets.length > 0 && (
@@ -713,6 +822,24 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
         <p className="mt-1.5 text-center text-[11px] text-text-3">Swipe left/right to move between exercises</p>
       </div>
 
+      {/* Paused overlay — unmistakable, tap anywhere (or Resume) to continue */}
+      {paused && (
+        <div
+          className="absolute inset-0 z-[70] flex flex-col items-center justify-center gap-4 bg-bg/85 backdrop-blur-sm"
+          onClick={togglePause}
+          role="button"
+          aria-label="Resume workout"
+        >
+          <Pause className="h-10 w-10 text-text-2" strokeWidth={2} />
+          <p className="text-[28px] font-extrabold tracking-tight text-text-1">Paused</p>
+          <p className="text-[15px] tabular-nums text-text-3">{fmt(elapsed)} elapsed</p>
+          <Button variant="primary" size="lg" onClick={togglePause}>
+            <Play className="h-4 w-4" strokeWidth={2.2} />
+            Resume
+          </Button>
+        </div>
+      )}
+
       <VideoSheet
         slug={videoSlug}
         title={videoSlug ? exercises.find((e) => e.slug === videoSlug)?.name : undefined}
@@ -722,13 +849,15 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
       <Sheet open={confirmExit} onClose={() => setConfirmExit(false)} title="Leave workout?">
         <div className="flex flex-col gap-3 px-4 pb-6">
           <p className="text-[14px] text-text-2">
-            Your progress is saved — you can resume where you left off.
+            {setsLoggedTotal > 0
+              ? `${setsLoggedTotal} set${setsLoggedTotal === 1 ? "" : "s"} logged so far.`
+              : "Nothing logged yet."}
           </p>
           <Button variant="primary" size="lg" full onClick={() => { haptic("light"); setConfirmExit(false); }}>
             Keep going
           </Button>
           <Button
-            variant="danger"
+            variant="secondary"
             size="lg"
             full
             onClick={() => {
@@ -737,7 +866,13 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
               onExit(Object.values(workRef.current).flat().filter((s) => s.logged).length);
             }}
           >
-            Leave
+            Minimize — resume later
+          </Button>
+          <Button variant="secondary" size="lg" full busy={finishing} onClick={() => { setConfirmExit(false); finish(); }}>
+            Save &amp; end workout
+          </Button>
+          <Button variant="danger" size="lg" full busy={discarding} onClick={discardWorkout}>
+            Discard workout
           </Button>
         </div>
       </Sheet>
@@ -752,6 +887,17 @@ export default function GuidedSession({ session, exercises, resume, onExit, onFi
       return { ...tm, endMs, totalMs: Math.max(tm.totalMs, endMs - Date.now()) };
     });
   }
+}
+
+// One line of previous sets, e.g. "12 kg × 10 · 12 kg × 9 · 10.5 kg × 8".
+function formatLastSets(sets: LastPerf["sets"]): string {
+  return sets
+    .map((s) =>
+      s.weightKg != null && s.weightKg > 0
+        ? `${displayWeight(s.weightKg)} ${weightUnitLabel()} × ${s.reps ?? "—"}`
+        : `${s.reps ?? "—"} reps`
+    )
+    .join(" · ");
 }
 
 // ── Weight / reps stepper block ───────────────────────────────────────────────

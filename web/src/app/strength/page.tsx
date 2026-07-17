@@ -47,7 +47,7 @@ import {
 import { formatRecency } from "@/lib/recency";
 import { displayWeight, formatWeightKg, weightUnitLabel } from "@/lib/units";
 import { EXERCISES } from "@/lib/strength/program";
-import { formatLoad } from "@/lib/strength/weights";
+import { formatLoad, stepWeight } from "@/lib/strength/weights";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
 
@@ -515,6 +515,20 @@ export default function StrengthPage() {
     setExercises([]);
   }
 
+  // Discard: GuidedSession already deleted the logged sets and cleared the
+  // snapshot — remove an ad-hoc session entirely so nothing lingers on today.
+  function handleDiscardGuided() {
+    if (adHocIdRef.current && session?.id === adHocIdRef.current) {
+      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+    }
+    adHocIdRef.current = null;
+    setResume(null);
+    setResumeSnap(null);
+    setPhase("picker");
+    setSession(null);
+    setExercises([]);
+  }
+
   // ── Phase 1: Picker ───────────────────────────────────────────────────────
   if (phase === "picker") {
     return (
@@ -530,7 +544,7 @@ export default function StrengthPage() {
         } />
         <div className="px-4 pb-tabbar">
           <p className="text-[15px] text-text-2">
-            Dumbbell program · loads snap to your DH FitLife 18-in-1 (18 levels, 2.5–23.5 kg).
+            Dumbbell program · loads snap to 0.5 kg steps up to 25 kg, then 1 kg steps to 50 kg.
           </p>
 
           {error && (
@@ -690,6 +704,7 @@ export default function StrengthPage() {
         exercises={exercises}
         resume={resume}
         onExit={handleExitGuided}
+        onDiscard={handleDiscardGuided}
         onFinish={handleFinish}
       />
     );
@@ -1018,11 +1033,16 @@ function ExerciseEditor({
       />
       <Stepper
         label="Weight"
-        value={exercise.suggestedWeightKg != null ? String(displayWeight(exercise.suggestedWeightKg)) : "BW"}
-        unit={exercise.suggestedWeightKg != null ? weightUnitLabel() : undefined}
+        value={
+          exercise.suggestedWeightKg != null && exercise.suggestedWeightKg > 0
+            ? String(displayWeight(exercise.suggestedWeightKg))
+            : "BW"
+        }
+        unit={exercise.suggestedWeightKg != null && exercise.suggestedWeightKg > 0 ? weightUnitLabel() : undefined}
         onDelta={(d) =>
           onChange({
-            suggestedWeightKg: Math.max(0, (exercise.suggestedWeightKg ?? 0) + d * 2.5),
+            // Steps along the standard ladder; 0 = bodyweight.
+            suggestedWeightKg: stepWeight(exercise.suggestedWeightKg, d > 0 ? 1 : -1),
           })
         }
       />

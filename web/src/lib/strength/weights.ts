@@ -60,6 +60,18 @@ export function isTopLevel(kg: number): boolean {
   return levelForWeight(kg) >= MAX_LEVEL;
 }
 
+/**
+ * Step a weight one ladder level up or down — the ONE stepper for every +/-
+ * weight control. Handles bodyweight: stepping up from 0 lands on the lowest
+ * level, stepping down from the lowest level returns to 0 (bodyweight).
+ */
+export function stepWeight(kg: number | null | undefined, delta: 1 | -1): number {
+  const cur = kg ?? 0;
+  if (cur <= 0) return delta > 0 ? DUMBBELL_LEVELS_KG[MIN_LEVEL] : 0;
+  if (delta < 0 && levelForWeight(cur) <= MIN_LEVEL) return 0;
+  return delta > 0 ? nextWeight(cur) : prevWeight(cur);
+}
+
 // ── Load descriptor ───────────────────────────────────────────────────────────
 // One consistent way to answer "how many dumbbells and how heavy" across every
 // screen, so the athlete never has to guess whether a weight is per-hand or
