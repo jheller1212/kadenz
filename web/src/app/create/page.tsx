@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, X, Check, Plus, AlertCircle } from "lucide-react";
 import type { PlanConfig, RaceDistance, TrainingVolume, TrainingDifficulty, RaceElevation, GeneratedPlan } from "@/lib/plan-engine/types";
@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
+import { loadSettings, saveSettings } from "@/lib/settings";
+import { displayDistance, distanceUnitLabel } from "@/lib/units";
 
 // ── Step tracker ──────────────────────────────────────────────────────────────
 
@@ -620,7 +622,7 @@ function StepPreview({ plan, useMiles }: { plan: GeneratedPlan; useMiles: boolea
         </div>
         <div className="k-card p-4 flex flex-col gap-1">
           <span className="text-xs text-text-3 uppercase tracking-wider">Race pace</span>
-          <span className="text-lg font-extrabold text-accent">{formatPace(paces.E.targetPaceSecKm > paces.M.targetPaceSecKm ? Math.round(plan.goalTimeSeconds / (plan.raceDistance === "5k" ? 5 : plan.raceDistance === "10k" ? 10 : plan.raceDistance === "half" ? 21.1 : 42.2)) : paces.M.targetPaceSecKm)}/km</span>
+          <span className="text-lg font-extrabold text-accent">{formatPace(paces.E.targetPaceSecKm > paces.M.targetPaceSecKm ? Math.round(plan.goalTimeSeconds / (plan.raceDistance === "5k" ? 5 : plan.raceDistance === "10k" ? 10 : plan.raceDistance === "half" ? 21.1 : 42.2)) : paces.M.targetPaceSecKm, useMiles)}/{useMiles ? "mi" : "km"}</span>
         </div>
         <div className="k-card p-4 flex flex-col gap-1">
           <span className="text-xs text-text-3 uppercase tracking-wider">Days/wk</span>
@@ -668,7 +670,7 @@ function StepPreview({ plan, useMiles }: { plan: GeneratedPlan; useMiles: boolea
                   />
                 </div>
                 <span className="text-[10px] text-text-3">W{week.weekNumber}</span>
-                <span className="text-[10px] font-semibold text-text-2">{week.targetKm}km</span>
+                <span className="text-[10px] font-semibold text-text-2">{displayDistance(week.targetKm, 1, useMiles ? "miles" : "km")}{distanceUnitLabel(useMiles ? "miles" : "km")}</span>
               </div>
             );
           })}
@@ -703,6 +705,10 @@ export default function CreatePlanPage() {
   const [raceElevation, setRaceElevation] = useState<RaceElevation>("flat");
   const [easyRunMinKm, setEasyRunMinKm] = useState(0);
   const [useMiles, setUseMiles] = useState(false);
+  // Sync from saved settings post-mount (hydration-safe, same pattern as useSettings)
+  useEffect(() => {
+    setUseMiles(loadSettings().units === "miles");
+  }, []);
   const [trainingDifficulty, setTrainingDifficulty] = useState<TrainingDifficulty>("moderate");
   const [preferredLongRunDay, setPreferredLongRunDay] = useState(6); // Saturday
   const [hillyArea, setHillyArea] = useState(false);
@@ -863,7 +869,9 @@ export default function CreatePlanPage() {
           <button
             onClick={() => {
               haptic("light");
-              setUseMiles(!useMiles);
+              const next = !useMiles;
+              setUseMiles(next);
+              saveSettings({ ...loadSettings(), units: next ? "miles" : "km" });
             }}
             className="press rounded-full bg-elevated px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-2"
             aria-label={`Switch to ${useMiles ? "kilometers" : "miles"}`}

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
+import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration } from "@/lib/hr-zone-time";
 import type {
   GeneratedPlan,
@@ -205,7 +206,7 @@ function VolumeChart({
               outline: isCurrent ? `2px solid ${color}` : "none",
               outlineOffset: 1,
             }}
-            title={`Week ${week.weekNumber}: ${week.targetKm} km`}
+            title={`Week ${week.weekNumber}: ${displayDistance(week.targetKm)} ${distanceUnitLabel()}`}
           />
         );
       })}
@@ -316,7 +317,7 @@ function MonthlyChart({ monthly }: { monthly: { label: string; km: number }[] })
                   backgroundColor: "var(--k-accent)",
                   opacity: isCurrent ? 1 : 0.4,
                 }}
-                title={`${m.label}: ${m.km} km`}
+                title={`${m.label}: ${displayDistance(m.km)} ${distanceUnitLabel()}`}
               />
             </div>
           );
@@ -531,8 +532,8 @@ export default function StatsPage() {
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[34px] font-extrabold tabular-nums leading-none text-accent">
-                    {Math.round(perf.totals.totalKm)}
-                    <span className="text-[15px] font-semibold text-text-3"> km</span>
+                    {displayDistance(perf.totals.totalKm, 0)}
+                    <span className="text-[15px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                   </p>
                   <p className="mt-1.5 text-[13px] text-text-3">Total distance</p>
                 </div>
@@ -556,8 +557,8 @@ export default function StatsPage() {
                 <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
                   <p className="text-[10px] uppercase tracking-wider text-text-3">Longest</p>
                   <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
-                    {perf.totals.longestRunKm}
-                    <span className="text-[10px] font-semibold text-text-3"> km</span>
+                    {displayDistance(perf.totals.longestRunKm)}
+                    <span className="text-[10px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                   </p>
                 </div>
                 <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
@@ -571,15 +572,15 @@ export default function StatsPage() {
               <div className="mt-3 flex items-center gap-4 text-[13px]">
                 <span className="text-text-2">
                   <span className="font-bold tabular-nums text-text-1">
-                    {perf.totals.yearKm}
+                    {displayDistance(perf.totals.yearKm, 0)}
                   </span>{" "}
-                  km this year
+                  {distanceUnitLabel()} this year
                 </span>
                 <span className="text-text-2">
                   <span className="font-bold tabular-nums text-text-1">
-                    {perf.totals.monthKm}
+                    {displayDistance(perf.totals.monthKm, 0)}
                   </span>{" "}
-                  km this month
+                  {distanceUnitLabel()} this month
                 </span>
                 {perf.totals.streakWeeks > 1 && (
                   <span className="ml-auto flex items-center gap-1 text-accent">
@@ -626,15 +627,15 @@ export default function StatsPage() {
                         </p>
                         <p className="mt-1 text-[20px] font-extrabold tabular-nums leading-none text-text-1">
                           {r.key === "1k"
-                            ? `${fmtPace(r.paceSecKm!)}`
+                            ? `${fmtPace(displayPace(r.paceSecKm!))}`
                             : fmtDuration(r.timeSeconds!)}
                           {r.key === "1k" && (
-                            <span className="text-[11px] font-semibold text-text-3"> /km</span>
+                            <span className="text-[11px] font-semibold text-text-3"> {paceUnitLabel()}</span>
                           )}
                         </p>
                         {r.key !== "1k" && r.paceSecKm != null && (
                           <p className="mt-1 text-[11px] tabular-nums text-text-3">
-                            {fmtPace(r.paceSecKm)}/km
+                            {fmtPace(displayPace(r.paceSecKm))}{paceUnitLabel()}
                           </p>
                         )}
                       </div>
@@ -700,10 +701,10 @@ export default function StatsPage() {
                 </div>
                 <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
                   <p className="text-[10px] uppercase tracking-wider text-text-3">
-                    Total km
+                    Total {distanceUnitLabel()}
                   </p>
                   <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
-                    {Math.round(planStats.totalKm)}
+                    {displayDistance(planStats.totalKm, 0)}
                   </p>
                 </div>
                 <div className="rounded-[var(--radius-input)] bg-elevated px-3 py-3 text-center">
@@ -745,8 +746,8 @@ export default function StatsPage() {
                   </div>
                   <div>
                     <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
-                      {planStats.currentWeek.targetKm}
-                      <span className="text-[15px] font-semibold text-text-3"> km</span>
+                      {displayDistance(planStats.currentWeek.targetKm)}
+                      <span className="text-[15px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                     </p>
                     <p className="mt-1.5 text-[13px] text-text-3">Planned volume</p>
                   </div>
@@ -766,7 +767,7 @@ export default function StatsPage() {
                 <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                   Volume progression
                 </p>
-                <p className="text-[11px] text-text-3">km / week</p>
+                <p className="text-[11px] text-text-3">{distanceUnitLabel()} / week</p>
               </div>
               <VolumeChart weeks={plan.weeks} currentWeekIdx={planStats.currentWeekIdx} />
               <div className="mt-2 flex justify-between text-[11px] text-text-3">

@@ -18,6 +18,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
+import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 import { getUserZoneBounds, computeZoneSeconds, formatZoneTime } from "@/lib/hr-zone-time";
@@ -274,8 +275,8 @@ function SummaryStats({ activity }: { activity: ActivityDetail }) {
       <div className="grid grid-cols-3 divide-x divide-hairline">
         <div className="pr-3 text-center">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Distance</p>
-          <p className="text-[22px] font-extrabold tabular-nums text-text-1">{activity.distanceKm.toFixed(2)}</p>
-          <p className="text-[10px] text-text-3">km</p>
+          <p className="text-[22px] font-extrabold tabular-nums text-text-1">{displayDistance(activity.distanceKm, 2).toFixed(2)}</p>
+          <p className="text-[10px] text-text-3">{distanceUnitLabel()}</p>
         </div>
         <div className="px-3 text-center">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Time</p>
@@ -283,8 +284,8 @@ function SummaryStats({ activity }: { activity: ActivityDetail }) {
         </div>
         <div className="pl-3 text-center">
           <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">Avg Pace</p>
-          <p className="text-[22px] font-extrabold tabular-nums text-text-1">{formatPace(activity.avgPaceSecKm)}</p>
-          <p className="text-[10px] text-text-3">/km</p>
+          <p className="text-[22px] font-extrabold tabular-nums text-text-1">{formatPace(displayPace(activity.avgPaceSecKm))}</p>
+          <p className="text-[10px] text-text-3">{paceUnitLabel()}</p>
         </div>
       </div>
     </div>
@@ -315,7 +316,7 @@ function BestEfforts({ efforts }: { efforts: ActivityDetail["bestEfforts"] }) {
               <Zap className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.75} />
               <div className="min-w-0 flex-1">
                 <p className="text-[15px] font-medium text-text-1">{effort.name}</p>
-                <p className="text-[13px] tabular-nums text-text-3">{formatPace(pacePerKm)}/km</p>
+                <p className="text-[13px] tabular-nums text-text-3">{formatPace(displayPace(pacePerKm))}{paceUnitLabel()}</p>
               </div>
               <p className="shrink-0 text-[15px] font-bold tabular-nums text-text-1">{formatEffortTime(effort.elapsedTime)}</p>
             </div>
@@ -373,11 +374,11 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
                     {isRepSet
                       ? `${block.reps}×${Math.round((block.repDistanceKm ?? 0) * 1000)}m`
                       : block.distanceKm
-                      ? `${block.distanceKm}km`
+                      ? `${displayDistance(block.distanceKm)}${distanceUnitLabel()}`
                       : block.durationMinutes
                       ? `${block.durationMinutes} min`
                       : ""}
-                    {block.targetPaceSecKm ? ` · ${formatPace(block.targetPaceSecKm)}/km` : ""}
+                    {block.targetPaceSecKm ? ` · ${formatPace(displayPace(block.targetPaceSecKm))}${paceUnitLabel()}` : ""}
                   </p>
                 </div>
               </div>
@@ -475,7 +476,7 @@ function LapsSection({
                     />
                   )}
                   <span className="relative z-10 pl-2 text-[10px] font-semibold tabular-nums" style={{ color }}>
-                    {formatPace(lap.paceSecKm)}/km
+                    {formatPace(displayPace(lap.paceSecKm))}{paceUnitLabel()}
                   </span>
                 </div>
               </div>
@@ -497,14 +498,14 @@ function LapsSection({
             return (
               <div key={i} className="grid grid-cols-4 items-center px-4 py-2.5">
                 <span className="text-[13px] font-semibold text-text-2">{lap.index}</span>
-                <span className="text-right text-[13px] tabular-nums text-text-1">{lap.distanceKm.toFixed(2)}km</span>
+                <span className="text-right text-[13px] tabular-nums text-text-1">{displayDistance(lap.distanceKm, 2).toFixed(2)}{distanceUnitLabel()}</span>
                 <span className="text-right text-[13px] tabular-nums text-text-1">{formatDuration(lap.durationSeconds)}</span>
                 <div className="flex justify-end">
                   <span
                     className="rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums"
                     style={{ color, backgroundColor: color + "22" }}
                   >
-                    {formatPace(lap.paceSecKm)}
+                    {formatPace(displayPace(lap.paceSecKm))}
                   </span>
                 </div>
               </div>
@@ -542,7 +543,7 @@ function SplitsSection({ splits }: { splits: ActivityDetail["splits"] }) {
         <div className="divide-y divide-hairline">
           {splits.map((split, i) => {
             const prevPace = i > 0 ? splits[i - 1].paceSecKm : null;
-            const diff = prevPace != null ? split.paceSecKm - prevPace : null;
+            const diff = prevPace != null ? Math.round(displayPace(split.paceSecKm - prevPace)) : null;
             const diffStr =
               diff == null
                 ? "—"
@@ -566,7 +567,7 @@ function SplitsSection({ splits }: { splits: ActivityDetail["splits"] }) {
                     }}
                   />
                   <span className="relative z-10 pl-1 text-[11px] font-semibold tabular-nums text-text-1">
-                    {formatPace(split.paceSecKm)}/km
+                    {formatPace(displayPace(split.paceSecKm))}{paceUnitLabel()}
                   </span>
                 </div>
                 <span
@@ -609,19 +610,19 @@ function PaceChartSection({ activity }: { activity: ActivityDetail }) {
           lineColor="#14B8A6"
           gradientId="pace-gradient"
           invertY={true}
-          xFormatter={(v) => `${v.toFixed(1)}km`}
-          yFormatter={(v) => formatPace(v)}
+          xFormatter={(v) => `${displayDistance(v).toFixed(1)}${distanceUnitLabel()}`}
+          yFormatter={(v) => formatPace(displayPace(v))}
           height={120}
         />
         <div className="mt-3 flex gap-6 border-t border-hairline pt-3">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-text-3">Avg Pace</p>
-            <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(activity.avgPaceSecKm)}/km</p>
+            <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(displayPace(activity.avgPaceSecKm))}{paceUnitLabel()}</p>
           </div>
           {activity.maxPaceSecKm != null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-text-3">Max Pace</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(activity.maxPaceSecKm)}/km</p>
+              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(displayPace(activity.maxPaceSecKm))}{paceUnitLabel()}</p>
             </div>
           )}
         </div>
@@ -651,7 +652,7 @@ function ElevationChartSection({ activity }: { activity: ActivityDetail }) {
           lineColor="#3B82F6"
           gradientId="elev-gradient"
           invertY={false}
-          xFormatter={(v) => `${v.toFixed(1)}km`}
+          xFormatter={(v) => `${displayDistance(v).toFixed(1)}${distanceUnitLabel()}`}
           yFormatter={(v) => `${Math.round(v)}m`}
           height={120}
         />
@@ -695,7 +696,7 @@ function HeartRateChartSection({ activity }: { activity: ActivityDetail }) {
           lineColor="#EF4444"
           gradientId="hr-gradient"
           invertY={false}
-          xFormatter={(v) => `${v.toFixed(1)}km`}
+          xFormatter={(v) => `${displayDistance(v).toFixed(1)}${distanceUnitLabel()}`}
           yFormatter={(v) => `${Math.round(v)}`}
           height={120}
         />
@@ -850,7 +851,7 @@ function LinkActivitySection({ activityId, onLinked }: { activityId: string; onL
                   >
                     <span className="block text-[15px] font-semibold text-text-1">{w.title}</span>
                     <span className="block text-[12px] text-text-3">
-                      {dayLabel(w.date)}{w.targetKm ? ` · ${w.targetKm} km` : ""}{w.status === "completed" ? " · already completed" : ""}
+                      {dayLabel(w.date)}{w.targetKm ? ` · ${displayDistance(w.targetKm)} ${distanceUnitLabel()}` : ""}{w.status === "completed" ? " · already completed" : ""}
                     </span>
                   </button>
                 ))}

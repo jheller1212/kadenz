@@ -1,6 +1,7 @@
 "use client";
 
 import { formatPace } from "@/lib/plan-engine/pace-zones";
+import { loadSettings } from "@/lib/settings";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -146,7 +147,8 @@ function getSegmentColor(type: string, workoutColor: string, isRest: boolean): s
 
 // ── Chart Component ─────────────────────────────────────────────────────────
 
-export function PaceChart({ blocks, workoutType, variant = "compact", color, useMiles }: PaceChartProps) {
+export function PaceChart({ blocks, workoutType, variant = "compact", color, useMiles: useMilesProp }: PaceChartProps) {
+  const useMiles = useMilesProp ?? loadSettings().units === "miles";
   if (!blocks || blocks.length === 0) return null;
 
   const segments = expandBlocks(blocks);
@@ -231,13 +233,14 @@ export function PaceBadge({
   blocks,
   workoutType,
   color,
-  useMiles,
+  useMiles: useMilesProp,
 }: {
   blocks: Block[];
   workoutType: string;
   color: string;
   useMiles?: boolean;
 }) {
+  const useMiles = useMilesProp ?? loadSettings().units === "miles";
   // Find the main work block pace
   const workBlock = blocks.find((b) => b.type === "work");
   const pace = workBlock?.targetPaceSecKm ?? blocks[0]?.targetPaceSecKm;

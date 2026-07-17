@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
+import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import {
   WORKOUT_BAR_COLOR,
   STRENGTH_BLUE,
@@ -144,7 +145,7 @@ function WeekCard({
           Workouts: <span className="font-bold text-text-1 tabular-nums">{doneCount}/{allItems.length}</span>
         </span>
         <span>
-          Distance: <span className="font-bold text-text-1 tabular-nums">{Math.round(week.targetKm)} km</span>
+          Distance: <span className="font-bold text-text-1 tabular-nums">{displayDistance(week.targetKm, 0)} {distanceUnitLabel()}</span>
         </span>
       </div>
 
@@ -344,7 +345,7 @@ export default function PlanHubPage() {
             <span>
               Total Distance{" "}
               <span className="font-bold text-text-1 tabular-nums">
-                {Math.round(derived.totalKm)} km
+                {displayDistance(derived.totalKm, 0)} {distanceUnitLabel()}
               </span>
             </span>
           </div>

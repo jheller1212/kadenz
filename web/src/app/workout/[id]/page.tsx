@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
+import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
 import { Radio } from "lucide-react";
@@ -102,13 +103,13 @@ const BLOCK_ICON: Record<string, typeof Flame> = {
 // ── Coaching tips per workout type ──────────────────────────────────────────
 
 function getCoachingTip(type: string, targetKm?: number | null, maxPace?: number | null): string {
-  const paceStr = maxPace ? formatPace(maxPace) : null;
+  const paceStr = maxPace ? formatPace(displayPace(maxPace)) : null;
 
   switch (type) {
     case "easy":
     case "recovery":
       return `Keep this run genuinely easy. You get no extra fitness points for going fast on easy days! ${
-        paceStr ? `Stay slower than ${paceStr}/km and` : "Focus on"
+        paceStr ? `Stay slower than ${paceStr}${paceUnitLabel()} and` : "Focus on"
       } relaxed, conversational running.`;
     case "long":
       return `Build endurance at a comfortable pace. Start easy and stay controlled throughout. ${
@@ -606,7 +607,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-text-3">Distance</p>
                 <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                  {useMiles ? `${(workout.targetKm * 0.621371).toFixed(1)}mi` : `${workout.targetKm}km`}
+                  {displayDistance(workout.targetKm, 1, settings.units)}{distanceUnitLabel(settings.units)}
                 </p>
               </div>
             )}
@@ -673,7 +674,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   <BlockIcon className="h-5 w-5 shrink-0" style={{ color: blockColor }} strokeWidth={1.75} />
                   <div className="flex-1">
                     <p className="text-[15px] font-medium text-text-1">
-                      {isWork ? BLOCK_LABEL[block.type] : `${BLOCK_LABEL[block.type] ?? block.type} (${block.durationMinutes ?? block.distanceKm ? `${block.distanceKm}km` : ""}${block.durationMinutes ? `${block.durationMinutes} mins` : ""})`}
+                      {isWork ? BLOCK_LABEL[block.type] : `${BLOCK_LABEL[block.type] ?? block.type} (${block.durationMinutes ?? block.distanceKm ? `${displayDistance(block.distanceKm ?? 0, 1, settings.units)}${distanceUnitLabel(settings.units)}` : ""}${block.durationMinutes ? `${block.durationMinutes} mins` : ""})`}
                     </p>
                   </div>
                 </div>
@@ -689,7 +690,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                         {block.reps && block.repDistanceKm
                           ? `${block.reps}×${Math.round(block.repDistanceKm * 1000)}m`
                           : block.distanceKm
-                          ? `${useMiles ? `${(block.distanceKm * 0.621371).toFixed(1)}mi` : `${block.distanceKm}km`}`
+                          ? `${displayDistance(block.distanceKm, 1, settings.units)}${distanceUnitLabel(settings.units)}`
                           : ""
                         }
                         {(() => {
@@ -701,7 +702,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                           if (shouldShowPace && isEasy && block.minPaceSecKm) {
                             // Easy running has a speed CAP, not a target — the
                             // Benchmark framing: anything slower is on plan.
-                            const unit = useMiles ? "/mi" : "/km";
+                            const unit = paceUnitLabel(settings.units);
                             return <span className="font-normal text-text-2">
                               {mode === "treadmill"
                                 ? ` — no faster than ${paceToSpeed(block.minPaceSecKm)} km/h`
@@ -710,7 +711,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                             </span>;
                           }
                           if (shouldShowPace && block.targetPaceSecKm) {
-                            const unit = useMiles ? "/mi" : "/km";
+                            const unit = paceUnitLabel(settings.units);
                             return <span className="font-normal text-text-2">
                               {mode === "treadmill"
                                 ? ` at ${paceToSpeed(block.targetPaceSecKm)} km/h`
@@ -726,7 +727,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                         const shouldShowPace = showPace && (isEasy ? showEasyPace : true) && !useRpe;
                         if (isEasy) return null; // the cap line above says it all
                         if (!shouldShowPace || !block.minPaceSecKm || !block.maxPaceSecKm) return null;
-                        const unit = useMiles ? "/mi" : "/km";
+                        const unit = paceUnitLabel(settings.units);
                         return (
                           <p className="text-[13px] text-text-3 mt-0.5">
                             {mode === "treadmill"

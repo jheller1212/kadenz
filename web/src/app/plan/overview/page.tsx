@@ -15,6 +15,7 @@ import { NavBar } from "@/components/ui/NavBar";
 import { Sheet } from "@/components/ui/Sheet";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
+import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import { haptic } from "@/lib/haptics";
 import {
   runSpine,
@@ -64,7 +65,7 @@ function OverviewCard({
   const spec =
     item.kind === "run"
       ? item.workout.targetKm != null
-        ? `${item.workout.targetKm}km`
+        ? `${displayDistance(item.workout.targetKm)}${distanceUnitLabel()}`
         : item.workout.targetDurationMinutes != null
         ? `${item.workout.targetDurationMinutes}m`
         : null
@@ -367,7 +368,7 @@ export default function PlanOverviewPage() {
                   Week {week.weekNumber}
                 </span>
                 <span className="text-[11px] text-text-3 tabular-nums">
-                  {Math.round(week.targetKm)} km
+                  {displayDistance(week.targetKm, 0)} {distanceUnitLabel()}
                 </span>
               </button>
             );
