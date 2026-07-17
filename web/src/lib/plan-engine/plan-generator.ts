@@ -1095,6 +1095,7 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     trainingVolume: config.trainingVolume,
     trainingDifficulty: config.trainingDifficulty,
     longRunCapKm: config.longRunCapKm,
+    easyRunMinKm: config.easyRunMinKm ?? 0,
     hillyArea: config.hillyArea,
     weeks,
   };

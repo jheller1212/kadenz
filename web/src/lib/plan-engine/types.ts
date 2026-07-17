@@ -140,6 +140,7 @@ export interface GeneratedPlan {
   trainingVolume: TrainingVolume;
   trainingDifficulty: TrainingDifficulty;
   longRunCapKm: number;
+  easyRunMinKm: number;
   hillyArea: boolean;
   weeks: GeneratedWeek[];
 }

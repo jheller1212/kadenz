@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
         trainingVolume: generatedPlan.trainingVolume,
         trainingDifficulty: generatedPlan.trainingDifficulty,
         longRunCapKm: generatedPlan.longRunCapKm,
+        easyRunMinKm: generatedPlan.easyRunMinKm,
         hillyArea: generatedPlan.hillyArea,
         status: "active",
       })
