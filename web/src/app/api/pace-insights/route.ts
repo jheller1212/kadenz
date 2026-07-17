@@ -228,6 +228,7 @@ export async function GET() {
 
     let paceStatus: "on_point" | "ahead" | "review" | "variable" | "no_data";
     let statusMessage: string;
+    let inBandPct: number | null = null;
 
     if (allCompleted.length === 0) {
       paceStatus = "no_data";
@@ -253,6 +254,7 @@ export async function GET() {
         const slow = verdicts.filter((v) => v === 1).length;
         const inBand = verdicts.length - fast - slow;
         const majority = Math.ceil(verdicts.length / 2);
+        inBandPct = Math.round((inBand / verdicts.length) * 100);
 
         if (inBand === verdicts.length) {
           paceStatus = "on_point";
@@ -281,6 +283,7 @@ export async function GET() {
       updatedDate,
       paceStatus,
       statusMessage,
+      inBandPct,
       nextSpeedWorkout,
       paceZones: {
         E: paceZones.E,
