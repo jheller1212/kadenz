@@ -1,28 +1,51 @@
 """
 Kadenz Garmin Worker
 
-Thin FastAPI service that creates/moves/deletes structured workouts on
-Garmin Connect via the garth library.
+Thin FastAPI service that syncs with Garmin Connect via the garth library:
+- creates/moves/deletes structured running workouts
+- creates scheduled strength workouts
+- pulls activities (list + detail with km splits)
 
 Auth: Bearer token (WORKER_TOKEN env var) for inbound requests.
 Garmin: garth session loaded from GARTH_HOME directory on startup; falls
 back to GARMIN_EMAIL + GARMIN_PASSWORD credentials for initial login.
+Payload builders and mappers live in workouts.py.
 """
 
 import logging
 import os
 import warnings
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Annotated, Any
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
 
 # Suppress garth deprecation warning — we're intentionally using it
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", DeprecationWarning)
     import garth
+
+from workouts import (  # noqa: F401 — re-exported for tests/consumers
+    CreateStrengthWorkoutRequest,
+    CreateWorkoutRequest,
+    MoveWorkoutRequest,
+    StrengthExercise,
+    WorkoutBlock,
+    _build_step,
+    _build_strength_step,
+    _build_strength_workout_payload,
+    _build_workout_payload,
+    _map_activity_summary,
+    _map_split,
+    _pace_from_speed,
+    _parse_garmin_ts,
+    _parse_since,
+    _resolve_exercise,
+    _simplify_kind,
+)
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -56,6 +79,59 @@ def _init_garth() -> None:
         )
 
 
+class GarminAuthError(Exception):
+    """Raised when Garmin authentication failed even after a session refresh."""
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """Heuristically detect an authentication/authorization failure from garth."""
+    for candidate in (exc, getattr(exc, "error", None)):
+        response = getattr(candidate, "response", None)
+        status = getattr(response, "status_code", None)
+        if status in (401, 403):
+            return True
+    msg = str(exc).lower()
+    return "401" in msg or "403" in msg or "unauthorized" in msg or "forbidden" in msg
+
+
+def _refresh_garth_session() -> None:
+    """Re-resume tokens from disk, falling back to a fresh credential login."""
+    try:
+        garth.resume(GARTH_HOME)
+        return
+    except Exception as exc:
+        logger.warning("garth.resume failed during refresh: %s", exc)
+    if GARMIN_EMAIL and GARMIN_PASSWORD:
+        garth.login(GARMIN_EMAIL, GARMIN_PASSWORD)
+        garth.save(GARTH_HOME)
+    else:
+        raise GarminAuthError("No tokens and no credentials available")
+
+
+def _garmin_call(path: str, **kwargs: Any) -> Any:
+    """Call the Garmin Connect API with one retry after re-auth.
+
+    Non-auth errors propagate unchanged. A persistent auth failure raises
+    GarminAuthError, which the exception handler turns into a 503 so the
+    web side can surface "reconnect Garmin".
+    """
+    try:
+        return garth.connectapi(path, **kwargs)
+    except Exception as exc:
+        if not _is_auth_error(exc):
+            raise
+        logger.warning("Garmin auth error on %s, refreshing session", path)
+        try:
+            _refresh_garth_session()
+            return garth.connectapi(path, **kwargs)
+        except GarminAuthError:
+            raise
+        except Exception as exc2:
+            if _is_auth_error(exc2):
+                raise GarminAuthError(str(exc2)) from exc2
+            raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_garth()
@@ -63,6 +139,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Kadenz Garmin Worker", lifespan=lifespan)
+
+
+@app.exception_handler(GarminAuthError)
+async def garmin_auth_error_handler(request, exc: GarminAuthError):
+    return JSONResponse(status_code=503, content={"error": "garmin_auth"})
 
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
@@ -80,236 +161,12 @@ def verify_token(authorization: Annotated[str, Header()]) -> None:
 Auth = Annotated[None, Depends(verify_token)]
 
 
-# ── Pydantic models ───────────────────────────────────────────────────────────
-
-
-class WorkoutBlock(BaseModel):
-    """A single segment within a structured workout."""
-
-    type: str = Field(
-        description="Segment type: warmup | work | recovery | cooldown"
-    )
-    duration_seconds: int | None = Field(
-        default=None,
-        description="Duration of this block in seconds (mutually exclusive with distance_meters)",
-    )
-    distance_meters: float | None = Field(
-        default=None,
-        description="Distance in metres (mutually exclusive with duration_seconds)",
-    )
-    target_pace_sec_km: int | None = Field(
-        default=None,
-        description="Target pace in seconds per km",
-    )
-    min_pace_sec_km: int | None = Field(
-        default=None,
-        description="Minimum (fastest) pace in seconds per km",
-    )
-    max_pace_sec_km: int | None = Field(
-        default=None,
-        description="Maximum (slowest) pace in seconds per km",
-    )
-    reps: int | None = Field(
-        default=None,
-        description="Number of repetitions (for interval blocks)",
-    )
-    rep_distance_meters: float | None = Field(
-        default=None,
-        description="Distance per rep in metres",
-    )
-    rep_rest_seconds: int | None = Field(
-        default=None,
-        description="Rest between reps in seconds",
-    )
-
-
-class CreateWorkoutRequest(BaseModel):
-    title: str = Field(description="Workout title shown in Garmin Connect")
-    description: str | None = Field(
-        default=None, description="Optional notes"
-    )
-    scheduled_date: str = Field(
-        description="ISO date string (YYYY-MM-DD) to schedule the workout"
-    )
-    sport_type: str = Field(
-        default="running",
-        description="Sport type: running | cycling | swimming",
-    )
-    blocks: list[WorkoutBlock] = Field(
-        description="Ordered list of workout segments"
-    )
-
-
-class MoveWorkoutRequest(BaseModel):
-    scheduled_date: str = Field(
-        description="New ISO date string (YYYY-MM-DD) to move the workout to"
-    )
-
-
 # ── Garmin Connect API helpers ────────────────────────────────────────────────
-
-# Sport type codes used by Garmin Connect
-_SPORT_TYPE_MAP: dict[str, dict[str, Any]] = {
-    "running": {"sportTypeId": 1, "sportTypeKey": "running"},
-    "cycling": {"sportTypeId": 2, "sportTypeKey": "cycling"},
-    "swimming": {"sportTypeId": 5, "sportTypeKey": "lap_swimming"},
-}
-
-# Workout step type codes
-_STEP_TYPE_MAP: dict[str, dict[str, Any]] = {
-    "warmup": {"stepTypeId": 1, "stepTypeKey": "warmup"},
-    "work": {"stepTypeId": 3, "stepTypeKey": "interval"},
-    "recovery": {"stepTypeId": 4, "stepTypeKey": "recovery"},
-    "cooldown": {"stepTypeId": 2, "stepTypeKey": "cooldown"},
-}
-
-# Condition type codes
-_CONDITION_DISTANCE = {"conditionTypeId": 3, "conditionTypeKey": "distance"}
-_CONDITION_TIME = {"conditionTypeId": 2, "conditionTypeKey": "time"}
-_CONDITION_LAP_BUTTON = {
-    "conditionTypeId": 1,
-    "conditionTypeKey": "lap.button",
-}
-
-# Target type codes
-_TARGET_PACE = {"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone"}
-_TARGET_OPEN = {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}
-
-
-def _pace_to_speed(pace_sec_km: int) -> float:
-    """Convert sec/km pace to m/s (Garmin uses m/s internally)."""
-    return 1000.0 / pace_sec_km
-
-
-def _build_step(block: WorkoutBlock, order: int) -> dict[str, Any]:
-    """Translate a WorkoutBlock into a Garmin Connect workout step dict."""
-    step_type = _STEP_TYPE_MAP.get(block.type)
-    if step_type is None:
-        raise ValueError(f"Unknown block type: {block.type!r}")
-
-    # End condition
-    if block.distance_meters is not None:
-        end_condition = _CONDITION_DISTANCE
-        end_condition_value = str(int(block.distance_meters))
-    elif block.duration_seconds is not None:
-        end_condition = _CONDITION_TIME
-        end_condition_value = str(block.duration_seconds)
-    else:
-        end_condition = _CONDITION_LAP_BUTTON
-        end_condition_value = None
-
-    # Target
-    if block.target_pace_sec_km and block.min_pace_sec_km and block.max_pace_sec_km:
-        target = _TARGET_PACE
-        # Garmin pace target uses m/s; faster (lower sec/km) = higher m/s
-        target_value_one = _pace_to_speed(block.min_pace_sec_km)  # faster
-        target_value_two = _pace_to_speed(block.max_pace_sec_km)  # slower
-    else:
-        target = _TARGET_OPEN
-        target_value_one = None
-        target_value_two = None
-
-    step: dict[str, Any] = {
-        "type": "ExecutableStepDTO",
-        "stepId": None,
-        "stepOrder": order,
-        "childStepId": None,
-        "description": None,
-        "stepType": step_type,
-        "endCondition": end_condition,
-        "endConditionValue": end_condition_value,
-        "endConditionCompare": None,
-        "endConditionZone": None,
-        "targetType": target,
-        "targetValueOne": target_value_one,
-        "targetValueTwo": target_value_two,
-        "zoneNumber": None,
-        "secondaryTargetType": None,
-        "secondaryTargetValueOne": None,
-        "secondaryTargetValueTwo": None,
-        "secondaryZoneNumber": None,
-        "numberOfIterations": None,
-        "smartRepeat": False,
-        "preferredEndConditionUnit": None,
-        "equipmentType": None,
-        "category": None,
-        "exerciseName": None,
-        "workoutProvider": None,
-        "providerExerciseSourceId": None,
-        "strokeType": None,
-        "poolLength": None,
-    }
-
-    # Wrap in a repeat step if reps are specified
-    if block.reps and block.reps > 1:
-        rest_step = None
-        if block.rep_rest_seconds:
-            rest_step = {
-                "type": "ExecutableStepDTO",
-                "stepId": None,
-                "stepOrder": order + 1,
-                "childStepId": 1,
-                "description": None,
-                "stepType": _STEP_TYPE_MAP["recovery"],
-                "endCondition": _CONDITION_TIME,
-                "endConditionValue": str(block.rep_rest_seconds),
-                "targetType": _TARGET_OPEN,
-                "targetValueOne": None,
-                "targetValueTwo": None,
-            }
-
-        step["childStepId"] = 1
-        child_steps = [step]
-        if rest_step:
-            child_steps.append(rest_step)
-
-        return {
-            "type": "RepeatGroupDTO",
-            "stepId": None,
-            "stepOrder": order,
-            "childStepId": None,
-            "description": None,
-            "stepType": {"stepTypeId": 6, "stepTypeKey": "repeat"},
-            "numberOfIterations": block.reps,
-            "smartRepeat": False,
-            "endCondition": {"conditionTypeKey": "iterations", "conditionTypeId": 7},
-            "endConditionValue": str(block.reps),
-            "workoutSteps": child_steps,
-        }
-
-    return step
-
-
-def _build_workout_payload(
-    req: CreateWorkoutRequest,
-) -> dict[str, Any]:
-    """Build the full Garmin Connect workout creation payload."""
-    sport = _SPORT_TYPE_MAP.get(req.sport_type, _SPORT_TYPE_MAP["running"])
-    steps = []
-    for i, block in enumerate(req.blocks, start=1):
-        steps.append(_build_step(block, i))
-
-    return {
-        "sportType": sport,
-        "subSportType": None,
-        "workoutName": req.title,
-        "description": req.description,
-        "estimatedDurationInSecs": None,
-        "estimatedDistanceInMeters": None,
-        "poolLength": None,
-        "workoutSegments": [
-            {
-                "segmentOrder": 1,
-                "sportType": sport,
-                "workoutSteps": steps,
-            }
-        ],
-    }
 
 
 def _schedule_workout(garmin_workout_id: int, date: str) -> dict[str, Any]:
     """Schedule a workout to a specific date on Garmin Connect."""
-    result = garth.connectapi(
+    result = _garmin_call(
         f"/workout-service/schedule/{garmin_workout_id}",
         method="POST",
         json={"date": date},
@@ -319,7 +176,7 @@ def _schedule_workout(garmin_workout_id: int, date: str) -> dict[str, Any]:
 
 def _get_scheduled_workout_id(garmin_workout_id: int, date: str) -> int | None:
     """Find the schedule ID for a workout on a given date."""
-    result = garth.connectapi(
+    result = _garmin_call(
         f"/workout-service/schedule/{garmin_workout_id}",
         method="GET",
     )
@@ -345,11 +202,13 @@ def create_workout(body: CreateWorkoutRequest, _auth: Auth):
     payload = _build_workout_payload(body)
 
     try:
-        created = garth.connectapi(
+        created = _garmin_call(
             "/workout-service/workout",
             method="POST",
             json=payload,
         )
+    except GarminAuthError:
+        raise
     except Exception as exc:
         logger.error("Failed to create workout: %s", exc)
         raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
@@ -361,6 +220,8 @@ def create_workout(body: CreateWorkoutRequest, _auth: Auth):
 
     try:
         schedule_result = _schedule_workout(workout_id, body.scheduled_date)
+    except GarminAuthError:
+        raise
     except Exception as exc:
         logger.error("Workout created (%s) but scheduling failed: %s", workout_id, exc)
         raise HTTPException(
@@ -383,6 +244,8 @@ def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
         # We re-schedule by posting a new schedule entry; the old one is
         # overwritten if the workout was previously scheduled.
         result = _schedule_workout(int(workout_id), body.scheduled_date)
+    except GarminAuthError:
+        raise
     except Exception as exc:
         logger.error("Failed to reschedule workout %s: %s", workout_id, exc)
         raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
@@ -396,12 +259,176 @@ def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
 
 @app.delete("/workouts/{workout_id}", status_code=204)
 def delete_workout(workout_id: str, _auth: Auth):
-    """Remove a workout from Garmin Connect."""
+    """Remove a workout from Garmin Connect.
+
+    Works for any sport type (running and strength alike) — the
+    workout-service delete endpoint is sport-agnostic.
+    """
     try:
-        garth.connectapi(
+        _garmin_call(
             f"/workout-service/workout/{workout_id}",
             method="DELETE",
         )
+    except GarminAuthError:
+        raise
     except Exception as exc:
         logger.error("Failed to delete workout %s: %s", workout_id, exc)
         raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+
+# ── Activity routes ──────────────────────────────────────────────────────────
+
+_ACTIVITY_PAGE_SIZE = 50
+
+
+@app.get("/activities")
+def list_activities(
+    _auth: Auth,
+    since: str | None = None,
+    limit: int = 20,
+):
+    """List recent activities from Garmin Connect, newest first.
+
+    `since` is an ISO timestamp (UTC assumed if no offset); only activities
+    with startTimeGMT >= since are returned. `limit` caps the result count.
+    """
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be 1-200")
+    since_dt: datetime | None = None
+    if since:
+        try:
+            since_dt = _parse_since(since)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid 'since' timestamp")
+
+    activities: list[dict[str, Any]] = []
+    start = 0
+    while len(activities) < limit:
+        try:
+            page = _garmin_call(
+                "/activitylist-service/activities/search/activities",
+                params={"start": start, "limit": _ACTIVITY_PAGE_SIZE},
+            )
+        except GarminAuthError:
+            raise
+        except Exception as exc:
+            logger.error("Failed to list activities: %s", exc)
+            raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+        if not page:
+            break
+        reached_since = False
+        for raw in page:
+            ts = _parse_garmin_ts(raw.get("startTimeGMT"))
+            if since_dt is not None and ts is not None and ts < since_dt:
+                # List is newest-first; everything after this is older.
+                reached_since = True
+                break
+            activities.append(_map_activity_summary(raw))
+            if len(activities) >= limit:
+                break
+        if reached_since or len(page) < _ACTIVITY_PAGE_SIZE:
+            break
+        start += _ACTIVITY_PAGE_SIZE
+
+    return {"activities": activities}
+
+
+@app.get("/activities/{garmin_id}")
+def get_activity(garmin_id: int, _auth: Auth):
+    """Activity detail incl. normalized km splits and lap count."""
+    try:
+        detail = _garmin_call(f"/activity-service/activity/{garmin_id}")
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.error("Failed to fetch activity %s: %s", garmin_id, exc)
+        raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+    if not detail or not isinstance(detail, dict):
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    summary = detail.get("summaryDTO") or {}
+    type_key = (detail.get("activityTypeDTO") or {}).get("typeKey")
+    kind = _simplify_kind(type_key)
+    avg_pace = _pace_from_speed(summary.get("averageSpeed")) if kind == "run" else None
+
+    splits: list[dict[str, Any]] = []
+    try:
+        splits_raw = _garmin_call(f"/activity-service/activity/{garmin_id}/splits")
+        laps = (splits_raw or {}).get("lapDTOs") or []
+        splits = [_map_split(lap) for lap in laps]
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.warning("Splits unavailable for activity %s: %s", garmin_id, exc)
+
+    return {
+        "garminId": detail.get("activityId", garmin_id),
+        "name": detail.get("activityName"),
+        "activityType": type_key,
+        "kind": kind,
+        "startTimeLocal": summary.get("startTimeLocal"),
+        "startTimeGMT": summary.get("startTimeGMT"),
+        "distanceMeters": summary.get("distance"),
+        "durationSeconds": summary.get("duration"),
+        "avgPaceSecPerKm": avg_pace,
+        "avgHr": summary.get("averageHR"),
+        "maxHr": summary.get("maxHR"),
+        "elevationGain": summary.get("elevationGain"),
+        "calories": summary.get("calories"),
+        "splits": splits,
+        "lapCount": len(splits),
+    }
+
+
+# ── Strength workout route ───────────────────────────────────────────────────
+
+
+@app.post("/strength-workouts", status_code=201)
+def create_strength_workout(body: CreateStrengthWorkoutRequest, _auth: Auth):
+    """Create a Garmin strength workout and schedule it on a date.
+
+    Delete via the existing DELETE /workouts/{id} (sport-agnostic).
+    """
+    payload = _build_strength_workout_payload(body)
+
+    try:
+        created = _garmin_call(
+            "/workout-service/workout",
+            method="POST",
+            json=payload,
+        )
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.error("Failed to create strength workout: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+    if not created or not isinstance(created, dict):
+        raise HTTPException(status_code=502, detail="Unexpected response from Garmin")
+
+    workout_id: int = created["workoutId"]
+
+    try:
+        schedule_result = _schedule_workout(workout_id, body.date)
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Strength workout created (%s) but scheduling failed: %s", workout_id, exc
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Workout created (id={workout_id}) but scheduling failed: {exc}",
+        )
+
+    schedule_id = (
+        schedule_result.get("workoutScheduleId")
+        or schedule_result.get("scheduleId")
+        or schedule_result.get("id")
+    )
+    return {
+        "garminWorkoutId": str(workout_id),
+        "scheduleId": str(schedule_id) if schedule_id is not None else None,
+    }
