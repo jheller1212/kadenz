@@ -24,6 +24,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { getVideoId } from "@/lib/strength/videos";
 import { formatWeightKg } from "@/lib/units";
+import { snapToLevel } from "@/lib/strength/weights";
 import { formatRecency } from "@/lib/recency";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import type { Equipment, ExerciseDef } from "@/lib/strength/types";
@@ -231,12 +232,14 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
           // Cleared fields hold NaN until blur — restore defaults on save too.
           const lo = Number.isNaN(repLow) ? 8 : repLow;
           const hi = Number.isNaN(repHigh) ? 12 : repHigh;
+          const w = weightKg != null && Number.isNaN(weightKg) ? undefined : weightKg;
           return {
             exerciseSlug,
             sets: Number.isNaN(sets) ? 3 : sets,
             repLow: Math.min(lo, hi),
             repHigh: Math.max(lo, hi),
-            weightKg: weightKg != null && Number.isNaN(weightKg) ? undefined : weightKg,
+            // Free-typed weights snap onto the standard ladder.
+            weightKg: w != null && w > 0 ? snapToLevel(w) : w,
             restSeconds: Number.isNaN(restSeconds) ? 90 : restSeconds,
           };
         }),

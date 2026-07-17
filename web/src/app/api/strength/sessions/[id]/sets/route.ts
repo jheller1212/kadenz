@@ -117,3 +117,28 @@ export async function POST(
     return Response.json({ error: "Failed to log set" }, { status: 500 });
   }
 }
+
+// ── DELETE /api/strength/sessions/[id]/sets ───────────────────────────────────
+// Discard a workout: remove every logged set of this session so it returns to
+// its planned state.
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const [session] = await db
+      .select({ id: strengthSessions.id })
+      .from(strengthSessions)
+      .where(eq(strengthSessions.id, id));
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+    await db.delete(strengthSets).where(eq(strengthSets.sessionId, id));
+    return Response.json({ ok: true });
+  } catch (err) {
+    console.error("DB error discarding sets:", err);
+    return Response.json({ error: "Failed to discard sets" }, { status: 500 });
+  }
+}

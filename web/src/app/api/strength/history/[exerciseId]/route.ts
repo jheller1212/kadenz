@@ -12,20 +12,30 @@ function e1rm(weightKg: number, reps: number): number {
   return Math.round(weightKg * (1 + reps / 30) * 10) / 10;
 }
 
+// The param accepts either the exercise UUID or its slug (the guided session
+// only knows slugs).
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ exerciseId: string }> }
 ) {
-  const { exerciseId } = await params;
+  const { exerciseId: idOrSlug } = await params;
   const profileId = getActiveProfileId(request);
   try {
     const [exercise] = await db
       .select()
       .from(strengthExercises)
-      .where(eq(strengthExercises.id, exerciseId));
+      .where(
+        UUID_RE.test(idOrSlug)
+          ? eq(strengthExercises.id, idOrSlug)
+          : eq(strengthExercises.slug, idOrSlug)
+      );
     if (!exercise) {
       return Response.json({ error: "Exercise not found" }, { status: 404 });
     }
+    const exerciseId = exercise.id;
 
     const rows = await db
       .select({
