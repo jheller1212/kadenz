@@ -623,13 +623,14 @@ function WeekOverviewCard({
         <ChevronRight className="h-5 w-5 text-text-3" strokeWidth={2} />
       </div>
 
-      {/* Segmented progress bar */}
+      {/* Segmented progress bar — fills left to right regardless of which
+          day's workout was completed */}
       <div className="mt-3 flex h-2 gap-1">
-        {segments.map((completed, i) => (
+        {segments.map((_, i) => (
           <div
             key={i}
             className="flex-1 rounded-full"
-            style={{ backgroundColor: completed ? "var(--k-text-1)" : "var(--k-elevated)" }}
+            style={{ backgroundColor: i < done ? "var(--k-text-1)" : "var(--k-elevated)" }}
           />
         ))}
       </div>
@@ -715,7 +716,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
               <p className="mt-1 text-xs text-text-3">{pct}% · {stats.daysCompleted}/{stats.totalDays} runs</p>
               <div className="mt-3 flex h-2 gap-1">
-                <div className="rounded-full bg-[#4ADE80]" style={{ flex: Math.max(0.01, stats.completedKm) }} />
+                <div className="rounded-full bg-[var(--k-type-easy)]" style={{ flex: Math.max(0.01, stats.completedKm) }} />
                 <div className="rounded-full bg-elevated" style={{ flex: Math.max(0.01, stats.plannedKm - stats.completedKm) }} />
               </div>
             </TransitionLink>
@@ -730,7 +731,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </p>
               <div className="mt-3 flex h-2 items-center justify-center">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
-                  <div className="h-full rounded-full bg-[#4ADE80]" style={{ width: `${Math.min(100, pct)}%` }} />
+                  <div className="h-full rounded-full bg-[var(--k-type-easy)]" style={{ width: `${Math.min(100, pct)}%` }} />
                 </div>
               </div>
             </TransitionLink>
