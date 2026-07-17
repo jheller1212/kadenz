@@ -306,6 +306,13 @@ export const activities = pgTable(
   ]
 );
 
+// Tombstones for user-deleted synced activities: sync (webhook + backfill)
+// must never re-import these Strava ids.
+export const deletedActivities = pgTable("deleted_activities", {
+  stravaId: text("strava_id").primaryKey(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const personalRecords = pgTable(
   "personal_records",
   {
