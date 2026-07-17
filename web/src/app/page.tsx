@@ -33,6 +33,7 @@ import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { haptic } from "@/lib/haptics";
+import { readCache, writeCache } from "@/lib/client-cache";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -675,10 +676,16 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
   const [collapsed, setCollapsed] = useState(false);
   const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(null);
   useEffect(() => {
+    const cached = readCache<{ status: string; inBandPct: number | null }>("pace_verdict");
+    if (cached) setPace(cached);
     apiFetch("/api/pace-insights")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.paceStatus) setPace({ status: d.paceStatus, inBandPct: d.inBandPct ?? null });
+        if (d?.paceStatus) {
+          const v = { status: d.paceStatus as string, inBandPct: (d.inBandPct ?? null) as number | null };
+          setPace(v);
+          writeCache("pace_verdict", v);
+        }
       })
       .catch(() => {});
   }, []);
@@ -1139,6 +1146,18 @@ export default function Home() {
     from.setHours(0, 0, 0, 0);
     const to = new Date(days[days.length - 1].date);
     to.setHours(23, 59, 59, 999);
+    const cacheKey = `strength_week:${from.toISOString().slice(0, 10)}`;
+    function apply(sessions: StrengthSessionLite[]) {
+      const active = sessions.filter((sess) => sess.status !== "skipped");
+      setWeekStrength(active);
+      const map: Record<string, string> = {};
+      for (const sess of active) {
+        map[new Date(sess.date).toDateString()] = sess.status;
+      }
+      setStrengthDays(map);
+    }
+    const cached = readCache<StrengthSessionLite[]>(cacheKey);
+    if (cached) apply(cached);
     (async () => {
       try {
         const res = await apiFetch(
@@ -1146,13 +1165,8 @@ export default function Home() {
         );
         if (!res.ok) return;
         const sessions = (await res.json()) as StrengthSessionLite[];
-        const active = sessions.filter((sess) => sess.status !== "skipped");
-        setWeekStrength(active);
-        const map: Record<string, string> = {};
-        for (const sess of active) {
-          map[new Date(sess.date).toDateString()] = sess.status;
-        }
-        setStrengthDays(map);
+        writeCache(cacheKey, sessions);
+        apply(sessions);
       } catch {
         /* strip just shows run dots */
       }
@@ -1167,6 +1181,29 @@ export default function Home() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const weather = useWeather(selectedDate);
 
+  const applyToday = useCallback((json: TodayApiResponse) => {
+    setData(json);
+    if (json.activePlan && json.weekWorkouts && json.weekWorkouts.length > 0) {
+      // Use the first workout's date to determine which week to show
+      // (handles fallback when plan starts in a future week)
+      const firstWorkoutDate = new Date(json.weekWorkouts[0].date);
+      const monday = getMondayOfWeek(firstWorkoutDate);
+      setDays(buildWeekDaysForDate(monday, json.weekWorkouts));
+
+      if (json.todayWorkout) {
+        setSelectedWorkout(json.todayWorkout);
+        setSelectedDate(new Date(json.todayWorkout.date));
+      } else {
+        // Auto-select first non-rest workout
+        const firstReal = json.weekWorkouts.find((w) => w.type !== "rest");
+        if (firstReal) {
+          setSelectedWorkout(firstReal);
+          setSelectedDate(new Date(firstReal.date));
+        }
+      }
+    }
+  }, []);
+
   const loadData = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setLoadError(false);
@@ -1174,7 +1211,8 @@ export default function Home() {
       const res = await apiFetch("/api/today");
       if (!res.ok) throw new Error("Failed");
       const json: TodayApiResponse = await res.json();
-      setData(json);
+      applyToday(json);
+      writeCache("today", json);
 
       if (json.activePlan && json.planId) {
         const planRes = await apiFetch(`/api/plans/${json.planId}`);
@@ -1183,26 +1221,7 @@ export default function Home() {
           const wo: TodayApiWorkout[] = [];
           for (const week of plan.weeks ?? []) for (const w of week.workouts ?? []) wo.push(w);
           setAllWorkouts(wo);
-        }
-      }
-
-      if (json.activePlan && json.weekWorkouts && json.weekWorkouts.length > 0) {
-        // Use the first workout's date to determine which week to show
-        // (handles fallback when plan starts in a future week)
-        const firstWorkoutDate = new Date(json.weekWorkouts[0].date);
-        const monday = getMondayOfWeek(firstWorkoutDate);
-        setDays(buildWeekDaysForDate(monday, json.weekWorkouts));
-
-        if (json.todayWorkout) {
-          setSelectedWorkout(json.todayWorkout);
-          setSelectedDate(new Date(json.todayWorkout.date));
-        } else {
-          // Auto-select first non-rest workout
-          const firstReal = json.weekWorkouts.find((w) => w.type !== "rest");
-          if (firstReal) {
-            setSelectedWorkout(firstReal);
-            setSelectedDate(new Date(firstReal.date));
-          }
+          writeCache("today_all_workouts", wo);
         }
       }
     } catch {
@@ -1211,9 +1230,23 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyToday]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  // Instant open: paint from the last snapshot, then refresh silently.
+  // Hydration happens post-mount so the first client render still matches the
+  // server-rendered skeleton.
+  useEffect(() => {
+    const cached = readCache<TodayApiResponse>("today");
+    if (cached?.activePlan) {
+      applyToday(cached);
+      const cachedAll = readCache<TodayApiWorkout[]>("today_all_workouts");
+      if (cachedAll) setAllWorkouts(cachedAll);
+      setLoading(false);
+      loadData({ silent: true });
+    } else {
+      loadData();
+    }
+  }, [loadData, applyToday]);
 
   const { pull, refreshing } = usePullToRefresh(() => loadData({ silent: true }));
   useScrollRestoration(!loading);
