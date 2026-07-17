@@ -12,6 +12,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
+import { STRENGTH_COLOR } from "@/lib/workout-colors";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
@@ -115,7 +116,7 @@ const WORKOUT_COLORS: Record<string, string> = {
   long: "#8655F0",
   race: "#FF4D4D",
   run: "#60A5FA",
-  strength: "#F472B6",
+  strength: STRENGTH_COLOR.solid,
 };
 
 // ── Group workouts by month ───────────────────────────────────────────────────
@@ -883,7 +884,7 @@ function LinkActivitySheet({
                       onClick={() => link({ strengthSessionId: s.id })}
                       className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-surface px-3 py-2.5 text-left disabled:opacity-40"
                     >
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: "#F472B6" }} />
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STRENGTH_COLOR.solid }} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[14px] font-semibold text-text-1">{s.title}</span>
                         <span className="block text-[12px] text-text-3">{fmtDay(s.date)}{s.linked ? " · already linked" : ""}</span>
