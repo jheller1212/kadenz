@@ -475,16 +475,14 @@ export default function StatsPage() {
           0
         );
         const totalKm = plan.weeks.reduce((sum, w) => sum + w.targetKm, 0);
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
         const thisWeekWorkouts =
           currentWeek?.workouts.filter((w) => w.type !== "rest") ?? [];
-        const pastWorkoutsThisWeek = thisWeekWorkouts.filter(
-          (w) => w.date <= today
+        const completedThisWeek = thisWeekWorkouts.filter(
+          (w) => w.status === "completed"
         ).length;
         const completionPct =
           thisWeekWorkouts.length > 0
-            ? Math.round((pastWorkoutsThisWeek / thisWeekWorkouts.length) * 100)
+            ? Math.round((completedThisWeek / thisWeekWorkouts.length) * 100)
             : 0;
         const planPct = Math.round(
           ((currentWeekIdx + 1) / plan.planLengthWeeks) * 100
