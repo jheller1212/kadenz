@@ -1,0 +1,105 @@
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { db, activities } from "@/db";
+import { and, gte, isNotNull, lt } from "drizzle-orm";
+
+// ── GET /api/stats/hr-zones?month=YYYY-MM&bounds=139,152,160,169&max=185 ─────
+// Time in HR zones for one month. Zone bounds are client-side (settings), so
+// the client passes them along. HR streams are not persisted — the activity
+// detail page fetches them live from Strava — so aggregating a whole month
+// that way would cost one Strava call per activity on every Stats view.
+// Instead we approximate from what IS in the DB: per-km splits carry an
+// average_heartrate + moving_time (km-level resolution), and activities
+// without splits (e.g. strength) fall back to avgHr over the full duration.
+
+const QuerySchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  bounds: z
+    .string()
+    .transform((s) => s.split(",").map(Number))
+    .pipe(z.array(z.number().int().min(40).max(250)).length(4)),
+  max: z.coerce.number().int().min(60).max(250),
+});
+
+interface RawSplit {
+  average_heartrate?: number;
+  moving_time?: number;
+  elapsed_time?: number;
+}
+
+function zoneIndexFor(hr: number, bounds: number[]): number {
+  for (let z = 0; z < bounds.length; z++) {
+    if (hr < bounds[z]) return z;
+  }
+  return 4;
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = request.nextUrl;
+  const parsed = QuerySchema.safeParse({
+    month: searchParams.get("month"),
+    bounds: searchParams.get("bounds"),
+    max: searchParams.get("max"),
+  });
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Validation failed", issues: parsed.error.issues },
+      { status: 422 }
+    );
+  }
+  const { month, bounds } = parsed.data;
+
+  const [year, mon] = month.split("-").map(Number);
+  const monthStart = new Date(year, mon - 1, 1);
+  const monthEnd = new Date(year, mon, 1);
+
+  try {
+    // Guard payload cost: only the columns the aggregation needs.
+    const rows = await db
+      .select({
+        startDate: activities.startDate,
+        splitsJson: activities.splitsJson,
+        avgHr: activities.avgHr,
+        durationSeconds: activities.durationSeconds,
+      })
+      .from(activities)
+      .where(
+        and(
+          isNotNull(activities.startDate),
+          gte(activities.startDate, monthStart),
+          lt(activities.startDate, monthEnd)
+        )
+      );
+
+    const seconds = [0, 0, 0, 0, 0];
+    let counted = 0;
+
+    for (const row of rows) {
+      let contributed = false;
+      if (Array.isArray(row.splitsJson)) {
+        for (const s of row.splitsJson as RawSplit[]) {
+          const hr = s.average_heartrate;
+          const dt = s.moving_time ?? s.elapsed_time;
+          if (hr == null || hr <= 0 || dt == null || dt <= 0) continue;
+          seconds[zoneIndexFor(hr, bounds)] += dt;
+          contributed = true;
+        }
+      }
+      // No per-split HR (strength sessions, manual entries): whole duration
+      // in the zone of the activity's average HR.
+      if (!contributed && row.avgHr && row.avgHr > 0 && row.durationSeconds) {
+        seconds[zoneIndexFor(row.avgHr, bounds)] += row.durationSeconds;
+        contributed = true;
+      }
+      if (contributed) counted++;
+    }
+
+    return Response.json({
+      zones: seconds.map((s) => ({ seconds: Math.round(s) })),
+      activities: counted,
+    });
+  } catch (err) {
+    console.error("Error aggregating HR zone time:", err);
+    return Response.json({ error: "Failed to aggregate" }, { status: 500 });
+  }
+}
