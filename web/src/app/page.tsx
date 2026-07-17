@@ -1411,11 +1411,15 @@ export default function Home() {
   const totalWeeks = data.totalWeeks ?? 1;
   const viewingToday = weekOffset === 0 && (!selectedDate || (selectedDate.getDate() === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth() && selectedDate.getFullYear() === new Date().getFullYear()));
 
-  // When viewing a different week, show the first workout of that week if nothing selected
+  // Fallback order: the explicitly selected workout; today's workout when
+  // nothing is selected; the week's first run ONLY when no specific day is
+  // selected (browsing another week). A selected day with no run must show
+  // its rest/strength state — never another day's run.
   const activeWorkout = selectedWorkout
     ?? (viewingToday ? data.todayWorkout : null)
-    ?? days.find((d) => d.workout && d.workout.type !== "rest")?.workout
-    ?? null;
+    ?? (selectedDate === null
+      ? days.find((d) => d.workout && d.workout.type !== "rest")?.workout ?? null
+      : null);
   const isRestDay = !activeWorkout || activeWorkout.type === "rest";
 
   const viewedWeekWorkouts = days.filter((d) => d.workout).map((d) => d.workout!);
