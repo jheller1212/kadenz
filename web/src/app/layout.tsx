@@ -43,6 +43,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased light">
       <head>
+        <link rel="preconnect" href="https://api.open-meteo.com" />
         <script dangerouslySetInnerHTML={{ __html: `
           try {
             var s = JSON.parse(localStorage.getItem('kadenz_settings') || '{}');
