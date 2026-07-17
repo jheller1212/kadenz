@@ -35,6 +35,7 @@ function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
     trainingVolume: raw.trainingVolume as GeneratedPlan["trainingVolume"],
     trainingDifficulty: raw.trainingDifficulty as GeneratedPlan["trainingDifficulty"],
     longRunCapKm: (raw.longRunCapKm as number) ?? 0,
+    easyRunMinKm: (raw.easyRunMinKm as number) ?? 0,
     hillyArea: (raw.hillyArea as boolean) ?? false,
     weeks: ((raw.weeks as Record<string, unknown>[]) ?? []).map((week) => ({
       weekNumber: week.weekNumber as number,

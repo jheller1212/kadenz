@@ -129,6 +129,7 @@ export async function PUT(
         trainingVolume: generated.trainingVolume,
         trainingDifficulty: generated.trainingDifficulty,
         longRunCapKm: generated.longRunCapKm,
+        easyRunMinKm: generated.easyRunMinKm,
         hillyArea: generated.hillyArea,
         status: "active",
         updatedAt: new Date(),

@@ -166,6 +166,7 @@ export const plans = pgTable(
     trainingVolume: trainingVolumeEnum("training_volume").notNull(),
     trainingDifficulty: trainingDifficultyEnum("training_difficulty").notNull(),
     longRunCapKm: real("long_run_cap_km"),
+    easyRunMinKm: real("easy_run_min_km"),
     hillyArea: boolean("hilly_area").notNull().default(false),
     status: planStatusEnum("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true })

@@ -92,7 +92,7 @@ function EditPlanInner() {
           hillyArea: p.hillyArea ?? false,
           currentWeeklyKm: p.currentWeeklyKm ?? 0,
           longRunCapKm: p.longRunCapKm ?? 0,
-          easyRunMinKm: 0,
+          easyRunMinKm: p.easyRunMinKm ?? 0,
         });
       } finally {
         if (!cancelled) setLoading(false);
