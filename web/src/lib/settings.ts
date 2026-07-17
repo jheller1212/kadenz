@@ -57,6 +57,12 @@ export interface UserSettings {
   runSplitCues: boolean;
   /** Keep the screen awake during a guided run (Wake Lock) */
   runKeepAwake: boolean;
+
+  // ── Garmin ───────────────────────────────────────────────────────────────
+  /** Local mirror of the server-side "send workouts to watch" toggle
+   * (authoritative copy lives in the DB via /api/garmin/config so the cron
+   * can read it — this mirror just makes the settings UI instant). */
+  garminSyncWorkouts: boolean;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -86,6 +92,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   runGps: true,
   runSplitCues: true,
   runKeepAwake: true,
+  garminSyncWorkouts: false,
 };
 
 /** Peak WebAudio gain (and speech volume) per cue-volume level. */

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, activities, workouts, blocks, strengthSessions, deletedActivities } from "@/db";
 import { eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
+import { garminTombstoneKey } from "@/lib/sync/garmin-activity-import";
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 
@@ -402,6 +403,14 @@ export async function DELETE(
       await db
         .insert(deletedActivities)
         .values({ stravaId: activity.stravaId })
+        .onConflictDoNothing();
+    }
+    if (activity.garminId) {
+      // Garmin-origin tombstone shares the table via a namespaced key so the
+      // Garmin import never resurrects it.
+      await db
+        .insert(deletedActivities)
+        .values({ stravaId: garminTombstoneKey(activity.garminId) })
         .onConflictDoNothing();
     }
     await db.delete(activities).where(eq(activities.id, id));

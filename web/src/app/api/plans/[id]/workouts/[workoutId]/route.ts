@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, workouts, blocks } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
 
 const WorkoutPatchSchema = z.object({
   status: z.enum(["planned", "completed", "skipped", "missed"]).optional(),
@@ -181,6 +182,10 @@ export async function PATCH(
           }
         })
         .catch(() => {});
+      // …and to the watch (self-gating: only when configured/pushed/enabled).
+      queueGarminWorkoutMove(workoutId).catch((err) =>
+        console.error("Failed to queue Garmin reschedule:", err)
+      );
     }
 
     return Response.json(updated);

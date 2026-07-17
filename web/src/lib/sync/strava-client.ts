@@ -357,8 +357,8 @@ export async function fetchActivity(
  * that lack Strava data; ties break on targetKm closest to the actual
  * distance so multi-run days attach to the right session.
  */
-async function findMatchingWorkout(
-  activity: StravaActivity
+export async function findMatchingWorkout(
+  activity: Pick<StravaActivity, "start_date_local" | "distance">
 ): Promise<string | null> {
   const activityDate = new Date(activity.start_date_local);
   const dayStart = new Date(activityDate);
@@ -407,8 +407,8 @@ const STRENGTH_SPORT_TYPES = new Set(["WeightTraining", "Workout", "Crossfit", "
  * isn't already backed by a recorded activity. Prefers planned/incomplete
  * sessions. Returns the session id, or null.
  */
-async function findMatchingStrengthSession(
-  activity: StravaActivity
+export async function findMatchingStrengthSession(
+  activity: Pick<StravaActivity, "start_date_local">
 ): Promise<string | null> {
   const d = new Date(activity.start_date_local);
   const dayStart = new Date(d);
