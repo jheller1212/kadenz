@@ -9,6 +9,10 @@ import {
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 const DEFAULT_LOOKBACK_DAYS = 30;
+// Each NEW activity costs one Strava detail request, and the API quota is
+// shared across every connected athlete of this app (~100-200 req/15 min).
+// Cap the work per invocation; the client loops until done.
+const MAX_NEW_PER_RUN = 80;
 
 // ── POST: Backfill recent Strava activities ──────────────────────────────────
 
@@ -18,7 +22,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    if (body.since) {
+    if (body.full === true) {
+      sinceEpoch = 1; // everything the athlete ever recorded
+    } else if (body.since) {
       const parsed = Number(body.since);
       // Accept either a Unix epoch (number) or an ISO date string
       sinceEpoch = Number.isFinite(parsed)
@@ -102,20 +108,38 @@ export async function POST(request: NextRequest) {
   let inserted = 0;
   let alreadySynced = 0;
   let skippedTypes = 0;
+  let processedNew = 0;
+  let rateLimited = false;
+  let remaining = 0;
   const errors: Array<{ id: number; error: string }> = [];
 
-  for (const activity of stravaActivities) {
+  for (let i = 0; i < stravaActivities.length; i++) {
+    const activity = stravaActivities[i];
+    const isKnown = known.has(String(activity.id));
+    if (!isKnown && processedNew >= MAX_NEW_PER_RUN) {
+      // Chunk boundary: count what's left so the client knows to loop.
+      remaining = stravaActivities.slice(i).filter((a) => !known.has(String(a.id))).length;
+      break;
+    }
     try {
-      if (known.has(String(activity.id))) {
+      if (isKnown) {
         alreadySynced++;
         continue; // idempotent anyway, but skip the API round-trips
       }
+      processedNew++;
       const result = await processActivity(activity.id);
       if (result === "stored") inserted++;
       else if (result === "skipped") skippedTypes++;
       else alreadySynced++;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
+      if (message.includes(" 429 ")) {
+        // Strava quota exhausted — stop politely; everything done so far is
+        // stored, a later run resumes via the duplicate pre-check.
+        rateLimited = true;
+        remaining = stravaActivities.slice(i).filter((a) => !known.has(String(a.id))).length;
+        break;
+      }
       errors.push({ id: activity.id, error: message });
     }
   }
@@ -137,6 +161,9 @@ export async function POST(request: NextRequest) {
     inserted,
     alreadySynced,
     skippedTypes,
+    remaining,
+    rateLimited,
+    done: remaining === 0 && !rateLimited,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
