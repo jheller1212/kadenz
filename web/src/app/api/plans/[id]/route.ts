@@ -6,6 +6,9 @@ import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
 import { queuePlanWorkoutsSync, queueWorkoutEventDeletes } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { queueGarminWindowSync, queueGarminWorkoutDeletes } from "@/lib/sync/garmin-sync";
+import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
+import { garminClient } from "@/lib/sync/garmin-client";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon"]),
@@ -143,12 +146,19 @@ export async function PUT(
     // Capture the old workouts' calendar events before we drop them, so their
     // now-stale events can be pruned from Google Calendar.
     const oldWorkouts = await db
-      .select({ workoutId: workouts.id, gcalEventId: workouts.gcalEventId })
+      .select({
+        workoutId: workouts.id,
+        gcalEventId: workouts.gcalEventId,
+        garminWorkoutId: workouts.garminWorkoutId,
+      })
       .from(workouts)
       .where(eq(workouts.planId, id));
     const staleEvents = oldWorkouts
-      .filter((w): w is { workoutId: string; gcalEventId: string } => !!w.gcalEventId)
-      .map((w) => ({ workoutId: w.workoutId, gcalEventId: w.gcalEventId }));
+      .filter((w) => !!w.gcalEventId)
+      .map((w) => ({ workoutId: w.workoutId, gcalEventId: w.gcalEventId! }));
+    const staleGarmin = oldWorkouts
+      .filter((w) => !!w.garminWorkoutId)
+      .map((w) => ({ workoutId: w.workoutId, garminWorkoutId: w.garminWorkoutId! }));
 
     // Replace the schedule: delete existing weeks (cascades workouts + blocks).
     await db.delete(weeks).where(eq(weeks.planId, id));
@@ -220,6 +230,23 @@ export async function PUT(
       })
       .catch(() => {});
 
+    // Garmin: prune old pushed workouts (whenever the worker is deployed —
+    // they'd otherwise go stale), then push the new 14-day window if enabled.
+    if (garminClient.isConfigured()) {
+      queueGarminWorkoutDeletes(staleGarmin).catch((err) =>
+        console.error("Failed to queue Garmin workout deletes:", err)
+      );
+      isGarminWorkoutSyncEnabled()
+        .then((enabled) => {
+          if (enabled) {
+            queueGarminWindowSync(id).catch((err) =>
+              console.error("Failed to queue Garmin sync:", err)
+            );
+          }
+        })
+        .catch(() => {});
+    }
+
     const fullPlan = await db.query.plans.findFirst({
       where: (p, { eq }) => eq(p.id, id),
       with: {
@@ -259,6 +286,21 @@ export async function DELETE(
 
     if (!updated) {
       return Response.json({ error: "Plan not found" }, { status: 404 });
+    }
+
+    // Remove any workouts this plan pushed to the watch (fire-and-forget).
+    if (garminClient.isConfigured()) {
+      db.select({ workoutId: workouts.id, garminWorkoutId: workouts.garminWorkoutId })
+        .from(workouts)
+        .where(eq(workouts.planId, id))
+        .then((rows) =>
+          queueGarminWorkoutDeletes(
+            rows
+              .filter((w) => !!w.garminWorkoutId)
+              .map((w) => ({ workoutId: w.workoutId, garminWorkoutId: w.garminWorkoutId! }))
+          )
+        )
+        .catch((err) => console.error("Failed to queue Garmin workout deletes:", err));
     }
 
     return Response.json({ id: updated.id, status: "archived" });

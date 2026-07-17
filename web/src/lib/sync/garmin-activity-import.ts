@@ -1,0 +1,216 @@
+// ── Garmin activity import (DB-backed runner) ────────────────────────────────
+// Pulls recent activities from the garmin-worker, dedupes against rows that
+// already arrived via Strava, stores new runs (with splits) and strength
+// sessions, and auto-ticks the matching planned workout/session — mirroring
+// strava-client's processActivity.
+
+import { db, activities, workouts, strengthSessions, deletedActivities } from "@/db";
+import { eq, and, gte, lte } from "drizzle-orm";
+import { garminClient, type GarminActivity } from "./garmin-client";
+import {
+  isDuplicateActivity,
+  mapGarminSplits,
+  normalizeLocalTimestamp,
+  parseGmtTimestamp,
+} from "./garmin-import";
+import { loadImportSince, saveImportTimestamp } from "./garmin-config";
+import {
+  findMatchingWorkout,
+  findMatchingStrengthSession,
+} from "./strava-client";
+import { isConnected as isGcalConnected } from "./gcal-client";
+import { queueStrengthSessionSync } from "./sync-manager";
+
+const MIN_STRENGTH_MATCH_SECONDS = 5 * 60; // same guard as the Strava path
+const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+export interface GarminImportResult {
+  fetched: number;
+  imported: number;
+  skippedDuplicates: number;
+  skippedOther: number;
+  skippedDeleted: number;
+}
+
+/** Tombstone key for Garmin-origin activities in deleted_activities (which is
+ * keyed by strava_id) — namespaced so it can never collide with a Strava id. */
+export function garminTombstoneKey(garminId: string): string {
+  return `garmin:${garminId}`;
+}
+
+async function isDuplicate(act: GarminActivity, startDate: Date): Promise<boolean> {
+  // Same run arriving via Strava: startDate within ±10 min AND duration ±15%.
+  const nearby = await db
+    .select({
+      startDate: activities.startDate,
+      durationSeconds: activities.durationSeconds,
+    })
+    .from(activities)
+    .where(
+      and(
+        gte(activities.startDate, new Date(startDate.getTime() - DEDUPE_WINDOW_MS)),
+        lte(activities.startDate, new Date(startDate.getTime() + DEDUPE_WINDOW_MS))
+      )
+    );
+  return isDuplicateActivity(
+    { startDate, durationSeconds: act.durationSeconds },
+    nearby
+  );
+}
+
+async function importRun(act: GarminActivity, startDate: Date): Promise<void> {
+  // Fetch detail for splits; a failed detail fetch shouldn't lose the activity.
+  let splitsJson: unknown[] | null = null;
+  try {
+    const detail = await garminClient.getActivity(act.garminId);
+    if (detail.splits?.length) splitsJson = mapGarminSplits(detail.splits);
+  } catch (err) {
+    console.error(`Garmin detail fetch failed for ${act.garminId}:`, err);
+  }
+
+  const distanceKm = act.distanceMeters != null ? act.distanceMeters / 1000 : null;
+  const workoutId = await findMatchingWorkout({
+    start_date_local: normalizeLocalTimestamp(act.startTimeLocal),
+    distance: act.distanceMeters ?? 0,
+  });
+
+  await db.insert(activities).values({
+    workoutId,
+    garminId: act.garminId,
+    sportType: "Run",
+    name: act.name,
+    startDate,
+    distanceKm,
+    durationSeconds: act.durationSeconds,
+    avgPaceSecKm: act.avgPaceSecPerKm != null ? Math.round(act.avgPaceSecPerKm) : null,
+    avgHr: act.avgHr != null ? Math.round(act.avgHr) : null,
+    maxHr: act.maxHr != null ? Math.round(act.maxHr) : null,
+    elevationGain: act.elevationGain,
+    splitsJson,
+  });
+
+  if (workoutId) {
+    await db
+      .update(workouts)
+      .set({ status: "completed", actualKm: distanceKm, updatedAt: new Date() })
+      .where(eq(workouts.id, workoutId));
+  }
+}
+
+async function importStrength(act: GarminActivity, startDate: Date): Promise<void> {
+  const longEnough = (act.durationSeconds ?? 0) >= MIN_STRENGTH_MATCH_SECONDS;
+  const strengthSessionId = longEnough
+    ? await findMatchingStrengthSession({
+        start_date_local: normalizeLocalTimestamp(act.startTimeLocal),
+      })
+    : null;
+
+  await db.insert(activities).values({
+    strengthSessionId,
+    garminId: act.garminId,
+    sportType: act.activityType || "WeightTraining",
+    name: act.name,
+    startDate,
+    durationSeconds: act.durationSeconds,
+    avgHr: act.avgHr != null ? Math.round(act.avgHr) : null,
+    maxHr: act.maxHr != null ? Math.round(act.maxHr) : null,
+  });
+
+  if (strengthSessionId) {
+    // Same auto-complete + calendar cleanup as the Strava path.
+    const [sess] = await db
+      .select({ gcalEventId: strengthSessions.gcalEventId })
+      .from(strengthSessions)
+      .where(eq(strengthSessions.id, strengthSessionId));
+
+    await db
+      .update(strengthSessions)
+      .set({
+        status: "completed",
+        durationMinutes: act.durationSeconds
+          ? Math.max(1, Math.round(act.durationSeconds / 60))
+          : null,
+        gcalEventId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(strengthSessions.id, strengthSessionId));
+
+    if (sess?.gcalEventId) {
+      isGcalConnected()
+        .then((connected) => {
+          if (connected) {
+            return queueStrengthSessionSync(strengthSessionId, "delete", "gcal", {
+              gcalEventId: sess.gcalEventId,
+            });
+          }
+        })
+        .catch((err) => console.error("Failed to queue strength calendar cleanup:", err));
+    }
+  }
+}
+
+export async function runGarminImport(): Promise<GarminImportResult> {
+  const result: GarminImportResult = {
+    fetched: 0,
+    imported: 0,
+    skippedDuplicates: 0,
+    skippedOther: 0,
+    skippedDeleted: 0,
+  };
+
+  const since = await loadImportSince();
+  const importStartedAt = new Date();
+  const acts = await garminClient.listActivities(since.toISOString(), 200);
+  result.fetched = acts.length;
+
+  for (const act of acts) {
+    if (act.kind !== "run" && act.kind !== "strength") {
+      result.skippedOther++;
+      continue;
+    }
+
+    // Never resurrect an activity the user deleted in Kadenz.
+    const [tombstone] = await db
+      .select({ stravaId: deletedActivities.stravaId })
+      .from(deletedActivities)
+      .where(eq(deletedActivities.stravaId, garminTombstoneKey(act.garminId)))
+      .limit(1);
+    if (tombstone) {
+      result.skippedDeleted++;
+      continue;
+    }
+
+    // Already imported from Garmin.
+    const [existing] = await db
+      .select({ id: activities.id })
+      .from(activities)
+      .where(eq(activities.garminId, act.garminId))
+      .limit(1);
+    if (existing) {
+      result.skippedDuplicates++;
+      continue;
+    }
+
+    const startDate = parseGmtTimestamp(act.startTimeGMT);
+    if (Number.isNaN(startDate.getTime())) {
+      result.skippedOther++;
+      continue;
+    }
+
+    // Same activity already here via Strava.
+    if (await isDuplicate(act, startDate)) {
+      result.skippedDuplicates++;
+      continue;
+    }
+
+    if (act.kind === "run") {
+      await importRun(act, startDate);
+    } else {
+      await importStrength(act, startDate);
+    }
+    result.imported++;
+  }
+
+  await saveImportTimestamp(importStartedAt);
+  return result;
+}

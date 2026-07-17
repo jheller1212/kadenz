@@ -6,6 +6,8 @@ import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
 import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
+import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -171,6 +173,17 @@ export async function POST(request: NextRequest) {
         });
       }
     }).catch(() => {});
+
+    // Push the first 14 days of run workouts to the watch (fire-and-forget).
+    isGarminWorkoutSyncEnabled()
+      .then((enabled) => {
+        if (enabled) {
+          queueGarminWindowSync(planId).catch((err) =>
+            console.error("Failed to queue Garmin sync:", err)
+          );
+        }
+      })
+      .catch(() => {});
 
     // Return the full plan (weeks + workouts + blocks) by fetching from DB
     const fullPlan = await db.query.plans.findFirst({

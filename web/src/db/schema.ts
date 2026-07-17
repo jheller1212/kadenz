@@ -288,6 +288,9 @@ export const activities = pgTable(
     // unified feed's type badge and run-vs-strength matching.
     sportType: text("sport_type"),
     stravaId: text("strava_id").unique(),
+    // Garmin activity id for watch-recorded activities imported via the
+    // garmin-worker (stravaId stays null for those).
+    garminId: text("garmin_id").unique(),
     name: text("name"),
     distanceKm: real("distance_km"),
     durationSeconds: integer("duration_seconds"),

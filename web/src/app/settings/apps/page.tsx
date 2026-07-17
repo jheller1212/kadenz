@@ -3,10 +3,12 @@
 import { useState, useEffect } from "react";
 import { ListGroup } from "@/components/ui/List";
 import { Button } from "@/components/ui/Button";
+import { Switch } from "@/components/ui/8bit-switch";
 import { SettingsSubpage } from "@/components/ui/SettingsSubpage";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
-import { AlertCircle } from "lucide-react";
+import { loadSettings, saveSettings } from "@/lib/settings";
+import { AlertCircle, Watch } from "lucide-react";
 
 // ── Integration connection rows (moved from /settings) ──────────────────────
 
@@ -243,6 +245,159 @@ function GCalConnection() {
   );
 }
 
+function GarminConnection() {
+  const [status, setStatus] = useState<
+    "loading" | "unconfigured" | "healthy" | "unreachable"
+  >("loading");
+  const [syncWorkouts, setSyncWorkouts] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/garmin/status")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.configured) {
+          setStatus("unconfigured");
+          return;
+        }
+        setStatus(d.healthy ? "healthy" : "unreachable");
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from server
+        setSyncWorkouts(Boolean(d.syncWorkouts));
+      })
+      .catch(() => setStatus("unreachable"));
+  }, []);
+
+  async function handleToggle(value: boolean) {
+    setSyncWorkouts(value); // optimistic
+    setSaving(true);
+    setError(null);
+    // Local mirror for instant UI elsewhere.
+    saveSettings({ ...loadSettings(), garminSyncWorkouts: value });
+    try {
+      const res = await apiFetch("/api/garmin/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ syncWorkouts: value }),
+      });
+      if (!res.ok) throw new Error("save failed");
+    } catch {
+      setSyncWorkouts(!value);
+      saveSettings({ ...loadSettings(), garminSyncWorkouts: !value });
+      setError("Couldn't save the setting. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleImport() {
+    setImporting(true);
+    setImportResult(null);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/garmin/import", { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        if (data?.error === "garmin_auth") {
+          setError("Reconnect Garmin on the worker.");
+        } else {
+          setError("Import failed. Try again later.");
+        }
+        haptic("warning");
+        return;
+      }
+      haptic("success");
+      const skipped = (data?.skippedDuplicates ?? 0) as number;
+      setImportResult(
+        `Imported ${data?.imported ?? 0}${skipped ? ` · skipped ${skipped} duplicates` : ""}`
+      );
+    } catch {
+      haptic("warning");
+      setError("Import failed. Try again later.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const subtitle =
+    status === "loading"
+      ? "Checking…"
+      : status === "unconfigured"
+        ? "Garmin worker not deployed yet"
+        : status === "healthy"
+          ? "Worker online"
+          : "Worker unreachable";
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#007CC3]">
+            <Watch className="h-4 w-4 text-white" strokeWidth={2} aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium text-text-1">Garmin</p>
+            <p className="truncate text-[13px] text-text-3">{subtitle}</p>
+          </div>
+        </div>
+
+        {status === "healthy" ? (
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
+            Connected
+          </span>
+        ) : status === "unreachable" ? (
+          <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[12px] font-semibold text-danger">
+            Offline
+          </span>
+        ) : null}
+      </div>
+
+      {status === "unconfigured" && (
+        <p className="mt-2 text-[12px] text-text-3">
+          Set GARMIN_WORKER_URL and GARMIN_WORKER_TOKEN to enable pushing workouts
+          to the watch and importing watch activities.
+        </p>
+      )}
+
+      {(status === "healthy" || status === "unreachable") && (
+        <>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-[14px] text-text-1">Send workouts to watch</p>
+            <Switch
+              checked={syncWorkouts}
+              onChange={(v) => {
+                if (!saving) void handleToggle(v);
+              }}
+              aria-label="Send workouts to watch"
+            />
+          </div>
+          <p className="mt-1 text-[12px] text-text-3">
+            Pushes upcoming runs (next 14 days) to your Garmin calendar and keeps
+            them in step when the plan changes.
+          </p>
+          <div className="mt-3">
+            <Button variant="secondary" size="sm" busy={importing} onClick={handleImport}>
+              Import activities now
+            </Button>
+          </div>
+        </>
+      )}
+
+      {importResult && !error && (
+        <p className="mt-2 text-[12px] text-text-3">{importResult}</p>
+      )}
+      {error && (
+        <p className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.9} />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function ConnectedAppsPage() {
   return (
     <SettingsSubpage title="Connected Apps">
@@ -250,6 +405,8 @@ export default function ConnectedAppsPage() {
         <StravaConnection />
         <div className="border-t border-hairline/60" />
         <GCalConnection />
+        <div className="border-t border-hairline/60" />
+        <GarminConnection />
       </ListGroup>
     </SettingsSubpage>
   );
