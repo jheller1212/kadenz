@@ -2,7 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableItem } from "@/components/strength/SortableItem";
+import { SortChips } from "@/components/strength/SortChips";
+import { sortExerciseList, type ExerciseSortMode } from "@/lib/strength/sort";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
@@ -67,6 +80,16 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
   const [equipmentStep, setEquipmentStep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // "custom" = the user's manual (drag) order; picking a sort reorders slots.
+  const [sortMode, setSortMode] = useState<ExerciseSortMode>("custom");
+
+  // Long-press drag (250ms) so taps still expand a slot and the sheet scrolls.
+  // MouseSensor + TouchSensor, NOT PointerSensor: on iOS the pointer sensor
+  // cannot cancel scroll panning, so drags activate and then never move.
+  const dndSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
+  );
 
   // Reset the draft each time the sheet opens; ask about equipment on the
   // very first use (persisted afterwards, editable via the Equipment chip).
@@ -86,28 +109,34 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
       );
       setExpanded(null);
       setError(null);
+      setSortMode("custom");
       const stored = loadEquipment();
       setEquipment(stored ?? DEFAULT_EQUIPMENT);
       setEquipmentStep(stored == null && !initial);
     }
   }, [open, initial]);
 
-  // Last-used weight/reps per exercise, for prefilling new slots.
+  // Last-used weight/reps per exercise (prefill) + how often each exercise
+  // was performed (frequency sort).
   const [lastUsed, setLastUsed] = useState<Record<string, { weightKg: number | null; repLow: number; repHigh: number; date: string | null }>>({});
+  const [freq, setFreq] = useState<Record<string, number>>({});
   useEffect(() => {
     if (!open) return;
     (async () => {
       try {
         const res = await apiFetch("/api/strength/exercises");
         if (!res.ok) return;
-        const rows: Array<{ slug: string; lastWeightKg: number | null; lastRepLow: number | null; lastRepHigh: number | null; lastDate: string | null }> = await res.json();
+        const rows: Array<{ slug: string; lastWeightKg: number | null; lastRepLow: number | null; lastRepHigh: number | null; lastDate: string | null; timesPerformed?: number }> = await res.json();
         const map: Record<string, { weightKg: number | null; repLow: number; repHigh: number; date: string | null }> = {};
+        const counts: Record<string, number> = {};
         for (const r of rows) {
+          counts[r.slug] = r.timesPerformed ?? 0;
           if (r.lastRepLow != null && r.lastRepHigh != null) {
             map[r.slug] = { weightKg: r.lastWeightKg, repLow: r.lastRepLow, repHigh: r.lastRepHigh, date: r.lastDate };
           }
         }
         setLastUsed(map);
+        setFreq(counts);
       } catch {
         /* defaults are fine */
       }
@@ -157,16 +186,31 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
     setSlots((s) => s.filter((x) => x.key !== key));
   }
 
-  function moveSlot(key: string, dir: -1 | 1) {
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
     haptic("light");
+    setSortMode("custom");
     setSlots((s) => {
-      const i = s.findIndex((x) => x.key === key);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= s.length) return s;
-      const next = [...s];
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
+      const from = s.findIndex((x) => x.key === active.id);
+      const to = s.findIndex((x) => x.key === over.id);
+      if (from < 0 || to < 0) return s;
+      return arrayMove(s, from, to);
     });
+  }
+
+  // Applying a sort reorders the draft slots themselves — the saved template
+  // keeps whatever order is on screen, same as a manual drag.
+  function applySort(mode: ExerciseSortMode) {
+    setSortMode(mode);
+    if (mode === "custom") return;
+    setSlots((s) =>
+      sortExerciseList(s, mode, {
+        name: (x) => EXERCISES.find((e) => e.slug === x.exerciseSlug)?.name ?? x.exerciseSlug,
+        weightKg: (x) => x.weightKg ?? null,
+        timesPerformed: (x) => freq[x.exerciseSlug] ?? 0,
+      })
+    );
   }
 
   async function save() {
@@ -275,11 +319,25 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
             className="w-full rounded-[var(--radius-input)] bg-elevated px-3.5 py-3 text-[16px] font-medium text-text-1 placeholder:text-text-3 outline-none"
           />
 
+          {slots.length > 1 && (
+            <div>
+              <SortChips mode={sortMode} onSelect={applySort} />
+              <p className="mt-1.5 text-[12px] text-text-3">Hold and drag a card to reorder.</p>
+            </div>
+          )}
+
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => haptic("light")}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={slots.map((s) => s.key)} strategy={verticalListSortingStrategy}>
           {slots.map((slot) => {
             const ex = EXERCISES.find((e) => e.slug === slot.exerciseSlug);
             const isOpen = expanded === slot.key;
             return (
-              <div key={slot.key} className="k-card p-3.5">
+              <SortableItem key={slot.key} id={slot.key} className="k-card p-3.5">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -297,22 +355,6 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                   <motion.span animate={{ rotate: isOpen ? 180 : 0 }}>
                     <ChevronDown className="h-4 w-4 text-text-3" strokeWidth={1.9} />
                   </motion.span>
-                  <button
-                    type="button"
-                    aria-label="Move up"
-                    onClick={() => moveSlot(slot.key, -1)}
-                    className="press flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"
-                  >
-                    <ArrowUp className="h-4 w-4 text-text-2" strokeWidth={1.9} />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Move down"
-                    onClick={() => moveSlot(slot.key, 1)}
-                    className="press flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"
-                  >
-                    <ArrowDown className="h-4 w-4 text-text-2" strokeWidth={1.9} />
-                  </button>
                   <button
                     type="button"
                     aria-label="Remove exercise"
@@ -374,9 +416,11 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                     </div>
                   </div>
                 )}
-              </div>
+              </SortableItem>
             );
           })}
+            </SortableContext>
+          </DndContext>
 
           <Button variant="secondary" full onClick={() => setPickerOpen(true)}>
             <Plus className="h-4 w-4" strokeWidth={2.2} />

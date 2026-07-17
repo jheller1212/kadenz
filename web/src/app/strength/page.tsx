@@ -3,6 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -20,6 +30,9 @@ import GuidedSession, {
   type SessionType,
 } from "@/components/strength/GuidedSession";
 import { CustomWorkoutBuilder } from "@/components/strength/CustomWorkoutBuilder";
+import { SortableItem } from "@/components/strength/SortableItem";
+import { SortChips } from "@/components/strength/SortChips";
+import { sortExerciseList, type ExerciseSortMode } from "@/lib/strength/sort";
 import {
   useCustomWorkouts,
   type CustomWorkoutInput,
@@ -62,6 +75,7 @@ interface ExerciseCatalogRow {
   lastRepLow: number | null;
   lastRepHigh: number | null;
   lastDate: string | null;
+  timesPerformed: number;
 }
 
 type Phase = "picker" | "overview" | "guided" | "summary";
@@ -94,6 +108,20 @@ export default function StrengthPage() {
   const [exercises, setExercises] = useState<PlannedExercise[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sort mode for the overview list — "custom" whenever the user has dragged.
+  const [sortMode, setSortMode] = useState<ExerciseSortMode>("custom");
+  // slug → distinct-session count, lazily fetched for the frequency sort.
+  const [freq, setFreq] = useState<Record<string, number> | null>(null);
+
+  // Long-press drag (250ms) so taps still open the editor and scrolling isn't
+  // hijacked. MouseSensor + TouchSensor, NOT PointerSensor: on iOS the pointer
+  // sensor claims the gesture but cannot preventDefault the scroll pan, so
+  // drags activate and then never move. TouchSensor blocks scroll after the hold.
+  const dndSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
+  );
 
   const [addOpen, setAddOpen] = useState(false);
   const [editIdx, setEditIdx] = useState<number | null>(null);
@@ -217,6 +245,7 @@ export default function StrengthPage() {
       const detail: SessionDetail = await detailRes.json();
       setSession(detail);
       setExercises(detail.plannedExercises);
+      setSortMode("custom");
       setPhase("overview");
     } catch {
       setError("Network error — couldn't start the session.");
@@ -320,6 +349,7 @@ export default function StrengthPage() {
         plannedExercises: planned,
       });
       setExercises(planned);
+      setSortMode("custom");
       setPhase("overview");
     } catch {
       setError("Network error — couldn't start the session.");
@@ -331,6 +361,46 @@ export default function StrengthPage() {
   function removeExercise(slug: string) {
     haptic("light");
     setExercises((exs) => exs.filter((e) => e.slug !== slug));
+  }
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    haptic("light");
+    setSortMode("custom");
+    setExercises((exs) => {
+      const from = exs.findIndex((x) => x.slug === active.id);
+      const to = exs.findIndex((x) => x.slug === over.id);
+      if (from < 0 || to < 0) return exs;
+      return arrayMove(exs, from, to);
+    });
+  }
+
+  // Applying a sort reorders the actual list — same state a manual drag edits,
+  // so whatever the guided session sees is exactly what's on screen.
+  async function applySort(mode: ExerciseSortMode) {
+    setSortMode(mode);
+    if (mode === "custom") return;
+    let f = freq;
+    if (mode === "frequency" && !f) {
+      try {
+        const res = await apiFetch("/api/strength/exercises");
+        if (res.ok) {
+          const rows: ExerciseCatalogRow[] = await res.json();
+          f = Object.fromEntries(rows.map((r) => [r.slug, r.timesPerformed ?? 0]));
+          setFreq(f);
+        }
+      } catch {
+        /* sort with zero counts */
+      }
+    }
+    setExercises((exs) =>
+      sortExerciseList(exs, mode, {
+        name: (x) => x.name,
+        weightKg: (x) => x.suggestedWeightKg,
+        timesPerformed: (x) => f?.[x.slug] ?? 0,
+      })
+    );
   }
 
   async function openAddSheet() {
@@ -738,9 +808,23 @@ export default function StrengthPage() {
             </div>
           )}
 
+          {exercises.length > 1 && (
+            <div className="mt-4">
+              <SortChips mode={sortMode} onSelect={applySort} />
+              <p className="mt-1.5 text-[12px] text-text-3">Hold and drag a card to reorder.</p>
+            </div>
+          )}
+
           <div className="mt-4 flex flex-col gap-3">
+            <DndContext
+              sensors={dndSensors}
+              collisionDetection={closestCenter}
+              onDragStart={() => haptic("light")}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={exercises.map((x) => x.slug)} strategy={verticalListSortingStrategy}>
             {exercises.map((ex, ei) => (
-              <div key={ex.slug} className="flex items-start gap-3 k-card p-3.5">
+              <SortableItem key={ex.slug} id={ex.slug} className="flex items-start gap-3 k-card p-3.5">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
                   {ei + 1}
                 </span>
@@ -787,8 +871,10 @@ export default function StrengthPage() {
                 >
                   <X className="h-4 w-4" strokeWidth={2.5} />
                 </button>
-              </div>
+              </SortableItem>
             ))}
+              </SortableContext>
+            </DndContext>
 
             <motion.button
               type="button"
@@ -846,20 +932,6 @@ export default function StrengthPage() {
         <Sheet open={editIdx != null} onClose={() => setEditIdx(null)} title="Edit exercise">
           {editIdx != null && exercises[editIdx] && (
             <ExerciseEditor
-              index={editIdx}
-              count={exercises.length}
-              onMove={(dir) => {
-                haptic("light");
-                setExercises((exs) => {
-                  const i = editIdx;
-                  const j = i + dir;
-                  if (j < 0 || j >= exs.length) return exs;
-                  const next = [...exs];
-                  [next[i], next[j]] = [next[j], next[i]];
-                  return next;
-                });
-                setEditIdx((i) => (i == null ? i : Math.min(Math.max(i + dir, 0), exercises.length - 1)));
-              }}
               exercise={exercises[editIdx]}
               onChange={(patch) =>
                 setExercises((exs) =>
@@ -895,16 +967,10 @@ function ExerciseEditor({
   exercise,
   onChange,
   onDone,
-  onMove,
-  index,
-  count,
 }: {
   exercise: PlannedExercise;
   onChange: (patch: Partial<PlannedExercise>) => void;
   onDone: () => void;
-  onMove: (dir: -1 | 1) => void;
-  index: number;
-  count: number;
 }) {
   const stepBtn = "press flex h-10 w-10 items-center justify-center rounded-full bg-elevated";
   function Stepper({
@@ -980,27 +1046,6 @@ function ExerciseEditor({
               {exercise.restSeconds}s
             </span>
           )}
-        </div>
-      </div>
-      <div>
-        <p className="mb-2 text-[13px] font-semibold text-text-2">Position in session</p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={index === 0}
-            onClick={() => onMove(-1)}
-            className="press flex-1 rounded-[var(--radius-input)] bg-elevated py-2.5 text-[15px] font-bold text-text-1 disabled:opacity-40"
-          >
-            ↑ Earlier
-          </button>
-          <button
-            type="button"
-            disabled={index >= count - 1}
-            onClick={() => onMove(1)}
-            className="press flex-1 rounded-[var(--radius-input)] bg-elevated py-2.5 text-[15px] font-bold text-text-1 disabled:opacity-40"
-          >
-            ↓ Later
-          </button>
         </div>
       </div>
       <Button full onClick={onDone}>Done</Button>
