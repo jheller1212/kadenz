@@ -103,7 +103,7 @@ function OverviewCard({
         <span
           className={`flex h-7 w-7 items-center justify-center rounded-lg border-2 transition-colors ${
             completed
-              ? "border-transparent bg-accent text-on-accent"
+              ? "border-text-1 bg-text-1 text-bg"
               : "border-hairline bg-transparent text-transparent"
           }`}
         >

@@ -6,7 +6,7 @@ import { ChevronLeft } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
-import { Switch } from "@/components/ui/Switch";
+import { Switch } from "@/components/ui/8bit-switch";
 import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
