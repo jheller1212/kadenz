@@ -133,7 +133,9 @@ function EditPlanInner() {
           goalTimeSeconds: goal,
           startDate: new Date(form.startDate).toISOString(),
           raceDate: new Date(form.raceDate).toISOString(),
-          daysPerWeek: form.availableDays ? form.availableDays.length : form.daysPerWeek,
+          daysPerWeek: form.availableDays
+            ? Math.min(form.daysPerWeek, form.availableDays.length, 6)
+            : form.daysPerWeek,
           trainingVolume: form.trainingVolume,
           trainingDifficulty: form.trainingDifficulty,
           preferredLongRunDay: form.preferredLongRunDay,
@@ -256,36 +258,55 @@ function EditPlanInner() {
 
         {/* Days per week / availability */}
         {form.availableDays ? (
-          <div className="flex flex-col gap-2">
-            <span className={labelCls}>Training days ({form.availableDays.length} / week)</span>
-            <div className="grid grid-cols-7 gap-1.5">
-              {DOW.map((d, i) => {
-                const on = form.availableDays!.includes(i);
-                return (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      haptic("light");
-                      const next = on
-                        ? form.availableDays!.filter((x) => x !== i)
-                        : [...form.availableDays!, i];
-                      if (next.length < 2 || next.length > 6) return;
-                      set("availableDays", next);
-                      if (!next.includes(form.preferredLongRunDay)) {
-                        set("preferredLongRunDay", next.includes(6) ? 6 : next[0]);
-                      }
-                    }}
-                    aria-pressed={on}
-                    className={`rounded-[var(--radius-input)] py-2.5 text-[11px] font-bold transition-colors ${
-                      on ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
-                    }`}
-                  >
-                    {d}
-                  </button>
-                );
-              })}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <span className={labelCls}>Available days ({form.availableDays.length})</span>
+              <div className="grid grid-cols-7 gap-1.5">
+                {DOW.map((d, i) => {
+                  const on = form.availableDays!.includes(i);
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        haptic("light");
+                        const next = on
+                          ? form.availableDays!.filter((x) => x !== i)
+                          : [...form.availableDays!, i];
+                        if (next.length < 2) return;
+                        set("availableDays", next);
+                        if (form.daysPerWeek > next.length) {
+                          set("daysPerWeek", next.length);
+                        }
+                        if (!next.includes(form.preferredLongRunDay)) {
+                          set("preferredLongRunDay", next.includes(6) ? 6 : next[0]);
+                        }
+                      }}
+                      aria-pressed={on}
+                      className={`rounded-[var(--radius-input)] py-2.5 text-[11px] font-bold transition-colors ${
+                        on ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[12px] text-text-3">
+                Workouts only land on these days. Picking more days than runs gives the plan room to
+                space runs and strength work.
+              </p>
             </div>
-            <p className="text-[12px] text-text-3">Workouts are only scheduled on these days (2–6).</p>
+            <div className="flex flex-col gap-2">
+              <span className={labelCls}>Runs / week</span>
+              <Segmented
+                value={String(Math.min(form.daysPerWeek, form.availableDays.length, 6))}
+                onChange={(v) => set("daysPerWeek", parseInt(v))}
+                options={Array.from(
+                  { length: Math.min(form.availableDays.length, 6) - 1 },
+                  (_, i) => i + 2
+                ).map((n) => ({ value: String(n), label: String(n) }))}
+              />
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-2">

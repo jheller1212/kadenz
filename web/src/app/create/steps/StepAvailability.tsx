@@ -23,10 +23,8 @@ export function StepAvailability({
     haptic("light");
     if (availableDays.includes(day)) {
       onAvailableDays(availableDays.filter((d) => d !== day));
-    } else if (availableDays.length < daysPerWeek) {
-      onAvailableDays([...availableDays, day]);
     } else {
-      haptic("warning");
+      onAvailableDays([...availableDays, day]);
     }
   }
 
@@ -58,6 +56,10 @@ export function StepAvailability({
           {remaining > 0
             ? `Pick ${remaining} more ${remaining === 1 ? "day" : "days"}`
             : "All set — workouts will only land on these days."}
+        </p>
+        <p className="text-[12px] leading-relaxed text-text-3">
+          Pick at least {daysPerWeek} — extra days give your plan room to breathe and space for
+          strength work.
         </p>
       </div>
 
