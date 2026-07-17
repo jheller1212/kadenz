@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
       .select({
         exerciseId: strengthSets.exerciseId,
         sessionId: strengthSets.sessionId,
+        date: strengthSessions.date,
         weightKg: strengthSets.weightKg,
         reps: strengthSets.reps,
       })
@@ -38,13 +39,14 @@ export async function GET(request: NextRequest) {
 
     const latest = new Map<
       string,
-      { sessionId: string; weightKg: number | null; repLow: number; repHigh: number }
+      { sessionId: string; date: Date; weightKg: number | null; repLow: number; repHigh: number }
     >();
     for (const s of sets) {
       const cur = latest.get(s.exerciseId);
       if (!cur) {
         latest.set(s.exerciseId, {
           sessionId: s.sessionId,
+          date: new Date(s.date),
           weightKg: s.weightKg,
           repLow: s.reps!,
           repHigh: s.reps!,
@@ -67,6 +69,7 @@ export async function GET(request: NextRequest) {
           lastWeightKg: l?.weightKg ?? null,
           lastRepLow: l?.repLow ?? null,
           lastRepHigh: l?.repHigh ?? null,
+          lastDate: l?.date.toISOString() ?? null,
         };
       })
     );

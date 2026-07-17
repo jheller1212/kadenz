@@ -11,6 +11,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { getVideoId } from "@/lib/strength/videos";
 import { formatWeightKg } from "@/lib/units";
+import { formatRecency } from "@/lib/recency";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import type { Equipment, ExerciseDef } from "@/lib/strength/types";
 import {
@@ -92,18 +93,18 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
   }, [open, initial]);
 
   // Last-used weight/reps per exercise, for prefilling new slots.
-  const [lastUsed, setLastUsed] = useState<Record<string, { weightKg: number | null; repLow: number; repHigh: number }>>({});
+  const [lastUsed, setLastUsed] = useState<Record<string, { weightKg: number | null; repLow: number; repHigh: number; date: string | null }>>({});
   useEffect(() => {
     if (!open) return;
     (async () => {
       try {
         const res = await apiFetch("/api/strength/exercises");
         if (!res.ok) return;
-        const rows: Array<{ slug: string; lastWeightKg: number | null; lastRepLow: number | null; lastRepHigh: number | null }> = await res.json();
-        const map: Record<string, { weightKg: number | null; repLow: number; repHigh: number }> = {};
+        const rows: Array<{ slug: string; lastWeightKg: number | null; lastRepLow: number | null; lastRepHigh: number | null; lastDate: string | null }> = await res.json();
+        const map: Record<string, { weightKg: number | null; repLow: number; repHigh: number; date: string | null }> = {};
         for (const r of rows) {
           if (r.lastRepLow != null && r.lastRepHigh != null) {
-            map[r.slug] = { weightKg: r.lastWeightKg, repLow: r.lastRepLow, repHigh: r.lastRepHigh };
+            map[r.slug] = { weightKg: r.lastWeightKg, repLow: r.lastRepLow, repHigh: r.lastRepHigh, date: r.lastDate };
           }
         }
         setLastUsed(map);
@@ -428,6 +429,16 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                       className="press min-w-0 flex-1 px-3.5 py-2.5 text-left"
                     >
                       <span className="block text-[15px] font-semibold text-text-1">{ex.name}</span>
+                      {lastUsed[ex.slug] && (
+                        <span className="block text-[12px] text-text-3">
+                          Last:{" "}
+                          {lastUsed[ex.slug].weightKg != null ? `${formatWeightKg(lastUsed[ex.slug].weightKg!)} × ` : ""}
+                          {lastUsed[ex.slug].repLow === lastUsed[ex.slug].repHigh
+                            ? lastUsed[ex.slug].repLow
+                            : `${lastUsed[ex.slug].repLow}–${lastUsed[ex.slug].repHigh}`}
+                          {lastUsed[ex.slug].date ? ` · ${formatRecency(lastUsed[ex.slug].date!)}` : ""}
+                        </span>
+                      )}
                       {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
                         <span className="block text-[12px] text-text-3">
                           also {ex.secondaryMuscles.join(", ").toLowerCase()}

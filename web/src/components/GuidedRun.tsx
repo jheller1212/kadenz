@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ChevronRight, Play, Pause, Check, MapPin, MapPinOff } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
-import { loadSettings, type UserSettings } from "@/lib/settings";
+import { CUE_VOLUME_GAIN, loadSettings, type UserSettings } from "@/lib/settings";
 import { haptic } from "@/lib/haptics";
 
 // ── Guided run player ─────────────────────────────────────────────────────────
@@ -205,6 +205,8 @@ export function GuidedRun({
   const beep = useCallback((freq = 660, ms = 80) => {
     const p = prefsRef.current;
     if (!p.runAudio) return;
+    const peak = CUE_VOLUME_GAIN[p.cueVolume];
+    if (peak <= 0) return;
     try {
       if (!audioCtxRef.current) {
         const AC =
@@ -221,7 +223,7 @@ export function GuidedRun({
       osc.connect(gain);
       gain.connect(ctx.destination);
       gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(peak, ctx.currentTime + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + ms / 1000);
       osc.start();
       osc.stop(ctx.currentTime + ms / 1000);
@@ -233,10 +235,14 @@ export function GuidedRun({
   const speak = useCallback((text: string) => {
     const p = prefsRef.current;
     if (!p.runAudio || !p.runVoice) return;
+    const vol = CUE_VOLUME_GAIN[p.cueVolume];
+    if (vol <= 0) return;
     try {
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        const u = new SpeechSynthesisUtterance(text);
+        u.volume = vol;
+        window.speechSynthesis.speak(u);
       }
     } catch {
       /* ignore */

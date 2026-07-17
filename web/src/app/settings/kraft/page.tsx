@@ -7,6 +7,13 @@ import { Segmented } from "@/components/ui/Segmented";
 import { SettingsSubpage } from "@/components/ui/SettingsSubpage";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 
+const VOLUME_OPTIONS = [
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "loud", label: "Loud" },
+];
+
 export default function KraftSettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
@@ -50,6 +57,18 @@ export default function KraftSettingsPage() {
                   />
                 }
               />
+            </div>
+            <div className="border-t border-hairline/60 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[15px] font-medium text-text-1">Volume</span>
+                <Segmented
+                  className="w-60"
+                  options={VOLUME_OPTIONS}
+                  value={settings.cueVolume}
+                  onChange={(v) => update({ cueVolume: v as UserSettings["cueVolume"] })}
+                />
+              </div>
+              <p className="mt-1 text-[12px] text-text-3">Applies to strength and guided-run cues</p>
             </div>
             <Row
               title='"Get ready" countdown'

@@ -45,6 +45,8 @@ export interface PlannedExercise {
   prescription: string;
   suggestedWeightKg: number | null;
   lastWeightKg: number | null;
+  /** ISO date of the most recent completed session containing this exercise. */
+  lastDate: string | null;
   progression: ProgressionSuggestion;
   painGated: boolean;
 }
@@ -137,6 +139,7 @@ export function buildSessionPlan(
       prescription,
       suggestedWeightKg,
       lastWeightKg,
+      lastDate: history[0]?.date.toISOString() ?? null,
       progression,
       painGated,
     };

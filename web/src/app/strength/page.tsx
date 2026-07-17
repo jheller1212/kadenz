@@ -26,6 +26,12 @@ import {
   type CustomWorkoutTemplate,
 } from "@/hooks/useCustomWorkouts";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
+import {
+  clearGuidedSnapshot,
+  loadGuidedSnapshot,
+  type GuidedSnapshot,
+} from "@/lib/strength/guided-snapshot";
+import { formatRecency } from "@/lib/recency";
 import { displayWeight, formatWeightKg, weightUnitLabel } from "@/lib/units";
 import { EXERCISES } from "@/lib/strength/program";
 import { formatLoad } from "@/lib/strength/weights";
@@ -55,6 +61,7 @@ interface ExerciseCatalogRow {
   lastWeightKg: number | null;
   lastRepLow: number | null;
   lastRepHigh: number | null;
+  lastDate: string | null;
 }
 
 type Phase = "picker" | "overview" | "guided" | "summary";
@@ -99,6 +106,13 @@ export default function StrengthPage() {
   const [painError, setPainError] = useState<string | null>(null);
 
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
+  // Saved in-progress guided session (accidental exits / reloads are resumable).
+  const [resumeSnap, setResumeSnap] = useState<GuidedSnapshot | null>(null);
+  const [resume, setResume] = useState<{
+    exIndex: number;
+    work: GuidedSnapshot["work"];
+    startedAt: number;
+  } | null>(null);
   const [planSettings, setPlanSettings] = useState<{
     goal: string; sessionsPerWeek: number; durationMinutes: number; active: boolean;
   } | null | undefined>(undefined); // undefined = loading
@@ -124,6 +138,11 @@ export default function StrengthPage() {
   useEffect(() => {
     if (phase === "picker") listWorkouts();
   }, [phase, listWorkouts]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
+    if (phase === "picker") setResumeSnap(loadGuidedSnapshot());
+  }, [phase]);
 
   async function logPain(score: number) {
     if (!session || painSaving) return;
@@ -370,11 +389,40 @@ export default function StrengthPage() {
       return;
     }
     setError(null);
+    setResume(null); // fresh start — the mount overwrites any old snapshot
     unlockGuidedAudio();
     setPhase("guided");
   }
 
+  // Reopen the saved in-progress session at its saved position.
+  function resumeGuided() {
+    const snap = resumeSnap;
+    if (!snap) return;
+    haptic("light");
+    adHocIdRef.current = null;
+    setSession({
+      id: snap.session.id,
+      type: snap.session.type,
+      title: snap.session.title,
+      status: "planned",
+      targetDurationMinutes: snap.session.targetDurationMinutes,
+      plannedExercises: snap.exercises,
+    });
+    setExercises(snap.exercises);
+    setResume({ exIndex: snap.exIndex, work: snap.work, startedAt: snap.startedAt });
+    setError(null);
+    unlockGuidedAudio();
+    setPhase("guided");
+  }
+
+  function discardResume() {
+    haptic("light");
+    clearGuidedSnapshot();
+    setResumeSnap(null);
+  }
+
   function handleFinish(s: GuidedFinishSummary) {
+    setResume(null);
     setSummary(s);
     setPainLogged(false);
     setPainError(null);
@@ -383,11 +431,15 @@ export default function StrengthPage() {
 
   function handleExitGuided(setsLogged: number) {
     // An ad-hoc session abandoned with nothing logged shouldn't linger as a
-    // phantom planned session on today.
-    if (setsLogged === 0 && adHocIdRef.current && session?.id === adHocIdRef.current) {
-      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+    // phantom planned session on today — and there's nothing worth resuming.
+    if (setsLogged === 0) {
+      clearGuidedSnapshot();
+      if (adHocIdRef.current && session?.id === adHocIdRef.current) {
+        apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+      }
     }
     adHocIdRef.current = null;
+    setResume(null);
     setPhase("picker");
     setSession(null);
     setExercises([]);
@@ -414,6 +466,35 @@ export default function StrengthPage() {
           {error && (
             <div className="mt-3 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
               {error}
+            </div>
+          )}
+
+          {resumeSnap && (
+            <div className="mt-4 k-card p-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-[20px]">⏱️</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[16px] font-bold text-text-1">Workout in progress</p>
+                  <p className="text-[13px] text-text-3">
+                    {resumeSnap.session.title} ·{" "}
+                    {Object.values(resumeSnap.work).flat().filter((s) => s.logged).length} of{" "}
+                    {Object.values(resumeSnap.work).flat().length} sets logged
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Discard saved workout"
+                  onClick={discardResume}
+                  className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated"
+                >
+                  <X className="h-4 w-4 text-text-3" strokeWidth={1.9} />
+                </button>
+              </div>
+              <div className="mt-3">
+                <Button variant="primary" full onClick={resumeGuided}>
+                  Resume workout
+                </Button>
+              </div>
             </div>
           )}
 
@@ -537,6 +618,7 @@ export default function StrengthPage() {
           targetDurationMinutes: session.targetDurationMinutes,
         }}
         exercises={exercises}
+        resume={resume}
         onExit={handleExitGuided}
         onFinish={handleFinish}
       />
@@ -749,7 +831,7 @@ export default function StrengthPage() {
                         <span className="block text-[15px] font-semibold text-text-1">{row.name}</span>
                         <span className="block text-[12px] text-text-3">
                           {row.lastWeightKg != null
-                            ? `Last: ${formatWeightKg(row.lastWeightKg)} × ${row.lastRepLow === row.lastRepHigh ? row.lastRepLow : `${row.lastRepLow}–${row.lastRepHigh}`}`
+                            ? `Last: ${formatWeightKg(row.lastWeightKg)} × ${row.lastRepLow === row.lastRepHigh ? row.lastRepLow : `${row.lastRepLow}–${row.lastRepHigh}`}${row.lastDate ? ` · ${formatRecency(row.lastDate)}` : ""}`
                             : row.tempoNote ?? `${row.defaultSets ?? 3} × ${row.repLow ?? 8}–${row.repHigh ?? 12}`}
                         </span>
                       </button>
