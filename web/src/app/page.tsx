@@ -34,6 +34,7 @@ import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { haptic } from "@/lib/haptics";
 import { readCache, writeCache } from "@/lib/client-cache";
+import { mutateWithQueue, installQueueFlush } from "@/lib/offline-queue";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -523,12 +524,11 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
       setLocalStatus("planned");
       haptic("light");
       try {
-        const res = await apiFetch(`/api/plans/${planId}/workouts/${workout.id}`, {
+        const r = await mutateWithQueue(`/api/plans/${planId}/workouts/${workout.id}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "planned" }),
         });
-        if (!res.ok) throw new Error();
+        if (!r.ok) throw new Error();
         onStatusChange?.(workout.id, "planned");
       } catch {
         setLocalStatus("completed");
@@ -542,12 +542,11 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
     setLocalStatus("completed"); // optimistic
     haptic("success");
     try {
-      const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
+      const r = await mutateWithQueue(`/api/workouts/${workout.id}/complete`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: "{}",
       });
-      if (!res.ok) throw new Error();
+      if (!r.ok) throw new Error();
       onStatusChange?.(workout.id, "completed");
     } catch {
       setLocalStatus(null);
@@ -956,12 +955,11 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
     setSession({ ...session, status: next }); // optimistic
     haptic(next === "completed" ? "success" : "light");
     try {
-      const res = await apiFetch(`/api/strength/sessions/${session.id}`, {
+      const r = await mutateWithQueue(`/api/strength/sessions/${session.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: next }),
       });
-      if (!res.ok) throw new Error();
+      if (!r.ok) throw new Error();
       onStatusChange?.(session.id, next);
     } catch {
       setSession((s) => (s ? { ...s, status: prev } : s));
@@ -1329,9 +1327,14 @@ export default function Home() {
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
     const interval = setInterval(refresh, 60_000);
+    // Replay offline-queued ticks when connectivity returns, then re-sync.
+    installQueueFlush();
+    const onFlushed = () => loadData({ silent: true });
+    window.addEventListener("kadenz:queue-flushed", onFlushed);
     return () => {
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("focus", refresh);
+      window.removeEventListener("kadenz:queue-flushed", onFlushed);
       clearInterval(interval);
     };
   }, [loadData]);
