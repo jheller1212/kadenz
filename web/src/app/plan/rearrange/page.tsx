@@ -263,10 +263,10 @@ function isPastWeek(week: GeneratedWeek): boolean {
 function CompletedBadge() {
   return (
     <span
-      className="absolute right-1 top-1 z-10 flex h-[16px] w-[16px] items-center justify-center rounded-full bg-[#0B0C0E]"
+      className="absolute right-1 top-1 z-10 flex h-[16px] w-[16px] items-center justify-center rounded-full bg-text-1"
       aria-label="Completed"
     >
-      <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
+      <Check className="h-2.5 w-2.5 text-bg" strokeWidth={3} />
     </span>
   );
 }
@@ -415,7 +415,7 @@ function DayRow({
           {DOW[dayIdx]}
         </p>
         {isToday ? (
-          <span className="mx-auto mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#0B0C0E] text-[13px] font-bold tabular-nums text-white">
+          <span className="mx-auto mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-text-1 text-[13px] font-bold tabular-nums text-bg">
             {date.getDate()}
           </span>
         ) : (
@@ -1156,7 +1156,7 @@ function PlanPageInner() {
                     <span className="text-[15px] font-bold text-text-1">
                       {formatDayMonth(days[0])} – {formatDayMonth(days[6])}
                     </span>
-                    <span className="rounded-full bg-[#0B0C0E] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                    <span className="rounded-full bg-text-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-bg">
                       Week {week.weekNumber}
                     </span>
                     <span
