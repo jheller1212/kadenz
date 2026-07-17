@@ -4,12 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Minus, Plus, Volume2, VolumeX, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Sheet } from "@/components/ui/Sheet";
 import { haptic } from "@/lib/haptics";
+import { formatRecency } from "@/lib/recency";
+import {
+  clearGuidedSnapshot,
+  saveGuidedSnapshot,
+  type GuidedWorkSet,
+} from "@/lib/strength/guided-snapshot";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
-import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
+import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { formatLoad, loadUnitLabel } from "@/lib/strength/weights";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
@@ -33,6 +40,8 @@ export interface PlannedExercise {
   prescription: string;
   suggestedWeightKg: number | null;
   lastWeightKg: number | null;
+  /** ISO date of the most recent completed session containing this exercise. */
+  lastDate?: string | null;
   painGated: boolean;
   progression: { action: string; reason: string };
 }
@@ -50,16 +59,13 @@ export interface GuidedFinishSummary {
   durationMinutes: number;
 }
 
-interface WorkSet {
-  kg: number;
-  reps: number;
-  logged: boolean;
-  durationSec: number;
-}
+type WorkSet = GuidedWorkSet;
 
 interface Props {
   session: GuidedSessionInfo;
   exercises: PlannedExercise[];
+  /** Restore a previously saved in-progress session at its saved position. */
+  resume?: { exIndex: number; work: Record<string, WorkSet[]>; startedAt: number } | null;
   /** Called on early exit with how many sets were logged so far. */
   onExit: (setsLogged: number) => void;
   onFinish: (summary: GuidedFinishSummary) => void;
@@ -105,8 +111,10 @@ function getAudioCtx(): AudioContext | null {
 export function unlockGuidedAudio() {
   const s = loadSettings();
   try {
-    if (s.kraftAudio && s.kraftVoice && typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance("Let's go"));
+    if (s.kraftAudio && s.kraftVoice && CUE_VOLUME_GAIN[s.cueVolume] > 0 && typeof window !== "undefined" && "speechSynthesis" in window) {
+      const u = new SpeechSynthesisUtterance("Let's go");
+      u.volume = CUE_VOLUME_GAIN[s.cueVolume];
+      window.speechSynthesis.speak(u);
     }
   } catch {
     /* best-effort */
@@ -147,17 +155,31 @@ function buildWork(exercises: PlannedExercise[]): Record<string, WorkSet[]> {
   return w;
 }
 
-export default function GuidedSession({ session, exercises, onExit, onFinish }: Props) {
+export default function GuidedSession({ session, exercises, resume, onExit, onFinish }: Props) {
   const [prefs, setPrefs] = useState<UserSettings>(() => loadSettings());
   const [now, setNow] = useState<number>(() => Date.now());
-  const [exIndex, setExIndex] = useState(0);
+  const [exIndex, setExIndex] = useState(() =>
+    resume ? Math.min(Math.max(resume.exIndex, 0), exercises.length - 1) : 0
+  );
   const [videoSlug, setVideoSlug] = useState<string | null>(null);
-  const [work, setWork] = useState<Record<string, WorkSet[]>>(() => buildWork(exercises));
+  const [work, setWork] = useState<Record<string, WorkSet[]>>(() => {
+    // Fresh plan, overlaid with the snapshot where it still matches — sets
+    // already logged to the server stay logged.
+    const base = buildWork(exercises);
+    if (resume?.work) {
+      for (const slug of Object.keys(base)) {
+        const saved = resume.work[slug];
+        if (saved && saved.length === base[slug].length) base[slug] = saved;
+      }
+    }
+    return base;
+  });
   const [timer, setTimer] = useState<Timer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [confirmExit, setConfirmExit] = useState(false);
 
-  const sessionStartRef = useRef<number>(Date.now());
+  const sessionStartRef = useRef<number>(resume?.startedAt ?? Date.now());
   const prefsRef = useRef(prefs);
   const workRef = useRef(work);
   const timerRef = useRef(timer);
@@ -171,13 +193,45 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
   useEffect(() => { timerRef.current = timer; }, [timer]);
   useEffect(() => { exIndexRef.current = exIndex; }, [exIndex]);
 
+  // ── Resumable snapshot — persist position + logged sets on every change ─────
+  useEffect(() => {
+    saveGuidedSnapshot({
+      v: 1,
+      savedAt: Date.now(),
+      startedAt: sessionStartRef.current,
+      session,
+      exercises,
+      exIndex,
+      work,
+    });
+    // session/exercises are stable for the lifetime of this mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exIndex, work]);
+
+  // ── Browser back — ask before leaving instead of dropping the workout ───────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.history.pushState({ kadenzGuided: true }, "");
+    const onPop = () => {
+      // Re-arm the trap and ask; actual leaving goes through onExit.
+      window.history.pushState({ kadenzGuided: true }, "");
+      setConfirmExit(true);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   // ── Audio helpers ───────────────────────────────────────────────────────────
   function speak(text: string) {
     const p = prefsRef.current;
     if (!p.kraftAudio || !p.kraftVoice) return;
+    const vol = CUE_VOLUME_GAIN[p.cueVolume];
+    if (vol <= 0) return;
     try {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        const u = new SpeechSynthesisUtterance(text);
+        u.volume = vol;
+        window.speechSynthesis.speak(u);
       }
     } catch {
       /* best-effort */
@@ -185,6 +239,8 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
   }
   function beep(freq = 660, durationMs = 80) {
     if (!prefsRef.current.kraftAudio) return;
+    const peak = CUE_VOLUME_GAIN[prefsRef.current.cueVolume];
+    if (peak <= 0) return;
     try {
       const ctx = getAudioCtx();
       if (!ctx) return;
@@ -194,7 +250,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
       osc.type = "sine";
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(peak, ctx.currentTime + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + durationMs / 1000);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -449,6 +505,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
         setFinishing(false);
         return;
       }
+      clearGuidedSnapshot();
       onFinish({ setsLogged, totalSets, durationMinutes });
     } catch {
       setError("Network error — couldn't finish the session.");
@@ -489,7 +546,7 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 pb-1">
-        <button type="button" onClick={() => { haptic("light"); onExit(Object.values(work).flat().filter((s) => s.logged).length); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">
+        <button type="button" onClick={() => { haptic("light"); setConfirmExit(true); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">
           Exit
         </button>
         <div className="flex items-center gap-2">
@@ -618,7 +675,10 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
                 <Button variant="primary" size="lg" full onClick={() => beginSet(ex.slug, nextSi)}>Start set {nextSi + 1}</Button>
               </div>
               {ex.suggestedWeightKg != null && loggedSets.length === 0 && (
-                <p className="mt-2 text-[12px] text-text-3">Suggested {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })} — carries from last time</p>
+                <p className="mt-2 text-[12px] text-text-3">
+                  Suggested {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })} — carries from last time
+                  {ex.lastDate ? ` · ${formatRecency(ex.lastDate)}` : ""}
+                </p>
               )}
             </div>
           )}
@@ -658,6 +718,29 @@ export default function GuidedSession({ session, exercises, onExit, onFinish }: 
         title={videoSlug ? exercises.find((e) => e.slug === videoSlug)?.name : undefined}
         onClose={() => setVideoSlug(null)}
       />
+
+      <Sheet open={confirmExit} onClose={() => setConfirmExit(false)} title="Leave workout?">
+        <div className="flex flex-col gap-3 px-4 pb-6">
+          <p className="text-[14px] text-text-2">
+            Your progress is saved — you can resume where you left off.
+          </p>
+          <Button variant="primary" size="lg" full onClick={() => { haptic("light"); setConfirmExit(false); }}>
+            Keep going
+          </Button>
+          <Button
+            variant="danger"
+            size="lg"
+            full
+            onClick={() => {
+              haptic("light");
+              setConfirmExit(false);
+              onExit(Object.values(workRef.current).flat().filter((s) => s.logged).length);
+            }}
+          >
+            Leave
+          </Button>
+        </div>
+      </Sheet>
     </div>
   );
 

@@ -43,6 +43,8 @@ export interface UserSettings {
   kraftGetReady: boolean;
   /** Keep the screen awake during a session (Wake Lock) */
   kraftKeepAwake: boolean;
+  /** Loudness of beeps & spoken cues in guided sessions and runs */
+  cueVolume: "off" | "low" | "normal" | "loud";
 
   // ── Guided run preferences ───────────────────────────────────────────────
   /** Master switch for guided-run audio cues (beeps + voice) */
@@ -78,11 +80,20 @@ export const DEFAULT_SETTINGS: UserSettings = {
   kraftVoice: true,
   kraftGetReady: true,
   kraftKeepAwake: true,
+  cueVolume: "normal",
   runAudio: true,
   runVoice: true,
   runGps: true,
   runSplitCues: true,
   runKeepAwake: true,
+};
+
+/** Peak WebAudio gain (and speech volume) per cue-volume level. */
+export const CUE_VOLUME_GAIN: Record<UserSettings["cueVolume"], number> = {
+  off: 0,
+  low: 0.3,
+  normal: 0.7,
+  loud: 1.0,
 };
 
 const STORAGE_KEY = "kadenz_settings";
