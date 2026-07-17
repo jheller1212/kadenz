@@ -4,7 +4,7 @@
 // params to /api/stats/hr-zones for monthly aggregates.
 
 import { loadSettings } from "@/lib/settings";
-import { estimateMaxHr } from "@/lib/plan-engine/hr-zones";
+import { estimateMaxHr, getHrZones } from "@/lib/plan-engine/hr-zones";
 
 /** Zone display metadata — mirrors the Customise HR Zones settings page. */
 export const HR_ZONE_META = [
@@ -39,17 +39,23 @@ export interface ZoneTime {
 
 /**
  * The user's effective zone bounds: custom bounds from settings when set,
- * otherwise age-based defaults (Tanaka via birth year, age 35 fallback).
+ * otherwise defaults — Karvonen (heart-rate reserve) when a resting HR is
+ * known, else flat %-of-max (Tanaka via birth year, age 35 fallback).
  * Client-only — on the server it returns the age-35 defaults.
  */
 export function getUserZoneBounds(): ZoneBounds {
   const s = loadSettings();
   const age = s.birthYear ? new Date().getFullYear() - s.birthYear : 35;
   const max = s.maxHrOverride ?? estimateMaxHr(age);
-  const bounds =
-    s.hrZoneBounds && s.hrZoneBounds.length === 4
-      ? (s.hrZoneBounds as [number, number, number, number])
-      : (DEFAULT_ZONE_PCTS.map((p) => Math.round(max * p)) as [number, number, number, number]);
+  let bounds: [number, number, number, number];
+  if (s.hrZoneBounds && s.hrZoneBounds.length === 4) {
+    bounds = s.hrZoneBounds as [number, number, number, number];
+  } else if (s.restingHr != null && s.restingHr > 0 && s.restingHr < max) {
+    const z = getHrZones(s.restingHr, age, max);
+    bounds = [z.z1.max, z.z2.max, z.z3.max, z.z4.max];
+  } else {
+    bounds = DEFAULT_ZONE_PCTS.map((p) => Math.round(max * p)) as [number, number, number, number];
+  }
   return { bounds, max };
 }
 
