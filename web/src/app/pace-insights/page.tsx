@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Info, CheckCircle2, AlertTriangle, HelpCircle, Plus, TrendingUp, Activity } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, HelpCircle, Plus, TrendingUp, Activity } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Segmented } from "@/components/ui/Segmented";
 import { Button } from "@/components/ui/Button";
@@ -679,11 +679,6 @@ export default function PaceInsightsPage() {
         title="Pace Insights"
         large={false}
         left={<BackButton />}
-        right={
-          <button className="flex h-9 w-9 items-center justify-center rounded-full press" aria-label="Info">
-            <Info className="h-5 w-5 text-text-2" strokeWidth={2} />
-          </button>
-        }
       />
 
       <div className="px-4 pb-tabbar flex flex-col gap-4 pt-2">
@@ -748,9 +743,6 @@ export default function PaceInsightsPage() {
                 <p className="text-[11px] text-text-3 mt-0.5">{sectionDateRange}</p>
               )}
             </div>
-            <button className="flex h-7 w-7 items-center justify-center rounded-full press" aria-label="Info">
-              <Info className="h-4 w-4 text-text-3" strokeWidth={2} />
-            </button>
           </div>
 
           {activeWorkouts.length > 0 ? (
