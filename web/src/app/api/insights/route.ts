@@ -128,7 +128,9 @@ export async function GET() {
     // completed share of this week's mileage vs how far into the week we are,
     // with a 15-point grace band.
     const dowIdx = (now.getDay() + 6) % 7; // Mon=0 … Sun=6
-    const expectedPct = Math.round(((dowIdx + 1) / 7) * 100);
+    // Expect only the days BEFORE today: a run still scheduled for today
+    // must not read as "behind" in the morning (counts from tomorrow).
+    const expectedPct = Math.round(((dowIdx) / 7) * 100);
     const weekStatus =
       currentSummary.overallPct >= 100
         ? "complete"
