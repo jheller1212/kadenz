@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
 
   let inserted = 0;
   let alreadySynced = 0;
+  let skippedTypes = 0;
   const errors: Array<{ id: number; error: string }> = [];
 
   for (const activity of stravaActivities) {
@@ -109,8 +110,10 @@ export async function POST(request: NextRequest) {
         alreadySynced++;
         continue; // idempotent anyway, but skip the API round-trips
       }
-      await processActivity(activity.id);
-      inserted++;
+      const result = await processActivity(activity.id);
+      if (result === "stored") inserted++;
+      else if (result === "skipped") skippedTypes++;
+      else alreadySynced++;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       errors.push({ id: activity.id, error: message });
@@ -133,6 +136,7 @@ export async function POST(request: NextRequest) {
     processed: inserted,
     inserted,
     alreadySynced,
+    skippedTypes,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
