@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, LineChart } from "lucide-react";
+import { ChevronLeft, ChevronRight, LineChart } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -120,9 +120,10 @@ export default function StrengthHistoryPage() {
               const delta = Math.round((last - first) * 10) / 10;
               const col = delta > 0 ? "#4ADE80" : delta < 0 ? "#FF4D4D" : "var(--color-text-2)";
               return (
-                <div
+                <TransitionLink
                   key={it.exercise.id}
-                  className="flex items-center gap-3 k-card p-3.5"
+                  href={`/strength/history/${it.exercise.id}`}
+                  className="press flex items-center gap-3 k-card p-3.5"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-bold text-text-1">{it.exercise.name}</p>
@@ -136,7 +137,8 @@ export default function StrengthHistoryPage() {
                     {delta > 0 ? "+" : ""}
                     {delta}
                   </span>
-                </div>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.9} />
+                </TransitionLink>
               );
             })}
           </div>
