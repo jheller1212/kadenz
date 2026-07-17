@@ -192,20 +192,38 @@ function useWeather(selectedDate: Date | null) {
       return null;
     }
 
+    // Fresh GPS fix without any prompt — only runs when permission is already
+    // granted, so the position is always current (permission persists; calling
+    // getCurrentPosition again never re-prompts once granted).
+    function refreshFromGps() {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude, true),
+        () => { /* transient GPS failure — cached/IP data already shown */ },
+        { timeout: 8000, maximumAge: 10 * 60_000 }
+      );
+    }
+
     if (cached) {
+      // Show the cached fix immediately, then correct it.
       resolveLocation(cached.lat, cached.lon, false);
-      // Silent background refresh when the fix is old — never re-prompts.
-      const age = Date.now() - (cached.ts ?? 0);
-      if (age > LOCATION_REFRESH_MS) {
-        ipLocate().then((loc) => {
-          if (!loc) return;
-          const moved =
-            Math.abs(loc.lat - cached!.lat) > 0.2 || Math.abs(loc.lon - cached!.lon) > 0.2;
-          try {
-            localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ ...loc, ts: Date.now() }));
-          } catch { /* ignore */ }
-          if (moved) resolveLocation(loc.lat, loc.lon, false);
-        });
+      if (navigator.geolocation && "permissions" in navigator) {
+        navigator.permissions
+          .query({ name: "geolocation" })
+          .then((perm) => {
+            if (perm.state === "granted") {
+              refreshFromGps();
+            } else if (Date.now() - (cached!.ts ?? 0) > LOCATION_REFRESH_MS) {
+              // Permission not granted: fall back to a periodic IP refresh.
+              ipLocate().then((loc) => {
+                if (!loc) return;
+                try {
+                  localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ ...loc, ts: Date.now() }));
+                } catch { /* ignore */ }
+                resolveLocation(loc.lat, loc.lon, false);
+              });
+            }
+          })
+          .catch(() => { /* Permissions API unavailable — keep cached fix */ });
       }
       return;
     }
