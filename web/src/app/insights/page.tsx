@@ -27,16 +27,23 @@ interface WeeklyWorkout {
   workouts: Array<{ status: string; type: string }>;
 }
 
-interface InsightsData {
-  activePlan: boolean;
-  planName: string;
-  startDate: string;
+interface PeriodSummary {
   overallPct: number;
   totalPlanRuns: number;
   completedRuns: number;
   missedRuns: number;
   mileageByType: MileageType[];
+}
+
+interface InsightsData {
+  activePlan: boolean;
+  planName: string;
+  startDate: string;
+  weekStart: string;
+  weekStatus: "complete" | "on_track" | "behind";
   behindTypes: string[];
+  all: PeriodSummary;
+  current: PeriodSummary;
   weeklyWorkouts: WeeklyWorkout[];
   currentWeekNum: number;
 }
@@ -119,10 +126,17 @@ export default function InsightsPage() {
     );
   }
 
-  const startDateStr = new Date(data.startDate).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  });
+  const fmtDay = (d: string) =>
+    new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const rangeFor = (tab: "all" | "current") =>
+    tab === "current" ? `${fmtDay(data.weekStart)} - Today` : `${fmtDay(data.startDate)} - Today`;
+  const mileageData = mileageTab === "current" ? data.current : data.all;
+  const workoutsData = workoutsTab === "current" ? data.current : data.all;
+  const shownWeeks =
+    workoutsTab === "current"
+      ? data.weeklyWorkouts.filter((w) => w.weekNumber === data.currentWeekNum)
+      : data.weeklyWorkouts;
+  const behind = data.weekStatus === "behind";
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -132,7 +146,7 @@ export default function InsightsPage() {
         <h1 className="text-[22px] font-bold tracking-tight text-text-1">Mileage Insights</h1>
 
         {/* Status banner */}
-        {data.behindTypes.length > 0 ? (
+        {behind ? (
           <div className="k-card p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warn/10">
@@ -140,10 +154,14 @@ export default function InsightsPage() {
               </div>
               <div>
                 <p className="text-[15px] font-bold text-text-1">
-                  Behind {data.behindTypes.join(" & ").toLowerCase()} mileage
+                  {data.behindTypes.length > 0
+                    ? `Behind ${data.behindTypes.join(" & ").toLowerCase()} mileage`
+                    : "Mileage behind plan"}
                 </p>
                 <p className="mt-1 text-[13px] leading-relaxed text-text-2">
-                  Your recent {data.behindTypes[0].toLowerCase()} mileage is below what we normally recommend at this stage of your plan. Stay consistent from now on, and you&apos;ll soon be back on track.
+                  {data.behindTypes.length > 0
+                    ? `Your recent ${data.behindTypes[0].toLowerCase()} mileage is below what we normally recommend at this stage of your plan. Stay consistent from now on, and you\u2019ll soon be back on track.`
+                    : "You\u2019re behind on this week\u2019s planned mileage. Stay consistent from now on, and you\u2019ll soon be back on track."}
                 </p>
               </div>
             </div>
@@ -155,9 +173,13 @@ export default function InsightsPage() {
                 <CheckCircle2 className="h-5 w-5 text-accent" strokeWidth={1.9} />
               </div>
               <div>
-                <p className="text-[15px] font-bold text-text-1">Mileage on track</p>
+                <p className="text-[15px] font-bold text-text-1">
+                  {data.weekStatus === "complete" ? "Mileage complete" : "Mileage on track"}
+                </p>
                 <p className="mt-1 text-[13px] leading-relaxed text-text-2">
-                  You&apos;re keeping up with your plan across all workout types. Keep it up!
+                  {data.weekStatus === "complete"
+                    ? "You\u2019ve completed all of this week\u2019s planned mileage. Great work!"
+                    : "You\u2019re keeping up with your plan across all workout types. Keep it up!"}
                 </p>
               </div>
             </div>
@@ -178,13 +200,13 @@ export default function InsightsPage() {
 
           <div className="mt-4">
             <p className="text-[13px] text-text-3">
-              {startDateStr} - Today
+              {rangeFor(mileageTab)}
             </p>
-            <p className="mt-1 text-[34px] font-extrabold tabular-nums leading-none text-text-1">{data.overallPct}%</p>
+            <p className="mt-1 text-[34px] font-extrabold tabular-nums leading-none text-text-1">{mileageData.overallPct}%</p>
           </div>
 
           <div className="mt-5 flex flex-col gap-4">
-            {data.mileageByType.map((m) => (
+            {mileageData.mileageByType.map((m) => (
               <div key={m.type}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[13px] text-text-2">{m.label}</span>
@@ -218,11 +240,11 @@ export default function InsightsPage() {
 
           <div className="mt-4">
             <p className="text-[13px] text-text-3">
-              {startDateStr} - Today
+              {rangeFor(workoutsTab)}
             </p>
             <div className="flex items-baseline gap-2 mt-1">
               <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
-                {data.completedRuns}/{data.totalPlanRuns}
+                {workoutsData.completedRuns}/{workoutsData.totalPlanRuns}
               </p>
               <span className="text-[13px] text-text-3">plan runs</span>
             </div>
@@ -230,7 +252,7 @@ export default function InsightsPage() {
 
           {/* Per-week rows */}
           <div className="mt-5 flex flex-col gap-4">
-            {[...data.weeklyWorkouts].reverse().map((week) => (
+            {[...shownWeeks].reverse().map((week) => (
               <div key={week.weekNumber} className="flex items-center justify-between">
                 <span className="text-[13px] text-text-2 w-16 shrink-0">Week {week.weekNumber}</span>
                 <div className="flex gap-1.5">

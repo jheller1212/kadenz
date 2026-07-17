@@ -1,8 +1,12 @@
 import { db, plans, weeks, workouts } from "@/db";
-import { eq, and, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { workoutColor } from "@/lib/workout-colors";
 
 // ── GET /api/insights ────────────────────────────────────────────────────────
-// Returns mileage insights: per-type completion %, per-week workout status
+// Returns mileage insights for two windows:
+//  - "all": every workout due so far (plan start → today)
+//  - "current": the current calendar week, whole week planned — the same
+//    window the Today screen's mileage card uses, so the numbers match.
 
 export async function GET() {
   try {
@@ -49,22 +53,24 @@ export async function GET() {
       .where(eq(workouts.planId, activePlan.id))
       .orderBy(workouts.date);
 
-    // Split into past (up to today) and all
+    // "All" window: everything due so far (past + today, excluding rest days)
     const pastWorkouts = allWorkouts.filter(
       (w) => new Date(w.date) <= now && w.type !== "rest"
     );
 
-    // --- Completed mileage by type ---
-    const types = ["easy", "tempo", "interval", "long", "race", "recovery"] as const;
-    const mileageByType: Array<{
-      type: string;
-      label: string;
-      plannedKm: number;
-      completedKm: number;
-      pct: number;
-      color: string;
-    }> = [];
+    // "Current" window: the current calendar week, Monday-based — the whole
+    // week counts as planned (same window as the Today screen's mileage card).
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const currentWorkouts = allWorkouts.filter((w) => {
+      const d = new Date(w.date);
+      return d >= weekStart && d < weekEnd && w.type !== "rest";
+    });
 
+    const types = ["easy", "tempo", "interval", "long", "race", "recovery"] as const;
     const typeLabels: Record<string, string> = {
       easy: "Easy Run",
       tempo: "Tempo",
@@ -74,43 +80,64 @@ export async function GET() {
       recovery: "Recovery",
     };
 
-    const typeColors: Record<string, string> = {
-      easy: "#4ADE80",
-      tempo: "#FFB547",
-      interval: "#C084FC",
-      long: "#60A5FA",
-      race: "#FF4D4D",
-      recovery: "#4ADE80",
-    };
-
-    for (const type of types) {
-      const planned = pastWorkouts.filter((w) => w.type === type);
-      if (planned.length === 0) continue;
-
-      const plannedKm = planned.reduce((s, w) => s + (w.targetKm ?? 0), 0);
-      const completedKm = planned
-        .filter((w) => w.status === "completed")
-        .reduce((s, w) => s + (w.actualKm ?? w.targetKm ?? 0), 0);
-
-      const pct = plannedKm > 0 ? Math.round((completedKm / plannedKm) * 100) : 0;
-
-      mileageByType.push({
-        type,
-        label: typeLabels[type] ?? type,
-        plannedKm: Math.round(plannedKm * 10) / 10,
-        completedKm: Math.round(completedKm * 10) / 10,
-        pct,
-        color: typeColors[type] ?? "#999",
-      });
+    type WorkoutRow = (typeof allWorkouts)[number];
+    function summarize(set: WorkoutRow[]) {
+      const mileageByType: Array<{
+        type: string;
+        label: string;
+        plannedKm: number;
+        completedKm: number;
+        pct: number;
+        color: string;
+      }> = [];
+      for (const type of types) {
+        const planned = set.filter((w) => w.type === type);
+        if (planned.length === 0) continue;
+        const plannedKm = planned.reduce((s, w) => s + (w.targetKm ?? 0), 0);
+        const completedKm = planned
+          .filter((w) => w.status === "completed")
+          .reduce((s, w) => s + (w.actualKm ?? w.targetKm ?? 0), 0);
+        const pct = plannedKm > 0 ? Math.round((completedKm / plannedKm) * 100) : 0;
+        mileageByType.push({
+          type,
+          label: typeLabels[type] ?? type,
+          plannedKm: Math.round(plannedKm * 10) / 10,
+          completedKm: Math.round(completedKm * 10) / 10,
+          pct,
+          color: workoutColor(type).solid,
+        });
+      }
+      const totalPlannedKm = mileageByType.reduce((s, m) => s + m.plannedKm, 0);
+      const totalCompletedKm = mileageByType.reduce((s, m) => s + m.completedKm, 0);
+      const overallPct =
+        totalPlannedKm > 0 ? Math.round((totalCompletedKm / totalPlannedKm) * 100) : 0;
+      return {
+        overallPct,
+        mileageByType,
+        totalPlanRuns: set.length,
+        completedRuns: set.filter((w) => w.status === "completed").length,
+        missedRuns: set.filter((w) => w.status === "missed" || w.status === "skipped").length,
+      };
     }
 
-    // Overall completion
-    const totalPlannedKm = mileageByType.reduce((s, m) => s + m.plannedKm, 0);
-    const totalCompletedKm = mileageByType.reduce((s, m) => s + m.completedKm, 0);
-    const overallPct = totalPlannedKm > 0 ? Math.round((totalCompletedKm / totalPlannedKm) * 100) : 0;
+    const allSummary = summarize(pastWorkouts);
+    const currentSummary = summarize(currentWorkouts);
 
-    // --- Behind warning ---
-    const behindTypes = mileageByType
+    // --- Status ---
+    // Week verdict uses the SAME rule as the Today screen's mileage card:
+    // completed share of this week's mileage vs how far into the week we are,
+    // with a 15-point grace band.
+    const dowIdx = (now.getDay() + 6) % 7; // Mon=0 … Sun=6
+    const expectedPct = Math.round(((dowIdx + 1) / 7) * 100);
+    const weekStatus =
+      currentSummary.overallPct >= 100
+        ? "complete"
+        : currentSummary.overallPct + 15 >= expectedPct
+        ? "on_track"
+        : "behind";
+
+    // Types lagging over the whole plan so far (subtitle detail).
+    const behindTypes = allSummary.mileageByType
       .filter((m) => m.pct < 80 && m.plannedKm > 0)
       .map((m) => m.label);
 
@@ -143,23 +170,15 @@ export async function GET() {
       weeklyWorkouts.push({ weekNumber: weekNum, workouts: wos });
     }
 
-    // Count totals
-    const totalPlanRuns = pastWorkouts.length;
-    const completedRuns = pastWorkouts.filter((w) => w.status === "completed").length;
-    const missedRuns = pastWorkouts.filter(
-      (w) => w.status === "missed" || (w.status === "skipped")
-    ).length;
-
     return Response.json({
       activePlan: true,
       planName: activePlan.name,
       startDate: activePlan.startDate,
-      overallPct,
-      totalPlanRuns,
-      completedRuns,
-      missedRuns,
-      mileageByType,
+      weekStart: weekStart.toISOString(),
+      weekStatus,
       behindTypes,
+      all: allSummary,
+      current: currentSummary,
       weeklyWorkouts,
       currentWeekNum,
     });
