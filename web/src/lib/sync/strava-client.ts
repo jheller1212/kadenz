@@ -441,14 +441,16 @@ async function findMatchingStrengthSession(
 }
 
 /** Process a Strava activity: store it and match to a workout/session. */
-export async function processActivity(activityId: number): Promise<void> {
+export type ProcessResult = "stored" | "duplicate" | "skipped" | "deleted";
+
+export async function processActivity(activityId: number): Promise<ProcessResult> {
   // Never resurrect an activity the user deleted in Kadenz.
   const [tombstone] = await db
     .select({ stravaId: deletedActivities.stravaId })
     .from(deletedActivities)
     .where(eq(deletedActivities.stravaId, String(activityId)))
     .limit(1);
-  if (tombstone) return;
+  if (tombstone) return "deleted";
 
   // Skip if already processed
   const [existing] = await db
@@ -457,13 +459,13 @@ export async function processActivity(activityId: number): Promise<void> {
     .where(eq(activities.stravaId, String(activityId)))
     .limit(1);
 
-  if (existing) return;
+  if (existing) return "duplicate";
 
   const activity = await fetchActivity(activityId);
   const sportType = activity.sport_type || activity.type;
   const isRun = activity.sport_type === "Run" || activity.type === "Run";
   const isStrength = STRENGTH_SPORT_TYPES.has(sportType);
-  if (!isRun && !isStrength) return;
+  if (!isRun && !isStrength) return "skipped";
 
   const avgHr = activity.average_heartrate ? Math.round(activity.average_heartrate) : null;
   const maxHr = activity.max_heartrate ? Math.round(activity.max_heartrate) : null;
@@ -519,7 +521,7 @@ export async function processActivity(activityId: number): Promise<void> {
           );
       }
     }
-    return;
+    return "stored";
   }
 
   // ── Run: existing behaviour ────────────────────────────────────────────────
@@ -565,4 +567,5 @@ export async function processActivity(activityId: number): Promise<void> {
       })
       .where(eq(workouts.id, workoutId));
   }
+  return "stored";
 }
