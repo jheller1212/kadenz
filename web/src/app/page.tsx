@@ -720,7 +720,9 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
 
   // Mileage status vs how far into the week we are (Mon-based)
   const dowIdx = (new Date().getDay() + 6) % 7; // Mon=0 … Sun=6
-  const expectedPct = Math.round(((dowIdx + 1) / 7) * 100);
+  // Expect only the days BEFORE today: a run still scheduled for today
+  // must not read as "behind" in the morning (counts from tomorrow).
+  const expectedPct = Math.round(((dowIdx) / 7) * 100);
   const mileageTitle =
     pct >= 100 ? "Mileage complete" : pct + 15 >= expectedPct ? "Mileage on track" : "Mileage behind plan";
 
