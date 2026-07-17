@@ -1,5 +1,5 @@
 // Bump this on any change to the caching strategy to force old caches to purge.
-const CACHE_NAME = "kadenz-v2";
+const CACHE_NAME = "kadenz-v3";
 const OFFLINE_ASSETS = ["/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -53,7 +53,30 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else (hashed static assets, API calls): let the browser/CDN
-  // handle it. `_next/static` assets are content-hashed and immutable, so the
-  // browser cache already covers them safely — no SW caching needed.
+  // Hashed build assets and app icons are immutable (content-hashed URLs /
+  // versioned with deploys), so cache-FIRST is safe and makes repeat loads
+  // instant and the app shell work fully offline.
+  const url = new URL(req.url);
+  const isImmutableAsset =
+    url.pathname.startsWith("/_next/static/") ||
+    /\.(png|svg|ico)$/.test(url.pathname);
+  if (isImmutableAsset) {
+    event.respondWith(
+      caches.match(req).then(
+        (cached) =>
+          cached ||
+          fetch(req).then((res) => {
+            if (res.ok) {
+              const clone = res.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+            }
+            return res;
+          })
+      )
+    );
+    return;
+  }
+
+  // Everything else (API calls, cross-origin): network only — personal data
+  // must never be served stale from a cache.
 });
