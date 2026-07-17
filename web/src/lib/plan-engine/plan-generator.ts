@@ -889,6 +889,45 @@ function normalizeAvailableDays(days: number[] | null | undefined): number[] | n
   return clean.length >= 2 ? sortMondayFirst(clean) : null;
 }
 
+/** Circular distance between two JS weekdays on the 7-day cycle. */
+function circularDayGap(a: number, b: number): number {
+  const diff = Math.abs(a - b) % 7;
+  return Math.min(diff, 7 - diff);
+}
+
+/**
+ * Pick the best-spaced subset of exactly `count` days from `available`,
+ * always including `longRunDay`. Deterministic greedy: repeatedly add the
+ * candidate whose minimum circular gap to the already-chosen days is largest,
+ * breaking ties Monday-first. When `available` has `count` or fewer days it
+ * is returned unchanged (equal-length behavior identical to before).
+ */
+function selectTrainingSubset(
+  available: number[],
+  count: number,
+  longRunDay: number
+): number[] {
+  if (available.length <= count) return available;
+
+  const chosen: number[] = [longRunDay];
+  const pool = sortMondayFirst(available.filter((d) => d !== longRunDay));
+
+  while (chosen.length < count && pool.length > 0) {
+    let bestIdx = 0;
+    let bestScore = -1;
+    for (let i = 0; i < pool.length; i++) {
+      const score = Math.min(...chosen.map((c) => circularDayGap(pool[i], c)));
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    chosen.push(pool.splice(bestIdx, 1)[0]);
+  }
+
+  return sortMondayFirst(chosen);
+}
+
 function buildWeek(
   weekNumber: number,
   weekStartDate: Date,
@@ -902,9 +941,6 @@ function buildWeek(
   // Explicit availability wins: schedule ONLY on the user's chosen days.
   // Otherwise keep the legacy derived spacing patterns.
   const explicitDays = normalizeAvailableDays(config.availableDays);
-  const trainingDays =
-    explicitDays ??
-    pickTrainingDays(config.daysPerWeek, config.preferredLongRunDay);
 
   // Long run must land on a chosen day. Fall back to the latest available day
   // of the week (Mon-first) if the preferred day isn't in the set.
@@ -912,6 +948,12 @@ function buildWeek(
     explicitDays && !explicitDays.includes(config.preferredLongRunDay)
       ? explicitDays[explicitDays.length - 1]
       : config.preferredLongRunDay;
+
+  // When the user offered more days than runs per week, pick the best-spaced
+  // subset (always including the long-run day). Equal lengths pass through.
+  const trainingDays = explicitDays
+    ? selectTrainingSubset(explicitDays, config.daysPerWeek, longRunDay)
+    : pickTrainingDays(config.daysPerWeek, config.preferredLongRunDay);
 
   const qualityDays = QUALITY_DAYS[config.trainingDifficulty];
   // For race week, use the actual race date's day of week

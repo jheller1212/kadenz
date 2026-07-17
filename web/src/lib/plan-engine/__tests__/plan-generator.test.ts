@@ -682,6 +682,101 @@ describe("generatePlan — availableDays", () => {
   });
 });
 
+// ── Flexible availability (more days than runs) ──────────────────────────────
+
+describe("generatePlan — availableDays larger than daysPerWeek", () => {
+  // Mon, Tue, Wed, Thu, Sat, Sun available — 5 runs per week
+  const sixAvailable = [1, 2, 3, 4, 6, 0];
+  const flexConfig: PlanConfig = {
+    ...marathonConfig,
+    daysPerWeek: 5,
+    preferredLongRunDay: 0, // Sunday — in the set
+    availableDays: sixAvailable,
+  };
+
+  function runDaysOfWeek(week: { workouts: { type: string; dayOfWeek: number }[] }): number[] {
+    return [...new Set(week.workouts.filter((w) => w.type !== "rest").map((w) => w.dayOfWeek))];
+  }
+
+  it("schedules runs on exactly 5 of the 6 available days, including the long-run day", () => {
+    const plan = generatePlan(flexConfig);
+    const allowed = new Set(sixAvailable);
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue;
+      const days = runDaysOfWeek(week);
+      expect(days).toHaveLength(5);
+      for (const d of days) expect(allowed.has(d)).toBe(true);
+      const longRun = week.workouts.find((w) => w.type === "long");
+      expect(longRun?.dayOfWeek).toBe(0);
+    }
+  });
+
+  it("uses the same subset every week and is deterministic across runs", () => {
+    const planA = generatePlan(flexConfig);
+    const planB = generatePlan(flexConfig);
+    const subsetA = runDaysOfWeek(planA.weeks[1]).sort();
+    for (const plan of [planA, planB]) {
+      for (const week of plan.weeks) {
+        if (week.type === "race") continue;
+        expect(runDaysOfWeek(week).sort()).toEqual(subsetA);
+      }
+    }
+  });
+
+  it("avoids consecutive training days when the availability allows it", () => {
+    // 3 runs from all 7 days, long run Sunday → greedy picks Wed, Fri, Sun
+    const plan = generatePlan({
+      ...marathonConfig,
+      daysPerWeek: 3,
+      preferredLongRunDay: 0,
+      availableDays: [1, 2, 3, 4, 5, 6, 0],
+    });
+    const week = plan.weeks[1];
+    const days = runDaysOfWeek(week);
+    expect(days).toHaveLength(3);
+    expect(days).toContain(0);
+    // No two chosen days are adjacent on the circular week
+    const gap = (a: number, b: number) => Math.min(Math.abs(a - b) % 7, 7 - (Math.abs(a - b) % 7));
+    for (const a of days) {
+      for (const b of days) {
+        if (a !== b) expect(gap(a, b)).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  it("stores the FULL available set on the plan, not the derived subset", () => {
+    const plan = generatePlan(flexConfig);
+    expect(plan.availableDays).toEqual([1, 2, 3, 4, 6, 0]); // Monday-first
+  });
+
+  it("leaves equal-length behavior unchanged (uses all chosen days verbatim)", () => {
+    const chosen = [2, 4, 6, 0];
+    const plan = generatePlan({
+      ...marathonConfig,
+      daysPerWeek: 4,
+      preferredLongRunDay: 0,
+      availableDays: chosen,
+    });
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue;
+      expect(runDaysOfWeek(week).sort()).toEqual([...chosen].sort());
+    }
+  });
+
+  it("includes the fallback long-run day in the subset when preferred day is unavailable", () => {
+    const plan = generatePlan({
+      ...flexConfig,
+      preferredLongRunDay: 5, // Friday — NOT in the set; fallback is Sunday (latest Mon-first)
+    });
+    for (const week of plan.weeks) {
+      if (week.type === "race") continue;
+      const longRun = week.workouts.find((w) => w.type === "long");
+      expect(longRun?.dayOfWeek).toBe(0);
+      expect(runDaysOfWeek(week)).toHaveLength(5);
+    }
+  });
+});
+
 // ── Week number ordering ─────────────────────────────────────────────────────
 
 describe("generatePlan — week numbering", () => {

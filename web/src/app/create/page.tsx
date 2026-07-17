@@ -139,8 +139,8 @@ export default function CreatePlanPage() {
   function handleAvailableDays(days: number[]) {
     setAvailableDays(days);
     if (longRunDay !== null && !days.includes(longRunDay)) {
-      setLongRunDay(days.length === daysPerWeek ? suggestLongRunDay(days) : null);
-    } else if (longRunDay === null && days.length === daysPerWeek) {
+      setLongRunDay(days.length >= daysPerWeek ? suggestLongRunDay(days) : null);
+    } else if (longRunDay === null && days.length >= daysPerWeek) {
       setLongRunDay(suggestLongRunDay(days));
     }
   }
@@ -166,7 +166,7 @@ export default function CreatePlanPage() {
         return daysPerWeek >= 2 && daysPerWeek <= 6;
       case "availability":
         return (
-          availableDays.length === daysPerWeek &&
+          availableDays.length >= daysPerWeek &&
           longRunDay !== null &&
           availableDays.includes(longRunDay)
         );
@@ -178,9 +178,9 @@ export default function CreatePlanPage() {
   }
 
   function ctaLabel(): string {
-    if (step === "availability" && availableDays.length !== daysPerWeek) {
+    if (step === "availability" && availableDays.length < daysPerWeek) {
       const remaining = daysPerWeek - availableDays.length;
-      return remaining > 0 ? `Pick ${remaining} more ${remaining === 1 ? "day" : "days"}` : `Pick ${daysPerWeek} days`;
+      return `Pick ${remaining} more ${remaining === 1 ? "day" : "days"}`;
     }
     if (step === "preferences") return "Create plan";
     return "Continue";
@@ -261,7 +261,7 @@ export default function CreatePlanPage() {
     },
     availability: {
       title: "Which days work for you?",
-      sub: `Pick exactly ${daysPerWeek} training days, then choose your long-run day.`,
+      sub: `Pick at least ${daysPerWeek} training days, then choose your long-run day.`,
     },
     timeline: {
       title: goalType === "race" ? "When do you want to start?" : "Set your timeline",
