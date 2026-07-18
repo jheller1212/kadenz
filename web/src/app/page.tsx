@@ -216,6 +216,10 @@ function useWeather(selectedDate: Date | null) {
           .then((perm) => {
             if (perm.state === "granted") {
               refreshFromGps();
+            } else if (perm.state === "prompt") {
+              // Never actually asked (an early IP fix suppressed the one-time
+              // prompt): ask now — a precise fix beats any cached guess.
+              refreshFromGps();
             } else if (Date.now() - (cached!.ts ?? 0) > LOCATION_REFRESH_MS) {
               // Permission not granted: fall back to a periodic IP refresh.
               ipLocate().then((loc) => {
