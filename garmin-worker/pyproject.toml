@@ -13,6 +13,12 @@ dependencies = [
     "uvicorn[standard]>=0.46.0",
 ]
 
+[project.optional-dependencies]
+login = [
+    "playwright>=1.61.0",
+    "requests-oauthlib>=2.0.0",
+]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
