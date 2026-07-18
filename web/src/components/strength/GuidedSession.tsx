@@ -710,10 +710,10 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
           <button
             type="button"
             onClick={() => { haptic("light"); setLastPerfOpen(true); }}
-            style={{ touchAction: "manipulation", backgroundImage: "linear-gradient(135deg, #60A5FA 0%, #2563EB 100%)" }}
-            className="press mt-3 flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-bold text-white shadow-[0_3px_10px_rgba(37,99,235,0.35)]"
+            style={{ touchAction: "manipulation" }}
+            className="press mt-2.5 flex items-center gap-1.5 rounded-full bg-[#2563EB]/12 px-3 py-1.5 text-[12px] font-bold text-[#2563EB]"
           >
-            <History className="h-4 w-4" strokeWidth={2.2} />
+            <History className="h-3.5 w-3.5" strokeWidth={2.2} />
             Last sets · {formatRecency(last.date)}
           </button>
         )}

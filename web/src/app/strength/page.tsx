@@ -499,20 +499,16 @@ export default function StrengthPage() {
     setPhase("summary");
   }
 
-  function handleExitGuided(setsLogged: number) {
-    // An ad-hoc session abandoned with nothing logged shouldn't linger as a
-    // phantom planned session on today — and there's nothing worth resuming.
-    if (setsLogged === 0) {
-      clearGuidedSnapshot();
-      if (adHocIdRef.current && session?.id === adHocIdRef.current) {
-        apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
-      }
-    }
+  function handleExitGuided(_setsLogged: number) {
+    // Minimize: the workout stays parked (snapshot intact, ad-hoc session
+    // kept) even with zero sets logged — the resume card and the floating
+    // pill are the way back in. Discard is the cleanup path.
     adHocIdRef.current = null;
     setResume(null);
     setPhase("picker");
     setSession(null);
     setExercises([]);
+    setResumeSnap(loadGuidedSnapshot());
   }
 
   // Discard: GuidedSession already deleted the logged sets and cleared the
