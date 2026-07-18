@@ -174,9 +174,9 @@ export async function GET(request: NextRequest) {
           s.status === "completed" ||
           !completedDayType.has(`${new Date(s.date).toDateString()}:${s.type}`)
       )
-      // Drop sessions that never logged a set — an opened-but-empty or
-      // missed session isn't an activity worth showing.
-      .filter((s) => sessionsWithSets.has(s.id))
+      // Completed sessions always show (a manual tick is a real workout);
+      // otherwise require logged sets so opened-but-empty ones don't clutter.
+      .filter((s) => s.status === "completed" || sessionsWithSets.has(s.id))
       .map((s) => ({
         id: `strength:${s.id}`,
         source: "session" as const,
