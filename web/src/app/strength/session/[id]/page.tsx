@@ -347,7 +347,6 @@ export default function StrengthSessionPage({
                       perSide: ex.perSide,
                     })}
                   </p>
-                  {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
                 </div>
               </div>
             );

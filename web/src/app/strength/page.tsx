@@ -814,7 +814,6 @@ export default function StrengthPage() {
                   <p className="mt-0.5 text-[12px] font-medium text-text-2">
                     {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}
                   </p>
-                  {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {ex.flatGroundOnly && (
                       <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">
@@ -889,7 +888,7 @@ export default function StrengthPage() {
                         <span className="block text-[12px] text-text-3">
                           {row.lastWeightKg != null
                             ? `Last: ${formatWeightKg(row.lastWeightKg)} × ${row.lastRepLow === row.lastRepHigh ? row.lastRepLow : `${row.lastRepLow}–${row.lastRepHigh}`}${row.lastDate ? ` · ${formatRecency(row.lastDate)}` : ""}`
-                            : row.tempoNote ?? `${row.defaultSets ?? 3} × ${row.repLow ?? 8}–${row.repHigh ?? 12}`}
+                            : `${row.defaultSets ?? 3} × ${row.repLow ?? 8}–${row.repHigh ?? 12}`}
                         </span>
                       </button>
                     ))}
