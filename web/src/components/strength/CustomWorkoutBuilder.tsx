@@ -491,11 +491,6 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                           also {ex.secondaryMuscles.join(", ").toLowerCase()}
                         </span>
                       )}
-                      {(ex.equipmentNote || ex.tempoNote) && (
-                        <span className="block text-[12px] text-text-3">
-                          {ex.equipmentNote ?? ex.tempoNote}
-                        </span>
-                      )}
                     </button>
                     {getVideoId(ex.slug) && (
                       <button

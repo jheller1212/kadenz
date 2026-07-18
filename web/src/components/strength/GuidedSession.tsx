@@ -689,7 +689,6 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
             {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}
           </p>
         )}
-        {ex.tempoNote && <p className="mt-0.5 text-[12px] text-text-3">{ex.tempoNote}</p>}
         <div className="mt-2 flex flex-wrap justify-center gap-1.5">
           {ex.flatGroundOnly && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>}
           {ex.painGated && <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">Eased — pain gate</span>}
