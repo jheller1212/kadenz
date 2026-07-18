@@ -8,6 +8,7 @@ import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
+import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -184,6 +185,15 @@ export async function POST(request: NextRequest) {
         }
       })
       .catch(() => {});
+
+    // Rebuild the auto strength schedule around the new plan's run days.
+    // Strength sessions have no plan FK — without this, the old plan's future
+    // auto-scheduled sessions linger and the top-up stacks new ones on top.
+    try {
+      await reconcileStrengthSchedule(null);
+    } catch (err) {
+      console.error("Failed to reconcile strength schedule:", err);
+    }
 
     // Return the full plan (weeks + workouts + blocks) by fetching from DB
     const fullPlan = await db.query.plans.findFirst({

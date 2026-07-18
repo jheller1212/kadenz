@@ -3,14 +3,21 @@ import { db, plans, strengthPlanSettings, strengthSessions, workouts } from "@/d
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
-import { placeStrengthWeek, type PlacementDay } from "./schedule-place";
+import type { PlacementDay } from "./schedule-place";
+import {
+  computeTopUpPlacements,
+  dateFromDayKey,
+  isPrunable,
+  weekKeyOf,
+} from "./reconcile";
 import type { StrengthSessionType } from "./types";
 
 // ── Weekly strength scheduler ────────────────────────────────────────────────
 // Tops up planned strength sessions for the next two weeks from the profile's
 // wizard settings. Idempotent: one session per calendar day; existing sessions
 // (manual or auto) block a slot; pruning only touches future auto-scheduled
-// sessions the user never edited (any PATCH clears the auto flag).
+// sessions the user never edited (a meaningful PATCH — date move, notes,
+// reorder — clears the auto flag; a bare status tick does not).
 //
 // Day math runs in the household timezone — the server is UTC and naive
 // startOfDay would put late-evening sessions on the wrong calendar day.
@@ -69,10 +76,14 @@ export async function ensureStrengthSchedule(profileId: string | null) {
   ));
   const horizon = new Date(anchor);
   horizon.setUTCDate(horizon.getUTCDate() + HORIZON_DAYS + 1);
-  const windowStart = new Date(anchor);
+  // Query back to the Monday of the current week: sessions already done or
+  // planned earlier this week must count against this week's cap even though
+  // they sit before the top-up strip.
+  const windowStart = dateFromDayKey(weekKeyOf(dayKey(anchor)));
   windowStart.setUTCDate(windowStart.getUTCDate() - 1); // TZ slack
 
-  // Existing sessions in the window (any status) block their calendar day.
+  // Existing sessions in the window (any status, any origin) block their
+  // calendar day and count against their calendar week's session budget.
   const existing = await db
     .select({ date: strengthSessions.date })
     .from(strengthSessions)
@@ -86,6 +97,11 @@ export async function ensureStrengthSchedule(profileId: string | null) {
       )
     );
   const taken = new Set(existing.map((s) => dayKey(s.date)));
+  const sessionsByWeek = new Map<string, number>();
+  for (const s of existing) {
+    const wk = weekKeyOf(dayKey(s.date));
+    sessionsByWeek.set(wk, (sessionsByWeek.get(wk) ?? 0) + 1);
+  }
 
   // Run schedule in the window (owner's active plan) — the placement engine
   // keeps heavy leg work off hard-run days and the day before.
@@ -107,10 +123,10 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     }
   }
 
-  const rotation2 = rotation; // rotation per week
   const gcal = !profileId ? await isConnected().catch(() => false) : false;
 
-  // Build the day strip (tomorrow → horizon) and cut it into Monday weeks.
+  // Build the day strip (tomorrow → horizon); the pure planner cuts it into
+  // Monday weeks and enforces the per-day and per-week caps.
   const strip: Array<PlacementDay & { date: Date }> = [];
   for (let offset = 1; offset <= HORIZON_DAYS; offset++) {
     const day = new Date(anchor);
@@ -127,77 +143,67 @@ export async function ensureStrengthSchedule(profileId: string | null) {
       taken: taken.has(key),
     });
   }
-  const weeks: Array<Array<PlacementDay & { date: Date }>> = [];
-  let current: Array<PlacementDay & { date: Date }> = [];
-  for (const d of strip) {
-    if (d.dow === 1 && current.length > 0) {
-      weeks.push(current);
-      current = [];
-    }
-    current.push(d);
-  }
-  if (current.length > 0) weeks.push(current);
+
+  const placements = computeTopUpPlacements(
+    strip,
+    rotation,
+    settings.availableDays,
+    sessionsByWeek
+  );
 
   let created = 0;
-  for (const week of weeks) {
-    // A partial leading week may already hold this week's earlier sessions —
-    // count them so we only top up the remainder of the rotation.
-    const alreadyThisWeek = week.filter((d) => d.taken).length;
-    const remaining = rotation2.slice(
-      Math.min(alreadyThisWeek, rotation2.length)
-    );
-    if (remaining.length === 0) continue;
-
-    const placements = placeStrengthWeek(week, settings.availableDays, remaining);
-    for (const placement of placements) {
-      const day = week.find((d) => d.key === placement.key)!;
-      const template = SESSION_TEMPLATES[placement.type];
-      const [row] = await db
-        .insert(strengthSessions)
-        .values({
-          profileId,
-          date: day.date,
-          dayOfWeek: day.dow,
-          type: placement.type,
-          title: template.title,
-          status: "planned",
-          targetDurationMinutes: settings.durationMinutes,
-          autoScheduled: true,
-        })
-        .onConflictDoNothing()
-        .returning({ id: strengthSessions.id });
-      if (row) {
-        created++;
-        if (gcal) {
-          queueStrengthSessionSync(row.id, "create", "gcal").catch(() => {});
-        }
+  for (const placement of placements) {
+    const day = strip.find((d) => d.key === placement.key)!;
+    const template = SESSION_TEMPLATES[placement.type];
+    const [row] = await db
+      .insert(strengthSessions)
+      .values({
+        profileId,
+        date: day.date,
+        dayOfWeek: day.dow,
+        type: placement.type,
+        title: template.title,
+        status: "planned",
+        targetDurationMinutes: settings.durationMinutes,
+        autoScheduled: true,
+      })
+      .onConflictDoNothing()
+      .returning({ id: strengthSessions.id });
+    if (row) {
+      created++;
+      if (gcal) {
+        queueStrengthSessionSync(row.id, "create", "gcal").catch(() => {});
       }
     }
   }
 
-    return { created };
+  return { created };
 }
 
 /** Remove future auto-scheduled sessions the user never touched. */
 export async function pruneAutoSchedule(profileId: string | null) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const future = await db
+  const candidates = await db
     .select({
       id: strengthSessions.id,
       gcalEventId: strengthSessions.gcalEventId,
+      date: strengthSessions.date,
+      status: strengthSessions.status,
+      autoScheduled: strengthSessions.autoScheduled,
     })
     .from(strengthSessions)
     .where(
       and(
         gte(strengthSessions.date, today),
-        eq(strengthSessions.autoScheduled, true),
-        eq(strengthSessions.status, "planned"),
         profileId
           ? eq(strengthSessions.profileId, profileId)
           : isNull(strengthSessions.profileId)
       )
     );
+  // The selection contract lives in one tested predicate: future + planned +
+  // auto-scheduled only; completed and hand-touched sessions are permanent.
+  const future = candidates.filter((s) => isPrunable(s, today));
   if (future.length === 0) return { removed: 0 };
 
   // Calendar events must go with their rows or they linger forever.
@@ -213,4 +219,16 @@ export async function pruneAutoSchedule(profileId: string | null) {
     .delete(strengthSessions)
     .where(inArray(strengthSessions.id, future.map((s) => s.id)));
   return { removed: future.length };
+}
+
+/**
+ * Prune-then-top-up in one shot. Run after a plan is created or regenerated —
+ * strength sessions have no plan FK, so the old plan's future auto-scheduled
+ * sessions would otherwise linger while the scheduler adds new ones on top.
+ * Also safe standalone (the reconcile route) to clean up an existing mess.
+ */
+export async function reconcileStrengthSchedule(profileId: string | null) {
+  const { removed } = await pruneAutoSchedule(profileId);
+  const { created } = await ensureStrengthSchedule(profileId);
+  return { removed, created };
 }

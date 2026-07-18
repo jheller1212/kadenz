@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq, and, gte, lt } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, activities } from "@/db";
 import { buildPlannedSession } from "@/lib/strength/service";
+import { clearsAutoScheduled } from "@/lib/strength/reconcile";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { StrengthSessionType } from "@/lib/strength/types";
@@ -98,9 +99,11 @@ export async function PATCH(
 
   try {
     const set: Record<string, unknown> = { ...updates, updatedAt: new Date() };
-    // Any hand edit adopts an auto-scheduled session — the scheduler's prune
-    // must never delete something the user deliberately moved or annotated.
-    set.autoScheduled = false;
+    // A meaningful hand edit (date move, notes, reorder, duration) adopts an
+    // auto-scheduled session — the scheduler's prune must never delete
+    // something the user deliberately shaped. A bare status tick/untick is
+    // NOT adoption: it must not launder auto sessions past future pruning.
+    if (clearsAutoScheduled(updates)) set.autoScheduled = false;
     if (updates.date) {
       const d = new Date(updates.date);
       set.date = d;

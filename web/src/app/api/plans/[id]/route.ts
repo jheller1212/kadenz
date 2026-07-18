@@ -9,6 +9,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync, queueGarminWorkoutDeletes } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { garminClient } from "@/lib/sync/garmin-client";
+import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon"]),
@@ -245,6 +246,15 @@ export async function PUT(
           }
         })
         .catch(() => {});
+    }
+
+    // Rebuild the auto strength schedule around the regenerated run days.
+    // Strength sessions have no plan FK — without this, the old schedule's
+    // future auto-scheduled sessions linger and the top-up stacks new ones.
+    try {
+      await reconcileStrengthSchedule(null);
+    } catch (err) {
+      console.error("Failed to reconcile strength schedule:", err);
     }
 
     const fullPlan = await db.query.plans.findFirst({
