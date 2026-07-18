@@ -850,17 +850,23 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                     </span>
                   </div>
                   <div className="flex h-1.5 gap-1">
-                    {workoutDays.map((d, i) => {
-                      const done = d.workout?.status === "completed";
-                      const color = workoutBarColor[d.workout!.type] ?? "#999";
-                      return (
-                        <div
-                          key={i}
-                          className="flex-1 rounded-full"
-                          style={{ backgroundColor: done ? color : "var(--k-elevated)" }}
-                        />
-                      );
-                    })}
+                    {/* Fill from the left: completed runs first (own type colors) */}
+                    {[...workoutDays]
+                      .sort((a, b) =>
+                        (b.workout?.status === "completed" ? 1 : 0) -
+                        (a.workout?.status === "completed" ? 1 : 0)
+                      )
+                      .map((d, i) => {
+                        const done = d.workout?.status === "completed";
+                        const color = workoutBarColor[d.workout!.type] ?? "#999";
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 rounded-full"
+                            style={{ backgroundColor: done ? color : "var(--k-elevated)" }}
+                          />
+                        );
+                      })}
                     {workoutDays.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
                   </div>
                 </div>
@@ -872,12 +878,16 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                     </span>
                   </div>
                   <div className="flex h-1.5 gap-1">
-                    {weekStrength.map((sess) => (
+                    {/* Fill from the left */}
+                    {weekStrength.map((sess, i) => (
                       <div
                         key={sess.id}
                         className="flex-1 rounded-full"
                         style={{
-                          backgroundColor: sess.status === "completed" ? "#3B82F6" : "var(--k-elevated)",
+                          backgroundColor:
+                            i < weekStrength.filter((x) => x.status === "completed").length
+                              ? "#3B82F6"
+                              : "var(--k-elevated)",
                         }}
                       />
                     ))}
