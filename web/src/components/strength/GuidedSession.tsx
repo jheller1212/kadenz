@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Minus, Plus, Volume2, VolumeX, Check, Pause, Play } from "lucide-react";
+import { Minus, Plus, Volume2, VolumeX, Check, Pause, Play, History } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { haptic } from "@/lib/haptics";
@@ -187,6 +187,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   const [pausedAt, setPausedAt] = useState<number | null>(null);
   // slug → previous performance (null = fetched, nothing on record).
   const [lastPerf, setLastPerf] = useState<Record<string, LastPerf | null>>({});
+  const [lastPerfOpen, setLastPerfOpen] = useState(false);
 
   const sessionStartRef = useRef<number>(resume?.startedAt ?? Date.now());
   const prefsRef = useRef(prefs);
@@ -704,16 +705,17 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
           )}
         </div>
 
-        {/* Previous performance of THIS exercise (dated per-set detail) */}
+        {/* Previous performance of THIS exercise — prominent button + popup */}
         {last && last.sets.length > 0 && (
-          <div className="mt-3 w-full max-w-xs rounded-[var(--radius-input)] bg-elevated px-3 py-2 text-left">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-text-3">
-              Last time · {formatRecency(last.date)}
-            </p>
-            <p className="mt-0.5 text-[13px] font-semibold tabular-nums leading-snug text-text-1">
-              {formatLastSets(last.sets)}
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => { haptic("light"); setLastPerfOpen(true); }}
+            style={{ touchAction: "manipulation", backgroundImage: "linear-gradient(135deg, #60A5FA 0%, #2563EB 100%)" }}
+            className="press mt-3 flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-bold text-white shadow-[0_3px_10px_rgba(37,99,235,0.35)]"
+          >
+            <History className="h-4 w-4" strokeWidth={2.2} />
+            Last sets · {formatRecency(last.date)}
+          </button>
         )}
 
         {/* Preceding sets (weight · reps · time) */}
@@ -846,6 +848,38 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         onClose={() => setVideoSlug(null)}
       />
 
+      {/* Last-performance popup */}
+      <Sheet open={lastPerfOpen} onClose={() => setLastPerfOpen(false)} title="Last time">
+        {(() => {
+          const ex = exercises[exIndex];
+          const lp = ex ? lastPerf[ex.slug] : null;
+          if (!ex || !lp) return null;
+          return (
+            <div className="flex flex-col gap-3 pb-2">
+              <div>
+                <p className="text-[15px] font-bold text-text-1">{ex.name}</p>
+                <p className="mt-0.5 text-[12px] text-text-3">
+                  {new Date(lp.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", year: "numeric" })}
+                  {" · "}{formatRecency(lp.date)}
+                </p>
+              </div>
+              <div className="rounded-[var(--radius-input)] bg-elevated p-2">
+                {lp.sets.map((st, i) => (
+                  <div key={i} className="flex items-center justify-between px-2 py-1.5 text-[14px]">
+                    <span className="font-semibold text-text-3">Set {st.setNumber ?? i + 1}</span>
+                    <span className="tabular-nums font-semibold text-text-1">
+                      {st.weightKg != null && st.weightKg > 0
+                        ? `${displayWeight(st.weightKg)} ${weightUnitLabel()} × ${st.reps ?? "—"}`
+                        : `${st.reps ?? "—"} reps`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </Sheet>
+
       <Sheet open={confirmExit} onClose={() => setConfirmExit(false)} title="Leave workout?">
         <div className="flex flex-col gap-3 px-4 pb-6">
           <p className="text-[14px] text-text-2">
@@ -890,15 +924,6 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
 }
 
 // One line of previous sets, e.g. "12 kg × 10 · 12 kg × 9 · 10.5 kg × 8".
-function formatLastSets(sets: LastPerf["sets"]): string {
-  return sets
-    .map((s) =>
-      s.weightKg != null && s.weightKg > 0
-        ? `${displayWeight(s.weightKg)} ${weightUnitLabel()} × ${s.reps ?? "—"}`
-        : `${s.reps ?? "—"} reps`
-    )
-    .join(" · ");
-}
 
 // ── Weight / reps stepper block ───────────────────────────────────────────────
 function WeightReps({

@@ -35,7 +35,6 @@ import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { haptic } from "@/lib/haptics";
 import { readCache, writeCache } from "@/lib/client-cache";
 import { mutateWithQueue, installQueueFlush } from "@/lib/offline-queue";
-import { loadGuidedSnapshot } from "@/lib/strength/guided-snapshot";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1140,38 +1139,6 @@ function TodaySkeleton() {
 // surface a persistent pill routing to /strength, whose resume card reopens
 // the session. Self-contained — checks the snapshot on mount and focus.
 
-function ResumeWorkoutBanner() {
-  const [title, setTitle] = useState<string | null>(null);
-  useEffect(() => {
-    function check() {
-      const snap = loadGuidedSnapshot();
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
-      setTitle(snap ? snap.session.title : null);
-    }
-    check();
-    window.addEventListener("focus", check);
-    document.addEventListener("visibilitychange", check);
-    return () => {
-      window.removeEventListener("focus", check);
-      document.removeEventListener("visibilitychange", check);
-    };
-  }, []);
-  if (!title) return null;
-  return (
-    <div className="px-5">
-      <TransitionLink
-        href="/strength"
-        className="press flex items-center gap-2.5 rounded-full bg-accent/15 px-4 py-2.5"
-      >
-        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-accent">
-          Workout in progress · {title}
-        </span>
-        <span className="shrink-0 text-[13px] font-bold text-accent">Resume →</span>
-      </TransitionLink>
-    </div>
-  );
-}
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
@@ -1528,7 +1495,6 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* In-progress guided strength workout — resume from where it left off */}
-        <ResumeWorkoutBanner />
 
         {/* Missed-session adjustment tray (Benchmark-style) */}
         <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />

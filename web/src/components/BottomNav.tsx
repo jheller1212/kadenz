@@ -1,5 +1,7 @@
 "use client";
 
+import { ResumeWorkoutPill } from "@/components/ResumeWorkoutPill";
+
 import { motion } from "motion/react";
 import { Home, CalendarDays, Dumbbell, Activity, BarChart3 } from "lucide-react";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -20,6 +22,8 @@ const tabs: { id: Tab; label: string; href: string; Icon: typeof Home }[] = [
 
 export function BottomNav({ active }: Props) {
   return (
+    <>
+    <ResumeWorkoutPill />
     <nav
       className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[430px]"
       aria-label="Main navigation"
@@ -60,5 +64,6 @@ export function BottomNav({ active }: Props) {
         })}
       </div>
     </nav>
+    </>
   );
 }
