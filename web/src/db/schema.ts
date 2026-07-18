@@ -320,6 +320,14 @@ export const deletedActivities = pgTable("deleted_activities", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Recently deleted activities: full original row kept as jsonb for 30 days so
+// deletes are recoverable. id is the original activities.id.
+export const activityTrash = pgTable("activity_trash", {
+  id: uuid("id").primaryKey(),
+  payload: jsonb("payload").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const personalRecords = pgTable(
   "personal_records",
   {
