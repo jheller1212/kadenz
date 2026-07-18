@@ -18,6 +18,7 @@ import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
+import { WeeklyStrengthPlan } from "@/components/strength/WeeklyStrengthPlan";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import {
@@ -208,6 +209,12 @@ function HubEmptyState() {
             </TransitionLink>
           }
         />
+        <section className="mt-2">
+          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
+            Strength
+          </p>
+          <WeeklyStrengthPlan />
+        </section>
       </div>
       <BottomNav active="plan" />
     </main>
@@ -368,6 +375,14 @@ export default function PlanHubPage() {
             </TransitionLink>
           ))}
         </div>
+
+        {/* Strength */}
+        <section>
+          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
+            Strength
+          </p>
+          <WeeklyStrengthPlan />
+        </section>
 
         {/* Week cards */}
         {plan.weeks.map((week) => (
