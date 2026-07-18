@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { db, strengthSessions, activities } from "@/db";
+import { eq, and, gte, lt } from "drizzle-orm";
+import { db, strengthSessions, strengthSets, activities } from "@/db";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -112,6 +112,47 @@ export async function PATCH(
       .set(set)
       .where(eq(strengthSessions.id, id))
       .returning();
+
+    // Completing a session absorbs any same-day planned twin of the same type
+    // (an ad-hoc start that didn't adopt the scheduled slot, or vice versa).
+    // Its sets move over, the twin is removed — no phantom "planned" leftovers
+    // inflating week counts.
+    if (updated && updates.status === "completed") {
+      const dayStart = new Date(updated.date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+      const twins = await db
+        .select()
+        .from(strengthSessions)
+        .where(
+          and(
+            eq(strengthSessions.type, updated.type),
+            eq(strengthSessions.status, "planned"),
+            gte(strengthSessions.date, dayStart),
+            lt(strengthSessions.date, dayEnd)
+          )
+        );
+      for (const twin of twins) {
+        if (twin.id === updated.id) continue;
+        await db
+          .update(strengthSets)
+          .set({ sessionId: updated.id })
+          .where(eq(strengthSets.sessionId, twin.id));
+        if (twin.gcalEventId) {
+          isConnected()
+            .then((connected) => {
+              if (connected) {
+                return queueStrengthSessionSync(twin.id, "delete", "gcal", {
+                  gcalEventId: twin.gcalEventId,
+                });
+              }
+            })
+            .catch((err) => console.error("Failed to queue twin calendar cleanup:", err));
+        }
+        await db.delete(strengthSessions).where(eq(strengthSessions.id, twin.id));
+      }
+    }
 
     if (!updated) {
       return Response.json({ error: "Session not found" }, { status: 404 });
