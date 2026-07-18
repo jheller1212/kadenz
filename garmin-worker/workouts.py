@@ -1,13 +1,20 @@
 """
 Pure request models, Garmin payload builders and activity mappers.
 
-No network access here — everything is unit-testable without garth.
+No garth/network access here — everything is unit-testable without garth.
+(Exercise resolution may consult taxonomy.py, which lazily fetches Garmin's
+public exercise list but always falls back to a bundled snapshot.)
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+import taxonomy
+
+logger = logging.getLogger(__name__)
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -350,11 +357,18 @@ def _resolve_exercise(name: str, category: str | None) -> tuple[str | None, str 
     """
     key = _normalize_exercise_key(name)
     if key in _EXERCISE_TAXONOMY:
+        logger.debug("Exercise %r resolved via curated map", name)
         return _EXERCISE_TAXONOMY[key]
     if category:
         cat = _to_upper_snake(category)
         if cat in _GARMIN_CATEGORIES:
+            logger.debug("Exercise %r resolved via category hint %r", name, cat)
             return cat, _to_upper_snake(name)
+    resolved = taxonomy.resolve(name)
+    if resolved is not None:
+        logger.debug("Exercise %r resolved via Garmin taxonomy", name)
+        return resolved
+    logger.debug("Exercise %r unresolved; using generic strength step", name)
     return None, None
 
 
