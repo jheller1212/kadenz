@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { db, activities, workouts, blocks, strengthSessions, deletedActivities } from "@/db";
+import { db, activities, workouts, blocks, strengthSessions, deletedActivities, activityTrash } from "@/db";
 import { eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
 import { garminTombstoneKey } from "@/lib/sync/garmin-activity-import";
+import { rowToPayload } from "@/lib/activity-trash";
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 
@@ -374,9 +375,9 @@ export async function PATCH(
 }
 
 // ── DELETE /api/activities/[id] ──────────────────────────────────────────────
-// Removes a synced activity. Any workout / strength session it completed is
-// reverted to planned. Note: a later manual backfill can re-import the same
-// Strava activity.
+// Moves an activity to the trash (activity_trash, recoverable for 30 days via
+// "Recently deleted"). Any workout / strength session it completed is reverted
+// to planned, and sync tombstones stop Strava/Garmin re-imports.
 
 export async function DELETE(
   _request: NextRequest,
@@ -386,6 +387,12 @@ export async function DELETE(
   try {
     const [activity] = await db.select().from(activities).where(eq(activities.id, id));
     if (!activity) return Response.json({ error: "Activity not found" }, { status: 404 });
+
+    // Keep the full row recoverable before anything is destroyed.
+    await db
+      .insert(activityTrash)
+      .values({ id: activity.id, payload: rowToPayload(activity) })
+      .onConflictDoNothing();
 
     if (activity.workoutId) {
       await db

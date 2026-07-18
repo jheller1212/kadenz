@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, createContext, useContext } from "react";
-import { ChevronRight, Activity as ActivityIcon, AlertCircle, Plus, CalendarDays, Link2, Unlink, Check } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import { ChevronRight, Activity as ActivityIcon, AlertCircle, Plus, CalendarDays, Link2, Unlink, Check, Trash2, RotateCcw } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { BottomNav } from "@/components/BottomNav";
@@ -63,6 +63,21 @@ interface ActivityWorkout {
 
 // Lets any WorkoutRow open the Link sheet without prop-threading.
 const LinkContext = createContext<(a: ActivityWorkout) => void>(() => {});
+
+// Edit mode (delete-to-trash) without prop-threading through MonthSection.
+const EditContext = createContext<{
+  editMode: boolean;
+  onDelete: (a: ActivityWorkout) => void;
+}>({ editMode: false, onDelete: () => {} });
+
+interface TrashItem {
+  id: string;
+  deletedAt: string;
+  name: string | null;
+  date: string | null;
+  distanceKm: number | null;
+  sportType: string | null;
+}
 
 interface ActivitiesApiResponse {
   activities?: ActivityWorkout[];
@@ -231,6 +246,7 @@ function ActivitiesSkeleton() {
 
 function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
   const requestLink = useContext(LinkContext);
+  const { editMode, onDelete } = useContext(EditContext);
   const isRecorded = !!workout.stravaId || !!workout.activity;
   const isLinked = !!workout.workoutId || !!workout.strengthSessionId;
   const canLink = isRecorded && !isLinked;
@@ -282,7 +298,17 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
             <p className="mt-0.5 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
           </div>
 
-          {canLink && (
+          {editMode && hasActivity && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(workout); }}
+              aria-label={`Delete ${workout.title}`}
+              className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-danger/10"
+            >
+              <Trash2 className="h-4 w-4 text-danger" strokeWidth={2} />
+            </button>
+          )}
+          {!editMode && canLink && (
             <button
               type="button"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); haptic("light"); requestLink(workout); }}
@@ -292,7 +318,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
               Link
             </button>
           )}
-          {hasActivity && !canLink && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
+          {!editMode && hasActivity && !canLink && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
         </div>
 
         {/* Stats row */}
@@ -390,7 +416,15 @@ function MonthSection({ group }: { group: MonthGroup }) {
 
 // ── Workouts Tab ──────────────────────────────────────────────────────────────
 
-function WorkoutsTab({ workouts }: { workouts: ActivityWorkout[] }) {
+function WorkoutsTab({
+  workouts,
+  trashCount,
+  onOpenTrash,
+}: {
+  workouts: ActivityWorkout[];
+  trashCount: number;
+  onOpenTrash: () => void;
+}) {
   const [typeFilter, setTypeFilter] = useState("All");
   const [yearFilter, setYearFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
@@ -476,6 +510,21 @@ function WorkoutsTab({ workouts }: { workouts: ActivityWorkout[] }) {
         />
       ) : (
         groups.map((group) => <MonthSection key={group.key} group={group} />)
+      )}
+
+      {/* Recently deleted */}
+      {trashCount > 0 && (
+        <button
+          type="button"
+          onClick={() => { haptic("light"); onOpenTrash(); }}
+          className="press k-card flex items-center gap-3 px-4 py-3.5 text-left"
+        >
+          <Trash2 className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />
+          <span className="flex-1 text-[15px] font-semibold text-text-1">
+            Recently deleted ({trashCount})
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />
+        </button>
       )}
     </div>
   );
@@ -688,6 +737,55 @@ export default function ActivitiesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [linkTarget, setLinkTarget] = useState<ActivityWorkout | null>(null);
 
+  // ── Delete to trash / recently deleted ──────────────────────────────────────
+  const [editMode, setEditMode] = useState(false);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [undoId, setUndoId] = useState<string | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshTrash = useCallback(async () => {
+    try {
+      const r = await apiFetch("/api/activities/trash");
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data)) setTrashItems(data);
+      }
+    } catch {
+      /* non-critical */
+    }
+  }, []);
+
+  useEffect(() => { refreshTrash(); }, [refreshTrash]);
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+
+  const handleDelete = useCallback(async (a: ActivityWorkout) => {
+    const actId = a.activity?.id;
+    if (!actId) return;
+    haptic("warning");
+    // Optimistic removal — recoverable, so no confirm.
+    setWorkouts((prev) => prev.filter((w) => w.activity?.id !== actId));
+    const r = await apiFetch(`/api/activities/${actId}`, { method: "DELETE" });
+    if (r.ok) {
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+      setUndoId(actId);
+      undoTimer.current = setTimeout(() => setUndoId(null), 5000);
+      refreshTrash();
+    } else {
+      load(); // put the row back
+    }
+  }, [refreshTrash]);
+
+  async function undoDelete() {
+    if (!undoId) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoId(null);
+    const r = await apiFetch(`/api/activities/trash/${undoId}/restore`, { method: "POST" });
+    if (r.ok) haptic("success");
+    load();
+    refreshTrash();
+  }
+
   if (loading) return <ActivitiesSkeleton />;
 
   return (
@@ -701,6 +799,15 @@ export default function ActivitiesPage() {
         left={<ProfileAvatar />}
         right={
           <div className="flex items-center gap-2">
+            {activeTab === "workouts" && (
+              <button
+                type="button"
+                onClick={() => { haptic("light"); setEditMode((v) => !v); }}
+                className="press flex h-9 items-center rounded-lg bg-elevated px-3 text-[13px] font-semibold text-text-2"
+              >
+                {editMode ? "Done" : "Edit"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { haptic("light"); setAddOpen(true); }}
@@ -747,14 +854,40 @@ export default function ActivitiesPage() {
           ))}
         </div>
 
+        {/* Undo strip after moving an activity to the trash */}
+        {undoId && (
+          <div className="flex items-center justify-between rounded-[var(--radius-input)] bg-elevated px-3 py-2">
+            <p className="text-[13px] text-text-2">Moved to Recently deleted</p>
+            <button
+              type="button"
+              onClick={undoDelete}
+              className="press text-[13px] font-semibold text-accent"
+            >
+              Undo
+            </button>
+          </div>
+        )}
+
         {/* Tab content */}
         {activeTab === "workouts" ? (
-          <WorkoutsTab workouts={workouts} />
+          <EditContext.Provider value={{ editMode, onDelete: handleDelete }}>
+            <WorkoutsTab
+              workouts={workouts}
+              trashCount={trashItems.length}
+              onOpenTrash={() => setTrashOpen(true)}
+            />
+          </EditContext.Provider>
         ) : (
           <PerformanceTab workouts={workouts} />
         )}
       </div>
 
+      <TrashSheet
+        open={trashOpen}
+        items={trashItems}
+        onClose={() => setTrashOpen(false)}
+        onChanged={() => { refreshTrash(); load(); }}
+      />
       <AddActivitySheet open={addOpen} onClose={() => setAddOpen(false)} onSaved={load} />
       <LinkActivitySheet
         activity={linkTarget}
@@ -765,6 +898,120 @@ export default function ActivitiesPage() {
       <BottomNav active="activities" />
     </main>
     </LinkContext.Provider>
+  );
+}
+
+// ── Recently deleted (trash) sheet ────────────────────────────────────────────
+
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return `${Math.max(minutes, 0)}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function TrashSheet({
+  open,
+  items,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  items: TrashItem[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  async function restore(id: string) {
+    setBusyId(id);
+    try {
+      const r = await apiFetch(`/api/activities/trash/${id}/restore`, { method: "POST" });
+      if (r.ok) { haptic("success"); onChanged(); }
+      else haptic("warning");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function purge(id: string) {
+    // Two-tap confirm: first tap arms, second tap deletes forever.
+    if (confirmId !== id) {
+      haptic("warning");
+      setConfirmId(id);
+      return;
+    }
+    setConfirmId(null);
+    setBusyId(id);
+    try {
+      const r = await apiFetch(`/api/activities/trash/${id}`, { method: "DELETE" });
+      if (r.ok) { haptic("success"); onChanged(); }
+      else haptic("warning");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Sheet open={open} onClose={() => { setConfirmId(null); onClose(); }} title="Recently deleted">
+      <div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto px-1 pb-2">
+        <p className="text-[13px] text-text-3">
+          Deleted activities are kept for 30 days, then removed forever.
+        </p>
+
+        {items.length === 0 ? (
+          <p className="py-4 text-center text-[14px] text-text-3">Nothing here.</p>
+        ) : (
+          items.map((item) => {
+            const dateStr = item.date
+              ? new Date(item.date).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
+              : null;
+            return (
+              <div
+                key={item.id}
+                className="flex items-center gap-3 rounded-[var(--radius-input)] bg-surface px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[14px] font-semibold text-text-1">
+                    {item.name ?? (item.sportType === "strength" ? "Strength session" : "Run")}
+                  </p>
+                  <p className="text-[12px] text-text-3">
+                    {dateStr ? `${dateStr} · ` : ""}
+                    {item.distanceKm != null ? `${displayDistance(item.distanceKm, 2).toFixed(2)} ${distanceUnitLabel()} · ` : ""}
+                    deleted {timeAgo(item.deletedAt)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={busyId === item.id}
+                  onClick={() => restore(item.id)}
+                  className="press flex shrink-0 items-center gap-1 rounded-full bg-elevated px-2.5 py-1.5 text-[12px] font-semibold text-text-1 disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
+                  Restore
+                </button>
+                <button
+                  type="button"
+                  disabled={busyId === item.id}
+                  onClick={() => purge(item.id)}
+                  aria-label={confirmId === item.id ? "Tap again to delete forever" : "Delete forever"}
+                  className={`press flex h-8 shrink-0 items-center justify-center rounded-lg disabled:opacity-50 ${
+                    confirmId === item.id
+                      ? "bg-danger px-2 text-[11px] font-semibold text-white"
+                      : "w-8 bg-danger/10"
+                  }`}
+                >
+                  {confirmId === item.id ? "Sure?" : <Trash2 className="h-4 w-4 text-danger" strokeWidth={2} />}
+                </button>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </Sheet>
   );
 }
 
