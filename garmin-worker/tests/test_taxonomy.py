@@ -164,4 +164,12 @@ def test_resolve_exercise_falls_through_to_taxonomy():
 
 
 def test_resolve_exercise_still_none_when_unmappable():
-    assert _resolve_exercise("Loaded toe walk", None) == (None, None)
+    # "Loaded toe walk" is curated now; use a name Garmin genuinely lacks.
+    assert _resolve_exercise("Backyard wheelbarrow sprint", None) == (None, None)
+
+
+def test_program_gap_names_now_resolve_via_curated():
+    assert _resolve_exercise("Loaded toe walk", None) == ("CARRY", "FARMERS_WALK_ON_TOES")
+    assert _resolve_exercise("Standing overhead press", None) == ("SHOULDER_PRESS", "OVERHEAD_DUMBBELL_PRESS")
+    assert _resolve_exercise("Bulgarian split squat (chair)", None) == ("LUNGE", "DUMBBELL_BULGARIAN_SPLIT_SQUAT")
+    assert _resolve_exercise("Bent-knee calf raise (HSR, soleus)", None) == ("CALF_RAISE", "WEIGHTED_SEATED_CALF_RAISE")
