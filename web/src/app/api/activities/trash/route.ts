@@ -20,6 +20,17 @@ export async function GET() {
     return Response.json(
       rows.map((r) => {
         const p = r.payload as Record<string, unknown>;
+        if (p.kind === "strength_session") {
+          const sess = p.session as Record<string, unknown>;
+          return {
+            id: r.id,
+            deletedAt: r.deletedAt.toISOString(),
+            name: (sess.title as string | null) ?? "Strength session",
+            date: (sess.date as string | null) ?? null,
+            distanceKm: null,
+            sportType: "strength",
+          };
+        }
         return {
           id: r.id,
           deletedAt: r.deletedAt.toISOString(),

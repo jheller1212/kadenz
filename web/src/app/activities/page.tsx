@@ -298,7 +298,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
             <p className="mt-0.5 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
           </div>
 
-          {editMode && hasActivity && (
+          {editMode && (hasActivity || workout.strengthSessionId) && (
             <button
               type="button"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(workout); }}
@@ -760,12 +760,16 @@ export default function ActivitiesPage() {
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
 
   const handleDelete = useCallback(async (a: ActivityWorkout) => {
-    const actId = a.activity?.id;
+    const actId = a.activity?.id ?? a.strengthSessionId;
     if (!actId) return;
     haptic("warning");
     // Optimistic removal — recoverable, so no confirm.
-    setWorkouts((prev) => prev.filter((w) => w.activity?.id !== actId));
-    const r = await apiFetch(`/api/activities/${actId}`, { method: "DELETE" });
+    setWorkouts((prev) =>
+      prev.filter((w) => (w.activity?.id ?? w.strengthSessionId) !== actId)
+    );
+    const r = a.activity?.id
+      ? await apiFetch(`/api/activities/${actId}`, { method: "DELETE" })
+      : await apiFetch(`/api/strength/sessions/${actId}/trash`, { method: "POST" });
     if (r.ok) {
       if (undoTimer.current) clearTimeout(undoTimer.current);
       setUndoId(actId);

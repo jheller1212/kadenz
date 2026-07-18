@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { db, activities, activityTrash, deletedActivities } from "@/db";
+import { db, activities, activityTrash, deletedActivities, strengthSessions, strengthSets } from "@/db";
 import { eq } from "drizzle-orm";
 import { payloadToRow } from "@/lib/activity-trash";
 import { garminTombstoneKey } from "@/lib/sync/garmin-activity-import";
@@ -23,7 +23,38 @@ export async function POST(
       .limit(1);
     if (!trashed) return Response.json({ error: "Not found" }, { status: 404 });
 
-    const row = payloadToRow(trashed.payload as Record<string, unknown>);
+    const payload = trashed.payload as Record<string, unknown>;
+
+    // Strength sessions round-trip whole (session row + logged sets).
+    if (payload.kind === "strength_session") {
+      const sess = payload.session as Record<string, unknown>;
+      const sets = (payload.sets as Array<Record<string, unknown>>) ?? [];
+      const toDate = (v: unknown) => (v ? new Date(v as string) : null);
+      await db
+        .insert(strengthSessions)
+        .values({
+          ...(sess as object),
+          date: toDate(sess.date)!,
+          createdAt: toDate(sess.createdAt) ?? new Date(),
+          updatedAt: new Date(),
+        } as typeof strengthSessions.$inferInsert)
+        .onConflictDoNothing();
+      if (sets.length > 0) {
+        await db
+          .insert(strengthSets)
+          .values(
+            sets.map((st) => ({
+              ...(st as object),
+              createdAt: toDate(st.createdAt) ?? new Date(),
+            }) as typeof strengthSets.$inferInsert)
+          )
+          .onConflictDoNothing();
+      }
+      await db.delete(activityTrash).where(eq(activityTrash.id, id));
+      return Response.json({ ok: true });
+    }
+
+    const row = payloadToRow(payload);
     // Deletion reverted the linked workout/strength session to planned; don't
     // silently mark them completed again on restore.
     row.workoutId = null;
