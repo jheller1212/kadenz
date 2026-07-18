@@ -303,6 +303,12 @@ export interface StravaActivity {
   elev_high?: number;
   average_heartrate?: number;
   max_heartrate?: number;
+  // Strava reports running cadence in strides/min (one leg) — ×2 for spm.
+  average_cadence?: number;
+  calories?: number;
+  device_name?: string;
+  gear?: { id: string; name: string };
+  map?: { summary_polyline?: string };
   best_efforts?: Array<{
     name: string;
     distance: number;
@@ -553,6 +559,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
     maxElevation: activity.elev_high ?? null,
     splitsJson: activity.splits_metric ?? null,
     lapsJson: activity.laps ?? null,
+    polyline: activity.map?.summary_polyline || null,
   });
 
   // If matched to a workout, mark it completed

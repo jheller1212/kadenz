@@ -48,6 +48,12 @@ interface StravaDetailedActivity {
     elapsed_time: number;
     moving_time: number;
   }>;
+  // Strava reports running cadence in strides/min (one leg) — ×2 for spm.
+  average_cadence?: number;
+  calories?: number;
+  device_name?: string;
+  gear?: { id: string; name: string };
+  map?: { summary_polyline?: string };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -120,31 +126,57 @@ async function fetchStravaStreams(stravaId: string, token: string) {
   }
 }
 
-async function fetchStravaBestEfforts(
-  stravaId: string,
-  token: string
-): Promise<
-  Array<{
+interface StravaLiveDetail {
+  bestEfforts: Array<{
     name: string;
     distance: number;
     elapsedTime: number;
     movingTime: number;
-  }>
-> {
+  }>;
+  polyline: string | null;
+  cadenceSpm: number | null; // steps per minute (Strava value ×2)
+  calories: number | null;
+  deviceName: string | null;
+  gearName: string | null;
+}
+
+const EMPTY_LIVE_DETAIL: StravaLiveDetail = {
+  bestEfforts: [],
+  polyline: null,
+  cadenceSpm: null,
+  calories: null,
+  deviceName: null,
+  gearName: null,
+};
+
+async function fetchStravaDetail(
+  stravaId: string,
+  token: string
+): Promise<StravaLiveDetail> {
   try {
     const res = await fetch(`${STRAVA_API}/activities/${stravaId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return [];
+    if (!res.ok) return EMPTY_LIVE_DETAIL;
     const data: StravaDetailedActivity = await res.json();
-    return (data.best_efforts ?? []).map((e) => ({
-      name: e.name,
-      distance: e.distance,
-      elapsedTime: e.elapsed_time,
-      movingTime: e.moving_time,
-    }));
+    return {
+      bestEfforts: (data.best_efforts ?? []).map((e) => ({
+        name: e.name,
+        distance: e.distance,
+        elapsedTime: e.elapsed_time,
+        movingTime: e.moving_time,
+      })),
+      polyline: data.map?.summary_polyline || null,
+      cadenceSpm:
+        data.average_cadence != null && data.average_cadence > 0
+          ? Math.round(data.average_cadence * 2)
+          : null,
+      calories: data.calories != null ? Math.round(data.calories) : null,
+      deviceName: data.device_name ?? null,
+      gearName: data.gear?.name ?? null,
+    };
   } catch {
-    return [];
+    return EMPTY_LIVE_DETAIL;
   }
 }
 
@@ -235,20 +267,34 @@ export async function GET(
           )
         : null;
 
-    // Fetch Strava streams and best efforts in parallel (single token fetch)
+    // Fetch Strava streams and detailed activity in parallel (single token fetch)
     let streams = null;
-    let bestEfforts: Awaited<ReturnType<typeof fetchStravaBestEfforts>> = [];
+    let live = EMPTY_LIVE_DETAIL;
     if (activity.stravaId) {
       const token = await getAccessToken();
-      [streams, bestEfforts] = await Promise.all([
+      [streams, live] = await Promise.all([
         fetchStravaStreams(activity.stravaId, token),
-        fetchStravaBestEfforts(activity.stravaId, token),
+        fetchStravaDetail(activity.stravaId, token),
       ]);
+    }
+
+    // Back-fill the polyline for rows imported before it was stored — cached
+    // once so the map hero survives Strava being unreachable.
+    if (!activity.polyline && live.polyline) {
+      try {
+        await db
+          .update(activities)
+          .set({ polyline: live.polyline })
+          .where(eq(activities.id, activity.id));
+      } catch (err) {
+        console.error("Failed to cache activity polyline:", err);
+      }
     }
 
     return Response.json({
       id: activity.id,
       stravaId: activity.stravaId ?? "",
+      source: activity.stravaId ? "strava" : activity.garminId ? "garmin" : "manual",
       name: plannedWorkout?.title ?? "Run",
       date: activity.startDate?.toISOString() ?? "",
       distanceKm: activity.distanceKm ?? 0,
@@ -257,10 +303,16 @@ export async function GET(
       maxPaceSecKm: maxPaceSecKm === Infinity ? null : maxPaceSecKm,
       avgHr: activity.avgHr ?? null,
       maxHr: activity.maxHr ?? null,
+      polyline: activity.polyline ?? live.polyline,
+      cadenceSpm: live.cadenceSpm,
+      calories: live.calories,
+      deviceName: live.deviceName,
+      gearName: live.gearName,
+      aiInsight: activity.aiInsight ?? null,
       splits,
       laps,
       streams,
-      bestEfforts,
+      bestEfforts: live.bestEfforts,
       plannedWorkout,
     });
   } catch (err) {
