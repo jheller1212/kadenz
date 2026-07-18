@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useMemo, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -11,6 +11,11 @@ import {
   Zap,
   AlertCircle,
   Activity as ActivityIcon,
+  Share2,
+  Sparkles,
+  RefreshCw,
+  Footprints,
+  Watch,
 } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -22,6 +27,8 @@ import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "
 import { apiFetch } from "@/lib/api";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 import { getUserZoneBounds, computeZoneSeconds, formatZoneTime } from "@/lib/hr-zone-time";
+import { decodePolyline, polylineToPath } from "@/lib/polyline";
+import { workoutColor } from "@/lib/workout-colors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,6 +44,7 @@ interface PlannedWorkoutBlock {
 interface ActivityDetail {
   id: string;
   stravaId: string;
+  source: "strava" | "garmin" | "manual";
   name: string;
   date: string;
   distanceKm: number;
@@ -47,6 +55,12 @@ interface ActivityDetail {
   maxHr: number | null;
   elevationGain: number | null;
   maxElevation: number | null;
+  polyline: string | null;
+  cadenceSpm: number | null;
+  calories: number | null;
+  deviceName: string | null;
+  gearName: string | null;
+  aiInsight: string | null;
   splits: Array<{ km: number; paceSecKm: number; elevationDiff: number; avgHr?: number }>;
   laps: Array<{ index: number; distanceKm: number; durationSeconds: number; paceSecKm: number; avgHr?: number; maxHr?: number }>;
   streams: {
@@ -267,9 +281,60 @@ function AreaChart({
   );
 }
 
+// ── Route Map Hero ────────────────────────────────────────────────────────────
+// Benchmark-style minimal route thumbnail: the decoded summary polyline drawn as
+// an inline SVG — no tile servers, works offline and inside the PWA's CSP.
+
+function RouteMap({ polyline, color }: { polyline: string; color: string }) {
+  const projected = useMemo(() => {
+    const points = decodePolyline(polyline);
+    return polylineToPath(points, 320, 200, 16);
+  }, [polyline]);
+
+  if (!projected) return null;
+  const { path, start, end } = projected;
+
+  return (
+    <div className="k-card overflow-hidden">
+      <svg viewBox="0 0 320 200" width="100%" height="200" aria-label="Route map" role="img">
+        <path
+          d={path}
+          fill="none"
+          stroke={color}
+          strokeOpacity="0.25"
+          strokeWidth="6"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        <path
+          d={path}
+          fill="none"
+          stroke={color}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Start: hollow dot · Finish: solid dot */}
+        <circle cx={start[0]} cy={start[1]} r="5" fill="var(--k-surface)" stroke={color} strokeWidth="2.5" />
+        <circle cx={end[0]} cy={end[1]} r="5" fill={color} stroke="var(--k-surface)" strokeWidth="2" />
+      </svg>
+    </div>
+  );
+}
+
 // ── Summary Stats ─────────────────────────────────────────────────────────────
 
 function SummaryStats({ activity }: { activity: ActivityDetail }) {
+  const secondRow: Array<{ label: string; value: string; unit?: string }> = [];
+  if (activity.avgHr != null)
+    secondRow.push({ label: "Avg HR", value: `${Math.round(activity.avgHr)}`, unit: "bpm" });
+  if (activity.cadenceSpm != null)
+    secondRow.push({ label: "Cadence", value: `${activity.cadenceSpm}`, unit: "spm" });
+  if (activity.calories != null)
+    secondRow.push({ label: "Calories", value: `${activity.calories}`, unit: "kcal" });
+  if (secondRow.length < 3 && activity.elevationGain != null)
+    secondRow.push({ label: "Elev Gain", value: `${Math.round(activity.elevationGain)}`, unit: "m" });
+
   return (
     <div className="k-card p-4">
       <div className="grid grid-cols-3 divide-x divide-hairline">
@@ -288,6 +353,203 @@ function SummaryStats({ activity }: { activity: ActivityDetail }) {
           <p className="text-[10px] text-text-3">{paceUnitLabel()}</p>
         </div>
       </div>
+      {secondRow.length > 0 && (
+        <div
+          className="mt-4 grid divide-x divide-hairline border-t border-hairline pt-4"
+          style={{ gridTemplateColumns: `repeat(${secondRow.length}, minmax(0, 1fr))` }}
+        >
+          {secondRow.map((stat) => (
+            <div key={stat.label} className="px-2 text-center first:pl-0 last:pr-0">
+              <p className="mb-1 text-[10px] uppercase tracking-wider text-text-3">{stat.label}</p>
+              <p className="text-[17px] font-bold tabular-nums text-text-1">{stat.value}</p>
+              {stat.unit && <p className="text-[10px] text-text-3">{stat.unit}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Share ─────────────────────────────────────────────────────────────────────
+
+function ShareButton({ activity }: { activity: ActivityDetail }) {
+  const [copied, setCopied] = useState(false);
+
+  async function share() {
+    haptic("light");
+    const dateStr = new Date(activity.date).toLocaleDateString("en-US", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const text = `${activity.name} — ${displayDistance(activity.distanceKm, 2).toFixed(2)} ${distanceUnitLabel()} in ${formatDuration(activity.durationSeconds)} (${formatPace(displayPace(activity.avgPaceSecKm))}${paceUnitLabel()}) · ${dateStr}`;
+    const url = window.location.href;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: activity.name, text, url });
+      } catch {
+        // User cancelled the share sheet — not an error.
+      }
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${text}\n${url}`);
+      haptic("success");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      haptic("warning");
+    }
+  }
+
+  return (
+    <Button variant="secondary" full onClick={share}>
+      <span className="flex items-center justify-center gap-2">
+        <Share2 className="h-4 w-4" strokeWidth={2} />
+        {copied ? "Copied" : "Share run"}
+      </span>
+    </Button>
+  );
+}
+
+// ── AI Workout Insights ───────────────────────────────────────────────────────
+// Generated once server-side (cached on the activity row); hidden entirely
+// when the server has no API key configured (501).
+
+function InsightsCard({
+  activityId,
+  initialInsight,
+  hrZones,
+}: {
+  activityId: string;
+  initialInsight: string | null;
+  hrZones: Array<{ label: string; pct: number }>;
+}) {
+  const [insight, setInsight] = useState<string | null>(initialInsight);
+  const [generating, setGenerating] = useState(!initialInsight);
+  const [hidden, setHidden] = useState(false);
+  const requested = useRef(false);
+
+  async function generate(regenerate: boolean) {
+    setGenerating(true);
+    try {
+      const res = await apiFetch(`/api/activities/${activityId}/insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate, hrZones }),
+      });
+      if (res.status === 501) {
+        setHidden(true);
+        return;
+      }
+      if (!res.ok) throw new Error();
+      const data: { insight: string } = await res.json();
+      setInsight(data.insight);
+    } catch {
+      // Keep whatever we had; if nothing, hide rather than show a broken card.
+      if (!insight) setHidden(true);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  useEffect(() => {
+    if (initialInsight || requested.current) return;
+    requested.current = true;
+    generate(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityId]);
+
+  if (hidden) return null;
+
+  return (
+    <div className="k-card relative overflow-hidden p-4">
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden="true"
+        style={{
+          background:
+            "linear-gradient(135deg, color-mix(in srgb, var(--k-accent) 16%, transparent), transparent 65%)",
+        }}
+      />
+      <div className="relative">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-accent" strokeWidth={2} />
+            <h2 className="text-[15px] font-bold text-text-1">Workout Insights</h2>
+          </div>
+          {insight && (
+            <button
+              onClick={() => {
+                haptic("light");
+                generate(true);
+              }}
+              disabled={generating}
+              className="press flex h-8 w-8 items-center justify-center rounded-full text-text-3 disabled:opacity-50"
+              aria-label="Regenerate insights"
+            >
+              <RefreshCw className={`h-4 w-4 ${generating ? "animate-spin" : ""}`} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+        {generating && !insight ? (
+          <p className="text-[14px] text-text-3">Generating…</p>
+        ) : (
+          <p className="text-[14px] leading-relaxed text-text-2">{insight}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Source & gear rows ────────────────────────────────────────────────────────
+
+const SOURCE_LABELS: Record<ActivityDetail["source"], string> = {
+  strava: "Strava",
+  garmin: "Garmin",
+  manual: "Manual entry",
+};
+
+function SourceGearRows({ activity }: { activity: ActivityDetail }) {
+  const sourceLabel =
+    activity.deviceName != null
+      ? `${SOURCE_LABELS[activity.source]} · ${activity.deviceName}`
+      : SOURCE_LABELS[activity.source];
+
+  return (
+    <div className="divide-y divide-hairline overflow-hidden k-card">
+      {activity.stravaId && (
+        <a
+          href={`https://www.strava.com/activities/${activity.stravaId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => haptic("light")}
+          className="press flex items-center gap-3 px-4 py-3"
+        >
+          <ExternalLink className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.75} />
+          <span className="flex-1 text-[15px] font-medium text-text-1">View on Strava</span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
+        </a>
+      )}
+      <div className="flex items-center gap-3 px-4 py-3">
+        <Watch className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.75} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] text-text-3">Recorded with</p>
+          <p className="truncate text-[15px] font-medium text-text-1">{sourceLabel}</p>
+        </div>
+      </div>
+      {activity.gearName && (
+        <div className="flex items-center gap-3 px-4 py-3">
+          <Footprints className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.75} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] text-text-3">Shoes</p>
+            <p className="truncate text-[15px] font-medium text-text-1">{activity.gearName}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -941,6 +1203,15 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Zone split for the insights prompt (zone bounds are a device-side setting,
+  // so the server can't compute this itself).
+  const hrZoneSummary = useMemo(() => {
+    const s = activity?.streams;
+    if (!s?.heartrate || s.heartrate.length < 2) return [];
+    const zones = computeZoneSeconds(s.heartrate, s.time, getUserZoneBounds());
+    return zones.map((z) => ({ label: z.label, pct: z.pct }));
+  }, [activity]);
+
   if (loading) return <LoadingSkeleton />;
 
   if (!activity || error) {
@@ -1016,10 +1287,31 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
 
       {/* Content */}
       <div className="flex flex-col gap-4 px-4 pb-tabbar">
+        {/* Route map hero (GPS runs only) */}
+        {activity.polyline && (
+          <RouteMap
+            polyline={activity.polyline}
+            color={workoutColor(activity.plannedWorkout?.type ?? "easy").solid}
+          />
+        )}
+
         <p className="-mt-1 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
 
         {/* Summary stats */}
         <SummaryStats activity={activity} />
+
+        {/* Share */}
+        <ShareButton activity={activity} />
+
+        {/* AI Workout Insights (dark unless the server has a key) */}
+        <InsightsCard
+          activityId={activity.id}
+          initialInsight={activity.aiInsight}
+          hrZones={hrZoneSummary}
+        />
+
+        {/* Source & gear */}
+        <SourceGearRows activity={activity} />
 
         {/* Best Efforts */}
         {activity.bestEfforts.length > 0 && <BestEfforts efforts={activity.bestEfforts} />}
@@ -1052,6 +1344,7 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
       {/* Action sheet */}
       <Sheet open={menuOpen} onClose={() => { setMenuOpen(false); setDeleteArmed(false); }}>
         <div className="flex flex-col gap-2 pb-2">
+          {activity.stravaId && (
           <a
             href={`https://www.strava.com/activities/${activity.stravaId}`}
             target="_blank"
@@ -1065,6 +1358,7 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
             <ExternalLink className="h-5 w-5 shrink-0 text-text-2" strokeWidth={1.75} />
             View on Strava
           </a>
+          )}
           <button
             onClick={async () => {
               if (!deleteArmed) {

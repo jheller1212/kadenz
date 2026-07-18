@@ -10,7 +10,7 @@ export type ActivityRow = typeof activities.$inferSelect;
 /** activities columns stored as timestamptz — the only ones that need
  * Date ⇄ ISO-string conversion. splits/laps are already jsonb; the rest are
  * text/real/integer/uuid and survive JSON round-trips as-is. */
-const TIMESTAMP_KEYS = ["startDate", "createdAt"] as const;
+const TIMESTAMP_KEYS = ["startDate", "createdAt", "aiInsightGeneratedAt"] as const;
 
 export function rowToPayload(row: ActivityRow): Record<string, unknown> {
   const out: Record<string, unknown> = { ...row };

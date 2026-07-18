@@ -19,6 +19,9 @@ const baseRow: ActivityRow = {
   startDate: new Date("2026-07-10T17:30:00.000Z"),
   splitsJson: [{ split: 1, distance: 1000, elapsed_time: 300, moving_time: 298, average_speed: 3.33 }],
   lapsJson: [{ lap_index: 1, distance: 10420, elapsed_time: 3125, moving_time: 3100, average_speed: 3.33 }],
+  polyline: null,
+  aiInsight: null,
+  aiInsightGeneratedAt: null,
   createdAt: new Date("2026-07-10T18:00:00.000Z"),
 };
 

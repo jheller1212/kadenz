@@ -302,6 +302,14 @@ export const activities = pgTable(
     startDate: timestamp("start_date", { withTimezone: true }),
     splitsJson: jsonb("splits_json"),
     lapsJson: jsonb("laps_json"),
+    // Encoded route polyline (Strava map.summary_polyline). Null for
+    // manual/treadmill/Garmin-origin rows without GPS.
+    polyline: text("polyline"),
+    // Cached AI workout insight — generated once per activity, regenerable.
+    aiInsight: text("ai_insight"),
+    aiInsightGeneratedAt: timestamp("ai_insight_generated_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
