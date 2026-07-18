@@ -159,11 +159,19 @@ function useWeather(selectedDate: Date | null) {
       if (persist) {
         try { localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ lat, lon, ts: Date.now() })); } catch { /* storage unavailable */ }
       }
-      // Reverse geocode for location name
-      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m&timezone=auto`)
+      // Real reverse geocode for the place name. The old approach used the
+      // TIMEZONE name — which labels all of France "Paris". BigDataCloud's
+      // client endpoint is free, keyless and CORS-open; locality granularity.
+      fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`
+      )
         .then((r) => r.json())
         .then((d) => {
-          const loc = d.timezone?.split("/").pop()?.replace(/_/g, " ") ?? "Your location";
+          const loc =
+            (d.city as string) ||
+            (d.locality as string) ||
+            (d.principalSubdivision as string) ||
+            "Your location";
           fetchForecast(lat, lon, loc);
         })
         .catch(() => fetchForecast(lat, lon, "Your location"));
