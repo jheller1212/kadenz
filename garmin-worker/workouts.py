@@ -1,13 +1,20 @@
 """
 Pure request models, Garmin payload builders and activity mappers.
 
-No network access here — everything is unit-testable without garth.
+No garth/network access here — everything is unit-testable without garth.
+(Exercise resolution may consult taxonomy.py, which lazily fetches Garmin's
+public exercise list but always falls back to a bundled snapshot.)
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+import taxonomy
+
+logger = logging.getLogger(__name__)
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -159,6 +166,23 @@ _EXERCISE_TAXONOMY: dict[str, tuple[str, str]] = {
     "deadlift": ("DEADLIFT", "BARBELL_DEADLIFT"),
     "romanian deadlift": ("DEADLIFT", "ROMANIAN_DEADLIFT"),
     "single leg deadlift": ("DEADLIFT", "SINGLE_LEG_ROMANIAN_DEADLIFT"),
+    # Kadenz program exercises with no exact-token taxonomy match (verified
+    # against data/garmin_exercises_snapshot.json) — dumbbell variants chosen.
+    "standing overhead press": ("SHOULDER_PRESS", "OVERHEAD_DUMBBELL_PRESS"),
+    "floor press": ("BENCH_PRESS", "DUMBBELL_FLOOR_PRESS"),
+    "curl to press": ("CURL", "HAMMER_CURL_TO_PRESS"),
+    "bulgarian split squat (chair)": ("LUNGE", "DUMBBELL_BULGARIAN_SPLIT_SQUAT"),
+    "single leg romanian deadlift": ("DEADLIFT", "SINGLE_LEG_ROMANIAN_DEADLIFT_WITH_DUMBBELL"),
+    "single leg hip thrust (chair)": ("HIP_RAISE", "SINGLE_LEG_HIP_RAISE_WITH_FOOT_ON_BENCH"),
+    "explosive box step up": ("SQUAT", "ALTERNATING_BOX_DUMBBELL_STEP_UPS"),
+    "loaded toe walk": ("CARRY", "FARMERS_WALK_ON_TOES"),
+    "straight knee calf raise (hsr)": ("CALF_RAISE", "STANDING_DUMBBELL_CALF_RAISE"),
+    "bent knee calf raise (hsr, soleus)": ("CALF_RAISE", "WEIGHTED_SEATED_CALF_RAISE"),
+    "one arm dumbbell row": ("ROW", "ONE_ARM_BENT_OVER_ROW"),
+    "floor chest fly": ("FLYE", "DUMBBELL_FLYE"),
+    "overhead triceps extension": ("TRICEPS_EXTENSION", "OVERHEAD_DUMBBELL_TRICEPS_EXTENSION"),
+    "rear delt fly": ("FLYE", "KNEELING_REAR_FLYE"),
+    "dumbbell pullover": ("TRICEPS_EXTENSION", "LYING_DUMBBELL_PULLOVER_TO_EXTENSION"),
     "overhead press": ("SHOULDER_PRESS", "OVERHEAD_BARBELL_PRESS"),
     "shoulder press": ("SHOULDER_PRESS", "OVERHEAD_DUMBBELL_PRESS"),
     "dumbbell shoulder press": ("SHOULDER_PRESS", "OVERHEAD_DUMBBELL_PRESS"),
@@ -350,11 +374,18 @@ def _resolve_exercise(name: str, category: str | None) -> tuple[str | None, str 
     """
     key = _normalize_exercise_key(name)
     if key in _EXERCISE_TAXONOMY:
+        logger.debug("Exercise %r resolved via curated map", name)
         return _EXERCISE_TAXONOMY[key]
     if category:
         cat = _to_upper_snake(category)
         if cat in _GARMIN_CATEGORIES:
+            logger.debug("Exercise %r resolved via category hint %r", name, cat)
             return cat, _to_upper_snake(name)
+    resolved = taxonomy.resolve(name)
+    if resolved is not None:
+        logger.debug("Exercise %r resolved via Garmin taxonomy", name)
+        return resolved
+    logger.debug("Exercise %r unresolved; using generic strength step", name)
     return None, None
 
 
