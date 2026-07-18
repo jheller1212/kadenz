@@ -61,22 +61,52 @@ GARMIN_PASSWORD = os.getenv("GARMIN_PASSWORD", "")
 # ── Garth session management ─────────────────────────────────────────────────
 
 
+# Fresh-login attempts are spaced out: Garmin's SSO rate-limits aggressively
+# (429) and every crash-looped retry makes it worse. One attempt per window.
+LOGIN_COOLDOWN_SECONDS = 15 * 60
+_last_login_attempt: float = 0.0
+
+
+def _try_fresh_login() -> bool:
+    """Attempt a credential login, at most once per cooldown window."""
+    global _last_login_attempt
+    import time as _time
+
+    if not (GARMIN_EMAIL and GARMIN_PASSWORD):
+        return False
+    now = _time.monotonic()
+    if _last_login_attempt and now - _last_login_attempt < LOGIN_COOLDOWN_SECONDS:
+        logger.warning("Skipping Garmin login — inside cooldown window after a recent attempt")
+        return False
+    _last_login_attempt = now
+    logger.info("Logging in to Garmin Connect as %s", GARMIN_EMAIL)
+    garth.login(GARMIN_EMAIL, GARMIN_PASSWORD)
+    garth.save(GARTH_HOME)
+    logger.info("Tokens saved to %s", GARTH_HOME)
+    return True
+
+
 def _init_garth() -> None:
-    """Load persisted tokens or perform fresh login on startup."""
-    oauth1_path = os.path.join(GARTH_HOME, "oauth1_token.json")
-    if os.path.exists(oauth1_path):
-        logger.info("Resuming garth session from %s", GARTH_HOME)
-        garth.resume(GARTH_HOME)
-    elif GARMIN_EMAIL and GARMIN_PASSWORD:
-        logger.info("Logging in to Garmin Connect as %s", GARMIN_EMAIL)
-        garth.login(GARMIN_EMAIL, GARMIN_PASSWORD)
-        garth.save(GARTH_HOME)
-        logger.info("Tokens saved to %s", GARTH_HOME)
-    else:
-        logger.warning(
-            "No garth tokens found and no GARMIN_EMAIL/PASSWORD set. "
-            "Garmin calls will fail until credentials are configured."
-        )
+    """Load persisted tokens or perform fresh login on startup.
+
+    MUST NOT raise: a failed login (rate-limit, wrong password, Garmin down)
+    leaves the app serving 503s on Garmin routes instead of crash-looping —
+    a crash loop re-attempts login on every boot and feeds the rate limit.
+    """
+    try:
+        oauth1_path = os.path.join(GARTH_HOME, "oauth1_token.json")
+        if os.path.exists(oauth1_path):
+            logger.info("Resuming garth session from %s", GARTH_HOME)
+            garth.resume(GARTH_HOME)
+        elif GARMIN_EMAIL and GARMIN_PASSWORD:
+            _try_fresh_login()
+        else:
+            logger.warning(
+                "No garth tokens found and no GARMIN_EMAIL/PASSWORD set. "
+                "Garmin calls will fail until credentials are configured."
+            )
+    except Exception as exc:
+        logger.error("Garmin startup auth failed (continuing without session): %s", exc)
 
 
 class GarminAuthError(Exception):
@@ -102,8 +132,8 @@ def _refresh_garth_session() -> None:
     except Exception as exc:
         logger.warning("garth.resume failed during refresh: %s", exc)
     if GARMIN_EMAIL and GARMIN_PASSWORD:
-        garth.login(GARMIN_EMAIL, GARMIN_PASSWORD)
-        garth.save(GARTH_HOME)
+        if not _try_fresh_login():
+            raise GarminAuthError("Login attempt suppressed by cooldown")
     else:
         raise GarminAuthError("No tokens and no credentials available")
 
