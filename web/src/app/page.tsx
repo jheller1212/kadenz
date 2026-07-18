@@ -623,22 +623,23 @@ function WeekOverviewCard({
   stats,
   currentWeek,
   weekWorkouts,
-  strengthDays,
+  weekStrength,
 }: {
   stats: TodayStats;
   currentWeek: number;
   weekWorkouts: DayInfo[];
-  strengthDays: Record<string, string>;
+  weekStrength: StrengthSessionLite[];
 }) {
-  // One segment per workout this week — runs AND strength, Benchmark-style:
-  // completed = black bar, upcoming = light gray.
+  // One segment per SESSION this week — runs AND strength — counted from the
+  // same sources as the My-insights week card so the numbers always agree.
   const segments: boolean[] = [];
   for (const d of weekWorkouts) {
     if (d.workout && d.workout.type !== "rest") {
       segments.push(d.workout.status === "completed");
     }
-    const st = strengthDays[d.date.toDateString()];
-    if (st) segments.push(st === "completed");
+  }
+  for (const sess of weekStrength) {
+    segments.push(sess.status === "completed");
   }
   const done = segments.filter(Boolean).length;
 
@@ -671,16 +672,21 @@ function WeekOverviewCard({
 
 // ── My Insights Section ──────────────────────────────────────────────────────
 
-function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts, weekStrength }: {
+function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget }: {
   stats: TodayStats;
   weather: WeatherData | null;
   currentWeek: number;
   totalWeeks: number;
   weekWorkouts: DayInfo[];
   weekStrength: StrengthSessionLite[];
+  strengthTarget: number | null;
 }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const strengthDone = weekStrength.filter((x) => x.status === "completed").length;
+  // Sessions done beyond the weekly Kraft target count as a bonus, not a
+  // moving goalpost.
+  const strengthExtra = strengthTarget != null ? Math.max(0, strengthDone - strengthTarget) : 0;
   const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(null);
   useEffect(() => {
     const cached = readCache<{ status: string; inBandPct: number | null }>("pace_verdict");
@@ -878,7 +884,8 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                   <div className="mb-1 flex items-center justify-between">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Strength</span>
                     <span className="text-[11px] font-bold tabular-nums text-text-1">
-                      {weekStrength.filter((x) => x.status === "completed").length}/{weekStrength.length}
+                      {Math.min(strengthDone, weekStrength.length - strengthExtra)}/{weekStrength.length - strengthExtra}
+                      {strengthExtra > 0 && <span className="text-accent"> +{strengthExtra}</span>}
                     </span>
                   </div>
                   <div className="flex h-1.5 gap-1">
@@ -1165,6 +1172,15 @@ export default function Home() {
   // Calendar-day keys of this week's strength sessions (Benchmark-style 2nd dot).
   const [strengthDays, setStrengthDays] = useState<Record<string, string>>({});
   const [weekStrength, setWeekStrength] = useState<StrengthSessionLite[]>([]);
+  const [strengthTarget, setStrengthTarget] = useState<number | null>(null);
+  useEffect(() => {
+    apiFetch("/api/strength/plan-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.sessionsPerWeek === "number") setStrengthTarget(d.sessionsPerWeek);
+      })
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (days.length === 0) return;
     const from = new Date(days[0].date);
@@ -1547,7 +1563,7 @@ export default function Home() {
 
         {/* Week Overview */}
         <div className="px-5">
-          <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} strengthDays={strengthDays} />
+          <WeekOverviewCard stats={stats} currentWeek={displayedWeek} weekWorkouts={days} weekStrength={weekStrength} />
         </div>
 
 
@@ -1555,7 +1571,7 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* My Insights */}
-        <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} />
+        <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} />
       </div>
 
       {/* Sticky Bottom Button */}
