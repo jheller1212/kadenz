@@ -5,7 +5,11 @@ import { db, syncOutbox } from "@/db";
 import { processGCalOutbox } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
-import { processGarminOutbox, queueGarminWindowSync } from "@/lib/sync/garmin-sync";
+import {
+  processGarminOutbox,
+  queueGarminStrengthWindowSync,
+  queueGarminWindowSync,
+} from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
 
@@ -57,6 +61,8 @@ export async function GET(request: NextRequest) {
   try {
     if (await isGarminWorkoutSyncEnabled()) {
       out.garminQueued = await queueGarminWindowSync();
+      // Kraft sessions ride the same rolling window as runs.
+      out.garminStrengthQueued = await queueGarminStrengthWindowSync();
       out.garmin = await processGarminOutbox();
     } else {
       out.garmin = "disabled";

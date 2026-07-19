@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthPlanSettings, strengthSessions, workouts } from "@/db";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+import { queueGarminStrengthDelete } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
 import type { PlacementDay } from "./schedule-place";
@@ -188,6 +189,7 @@ export async function pruneAutoSchedule(profileId: string | null) {
     .select({
       id: strengthSessions.id,
       gcalEventId: strengthSessions.gcalEventId,
+      garminWorkoutId: strengthSessions.garminWorkoutId,
       date: strengthSessions.date,
       status: strengthSessions.status,
       autoScheduled: strengthSessions.autoScheduled,
@@ -206,12 +208,16 @@ export async function pruneAutoSchedule(profileId: string | null) {
   const future = candidates.filter((s) => isPrunable(s, today));
   if (future.length === 0) return { removed: 0 };
 
-  // Calendar events must go with their rows or they linger forever.
+  // Calendar events and watch workouts must go with their rows or they
+  // linger forever on services the user can't clean up from here.
   for (const s of future) {
     if (s.gcalEventId) {
       await queueStrengthSessionSync(s.id, "delete", "gcal", {
         gcalEventId: s.gcalEventId,
       }).catch(() => {});
+    }
+    if (s.garminWorkoutId) {
+      await queueGarminStrengthDelete(s.id, s.garminWorkoutId).catch(() => {});
     }
   }
 

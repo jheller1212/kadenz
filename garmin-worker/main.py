@@ -338,6 +338,51 @@ def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
     }
 
 
+@app.get("/workouts")
+def list_workouts(_auth: Auth, limit: int = 100):
+    """Workouts this account holds, newest first, with their calendar dates.
+
+    Lets Kadenz reconcile: anything on Garmin that Kadenz no longer tracks is
+    a leftover from a deleted or regenerated plan and can be cleaned up.
+    """
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be 1-500")
+    try:
+        result = _garmin_call(
+            f"/workout-service/workouts?start=1&limit={limit}&myWorkoutsOnly=true",
+            method="GET",
+        )
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.error("Failed to list workouts: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+    items = result if isinstance(result, list) else []
+    out = []
+    for w in items:
+        if not isinstance(w, dict):
+            continue
+        workout_id = w.get("workoutId")
+        if workout_id is None:
+            continue
+        try:
+            scheduled = [
+                e.get("date") for e in _list_schedules(int(workout_id)) if e.get("date")
+            ]
+        except Exception:
+            scheduled = []
+        out.append(
+            {
+                "garminWorkoutId": str(workout_id),
+                "name": w.get("workoutName"),
+                "sportType": (w.get("sportType") or {}).get("sportTypeKey"),
+                "scheduledDates": scheduled,
+            }
+        )
+    return {"workouts": out}
+
+
 @app.delete("/workouts/{workout_id}", status_code=204)
 def delete_workout(workout_id: str, _auth: Auth):
     """Remove a workout from Garmin Connect.

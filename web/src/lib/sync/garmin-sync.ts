@@ -3,12 +3,14 @@
 // the garmin-worker. Everything is queued through sync_outbox (target "garmin")
 // so retries and the daily cron top-up reuse the same machinery as gcal.
 
-import { db, syncOutbox, workouts, plans } from "@/db";
+import { db, syncOutbox, workouts, plans, strengthSessions } from "@/db";
 import { eq, and, asc, gte, lte, ne, isNull } from "drizzle-orm";
 import { garminClient, toGarminDate } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims } from "./sync-manager";
+import { buildPlannedSession } from "@/lib/strength/service";
+import type { StrengthSessionType } from "@/lib/strength/types";
 
 const MAX_ATTEMPTS = 3;
 
@@ -162,6 +164,127 @@ export async function queueGarminWindowSync(planId?: string): Promise<number> {
 
 // ── Process outbox ────────────────────────────────────────────────────────────
 
+/**
+ * Queue upcoming strength sessions for the watch. Same 14-day rolling window
+ * as runs — the worker turns each planned exercise into a Garmin strength
+ * step with sets, reps and load.
+ */
+export async function queueGarminStrengthWindowSync(): Promise<number> {
+  const now = new Date();
+  const windowStart = new Date(now);
+  windowStart.setHours(0, 0, 0, 0);
+  const windowEnd = new Date(windowStart);
+  windowEnd.setDate(windowEnd.getDate() + GARMIN_WINDOW_DAYS);
+  windowEnd.setHours(23, 59, 59, 999);
+
+  const upcoming = await db
+    .select({ id: strengthSessions.id })
+    .from(strengthSessions)
+    .where(
+      and(
+        gte(strengthSessions.date, windowStart),
+        lte(strengthSessions.date, windowEnd),
+        eq(strengthSessions.status, "planned"),
+        isNull(strengthSessions.garminWorkoutId),
+        // Owner only — a household member's sessions aren't on this watch.
+        isNull(strengthSessions.profileId)
+      )
+    );
+
+  if (upcoming.length === 0) return 0;
+
+  await db
+    .insert(syncOutbox)
+    .values(
+      upcoming.map((sess) => ({
+        entityType: "strength_session" as const,
+        entityId: sess.id,
+        action: "create" as const,
+        target: "garmin" as const,
+        status: "pending" as const,
+        idempotencyKey: `garmin:strength:create:${sess.id}`,
+        attempts: 0,
+      }))
+    )
+    .onConflictDoUpdate({
+      target: syncOutbox.idempotencyKey,
+      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null },
+    });
+
+  processGarminOutbox().catch(console.error);
+  return upcoming.length;
+}
+
+/** Re-push a strength session after its date or contents changed. */
+export async function queueGarminStrengthMove(sessionId: string): Promise<void> {
+  if (!garminClient.isConfigured()) return;
+
+  const [row] = await db
+    .select({
+      garminWorkoutId: strengthSessions.garminWorkoutId,
+      date: strengthSessions.date,
+      status: strengthSessions.status,
+      profileId: strengthSessions.profileId,
+    })
+    .from(strengthSessions)
+    .where(eq(strengthSessions.id, sessionId))
+    .limit(1);
+  if (!row || row.profileId !== null) return;
+
+  if (!row.garminWorkoutId) {
+    if (!(await isGarminWorkoutSyncEnabled())) return;
+    if (row.status !== "planned") return;
+    const windowEnd = new Date();
+    windowEnd.setDate(windowEnd.getDate() + GARMIN_WINDOW_DAYS);
+    if (row.date > windowEnd || row.date < startOfToday()) return;
+  }
+
+  await db
+    .insert(syncOutbox)
+    .values({
+      entityType: "strength_session",
+      entityId: sessionId,
+      action: "update",
+      target: "garmin",
+      status: "pending",
+      idempotencyKey: `garmin:strength:update:${sessionId}`,
+      attempts: 0,
+    })
+    .onConflictDoUpdate({
+      target: syncOutbox.idempotencyKey,
+      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null },
+    });
+
+  processGarminOutbox().catch(console.error);
+}
+
+/** Remove a strength session from the watch (pruned, trashed or rescheduled away). */
+export async function queueGarminStrengthDelete(
+  sessionId: string,
+  garminWorkoutId: string
+): Promise<void> {
+  if (!garminClient.isConfigured()) return;
+
+  await db
+    .insert(syncOutbox)
+    .values({
+      entityType: "strength_session",
+      entityId: sessionId,
+      action: "delete",
+      target: "garmin",
+      status: "pending",
+      idempotencyKey: `garmin:strength:delete:${sessionId}`,
+      payload: { garminWorkoutId },
+      attempts: 0,
+    })
+    .onConflictDoUpdate({
+      target: syncOutbox.idempotencyKey,
+      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null },
+    });
+
+  processGarminOutbox().catch(console.error);
+}
+
 export async function processGarminOutbox(): Promise<SyncResult> {
   await resetStaleClaims("garmin");
 
@@ -208,6 +331,10 @@ export async function processGarminOutbox(): Promise<SyncResult> {
 }
 
 async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<void> {
+  if (job.entityType === "strength_session") {
+    await processGarminStrengthJob(job);
+    return;
+  }
   if (job.entityType !== "workout") return;
   const workoutId = job.entityId;
 
@@ -258,4 +385,69 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
     .update(workouts)
     .set({ garminWorkoutId })
     .where(eq(workouts.id, workoutId));
+}
+
+
+// ── Strength sessions ────────────────────────────────────────────────────────
+
+async function processGarminStrengthJob(
+  job: typeof syncOutbox.$inferSelect
+): Promise<void> {
+  const sessionId = job.entityId;
+
+  if (job.action === "delete") {
+    const payload = job.payload as { garminWorkoutId?: string } | null;
+    if (payload?.garminWorkoutId) {
+      await garminClient.deleteWorkout(payload.garminWorkoutId);
+    }
+    return;
+  }
+
+  const [row] = await db
+    .select()
+    .from(strengthSessions)
+    .where(eq(strengthSessions.id, sessionId))
+    .limit(1);
+  if (!row) throw new Error(`Strength session ${sessionId} not found`);
+  if (row.profileId !== null) return;
+
+  const scheduledDate = toGarminDate(row.date);
+
+  if (row.garminWorkoutId) {
+    // Already on the watch — a create/update job means "make the date right".
+    await garminClient.moveWorkout(row.garminWorkoutId, scheduledDate);
+    return;
+  }
+
+  if (row.status !== "planned") return;
+
+  // The plan is derived, not stored: build it the same way the app does so the
+  // watch shows the loads the athlete is actually meant to lift today.
+  const planned = await buildPlannedSession(
+    row.type as StrengthSessionType,
+    row.date,
+    row.profileId
+  );
+  const exercises = planned.map((ex) => ({
+    name: ex.name,
+    category: ex.category,
+    sets: ex.sets,
+    // Garmin wants a single rep target; the low end of the range is the
+    // honest floor for a prescription like "8-12".
+    reps: ex.repLow,
+    weightKg: ex.suggestedWeightKg ?? ex.lastWeightKg ?? null,
+  }));
+  if (exercises.length === 0) return;
+
+  const garminWorkoutId = await garminClient.pushStrengthWorkout({
+    sessionId: row.id,
+    title: row.title,
+    date: row.date,
+    exercises,
+  });
+
+  await db
+    .update(strengthSessions)
+    .set({ garminWorkoutId })
+    .where(eq(strengthSessions.id, sessionId));
 }

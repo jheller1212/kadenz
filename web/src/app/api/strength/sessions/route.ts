@@ -8,6 +8,7 @@ import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+import { queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 
@@ -152,6 +153,10 @@ export async function POST(request: NextRequest) {
           if (connected) {
             queueStrengthSessionSync(session.id, "create", "gcal").catch((err) =>
               console.error("Failed to queue strength gcal sync:", err)
+            );
+            // Push to the watch too — a Kraft session is a real workout there.
+            queueGarminStrengthMove(session.id).catch((err) =>
+              console.error("Failed to queue Garmin strength push:", err)
             );
           }
         })
