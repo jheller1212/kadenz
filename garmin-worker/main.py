@@ -310,6 +310,90 @@ def create_workout(body: CreateWorkoutRequest, _auth: Auth):
     }
 
 
+@app.put("/workouts/{workout_id}")
+def update_workout(workout_id: str, body: CreateWorkoutRequest, _auth: Auth):
+    """Replace an existing workout's contents, keeping its id and schedule.
+
+    Editing in place is what the athlete expects when a plan changes: the same
+    entry on the watch simply says 12 km instead of 10 km. Deleting and
+    re-creating would churn the calendar and risks leaving duplicates behind.
+    """
+    payload = _build_workout_payload(body)
+    payload["workoutId"] = int(workout_id)
+
+    try:
+        _garmin_call(
+            f"/workout-service/workout/{workout_id}",
+            method="PUT",
+            json=payload,
+        )
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update workout %s: %s", workout_id, exc)
+        raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+    # Keep the calendar honest too — the date may have moved with the edit.
+    removed = 0
+    scheduled = None
+    try:
+        existing = _get_scheduled_workout_id(int(workout_id), body.scheduled_date)
+        if existing is None:
+            scheduled = _schedule_workout(int(workout_id), body.scheduled_date)
+        removed = _prune_schedules(int(workout_id), existing, body.scheduled_date)
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.warning("Updated workout %s but rescheduling failed: %s", workout_id, exc)
+
+    return {
+        "garmin_workout_id": workout_id,
+        "scheduled_date": body.scheduled_date,
+        "removed_stale_schedules": removed,
+        "schedule_result": scheduled,
+    }
+
+
+@app.put("/strength-workouts/{workout_id}")
+def update_strength_workout(
+    workout_id: str, body: CreateStrengthWorkoutRequest, _auth: Auth
+):
+    """Replace a strength workout's exercises in place (see update_workout)."""
+    payload = _build_strength_workout_payload(body)
+    payload["workoutId"] = int(workout_id)
+
+    try:
+        _garmin_call(
+            f"/workout-service/workout/{workout_id}",
+            method="PUT",
+            json=payload,
+        )
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update strength workout %s: %s", workout_id, exc)
+        raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+    removed = 0
+    scheduled = None
+    try:
+        existing = _get_scheduled_workout_id(int(workout_id), body.date)
+        if existing is None:
+            scheduled = _schedule_workout(int(workout_id), body.date)
+        removed = _prune_schedules(int(workout_id), existing, body.date)
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.warning("Updated strength workout %s but rescheduling failed: %s", workout_id, exc)
+
+    return {
+        "garmin_workout_id": workout_id,
+        "scheduled_date": body.date,
+        "removed_stale_schedules": removed,
+        "schedule_result": scheduled,
+    }
+
+
 @app.patch("/workouts/{workout_id}")
 def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
     """Reschedule a workout to a new date on Garmin Connect."""

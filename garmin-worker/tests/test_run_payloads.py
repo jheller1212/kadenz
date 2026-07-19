@@ -255,3 +255,79 @@ def test_listing_flags_foreign_workouts():
 
     assert out["workouts"][0]["createdByKadenz"] is True
     assert out["workouts"][1]["createdByKadenz"] is False
+
+
+def test_update_workout_edits_in_place_and_keeps_the_schedule():
+    """A changed plan should edit the existing entry, not churn the calendar."""
+    import main
+
+    calls = []
+
+    def fake_call(path, method="GET", **kwargs):
+        calls.append((method, path))
+        if method == "GET" and path.startswith("/workout-service/schedule/"):
+            return [{"scheduleId": 55, "date": "2026-08-05"}]
+        return {}
+
+    body = main.CreateWorkoutRequest(
+        title="Easy Run 12km",
+        scheduled_date="2026-08-05",
+        sport_type="running",
+        blocks=[main.WorkoutBlock(type="work", distance_meters=12000)],
+    )
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.update_workout("42", body, None)
+
+    assert ("PUT", "/workout-service/workout/42") in calls
+    # Already scheduled on that date → no new schedule, nothing deleted.
+    assert not any(m == "POST" for m, _ in calls)
+    assert out["removed_stale_schedules"] == 0
+
+
+def test_update_workout_schedules_when_the_date_moved():
+    import main
+
+    calls = []
+
+    def fake_call(path, method="GET", **kwargs):
+        calls.append((method, path))
+        if method == "GET" and path.startswith("/workout-service/schedule/"):
+            return [{"scheduleId": 55, "date": "2026-08-01"}]  # old day only
+        return {"workoutScheduleId": 77}
+
+    body = main.CreateWorkoutRequest(
+        title="Easy Run 12km",
+        scheduled_date="2026-08-05",
+        sport_type="running",
+        blocks=[main.WorkoutBlock(type="work", distance_meters=12000)],
+    )
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.update_workout("42", body, None)
+
+    assert ("PUT", "/workout-service/workout/42") in calls
+    assert any(m == "POST" for m, _ in calls), "must schedule the new date"
+    assert ("DELETE", "/workout-service/schedule/55") in calls
+    assert out["removed_stale_schedules"] == 1
+
+
+def test_update_strength_workout_edits_in_place():
+    import main
+
+    calls = []
+
+    def fake_call(path, method="GET", **kwargs):
+        calls.append((method, path))
+        if method == "GET" and path.startswith("/workout-service/schedule/"):
+            return [{"scheduleId": 9, "date": "2026-08-05"}]
+        return {}
+
+    body = main.CreateStrengthWorkoutRequest(
+        title="Upper",
+        date="2026-08-05",
+        exercises=[main.StrengthExercise(name="Goblet squat", sets=3, reps=8, weightKg=20)],
+    )
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.update_strength_workout("77", body, None)
+
+    assert ("PUT", "/workout-service/workout/77") in calls
+    assert out["garmin_workout_id"] == "77"
