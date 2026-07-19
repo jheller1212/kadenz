@@ -72,44 +72,29 @@ export async function POST(
         ? snapToLevel(data.weightKg)
         : data.weightKg ?? null;
 
-    // Upsert: replace an existing set at this (session, exercise, setNumber).
-    const existing = await db
-      .select({ id: strengthSets.id })
-      .from(strengthSets)
-      .where(
-        and(
-          eq(strengthSets.sessionId, id),
-          eq(strengthSets.exerciseId, exerciseId!),
-          eq(strengthSets.setNumber, data.setNumber)
-        )
-      );
-
-    let row;
-    if (existing[0]) {
-      [row] = await db
-        .update(strengthSets)
-        .set({
+    // Upsert on the unique (session, exercise, setNumber) index — one
+    // statement, so a queued replay racing a live write can't duplicate.
+    const [row] = await db
+      .insert(strengthSets)
+      .values({
+        sessionId: id,
+        exerciseId: exerciseId!,
+        setNumber: data.setNumber,
+        weightKg,
+        reps: data.reps ?? null,
+        rpe: data.rpe ?? null,
+        durationSeconds: data.durationSeconds ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [strengthSets.sessionId, strengthSets.exerciseId, strengthSets.setNumber],
+        set: {
           weightKg,
           reps: data.reps ?? null,
           rpe: data.rpe ?? null,
           durationSeconds: data.durationSeconds ?? null,
-        })
-        .where(eq(strengthSets.id, existing[0].id))
-        .returning();
-    } else {
-      [row] = await db
-        .insert(strengthSets)
-        .values({
-          sessionId: id,
-          exerciseId: exerciseId!,
-          setNumber: data.setNumber,
-          weightKg,
-          reps: data.reps ?? null,
-          rpe: data.rpe ?? null,
-          durationSeconds: data.durationSeconds ?? null,
-        })
-        .returning();
-    }
+        },
+      })
+      .returning();
 
     return Response.json(row, { status: 201 });
   } catch (err) {

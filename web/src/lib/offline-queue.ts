@@ -110,6 +110,21 @@ function hasQueuedFor(url: string): boolean {
   return readQueue().some((m) => m.url === url);
 }
 
+/**
+ * Drop queued mutations whose URL contains `match`. Discarding a workout has
+ * to cancel its parked set writes — otherwise a later replay resurrects the
+ * very sets the user threw away.
+ */
+export function dropQueuedFor(match: string): number {
+  let dropped = 0;
+  updateQueue((list) => {
+    const kept = list.filter((m) => !m.url.includes(match));
+    dropped = list.length - kept.length;
+    return kept;
+  });
+  return dropped;
+}
+
 /** Queued mutations whose URL contains `match` — lets a screen track its own. */
 export function queuedCountFor(match: string): number {
   return readQueue().filter((m) => m.url.includes(match)).length;
@@ -125,22 +140,32 @@ export async function flushQueue(): Promise<void> {
   flushing = true;
   try {
     const remaining: QueuedMutation[] = [];
+    // Endpoints whose first entry failed. Later writes to the SAME endpoint
+    // must stay behind it (ordering), but unrelated endpoints keep draining —
+    // one stuck mutation used to stall every write behind it for up to 48h.
+    const blocked = new Set<string>();
     for (let i = 0; i < queue.length; i++) {
       const m = queue[i];
+      if (blocked.has(m.url)) {
+        remaining.push(m);
+        continue;
+      }
       try {
         const res = await apiFetch(m.url, {
           method: m.method,
           headers: { "Content-Type": "application/json" },
           ...(m.body !== undefined ? { body: m.body } : {}),
         });
-        const retryable = isRetryableStatus(res.status);
-        if (retryable) {
-          remaining.push(...queue.slice(i));
-          break;
+        // 401 means the session expired, not that the write was rejected on
+        // its merits — keep it and let it replay once the user is signed in.
+        if (isRetryableStatus(res.status) || res.status === 401) {
+          remaining.push(m);
+          blocked.add(m.url);
+          continue;
         }
-        // ok or definitive rejection → drop either way
+        // ok or definitive rejection (400/404/422) → drop either way
       } catch {
-        // still offline — keep this and the rest, try again later
+        // Network died mid-flush: keep this one and stop trying the rest.
         remaining.push(...queue.slice(i));
         break;
       }

@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   index,
+  uniqueIndex,
   integer,
   jsonb,
   pgEnum,
@@ -471,6 +472,13 @@ export const strengthSets = pgTable(
   },
   (t) => [
     index("strength_sets_session_id_idx").on(t.sessionId),
+    // One row per logged set — makes the API's upsert genuinely idempotent,
+    // so a queued replay racing a live write can't duplicate it.
+    uniqueIndex("strength_sets_session_exercise_set_uq").on(
+      t.sessionId,
+      t.exerciseId,
+      t.setNumber
+    ),
     index("strength_sets_exercise_id_idx").on(t.exerciseId),
   ]
 );
