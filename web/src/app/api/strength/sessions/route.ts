@@ -25,12 +25,15 @@ const CreateSchema = z.object({
 });
 
 // ── GET /api/strength/sessions?from=&to= ──────────────────────────────────────
-// List sessions (with logged sets) in an optional date window, newest-first.
+// List sessions in an optional date window, newest-first. Logged sets are
+// joined ONLY with ?include=sets — the Today/list views need 6 scalar fields,
+// and dragging every set along made strength cards render slower than runs.
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
+  const includeSets = searchParams.get("include") === "sets";
 
   const profileId = getActiveProfileId(request);
 
@@ -43,13 +46,29 @@ export async function GET(request: NextRequest) {
     if (from) conds.push(gte(strengthSessions.date, new Date(from)));
     if (to) conds.push(lte(strengthSessions.date, new Date(to)));
 
-    const rows = await db.query.strengthSessions.findMany({
-      where: and(...conds),
-      orderBy: (s, { desc }) => [desc(s.date)],
-      with: {
-        sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] },
-      },
-    });
+    const rows = includeSets
+      ? await db.query.strengthSessions.findMany({
+          where: and(...conds),
+          orderBy: (s, { desc }) => [desc(s.date)],
+          with: { sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] } },
+        })
+      : await db.query.strengthSessions.findMany({
+          where: and(...conds),
+          orderBy: (s, { desc }) => [desc(s.date)],
+          // List/calendar consumers use only these scalars — no set join.
+          columns: {
+            id: true,
+            date: true,
+            dayOfWeek: true,
+            type: true,
+            title: true,
+            status: true,
+            targetDurationMinutes: true,
+            durationMinutes: true,
+            gcalEventId: true,
+            garminWorkoutId: true,
+          },
+        });
     return Response.json(rows);
   } catch (err) {
     console.error("DB error listing strength sessions:", err);

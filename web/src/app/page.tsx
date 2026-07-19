@@ -1192,38 +1192,51 @@ export default function Home() {
       })
       .catch(() => {});
   }, []);
-  useEffect(() => {
-    if (days.length === 0) return;
-    const from = new Date(days[0].date);
+  // Strength for the visible week. Fetched on mount from the local week —
+  // NOT gated on the run data — so strength cards render as fast as runs
+  // instead of waiting for /api/today to resolve first. Deduped by week key
+  // so paging weeks re-fetches but a re-render doesn't.
+  const lastStrengthKey = useRef<string>("");
+  const loadWeekStrength = useCallback((weekMonday: Date) => {
+    const from = new Date(weekMonday);
     from.setHours(0, 0, 0, 0);
-    const to = new Date(days[days.length - 1].date);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 6);
     to.setHours(23, 59, 59, 999);
     const cacheKey = `strength_week:${from.toISOString().slice(0, 10)}`;
+    if (lastStrengthKey.current === cacheKey) return;
+    lastStrengthKey.current = cacheKey;
     function apply(sessions: StrengthSessionLite[]) {
       const active = sessions.filter((sess) => sess.status !== "skipped");
       setWeekStrength(active);
       const map: Record<string, string> = {};
-      for (const sess of active) {
-        map[new Date(sess.date).toDateString()] = sess.status;
-      }
+      for (const sess of active) map[new Date(sess.date).toDateString()] = sess.status;
       setStrengthDays(map);
     }
     const cached = readCache<StrengthSessionLite[]>(cacheKey);
     if (cached) apply(cached);
-    (async () => {
-      try {
-        const res = await apiFetch(
-          `/api/strength/sessions?from=${from.toISOString()}&to=${to.toISOString()}`
-        );
-        if (!res.ok) return;
-        const sessions = (await res.json()) as StrengthSessionLite[];
+    apiFetch(`/api/strength/sessions?from=${from.toISOString()}&to=${to.toISOString()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((sessions: StrengthSessionLite[] | null) => {
+        if (!sessions) return;
         writeCache(cacheKey, sessions);
         apply(sessions);
-      } catch {
-        /* strip just shows run dots */
-      }
-    })();
-  }, [days]);
+      })
+      .catch(() => {
+        // Let a failed fetch retry next time rather than sticking on the key.
+        lastStrengthKey.current = "";
+      });
+  }, []);
+
+  // Fire immediately for the current local week, parallel to the run fetch.
+  useEffect(() => {
+    loadWeekStrength(getMondayOfWeek(new Date()));
+  }, [loadWeekStrength]);
+
+  // Re-fetch when the strip moves to a different week.
+  useEffect(() => {
+    if (days.length > 0) loadWeekStrength(getMondayOfWeek(days[0].date));
+  }, [days, loadWeekStrength]);
   const [allWorkouts, setAllWorkouts] = useState<TodayApiWorkout[]>([]);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState(false);
