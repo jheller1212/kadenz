@@ -23,6 +23,10 @@ const SettingsSchema = z.object({
   // Standalone block (only meaningful without a running plan to follow).
   blockWeeks: z.union([z.literal(8), z.literal(12), z.literal(16)]).nullish(),
   blockStartDate: z.string().datetime().nullish(),
+  // Cold-start load personalisation — optional, nullable; skipping them keeps
+  // today's global default loads (see lib/strength/load-model.ts).
+  bodyweightKg: z.number().min(20).max(300).nullable().optional(),
+  sex: z.enum(["male", "female", "unspecified"]).nullable().optional(),
 }).refine((s) => new Set(s.availableDays).size >= s.sessionsPerWeek, {
   message: "Pick at least as many distinct days as sessions per week",
 });

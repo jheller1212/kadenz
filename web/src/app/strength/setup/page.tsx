@@ -25,8 +25,18 @@ import {
 
 type Goal = "running_focus" | "all_round";
 type Ability = "beginner" | "intermediate" | "advanced";
+type Sex = "male" | "female" | "unspecified";
 
-const STEPS = ["goal", "duration", "frequency", "ability", "days", "equipment"] as const;
+const STEPS = [
+  "goal",
+  "duration",
+  "frequency",
+  "ability",
+  "sex",
+  "bodyweight",
+  "days",
+  "equipment",
+] as const;
 type Step = (typeof STEPS)[number];
 
 const GOALS: Array<{ key: Goal; title: string; sub: string }> = [
@@ -54,6 +64,12 @@ const ABILITIES: Array<{ key: Ability; title: string; sub: string; fill: number 
   { key: "advanced", title: "Advanced", sub: "Confident with all complex movements", fill: 1 },
 ];
 
+const SEXES: Array<{ key: Sex; title: string; sub?: string }> = [
+  { key: "male", title: "Male" },
+  { key: "female", title: "Female" },
+  { key: "unspecified", title: "Prefer not to say", sub: "We'll use a neutral starting point" },
+];
+
 const DAYS: Array<{ dow: number; label: string }> = [
   { dow: 1, label: "Monday" },
   { dow: 2, label: "Tuesday" },
@@ -66,6 +82,14 @@ const DAYS: Array<{ dow: number; label: string }> = [
 
 
 
+/** Parse the bodyweight field into a number for the API, or null when blank/invalid. */
+function parseBodyweight(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n >= 20 && n <= 300 ? n : null;
+}
+
 export default function StrengthSetupPage() {
   const router = useRouter();
   const [stepIdx, setStepIdx] = useState(0);
@@ -75,6 +99,8 @@ export default function StrengthSetupPage() {
   const [duration, setDuration] = useState<30 | 45 | 60>(45);
   const [frequency, setFrequency] = useState(2);
   const [ability, setAbility] = useState<Ability>("intermediate");
+  const [sex, setSex] = useState<Sex | null>(null);
+  const [bodyweightKg, setBodyweightKg] = useState<string>("");
   const [days, setDays] = useState<number[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>(DEFAULT_EQUIPMENT);
   const [saving, setSaving] = useState(false);
@@ -97,6 +123,8 @@ export default function StrengthSetupPage() {
         if ([30, 45, 60].includes(s.durationMinutes)) setDuration(s.durationMinutes);
         if (s.sessionsPerWeek >= 1 && s.sessionsPerWeek <= 4) setFrequency(s.sessionsPerWeek);
         if (["beginner", "intermediate", "advanced"].includes(s.ability)) setAbility(s.ability);
+        if (["male", "female", "unspecified"].includes(s.sex)) setSex(s.sex);
+        if (typeof s.bodyweightKg === "number") setBodyweightKg(String(s.bodyweightKg));
         if (Array.isArray(s.availableDays)) setDays(s.availableDays);
         if (Array.isArray(s.equipment)) setEquipment(s.equipment);
         if ([8, 12, 16].includes(s.blockWeeks)) setBlockWeeks(s.blockWeeks);
@@ -128,8 +156,13 @@ export default function StrengthSetupPage() {
 
   const canContinue = useMemo(() => {
     if (step === "days") return days.length >= Math.max(frequency, 1);
+    if (step === "bodyweight") {
+      if (bodyweightKg.trim() === "") return true; // optional — skip is fine
+      const n = Number(bodyweightKg);
+      return Number.isFinite(n) && n >= 20 && n <= 300;
+    }
     return true;
-  }, [step, days, frequency]);
+  }, [step, days, frequency, bodyweightKg]);
 
   function markInteracted() {
     interactedRef.current = true;
@@ -159,6 +192,8 @@ export default function StrengthSetupPage() {
           durationMinutes: duration,
           sessionsPerWeek: frequency,
           ability,
+          sex,
+          bodyweightKg: parseBodyweight(bodyweightKg),
           availableDays: days,
           equipment,
           active: true,
@@ -209,6 +244,14 @@ export default function StrengthSetupPage() {
     ability: {
       title: "How would you rate your strength ability?",
       sub: "Pick the level that suits you best (you can change this later).",
+    },
+    sex: {
+      title: "What's your sex?",
+      sub: "Used only to set a sensible, safe starting weight for new exercises — optional.",
+    },
+    bodyweight: {
+      title: "What's your bodyweight?",
+      sub: "Helps us pick a starting weight for new exercises instead of a one-size-fits-all default. Optional — you can skip this.",
     },
     days: {
       title: "Which days are you free to train on?",
@@ -309,6 +352,35 @@ export default function StrengthSetupPage() {
                       </button>
                     ))}
                   </div>
+              {step === "sex" &&
+                SEXES.map((s) => (
+                  <OptionCard
+                    key={s.key}
+                    selected={sex === s.key}
+                    onSelect={() => { markInteracted(); setSex(s.key); }}
+                    title={s.title}
+                    sub={s.sub}
+                  />
+                ))}
+
+              {step === "bodyweight" && (
+                <div className="rounded-2xl bg-surface p-5 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]">
+                  <label className="block text-[14px] font-semibold text-text-1" htmlFor="bodyweight-input">
+                    Bodyweight (kg)
+                  </label>
+                  <input
+                    id="bodyweight-input"
+                    type="number"
+                    inputMode="decimal"
+                    min={20}
+                    max={300}
+                    step={0.5}
+                    placeholder="e.g. 75"
+                    value={bodyweightKg}
+                    onChange={(e) => { markInteracted(); setBodyweightKg(e.target.value); }}
+                    className="mt-3 w-full rounded-xl border border-hairline bg-elevated px-4 py-3 text-[17px] font-semibold text-text-1 outline-none focus:border-accent"
+                  />
+                  <p className="mt-2 text-[13px] text-text-3">Leave blank to skip and use standard starting weights.</p>
                 </div>
               )}
 

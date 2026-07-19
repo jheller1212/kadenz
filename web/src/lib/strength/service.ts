@@ -11,6 +11,7 @@ import {
 import { buildSessionPlan, type PlannedExercise } from "./session";
 import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
+import type { LifterProfile } from "./load-model";
 import type {
   ExerciseSessionHistory,
   StrengthSessionType,
@@ -117,21 +118,35 @@ export async function buildPlannedSession(
   date: Date,
   profileId: string | null = null
 ): Promise<PlannedExercise[]> {
-  const [programWeek, historyBySlug, painGate, ability] = await Promise.all([
+  const [programWeek, historyBySlug, painGate, planSettings] = await Promise.all([
     getProgramWeek(date),
     getExerciseHistoryBySlug(date, profileId),
     getPainGate(date),
-    getAbility(profileId),
+    getPlanSettingsForLoads(profileId),
   ]);
-  return buildSessionPlan(type, { programWeek, historyBySlug, painGate, ability });
+  return buildSessionPlan(type, {
+    programWeek,
+    historyBySlug,
+    painGate,
+    ability: planSettings.ability,
+    lifterProfile: planSettings.lifterProfile,
+  });
 }
 
-/** Strength ability from the weekly-plan wizard settings, if configured. */
-async function getAbility(
-  profileId: string | null
-): Promise<"beginner" | "intermediate" | "advanced" | undefined> {
+/**
+ * Ability + cold-start load inputs from the weekly-plan wizard settings, if
+ * configured. `ability` doubles as lifting experience for the load model.
+ */
+async function getPlanSettingsForLoads(profileId: string | null): Promise<{
+  ability: "beginner" | "intermediate" | "advanced" | undefined;
+  lifterProfile: LifterProfile | null;
+}> {
   const [row] = await db
-    .select({ ability: strengthPlanSettings.ability })
+    .select({
+      ability: strengthPlanSettings.ability,
+      bodyweightKg: strengthPlanSettings.bodyweightKg,
+      sex: strengthPlanSettings.sex,
+    })
     .from(strengthPlanSettings)
     .where(
       profileId
@@ -139,9 +154,18 @@ async function getAbility(
         : isNull(strengthPlanSettings.profileId)
     );
   const a = row?.ability;
-  return a === "beginner" || a === "intermediate" || a === "advanced"
-    ? a
-    : undefined;
+  const ability =
+    a === "beginner" || a === "intermediate" || a === "advanced" ? a : undefined;
+  const sex =
+    row?.sex === "male" || row?.sex === "female" || row?.sex === "unspecified"
+      ? row.sex
+      : undefined;
+  return {
+    ability,
+    lifterProfile: row
+      ? { bodyweightKg: row.bodyweightKg, sex, experience: ability }
+      : null,
+  };
 }
 
 /** Map exercise slugs → ids (seeded catalogue). */
