@@ -644,7 +644,10 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         const sessionId = session.id;
         const clearWhenDrained = () => {
           if (queuedCountFor(sessionId) > 0) return;
-          clearGuidedSnapshot();
+          // The snapshot key is global: by the time this fires the user may
+          // have started a NEW workout, whose live snapshot must not be wiped.
+          const current = loadGuidedSnapshot();
+          if (!current || current.session.id === sessionId) clearGuidedSnapshot();
           window.removeEventListener("kadenz:queue-flushed", clearWhenDrained);
         };
         window.addEventListener("kadenz:queue-flushed", clearWhenDrained);

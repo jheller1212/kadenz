@@ -173,10 +173,16 @@ export async function flushQueue(): Promise<void> {
     // Anything enqueued WHILE this flush ran is in storage but not in our
     // snapshot — merge it back, or those writes would be silently dropped.
     const handled = new Set(queue.map((m) => m.id));
-    updateQueue((current) => [
-      ...remaining,
-      ...current.filter((m) => !handled.has(m.id)),
-    ]);
+    updateQueue((current) => {
+      // `remaining` comes from the snapshot taken before the awaits. If a
+      // concurrent dropQueuedFor() cancelled one of those entries mid-flush,
+      // writing it back would resurrect exactly what the caller deleted.
+      const stillQueued = new Set(current.map((m) => m.id));
+      return [
+        ...remaining.filter((m) => stillQueued.has(m.id)),
+        ...current.filter((m) => !handled.has(m.id)),
+      ];
+    });
     if (remaining.length < queue.length) {
       window.dispatchEvent(new Event("kadenz:queue-flushed"));
     }
