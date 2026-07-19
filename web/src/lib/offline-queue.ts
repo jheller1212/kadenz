@@ -9,7 +9,9 @@ import { isRetryableStatus } from "@/lib/retryable-status";
 
 const KEY = "kadenz_offline_queue_v1";
 const MAX_AGE_MS = 48 * 3600_000;
-const MAX_ENTRIES = 50;
+// Generous: a single guided workout can log 30+ sets, and the cap drops the
+// OLDEST entries — too tight a bound would silently discard real work.
+const MAX_ENTRIES = 300;
 
 export interface QueuedMutation {
   /** Stable identity — lets a flush merge instead of clobbering new writes. */
