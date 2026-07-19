@@ -10,12 +10,14 @@ import { formatRecency } from "@/lib/recency";
 import {
   clearGuidedSnapshot,
   saveGuidedSnapshot,
+  loadGuidedSnapshot,
   type GuidedWorkSet,
 } from "@/lib/strength/guided-snapshot";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
+import { mutateWithQueue, queuedCountFor, flushQueue } from "@/lib/offline-queue";
 import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 
@@ -188,6 +190,8 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   // slug → previous performance (null = fetched, nothing on record).
   const [lastPerf, setLastPerf] = useState<Record<string, LastPerf | null>>({});
   const [lastPerfOpen, setLastPerfOpen] = useState(false);
+  // Set writes parked by the offline queue — the snapshot stays until they land.
+  const [pendingWrites, setPendingWrites] = useState(0);
 
   const sessionStartRef = useRef<number>(resume?.startedAt ?? Date.now());
   const prefsRef = useRef(prefs);
@@ -205,6 +209,31 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   useEffect(() => { timerRef.current = timer; }, [timer]);
   useEffect(() => { exIndexRef.current = exIndex; }, [exIndex]);
   useEffect(() => { pausedAtRef.current = pausedAt; }, [pausedAt]);
+
+  // Keep the queued-writes badge honest: retry on reconnect / foreground and
+  // refresh the count whenever the queue drains.
+  useEffect(() => {
+    function refresh() {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reads localStorage, client-only
+      setPendingWrites(queuedCountFor(session.id));
+    }
+    function retry() {
+      void flushQueue().then(refresh);
+    }
+    refresh();
+    window.addEventListener("online", retry);
+    window.addEventListener("kadenz:queue-flushed", refresh);
+    document.addEventListener("visibilitychange", retry);
+    const interval = setInterval(retry, 30_000);
+    return () => {
+      window.removeEventListener("online", retry);
+      window.removeEventListener("kadenz:queue-flushed", refresh);
+      document.removeEventListener("visibilitychange", retry);
+      clearInterval(interval);
+    };
+    // session is stable for the lifetime of this mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Last performance per exercise — fetched lazily, cached for the session ──
   useEffect(() => {
@@ -427,12 +456,14 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   }
 
   // ── Set logging (weight/reps confirmed during rest) ──────────────────────────
+  // Logged sets must survive bad gym wifi: the endpoint upserts on
+  // (session, exercise, setNumber), so a queued replay is safe, and the
+  // workout is never finished while writes are still parked.
   function postSet(slug: string, setIndex: number) {
     const set = (workRef.current[slug] ?? [])[setIndex];
     if (!set) return;
-    apiFetch(`/api/strength/sessions/${session.id}/sets`, {
+    mutateWithQueue(`/api/strength/sessions/${session.id}/sets`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         exerciseSlug: slug,
         setNumber: setIndex + 1,
@@ -440,7 +471,9 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         reps: set.reps,
         durationSeconds: set.durationSec || null,
       }),
-    }).catch(() => {});
+    })
+      .then(() => setPendingWrites(queuedCountFor(session.id)))
+      .catch(() => setPendingWrites(queuedCountFor(session.id)));
   }
 
   function doneSet() {
@@ -589,7 +622,26 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         setFinishing(false);
         return;
       }
-      clearGuidedSnapshot();
+      // Only drop the recovery snapshot once every set write has actually
+      // reached the server — otherwise a queued set could be lost for good.
+      // Scoped to THIS session: an unrelated queued mutation elsewhere in the
+      // app must not keep a stale "resume workout" card alive.
+      if (queuedCountFor(session.id) === 0) {
+        clearGuidedSnapshot();
+      } else {
+        // Keep it only as insurance for the parked writes, flagged so it is
+        // never offered as a resumable workout, and drop it as soon as they land.
+        const snap = loadGuidedSnapshot();
+        if (snap) saveGuidedSnapshot({ ...snap, finishedAt: Date.now() });
+        const sessionId = session.id;
+        const clearWhenDrained = () => {
+          if (queuedCountFor(sessionId) > 0) return;
+          clearGuidedSnapshot();
+          window.removeEventListener("kadenz:queue-flushed", clearWhenDrained);
+        };
+        window.addEventListener("kadenz:queue-flushed", clearWhenDrained);
+        void flushQueue();
+      }
       onFinish({ setsLogged, totalSets, durationMinutes });
     } catch {
       setError("Network error — couldn't finish the session.");
@@ -631,6 +683,13 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
+      {/* Queued set writes — reassure rather than alarm; they replay on reconnect */}
+      {pendingWrites > 0 && (
+        <div className="mx-4 mb-1 rounded-full bg-elevated px-3 py-1 text-center text-[11px] font-semibold text-text-2">
+          Saving {pendingWrites} set{pendingWrites === 1 ? "" : "s"} — will sync when back online
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between px-4 pb-1">
         <button type="button" onClick={() => { haptic("light"); setConfirmExit(true); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">

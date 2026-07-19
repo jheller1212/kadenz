@@ -5,12 +5,17 @@
 // (4xx other than 408/429) so a bad request can't wedge the queue forever.
 
 import { apiFetch } from "@/lib/api";
+import { isRetryableStatus } from "@/lib/retryable-status";
 
 const KEY = "kadenz_offline_queue_v1";
 const MAX_AGE_MS = 48 * 3600_000;
-const MAX_ENTRIES = 50;
+// Generous: a single guided workout can log 30+ sets, and the cap drops the
+// OLDEST entries — too tight a bound would silently discard real work.
+const MAX_ENTRIES = 300;
 
 export interface QueuedMutation {
+  /** Stable identity — lets a flush merge instead of clobbering new writes. */
+  id: string;
   url: string;
   method: string;
   body?: string;
@@ -22,7 +27,12 @@ function readQueue(): QueuedMutation[] {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const list = JSON.parse(raw) as QueuedMutation[];
-    return list.filter((m) => Date.now() - m.ts < MAX_AGE_MS);
+    return list
+      // Legacy rows (queued before ids existed) must get the SAME id on every
+      // read — a fresh random one would make the flush merge treat an
+      // already-sent row as new and replay it forever.
+      .map((m) => (m.id ? m : { ...m, id: legacyId(m) }))
+      .filter((m) => Date.now() - m.ts < MAX_AGE_MS);
   } catch {
     return [];
   }
@@ -36,10 +46,6 @@ function writeQueue(list: QueuedMutation[]): void {
   }
 }
 
-export function queuedCount(): number {
-  return readQueue().length;
-}
-
 /**
  * Run a mutation now; if the network is down, queue it for replay and resolve
  * as accepted-offline. Server errors (response received) are NOT queued —
@@ -49,18 +55,64 @@ export async function mutateWithQueue(
   url: string,
   init: { method: string; body?: string }
 ): Promise<{ ok: boolean; offline: boolean; res?: Response }> {
+  // Ordering guarantee: once anything for this endpoint is parked, later
+  // writes queue behind it. A live write that jumped the queue could be
+  // overwritten moments later by the stale replay sitting in front of it.
+  if (hasQueuedFor(url)) {
+    enqueue(url, init);
+    void flushQueue();
+    return { ok: true, offline: true };
+  }
+
   try {
     const res = await apiFetch(url, {
       method: init.method,
       headers: { "Content-Type": "application/json" },
       ...(init.body !== undefined ? { body: init.body } : {}),
     });
+    // A server that is down or throttling is no more the caller's problem
+    // than a dead network — park those too, so the write is never lost.
+    if (isRetryableStatus(res.status)) {
+      enqueue(url, init);
+      return { ok: true, offline: true };
+    }
     return { ok: res.ok, offline: false, res };
   } catch {
     // fetch threw → network failure. Park it.
-    writeQueue([...readQueue(), { url, method: init.method, body: init.body, ts: Date.now() }]);
+    enqueue(url, init);
     return { ok: true, offline: true };
   }
+}
+
+function enqueue(url: string, init: { method: string; body?: string }): void {
+  updateQueue((list) => [
+    ...list,
+    { id: newId(), url, method: init.method, body: init.body, ts: Date.now() },
+  ]);
+}
+
+function newId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function legacyId(m: { ts: number; url: string; method: string }): string {
+  return `legacy-${m.ts}-${m.method}-${m.url}`;
+}
+
+/** Read-modify-write in one step, re-reading immediately before the write so
+ *  a concurrent enqueue is far less likely to be clobbered. */
+function updateQueue(fn: (list: QueuedMutation[]) => QueuedMutation[]): void {
+  writeQueue(fn(readQueue()));
+}
+
+/** True when this exact endpoint already has parked writes. */
+function hasQueuedFor(url: string): boolean {
+  return readQueue().some((m) => m.url === url);
+}
+
+/** Queued mutations whose URL contains `match` — lets a screen track its own. */
+export function queuedCountFor(match: string): number {
+  return readQueue().filter((m) => m.url.includes(match)).length;
 }
 
 let flushing = false;
@@ -81,7 +133,7 @@ export async function flushQueue(): Promise<void> {
           headers: { "Content-Type": "application/json" },
           ...(m.body !== undefined ? { body: m.body } : {}),
         });
-        const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+        const retryable = isRetryableStatus(res.status);
         if (retryable) {
           remaining.push(...queue.slice(i));
           break;
@@ -93,7 +145,13 @@ export async function flushQueue(): Promise<void> {
         break;
       }
     }
-    writeQueue(remaining);
+    // Anything enqueued WHILE this flush ran is in storage but not in our
+    // snapshot — merge it back, or those writes would be silently dropped.
+    const handled = new Set(queue.map((m) => m.id));
+    updateQueue((current) => [
+      ...remaining,
+      ...current.filter((m) => !handled.has(m.id)),
+    ]);
     if (remaining.length < queue.length) {
       window.dispatchEvent(new Event("kadenz:queue-flushed"));
     }

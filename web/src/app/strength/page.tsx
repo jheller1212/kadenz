@@ -151,7 +151,11 @@ export default function StrengthPage() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
-    if (phase === "picker") setResumeSnap(loadGuidedSnapshot());
+    if (phase === "picker") {
+      const snap = loadGuidedSnapshot();
+      // A finished snapshot only guards queued writes — never offer to resume it.
+      setResumeSnap(snap && !snap.finishedAt ? snap : null);
+    }
   }, [phase]);
 
   async function logPain(score: number) {
