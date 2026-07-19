@@ -177,3 +177,67 @@ describe("computeTopUpPlacements", () => {
     expect(placed.map((p) => p.key)).not.toContain("2026-07-20");
   });
 });
+
+describe("computeTopUpPlacements — per-week budget", () => {
+  const rotation: StrengthSessionType[] = ["upper", "lower", "full_body"];
+  const availableDays = [1, 2, 3, 4, 5, 6, 0];
+
+  function week(mondayIso: string): PlacementDay[] {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(`${mondayIso}T12:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      return { key, dow: d.getUTCDay(), runType: null, nextDayRunType: null, taken: false };
+    });
+  }
+
+  it("schedules the full rotation in a normal week", () => {
+    const out = computeTopUpPlacements(week("2026-08-03"), rotation, availableDays, new Map());
+    expect(out).toHaveLength(3);
+  });
+
+  it("schedules nothing in race week", () => {
+    const out = computeTopUpPlacements(
+      week("2026-08-03"),
+      rotation,
+      availableDays,
+      new Map(),
+      () => 0
+    );
+    expect(out).toHaveLength(0);
+  });
+
+  it("thins a deload week by one session", () => {
+    const out = computeTopUpPlacements(
+      week("2026-08-03"),
+      rotation,
+      availableDays,
+      new Map(),
+      (_k, len) => Math.max(1, len - 1)
+    );
+    expect(out).toHaveLength(2);
+  });
+
+  it("never exceeds the rotation even with a generous budget", () => {
+    const out = computeTopUpPlacements(
+      week("2026-08-03"),
+      rotation,
+      availableDays,
+      new Map(),
+      () => 99
+    );
+    expect(out).toHaveLength(3);
+  });
+
+  it("counts sessions already scheduled that week against the budget", () => {
+    const already = new Map([["2026-08-03", 1]]);
+    const out = computeTopUpPlacements(
+      week("2026-08-03"),
+      rotation,
+      availableDays,
+      already,
+      (_k, len) => Math.max(1, len - 1)
+    );
+    expect(out).toHaveLength(1);
+  });
+});

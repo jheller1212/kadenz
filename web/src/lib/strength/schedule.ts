@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
-import { db, plans, strengthPlanSettings, strengthSessions, workouts } from "@/db";
+import { db, plans, strengthPlanSettings, strengthSessions, weeks, workouts } from "@/db";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -23,7 +23,10 @@ import type { StrengthSessionType } from "./types";
 // Day math runs in the household timezone — the server is UTC and naive
 // startOfDay would put late-evening sessions on the wrong calendar day.
 
+// Fallback horizon when there is no running plan to follow.
 const HORIZON_DAYS = 14;
+// Safety rail: never schedule further out than this even for a long plan.
+const MAX_HORIZON_DAYS = 200;
 const APP_TZ = "Europe/Amsterdam";
 
 // Session-type rotation per goal and sessions/week. Running focus keeps upper
@@ -75,8 +78,57 @@ export async function ensureStrengthSchedule(profileId: string | null) {
   const anchor = new Date(Date.UTC(
     now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0
   ));
+  // Strength follows the running plan: schedule the whole block, not a
+  // rolling fortnight, so an athlete can see the full commitment up front.
+  const [activePlan] = await db
+    .select({ id: plans.id, raceDate: plans.raceDate, startDate: plans.startDate })
+    .from(plans)
+    .where(eq(plans.status, "active"))
+    .limit(1);
+
+  const daysToRace = activePlan
+    ? Math.ceil(
+        (activePlan.raceDate.getTime() - anchor.getTime()) / (24 * 60 * 60 * 1000)
+      )
+    : 0;
+  const horizonDays = Math.min(
+    MAX_HORIZON_DAYS,
+    Math.max(HORIZON_DAYS, daysToRace)
+  );
+
   const horizon = new Date(anchor);
-  horizon.setUTCDate(horizon.getUTCDate() + HORIZON_DAYS + 1);
+  horizon.setUTCDate(horizon.getUTCDate() + horizonDays + 1);
+
+  // Week types drive the load: no strength in race week, one less in a
+  // deload or taper week.
+  const planWeeks = activePlan
+    ? await db
+        .select({ weekNumber: weeks.weekNumber, type: weeks.type, phase: weeks.phase })
+        .from(weeks)
+        .where(eq(weeks.planId, activePlan.id))
+    : [];
+  // Weeks carry only their number, so derive each one's Monday from the plan's
+  // own start — the same alignment the plan generator uses.
+  const weekTypeByKey = new Map<string, { type: string; phase: string }>();
+  if (activePlan) {
+    const planMonday = dateFromDayKey(weekKeyOf(dayKey(activePlan.startDate)));
+    for (const w of planWeeks) {
+      const monday = new Date(planMonday);
+      monday.setUTCDate(monday.getUTCDate() + (w.weekNumber - 1) * 7);
+      weekTypeByKey.set(weekKeyOf(dayKey(monday)), { type: w.type, phase: w.phase });
+    }
+  }
+  const weekBudget = (weekKey: string, rotationLength: number): number => {
+    const info = weekTypeByKey.get(weekKey);
+    if (!info) return rotationLength;
+    // Race week is for racing.
+    if (info.type === "race") return 0;
+    // Deload and taper: keep the habit, drop the volume.
+    if (info.type === "deload" || info.phase === "taper") {
+      return Math.max(1, rotationLength - 1);
+    }
+    return rotationLength;
+  };
   // Query back to the Monday of the current week: sessions already done or
   // planned earlier this week must count against this week's cap even though
   // they sit before the top-up strip.
@@ -129,7 +181,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
   // Build the day strip (tomorrow → horizon); the pure planner cuts it into
   // Monday weeks and enforces the per-day and per-week caps.
   const strip: Array<PlacementDay & { date: Date }> = [];
-  for (let offset = 1; offset <= HORIZON_DAYS; offset++) {
+  for (let offset = 1; offset <= horizonDays; offset++) {
     const day = new Date(anchor);
     day.setUTCDate(day.getUTCDate() + offset);
     const key = dayKey(day);
@@ -149,7 +201,8 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     strip,
     rotation,
     settings.availableDays,
-    sessionsByWeek
+    sessionsByWeek,
+    weekBudget
   );
 
   let created = 0;
