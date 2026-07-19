@@ -1345,7 +1345,10 @@ export default function Home() {
         const done = nonRest.filter((w) => w.status === "completed");
         stats = {
           ...stats,
-          completedKm: Math.round(done.reduce((sum, w) => sum + (w.targetKm ?? 0), 0) * 10) / 10,
+          // What was actually run, when we know it — the payload already
+          // carries actualKm, so the optimistic number matches the server's.
+          completedKm:
+            Math.round(done.reduce((sum, w) => sum + (w.actualKm ?? w.targetKm ?? 0), 0) * 10) / 10,
           daysCompleted: done.length,
         };
       }
@@ -1478,7 +1481,7 @@ export default function Home() {
     ? (data.stats ?? { plannedKm: 0, completedKm: 0, daysCompleted: 0, totalDays: 0 })
     : {
         plannedKm: Math.round(viewedWeekWorkouts.reduce((s, w) => s + (w.targetKm ?? 0), 0) * 10) / 10,
-        completedKm: Math.round(viewedWeekWorkouts.filter((w) => w.status === "completed").reduce((s, w) => s + (w.targetKm ?? 0), 0) * 10) / 10,
+        completedKm: Math.round(viewedWeekWorkouts.filter((w) => w.status === "completed").reduce((s, w) => s + (w.actualKm ?? w.targetKm ?? 0), 0) * 10) / 10,
         daysCompleted: viewedWeekWorkouts.filter((w) => w.status === "completed").length,
         totalDays: viewedWeekWorkouts.filter((w) => w.type !== "rest").length,
       };

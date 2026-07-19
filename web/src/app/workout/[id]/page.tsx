@@ -370,6 +370,25 @@ function BackButton() {
 
 // ── Main Workout Detail Page ────────────────────────────────────────────────
 
+/**
+ * "(2 km · 12 mins)" — either part alone, or nothing at all. The old inline
+ * version relied on `a ?? b ? c : d` precedence and rendered a duration-only
+ * block as "(0km2 mins)" on every interval workout.
+ */
+function blockDetail(
+  block: { distanceKm?: number | null; durationMinutes?: number | null },
+  units: "km" | "miles"
+): string {
+  const parts: string[] = [];
+  if (block.distanceKm != null) {
+    parts.push(`${displayDistance(block.distanceKm, 1, units)}${distanceUnitLabel(units)}`);
+  }
+  if (block.durationMinutes != null) {
+    parts.push(`${block.durationMinutes} mins`);
+  }
+  return parts.length > 0 ? ` (${parts.join(" · ")})` : "";
+}
+
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
   useSwipeBack();
   const { id } = use(params);
@@ -675,7 +694,9 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   <BlockIcon className="h-5 w-5 shrink-0" style={{ color: blockColor }} strokeWidth={1.75} />
                   <div className="flex-1">
                     <p className="text-[15px] font-medium text-text-1">
-                      {isWork ? BLOCK_LABEL[block.type] : `${BLOCK_LABEL[block.type] ?? block.type} (${block.durationMinutes ?? block.distanceKm ? `${displayDistance(block.distanceKm ?? 0, 1, settings.units)}${distanceUnitLabel(settings.units)}` : ""}${block.durationMinutes ? `${block.durationMinutes} mins` : ""})`}
+                      {isWork
+                        ? BLOCK_LABEL[block.type]
+                        : `${BLOCK_LABEL[block.type] ?? block.type}${blockDetail(block, settings.units)}`}
                     </p>
                   </div>
                 </div>

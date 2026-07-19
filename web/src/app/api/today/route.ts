@@ -1,4 +1,5 @@
 import { db, plans, weeks } from "@/db";
+import { isSameLocalDay, localWeekRange } from "@/lib/app-time";
 import { eq, and } from "drizzle-orm";
 
 // ── GET /api/today ────────────────────────────────────────────────────────────
@@ -25,15 +26,9 @@ export async function GET() {
 
     const now = new Date();
 
-    // Fetch workouts for the current calendar week (Mon–Sun)
-    const dayOfWeek = now.getDay(); // 0=Sun
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() + mondayOffset);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
+    // The athlete's week, not the server's: this runs in UTC, so local getters
+    // would show yesterday's workout between midnight and 02:00 CEST.
+    const { weekStart, weekEnd } = localWeekRange(now);
 
     let weekWorkouts = await db.query.workouts.findMany({
       where: (wo, { eq, and, between }) =>
@@ -90,14 +85,9 @@ export async function GET() {
     // A day can hold several rows — e.g. a workout rescheduled onto a day that
     // already had a rest placeholder. The real session always wins, whatever
     // sort order the moved row carried over from its old day.
-    const todaysRows = weekWorkouts.filter((wo) => {
-      const d = new Date(wo.date);
-      return (
-        d.getFullYear() === now.getFullYear() &&
-        d.getMonth() === now.getMonth() &&
-        d.getDate() === now.getDate()
-      );
-    });
+    const todaysRows = weekWorkouts.filter((wo) =>
+      isSameLocalDay(new Date(wo.date), now)
+    );
     const todayWorkout =
       todaysRows.find((wo) => wo.type !== "rest") ?? todaysRows[0] ?? null;
 
