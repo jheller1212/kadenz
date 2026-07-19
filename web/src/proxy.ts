@@ -29,6 +29,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (secret && request.headers.get("authorization") === `Bearer ${secret}`) {
       return NextResponse.next();
     }
+    // The owner may also force a run from a signed-in session — waiting a
+    // full day for the next cron is no way to recover a wedged queue.
+    if (await validateSessionCookie(request.headers.get("cookie"))) {
+      return NextResponse.next();
+    }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
