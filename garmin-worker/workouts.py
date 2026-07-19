@@ -229,48 +229,32 @@ def _pace_to_speed(pace_sec_km: int) -> float:
     return 1000.0 / pace_sec_km
 
 
-def _build_step(block: WorkoutBlock, order: int) -> dict[str, Any]:
-    """Translate a WorkoutBlock into a Garmin Connect workout step dict."""
-    step_type = _STEP_TYPE_MAP.get(block.type)
-    if step_type is None:
-        raise ValueError(f"Unknown block type: {block.type!r}")
-
-    # End condition
-    if block.distance_meters is not None:
-        end_condition = _CONDITION_DISTANCE
-        end_condition_value = str(int(block.distance_meters))
-    elif block.duration_seconds is not None:
-        end_condition = _CONDITION_TIME
-        end_condition_value = str(block.duration_seconds)
-    else:
-        end_condition = _CONDITION_LAP_BUTTON
-        end_condition_value = None
-
-    # Target
-    if block.target_pace_sec_km and block.min_pace_sec_km and block.max_pace_sec_km:
-        target = _TARGET_PACE
-        # Garmin pace target uses m/s; faster (lower sec/km) = higher m/s
-        target_value_one = _pace_to_speed(block.min_pace_sec_km)  # faster
-        target_value_two = _pace_to_speed(block.max_pace_sec_km)  # slower
-    else:
-        target = _TARGET_OPEN
-        target_value_one = None
-        target_value_two = None
-
-    step: dict[str, Any] = {
+def _exec_step(
+    *,
+    order: int,
+    step_type: dict[str, Any],
+    end_condition: dict[str, Any],
+    end_condition_value: str | None,
+    child_step_id: int | None = None,
+    target: dict[str, Any] | None = None,
+    target_one: float | None = None,
+    target_two: float | None = None,
+) -> dict[str, Any]:
+    """A single Garmin ExecutableStepDTO with the fields Connect expects."""
+    return {
         "type": "ExecutableStepDTO",
         "stepId": None,
         "stepOrder": order,
-        "childStepId": None,
+        "childStepId": child_step_id,
         "description": None,
         "stepType": step_type,
         "endCondition": end_condition,
         "endConditionValue": end_condition_value,
         "endConditionCompare": None,
         "endConditionZone": None,
-        "targetType": target,
-        "targetValueOne": target_value_one,
-        "targetValueTwo": target_value_two,
+        "targetType": target or _TARGET_OPEN,
+        "targetValueOne": target_one,
+        "targetValueTwo": target_two,
         "zoneNumber": None,
         "secondaryTargetType": None,
         "secondaryTargetValueOne": None,
@@ -288,44 +272,126 @@ def _build_step(block: WorkoutBlock, order: int) -> dict[str, Any]:
         "poolLength": None,
     }
 
-    # Wrap in a repeat step if reps are specified
-    if block.reps and block.reps > 1:
-        rest_step = None
+
+def _build_steps(
+    block: WorkoutBlock, start_order: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Translate one WorkoutBlock into top-level Garmin steps.
+
+    Returns the steps plus the next free stepOrder. Orders must be unique and
+    sequential across the whole workout INCLUDING children of a repeat group —
+    a repeat group, its child and the following block previously collided.
+    """
+    step_type = _STEP_TYPE_MAP.get(block.type)
+    if step_type is None:
+        raise ValueError(f"Unknown block type: {block.type!r}")
+
+    reps = block.reps or 1
+
+    # End condition for the work step. A repeated block measures ONE rep, so
+    # rep_distance_meters wins there — without it the watch fell back to the
+    # lap button and every interval read "press lap to end".
+    if reps > 1 and block.rep_distance_meters is not None:
+        work_condition = _CONDITION_DISTANCE
+        work_value: str | None = str(int(block.rep_distance_meters))
+    elif block.distance_meters is not None:
+        work_condition = _CONDITION_DISTANCE
+        work_value = str(int(block.distance_meters))
+    elif block.duration_seconds is not None:
+        work_condition = _CONDITION_TIME
+        work_value = str(block.duration_seconds)
+    elif block.rep_distance_meters is not None:
+        # Single rep expressed only as a per-rep distance.
+        work_condition = _CONDITION_DISTANCE
+        work_value = str(int(block.rep_distance_meters))
+    else:
+        work_condition = _CONDITION_LAP_BUTTON
+        work_value = None
+
+    # Pace target
+    if block.target_pace_sec_km and block.min_pace_sec_km and block.max_pace_sec_km:
+        target = _TARGET_PACE
+        # Garmin pace target uses m/s; faster (lower sec/km) = higher m/s
+        target_one = _pace_to_speed(block.min_pace_sec_km)  # faster
+        target_two = _pace_to_speed(block.max_pace_sec_km)  # slower
+    else:
+        target = _TARGET_OPEN
+        target_one = None
+        target_two = None
+
+    if reps > 1:
+        order = start_order
+        child_steps = [
+            _exec_step(
+                order=order + 1,
+                step_type=step_type,
+                end_condition=work_condition,
+                end_condition_value=work_value,
+                child_step_id=1,
+                target=target,
+                target_one=target_one,
+                target_two=target_two,
+            )
+        ]
         if block.rep_rest_seconds:
-            rest_step = {
-                "type": "ExecutableStepDTO",
-                "stepId": None,
-                "stepOrder": order + 1,
-                "childStepId": 1,
-                "description": None,
-                "stepType": _STEP_TYPE_MAP["recovery"],
-                "endCondition": _CONDITION_TIME,
-                "endConditionValue": str(block.rep_rest_seconds),
-                "targetType": _TARGET_OPEN,
-                "targetValueOne": None,
-                "targetValueTwo": None,
-            }
-
-        step["childStepId"] = 1
-        child_steps = [step]
-        if rest_step:
-            child_steps.append(rest_step)
-
-        return {
+            child_steps.append(
+                _exec_step(
+                    order=order + 2,
+                    step_type=_STEP_TYPE_MAP["recovery"],
+                    end_condition=_CONDITION_TIME,
+                    end_condition_value=str(block.rep_rest_seconds),
+                    child_step_id=1,
+                )
+            )
+        group = {
             "type": "RepeatGroupDTO",
             "stepId": None,
             "stepOrder": order,
             "childStepId": None,
             "description": None,
             "stepType": _STEP_REPEAT,
-            "numberOfIterations": block.reps,
+            "numberOfIterations": reps,
             "smartRepeat": False,
             "endCondition": _CONDITION_ITERATIONS,
-            "endConditionValue": str(block.reps),
+            "endConditionValue": str(reps),
             "workoutSteps": child_steps,
         }
+        return [group], order + 1 + len(child_steps)
 
-    return step
+    steps = [
+        _exec_step(
+            order=start_order,
+            step_type=step_type,
+            end_condition=work_condition,
+            end_condition_value=work_value,
+            target=target,
+            target_one=target_one,
+            target_two=target_two,
+        )
+    ]
+    next_order = start_order + 1
+    # A single-rep block can still prescribe recovery (ladders) — it used to be
+    # dropped because only the repeat branch emitted rest.
+    if block.rep_rest_seconds:
+        steps.append(
+            _exec_step(
+                order=next_order,
+                step_type=_STEP_TYPE_MAP["recovery"],
+                end_condition=_CONDITION_TIME,
+                end_condition_value=str(block.rep_rest_seconds),
+            )
+        )
+        next_order += 1
+    return steps, next_order
+
+
+def _build_step(block: WorkoutBlock, order: int) -> dict[str, Any]:
+    """Single-step helper. Rejects blocks that expand to several steps rather
+    than silently returning the first and dropping e.g. the rest step."""
+    steps, _ = _build_steps(block, order)
+    if len(steps) != 1:
+        raise ValueError("Block expands to multiple steps — use _build_steps")
+    return steps[0]
 
 
 def _build_workout_payload(
@@ -333,9 +399,11 @@ def _build_workout_payload(
 ) -> dict[str, Any]:
     """Build the full Garmin Connect workout creation payload."""
     sport = _SPORT_TYPE_MAP.get(req.sport_type, _SPORT_TYPE_MAP["running"])
-    steps = []
-    for i, block in enumerate(req.blocks, start=1):
-        steps.append(_build_step(block, i))
+    steps: list[dict[str, Any]] = []
+    order = 1
+    for block in req.blocks:
+        built, order = _build_steps(block, order)
+        steps.extend(built)
 
     return {
         "sportType": sport,
