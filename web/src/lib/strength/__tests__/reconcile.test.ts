@@ -5,6 +5,7 @@ import {
   dateFromDayKey,
   isPrunable,
   weekKeyOf,
+  weekBudgetFor,
 } from "../reconcile";
 import type { PlacementDay } from "../schedule-place";
 import type { StrengthSessionType } from "../types";
@@ -239,5 +240,33 @@ describe("computeTopUpPlacements — per-week budget", () => {
       (_k, len) => Math.max(1, len - 1)
     );
     expect(out).toHaveLength(1);
+  });
+});
+
+describe("weekBudgetFor", () => {
+  it("gives base and build weeks the full rotation", () => {
+    expect(weekBudgetFor({ type: "normal", phase: "base" }, 4)).toBe(4);
+    expect(weekBudgetFor({ type: "normal", phase: "build" }, 4)).toBe(4);
+  });
+
+  it("backs off in peak weeks — running volume is highest then", () => {
+    expect(weekBudgetFor({ type: "normal", phase: "peak" }, 4)).toBe(3);
+  });
+
+  it("backs off in taper and deload weeks", () => {
+    expect(weekBudgetFor({ type: "normal", phase: "taper" }, 4)).toBe(3);
+    expect(weekBudgetFor({ type: "deload", phase: "build" }, 4)).toBe(3);
+  });
+
+  it("schedules nothing in race week", () => {
+    expect(weekBudgetFor({ type: "race", phase: "taper" }, 4)).toBe(0);
+  });
+
+  it("never drops a one-session-per-week plan to zero", () => {
+    expect(weekBudgetFor({ type: "deload", phase: "peak" }, 1)).toBe(1);
+  });
+
+  it("falls back to the full rotation outside a plan", () => {
+    expect(weekBudgetFor(undefined, 3)).toBe(3);
   });
 });
