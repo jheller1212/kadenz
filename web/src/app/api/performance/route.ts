@@ -45,7 +45,21 @@ function fastestKmFromSplits(splitsJson: unknown): number | null {
 export async function GET() {
   try {
     const rows = await db
-      .select()
+      // Best efforts are computed from per-km splits, so those are needed —
+      // but laps, route polylines and AI insight text never were.
+      .select({
+        startDate: activities.startDate,
+        sportType: activities.sportType,
+        distanceKm: activities.distanceKm,
+        durationSeconds: activities.durationSeconds,
+        elevationGain: activities.elevationGain,
+        createdAt: activities.createdAt,
+        name: activities.name,
+        avgPaceSecKm: activities.avgPaceSecKm,
+        splitsJson: activities.splitsJson,
+        id: activities.id,
+        strengthSessionId: activities.strengthSessionId,
+      })
       .from(activities)
       .where(isNotNull(activities.startDate));
 

@@ -11,7 +11,26 @@ export async function GET(request: NextRequest) {
     const allActivities = profileId
       ? []
       : await db
-          .select()
+          // Only what the list renders. `select()` also pulled splitsJson,
+          // lapsJson, polyline and aiInsight — megabytes of per-activity JSON
+          // that nothing here reads (the detail route fetches those).
+          .select({
+            id: activities.id,
+            stravaId: activities.stravaId,
+            garminId: activities.garminId,
+            sportType: activities.sportType,
+            name: activities.name,
+            startDate: activities.startDate,
+            distanceKm: activities.distanceKm,
+            durationSeconds: activities.durationSeconds,
+            avgPaceSecKm: activities.avgPaceSecKm,
+            avgHr: activities.avgHr,
+            maxHr: activities.maxHr,
+            elevationGain: activities.elevationGain,
+            workoutId: activities.workoutId,
+            strengthSessionId: activities.strengthSessionId,
+            createdAt: activities.createdAt,
+          })
           .from(activities)
           .orderBy(desc(activities.startDate), desc(activities.createdAt));
 
