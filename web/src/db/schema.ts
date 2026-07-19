@@ -552,6 +552,10 @@ export const strengthPlanSettings = pgTable(
     availableDays: integer("available_days").array().notNull(), // 0=Sun … 6=Sat
     equipment: text("equipment").array().notNull(),
     active: boolean("active").notNull().default(true),
+    // Standalone strength block (no running plan): how many weeks it runs and
+    // when it started. Null when strength simply follows a running plan.
+    blockWeeks: integer("block_weeks"),
+    blockStartDate: timestamp("block_start_date", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

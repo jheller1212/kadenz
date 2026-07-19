@@ -20,6 +20,9 @@ const SettingsSchema = z.object({
   availableDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
   equipment: z.array(z.enum(EQUIPMENT_VALUES)).max(EQUIPMENT_VALUES.length),
   active: z.boolean().optional().default(true),
+  // Standalone block (only meaningful without a running plan to follow).
+  blockWeeks: z.union([z.literal(8), z.literal(12), z.literal(16)]).nullish(),
+  blockStartDate: z.string().datetime().nullish(),
 }).refine((s) => new Set(s.availableDays).size >= s.sessionsPerWeek, {
   message: "Pick at least as many distinct days as sessions per week",
 });
@@ -59,7 +62,19 @@ export async function PUT(request: NextRequest) {
   try {
     // Update-first, insert-on-miss; the partial unique index (0015) makes the
     // insert race-safe, and a lost race falls through to the update.
-    const values = { ...data, availableDays: [...new Set(data.availableDays)] };
+    const { blockStartDate, blockWeeks, ...rest } = data;
+    const values = {
+      ...rest,
+      availableDays: [...new Set(data.availableDays)],
+      blockWeeks: blockWeeks ?? null,
+      // A block needs a start; default to today so the athlete's week 1 is
+      // the week they set it up.
+      blockStartDate: blockWeeks
+        ? blockStartDate
+          ? new Date(blockStartDate)
+          : new Date()
+        : null,
+    };
     const updated = await db
       .update(strengthPlanSettings)
       .set({ ...values, updatedAt: new Date() })
