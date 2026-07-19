@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthPlanSettings, strengthSessions, weeks, workouts } from "@/db";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete } from "@/lib/sync/garmin-sync";
+import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
 import type { PlacementDay } from "./schedule-place";
@@ -87,14 +88,26 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     .where(eq(plans.status, "active"))
     .limit(1);
 
+  // Without a running plan, a standalone block supplies the structure.
+  const block =
+    !activePlan && settings.blockWeeks && settings.blockStartDate
+      ? { weeks: settings.blockWeeks, start: settings.blockStartDate }
+      : null;
+
   const daysToRace = activePlan
     ? Math.ceil(
         (activePlan.raceDate.getTime() - anchor.getTime()) / (24 * 60 * 60 * 1000)
       )
     : 0;
+  const daysToBlockEnd = block
+    ? Math.ceil(
+        (blockEndDate(block.start, block.weeks).getTime() - anchor.getTime()) /
+          (24 * 60 * 60 * 1000)
+      )
+    : 0;
   const horizonDays = Math.min(
     MAX_HORIZON_DAYS,
-    Math.max(HORIZON_DAYS, daysToRace)
+    Math.max(HORIZON_DAYS, daysToRace, daysToBlockEnd)
   );
 
   const horizon = new Date(anchor);
@@ -119,8 +132,19 @@ export async function ensureStrengthSchedule(profileId: string | null) {
       weekTypeByKey.set(weekKeyOf(dayKey(monday)), { type: w.type, phase: w.phase });
     }
   }
-  const weekBudget = (weekKey: string, rotationLength: number): number =>
-    weekBudgetFor(weekTypeByKey.get(weekKey), rotationLength);
+  const weekBudget = (weekKey: string, rotationLength: number): number => {
+    if (block) {
+      // A block has its own shape: deload every fourth week, and nothing
+      // scheduled once it ends.
+      const monday = dateFromDayKey(weekKey);
+      return blockWeekBudget(
+        blockWeekNumber(monday, block.start, block.weeks),
+        block.weeks,
+        rotationLength
+      );
+    }
+    return weekBudgetFor(weekTypeByKey.get(weekKey), rotationLength);
+  };
   // Query back to the Monday of the current week: sessions already done or
   // planned earlier this week must count against this week's cap even though
   // they sit before the top-up strip.

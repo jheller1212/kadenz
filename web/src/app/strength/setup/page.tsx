@@ -99,10 +99,30 @@ export default function StrengthSetupPage() {
         if (["beginner", "intermediate", "advanced"].includes(s.ability)) setAbility(s.ability);
         if (Array.isArray(s.availableDays)) setDays(s.availableDays);
         if (Array.isArray(s.equipment)) setEquipment(s.equipment);
+        if ([8, 12, 16].includes(s.blockWeeks)) setBlockWeeks(s.blockWeeks);
       } catch {
         /* fresh setup */
       }
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // A standalone block only makes sense without a running plan to follow —
+  // with a plan, strength already inherits its length, deloads and race week.
+  const [hasRunningPlan, setHasRunningPlan] = useState<boolean | null>(null);
+  const [blockWeeks, setBlockWeeks] = useState<8 | 12 | 16>(12);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/plans")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => {
+        if (cancelled) return;
+        const active = Array.isArray(list)
+          ? list.some((p: { status?: string }) => p.status === "active")
+          : false;
+        setHasRunningPlan(active);
+      })
+      .catch(() => setHasRunningPlan(null));
     return () => { cancelled = true; };
   }, []);
 
@@ -142,6 +162,8 @@ export default function StrengthSetupPage() {
           availableDays: days,
           equipment,
           active: true,
+          // Only sent when there is no running plan supplying the structure.
+          blockWeeks: hasRunningPlan === false ? blockWeeks : null,
         }),
       });
       if (!res.ok) {
@@ -261,6 +283,34 @@ export default function StrengthSetupPage() {
                     leading={<RadialRing fill={a.fill} active={ability === a.key} />}
                   />
                 ))}
+
+              {step === "frequency" && hasRunningPlan === false && (
+                <div className="mt-4">
+                  <p className="mb-2 text-[13px] font-semibold text-text-2">
+                    How long is this block?
+                  </p>
+                  <p className="mb-3 text-[12px] text-text-3">
+                    You have no running plan, so strength runs on its own schedule.
+                    Every fourth week is a deload, and the last week eases off.
+                  </p>
+                  <div className="flex gap-2">
+                    {([8, 12, 16] as const).map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => { markInteracted(); haptic("light"); setBlockWeeks(w); }}
+                        className={`press flex-1 rounded-[var(--radius-input)] py-3 text-[15px] font-bold ${
+                          blockWeeks === w
+                            ? "bg-accent text-on-accent"
+                            : "bg-elevated text-text-2"
+                        }`}
+                      >
+                        {w} weeks
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {step === "days" &&
                 DAYS.map((d) => (
