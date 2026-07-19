@@ -352,6 +352,9 @@ export default function StrengthSetupPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
               {step === "sex" &&
                 SEXES.map((s) => (
                   <OptionCard
