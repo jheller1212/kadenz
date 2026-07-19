@@ -16,6 +16,7 @@ import type {
   ExerciseSessionHistory,
   StrengthSessionType,
 } from "./types";
+import type { LifterProfile } from "./load-model";
 
 // ── Planned session assembly ──────────────────────────────────────────────────
 //
@@ -60,6 +61,8 @@ export interface BuildSessionOptions {
   painGate?: PainGateResult;
   /** Strength ability from the weekly-plan wizard; scales sets and rest. */
   ability?: "beginner" | "intermediate" | "advanced";
+  /** Bodyweight/sex/experience for personalised cold-start loads. */
+  lifterProfile?: LifterProfile | null;
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -75,6 +78,7 @@ export function buildSessionPlan(
   const historyBySlug = opts.historyBySlug ?? {};
   const painGate = opts.painGate ?? { triggered: false, reason: null };
   const ability = opts.ability ?? "intermediate";
+  const lifterProfile = opts.lifterProfile ?? null;
 
   return template.slots.map((slot, slotIdx) => {
     const ex = EXERCISE_BY_SLUG[slot.exerciseSlug];
@@ -98,7 +102,7 @@ export function buildSessionPlan(
     }
     let prescription = repRangeLabel(sets, repLow, repHigh);
 
-    let progression = suggestProgression(ex, history);
+    let progression = suggestProgression(ex, history, lifterProfile);
     let suggestedWeightKg = progression.suggestedWeightKg;
     const lastWeightKg = progression.currentWeightKg;
 

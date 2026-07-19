@@ -1,5 +1,6 @@
 import type { ExerciseDef, ExerciseSessionHistory, LoggedSet } from "./types";
-import { nextWeight, prevWeight, snapToLevel, isTopLevel } from "./weights";
+import { nextWeight, prevWeight, isTopLevel } from "./weights";
+import { deriveStartWeightKg, type LifterProfile } from "./load-model";
 
 // ── Progression / deload engine ───────────────────────────────────────────────
 //
@@ -56,7 +57,8 @@ function topWeight(session: ExerciseSessionHistory | undefined): number | null {
  */
 export function suggestProgression(
   exercise: ExerciseDef,
-  history: ExerciseSessionHistory[]
+  history: ExerciseSessionHistory[],
+  lifterProfile?: LifterProfile | null
 ): ProgressionSuggestion {
   const repHigh = exercise.repHigh ?? 12;
   const repLow = exercise.repLow ?? 8;
@@ -66,9 +68,10 @@ export function suggestProgression(
   const current = topWeight(last);
   const atCeiling = current != null && isTopLevel(current);
 
-  // No history yet → start at the prescribed weight (snapped to a real level).
+  // No history yet → start at a personalised load (bodyweight, sex, training
+  // age) when available, falling back to the global prescribed weight.
   if (!last || workingSets(last).length === 0) {
-    const start = exercise.startWeightKg != null ? snapToLevel(exercise.startWeightKg) : null;
+    const start = deriveStartWeightKg(exercise, lifterProfile) ?? null;
     return {
       action: "hold",
       currentWeightKg: current,

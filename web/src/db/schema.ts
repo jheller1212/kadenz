@@ -556,6 +556,12 @@ export const strengthPlanSettings = pgTable(
     // when it started. Null when strength simply follows a running plan.
     blockWeeks: integer("block_weeks"),
     blockStartDate: timestamp("block_start_date", { withTimezone: true }),
+    // Cold-start load personalisation (all nullable — existing rows and users
+    // who skip these questions fall back to the global per-exercise defaults).
+    // `ability` above doubles as lifting experience (beginner/intermediate/
+    // advanced ≈ none/some/experienced) so it isn't duplicated here.
+    bodyweightKg: real("bodyweight_kg"),
+    sex: text("sex"), // "male" | "female" | "unspecified" | null = unanswered
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
