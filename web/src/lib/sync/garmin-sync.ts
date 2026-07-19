@@ -415,15 +415,7 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
 
   const scheduledDate = toGarminDate(row.date);
 
-  if (row.garminWorkoutId) {
-    // Already on Garmin — a create/update job means "make the date right".
-    await garminClient.moveWorkout(row.garminWorkoutId, scheduledDate);
-    return;
-  }
-
-  if (row.status !== "planned") return;
-
-  const garminWorkoutId = await garminClient.createWorkout({
+  const input = {
     title: row.title,
     description: row.description,
     scheduledDate,
@@ -438,7 +430,18 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
       repDistanceMeters: b.repDistanceKm != null ? b.repDistanceKm * 1000 : null,
       repRestSeconds: b.repRestSeconds,
     })),
-  });
+  };
+
+  if (row.garminWorkoutId) {
+    // Already on the watch — edit it in place so a changed distance or pace
+    // actually reaches the device, and keep its calendar day correct.
+    await garminClient.updateWorkout(row.garminWorkoutId, input);
+    return;
+  }
+
+  if (row.status !== "planned") return;
+
+  const garminWorkoutId = await garminClient.createWorkout(input);
 
   await db
     .update(workouts)
@@ -472,13 +475,7 @@ async function processGarminStrengthJob(
 
   const scheduledDate = toGarminDate(row.date);
 
-  if (row.garminWorkoutId) {
-    // Already on the watch — a create/update job means "make the date right".
-    await garminClient.moveWorkout(row.garminWorkoutId, scheduledDate);
-    return;
-  }
-
-  if (row.status !== "planned") return;
+  if (row.status !== "planned" && !row.garminWorkoutId) return;
 
   // The plan is derived, not stored: build it the same way the app does so the
   // watch shows the loads the athlete is actually meant to lift today.
@@ -498,12 +495,21 @@ async function processGarminStrengthJob(
   }));
   if (exercises.length === 0) return;
 
-  const garminWorkoutId = await garminClient.pushStrengthWorkout({
+  const workout = {
     sessionId: row.id,
     title: row.title,
     date: row.date,
     exercises,
-  });
+  };
+
+  if (row.garminWorkoutId) {
+    // Loads change as the athlete progresses — edit the existing workout so
+    // the watch shows today's prescription, not last month's.
+    await garminClient.updateStrengthWorkout(row.garminWorkoutId, workout);
+    return;
+  }
+
+  const garminWorkoutId = await garminClient.pushStrengthWorkout(workout);
 
   await db
     .update(strengthSessions)

@@ -93,6 +93,12 @@ export interface GarminClient {
   healthCheck(): Promise<boolean>;
   createWorkout(input: GarminRunWorkoutInput): Promise<string>;
   moveWorkout(garminWorkoutId: string, scheduledDate: string): Promise<void>;
+  /** Replace an existing workout's contents in place, keeping its id. */
+  updateWorkout(garminWorkoutId: string, input: GarminRunWorkoutInput): Promise<void>;
+  updateStrengthWorkout(
+    garminWorkoutId: string,
+    workout: GarminStrengthWorkout
+  ): Promise<void>;
   deleteWorkout(garminWorkoutId: string): Promise<void>;
   listActivities(sinceIso: string, limit?: number): Promise<GarminActivity[]>;
   getActivity(garminId: string): Promise<GarminActivityDetail>;
@@ -109,6 +115,43 @@ function getConfig() {
     throw new Error("GARMIN_WORKER_URL and GARMIN_WORKER_TOKEN must be set");
   }
   return { url: url.replace(/\/$/, ""), token };
+}
+
+/** Worker wire format for a strength workout — shared by create and update. */
+function toWorkerStrengthPayload(workout: GarminStrengthWorkout) {
+  return {
+    title: workout.title,
+    date: toGarminDate(workout.date),
+    exercises: workout.exercises.map((e) => ({
+      name: e.name,
+      category: e.category,
+      sets: e.sets,
+      reps: e.reps,
+      weightKg: e.weightKg ?? null,
+    })),
+  };
+}
+
+/** Worker wire format for a run workout — shared by create and update so the
+ *  two can never drift apart. */
+function toWorkerRunPayload(input: GarminRunWorkoutInput) {
+  return {
+    title: input.title,
+    description: input.description ?? null,
+    scheduled_date: input.scheduledDate,
+    sport_type: "running",
+    blocks: input.blocks.map((b) => ({
+      type: b.type,
+      duration_seconds: b.durationSeconds ?? null,
+      distance_meters: b.distanceMeters ?? null,
+      target_pace_sec_km: b.targetPaceSecKm ?? null,
+      min_pace_sec_km: b.minPaceSecKm ?? null,
+      max_pace_sec_km: b.maxPaceSecKm ?? null,
+      reps: b.reps ?? null,
+      rep_distance_meters: b.repDistanceMeters ?? null,
+      rep_rest_seconds: b.repRestSeconds ?? null,
+    })),
+  };
 }
 
 async function workerFetch(
@@ -214,23 +257,7 @@ export const garminClient: GarminClient = {
   async createWorkout(input) {
     const res = await workerFetch("/workouts", {
       method: "POST",
-      body: JSON.stringify({
-        title: input.title,
-        description: input.description ?? null,
-        scheduled_date: input.scheduledDate,
-        sport_type: "running",
-        blocks: input.blocks.map((b) => ({
-          type: b.type,
-          duration_seconds: b.durationSeconds ?? null,
-          distance_meters: b.distanceMeters ?? null,
-          target_pace_sec_km: b.targetPaceSecKm ?? null,
-          min_pace_sec_km: b.minPaceSecKm ?? null,
-          max_pace_sec_km: b.maxPaceSecKm ?? null,
-          reps: b.reps ?? null,
-          rep_distance_meters: b.repDistanceMeters ?? null,
-          rep_rest_seconds: b.repRestSeconds ?? null,
-        })),
-      }),
+      body: JSON.stringify(toWorkerRunPayload(input)),
     });
     const data = (await res.json()) as {
       garmin_workout_id?: string | number;
@@ -245,6 +272,20 @@ export const garminClient: GarminClient = {
     await workerFetch(`/workouts/${encodeURIComponent(garminWorkoutId)}`, {
       method: "PATCH",
       body: JSON.stringify({ scheduled_date: scheduledDate }),
+    });
+  },
+
+  async updateWorkout(garminWorkoutId, input) {
+    await workerFetch(`/workouts/${garminWorkoutId}`, {
+      method: "PUT",
+      body: JSON.stringify(toWorkerRunPayload(input)),
+    });
+  },
+
+  async updateStrengthWorkout(garminWorkoutId, workout) {
+    await workerFetch(`/strength-workouts/${garminWorkoutId}`, {
+      method: "PUT",
+      body: JSON.stringify(toWorkerStrengthPayload(workout)),
     });
   },
 
@@ -308,17 +349,7 @@ export const garminClient: GarminClient = {
   async pushStrengthWorkout(workout) {
     const res = await workerFetch("/strength-workouts", {
       method: "POST",
-      body: JSON.stringify({
-        title: workout.title,
-        date: toGarminDate(workout.date),
-        exercises: workout.exercises.map((e) => ({
-          name: e.name,
-          category: e.category,
-          sets: e.sets,
-          reps: e.reps,
-          weightKg: e.weightKg ?? null,
-        })),
-      }),
+      body: JSON.stringify(toWorkerStrengthPayload(workout)),
     });
     const data = (await res.json()) as {
       garminWorkoutId?: string | number;
