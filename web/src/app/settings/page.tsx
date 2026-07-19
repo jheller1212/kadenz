@@ -204,7 +204,11 @@ export default function SettingsPage() {
         large={false}
         left={
           <button
-            onClick={() => router.back()}
+            onClick={() => {
+              // Fresh tab / deep link has nothing to pop — land on Today.
+              if (window.history.length > 1) router.back();
+              else router.replace("/");
+            }}
             aria-label="Back"
             className="press flex h-11 w-11 items-center justify-center -ml-2 rounded-lg active:bg-elevated"
           >

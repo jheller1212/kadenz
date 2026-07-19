@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { ChevronLeft, Circle } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
-import { TransitionLink } from "@/components/ui/TransitionLink";
+import { useRouter } from "next/navigation";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 
@@ -25,18 +25,36 @@ export function SettingsSubpage({
         large={false}
         centerAlways
         right={right}
-        left={
-          <TransitionLink
-            href="/settings"
-            aria-label="Back to settings"
-            className="press flex h-11 w-11 items-center justify-center rounded-lg active:bg-elevated"
-          >
-            <ChevronLeft className="h-6 w-6 text-text-1" strokeWidth={2.2} />
-          </TransitionLink>
-        }
+        left={<BackToSettings />}
       />
       <div className="px-4 pb-12 pt-3">{children}</div>
     </main>
+  );
+}
+
+/**
+ * Pops history rather than pushing /settings. Pushing left the settings root
+ * with the subpage as its previous entry, so its own back button bounced
+ * straight back into the subpage — users could never reach Today again.
+ */
+function BackToSettings() {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        haptic("light");
+        // Deep link / fresh tab: nothing to pop. REPLACE rather than push —
+        // pushing would make settings' own back button return here, which is
+        // exactly the trap this fix removes.
+        if (window.history.length > 1) router.back();
+        else router.replace("/settings");
+      }}
+      aria-label="Back to settings"
+      className="press flex h-11 w-11 items-center justify-center rounded-lg active:bg-elevated"
+    >
+      <ChevronLeft className="h-6 w-6 text-text-1" strokeWidth={2.2} />
+    </button>
   );
 }
 
