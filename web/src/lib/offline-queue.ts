@@ -50,6 +50,15 @@ export async function mutateWithQueue(
   url: string,
   init: { method: string; body?: string }
 ): Promise<{ ok: boolean; offline: boolean; res?: Response }> {
+  // Ordering guarantee: once anything for this endpoint is parked, later
+  // writes queue behind it. A live write that jumped the queue could be
+  // overwritten moments later by the stale replay sitting in front of it.
+  if (hasQueuedFor(url)) {
+    enqueue(url, init);
+    void flushQueue();
+    return { ok: true, offline: true };
+  }
+
   try {
     const res = await apiFetch(url, {
       method: init.method,
@@ -72,6 +81,11 @@ export async function mutateWithQueue(
 
 function enqueue(url: string, init: { method: string; body?: string }): void {
   writeQueue([...readQueue(), { url, method: init.method, body: init.body, ts: Date.now() }]);
+}
+
+/** True when this exact endpoint already has parked writes. */
+function hasQueuedFor(url: string): boolean {
+  return readQueue().some((m) => m.url === url);
 }
 
 /** Queued mutations whose URL contains `match` — lets a screen track its own. */
