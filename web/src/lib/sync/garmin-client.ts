@@ -78,6 +78,13 @@ export interface GarminStrengthWorkout {
   exercises: GarminStrengthExercise[];
 }
 
+export interface GarminWorkoutSummary {
+  garminWorkoutId: string;
+  name: string | null;
+  sportType: string | null;
+  scheduledDates: string[];
+}
+
 export interface GarminClient {
   isConfigured(): boolean;
   healthCheck(): Promise<boolean>;
@@ -87,6 +94,7 @@ export interface GarminClient {
   listActivities(sinceIso: string, limit?: number): Promise<GarminActivity[]>;
   getActivity(garminId: string): Promise<GarminActivityDetail>;
   pushStrengthWorkout(workout: GarminStrengthWorkout): Promise<string>;
+  listWorkouts(limit?: number): Promise<GarminWorkoutSummary[]>;
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -277,6 +285,12 @@ export const garminClient: GarminClient = {
       })),
       lapCount: raw.lapCount ?? 0,
     };
+  },
+
+  async listWorkouts(limit = 100) {
+    const res = await workerFetch(`/workouts?limit=${limit}`);
+    const data = (await res.json()) as { workouts?: GarminWorkoutSummary[] };
+    return data.workouts ?? [];
   },
 
   async pushStrengthWorkout(workout) {

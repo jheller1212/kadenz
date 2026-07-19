@@ -5,6 +5,7 @@ import { db, strengthSessions, strengthSets, painLogs, activities } from "@/db";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { clearsAutoScheduled } from "@/lib/strength/reconcile";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
@@ -178,6 +179,9 @@ export async function PATCH(
             queueStrengthSessionSync(id, "update", "gcal").catch((err) =>
               console.error("Failed to queue strength gcal update:", err)
             );
+            queueGarminStrengthMove(id).catch((err) =>
+              console.error("Failed to queue Garmin strength update:", err)
+            );
           }
         })
         .catch(() => {});
@@ -200,7 +204,11 @@ export async function DELETE(
   const { id } = await params;
   try {
     const [existing] = await db
-      .select({ id: strengthSessions.id, gcalEventId: strengthSessions.gcalEventId })
+      .select({
+        id: strengthSessions.id,
+        gcalEventId: strengthSessions.gcalEventId,
+        garminWorkoutId: strengthSessions.garminWorkoutId,
+      })
       .from(strengthSessions)
       .where(eq(strengthSessions.id, id));
 
@@ -223,6 +231,13 @@ export async function DELETE(
           }
         })
         .catch(() => {});
+    }
+
+    // ...and take it off the watch, or it lingers there after deletion here.
+    if (existing.garminWorkoutId) {
+      queueGarminStrengthDelete(id, existing.garminWorkoutId).catch((err) =>
+        console.error("Failed to queue Garmin strength delete:", err)
+      );
     }
 
     return Response.json({ ok: true });

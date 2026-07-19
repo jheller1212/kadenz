@@ -154,3 +154,40 @@ def test_move_succeeds_even_if_pruning_fails():
     assert result["scheduled_date"] == "2026-08-05"
 
 
+
+
+def test_list_workouts_includes_scheduled_dates():
+    """Reconcile needs to know what Garmin holds AND when it's scheduled."""
+    import main
+
+    def fake_call(path, method="GET", **kwargs):
+        if path.startswith("/workout-service/workouts"):
+            return [
+                {"workoutId": 1, "workoutName": "Easy Run", "sportType": {"sportTypeKey": "running"}},
+                {"workoutId": 2, "workoutName": "Upper", "sportType": {"sportTypeKey": "strength_training"}},
+            ]
+        if path.startswith("/workout-service/schedule/1"):
+            return [{"scheduleId": 11, "date": "2026-08-01"}]
+        return []
+
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.list_workouts(None)
+
+    ids = [w["garminWorkoutId"] for w in out["workouts"]]
+    assert ids == ["1", "2"]
+    assert out["workouts"][0]["scheduledDates"] == ["2026-08-01"]
+    assert out["workouts"][1]["scheduledDates"] == []
+
+
+def test_list_workouts_survives_a_schedule_lookup_failure():
+    import main
+
+    def fake_call(path, method="GET", **kwargs):
+        if path.startswith("/workout-service/workouts"):
+            return [{"workoutId": 7, "workoutName": "X", "sportType": {"sportTypeKey": "running"}}]
+        raise RuntimeError("schedule service down")
+
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.list_workouts(None)
+
+    assert out["workouts"][0]["scheduledDates"] == []
