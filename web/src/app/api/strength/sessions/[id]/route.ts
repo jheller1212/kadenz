@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq, and, gte, lt } from "drizzle-orm";
-import { db, strengthSessions, strengthSets, activities } from "@/db";
+import { eq, and, gte, lt, isNull } from "drizzle-orm";
+import { db, strengthSessions, strengthSets, painLogs, activities } from "@/db";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { clearsAutoScheduled } from "@/lib/strength/reconcile";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
@@ -133,7 +133,12 @@ export async function PATCH(
             eq(strengthSessions.type, updated.type),
             eq(strengthSessions.status, "planned"),
             gte(strengthSessions.date, dayStart),
-            lt(strengthSessions.date, dayEnd)
+            lt(strengthSessions.date, dayEnd),
+            // Same athlete only — a household member's identical session must
+            // never be absorbed (and its sets stolen) by someone else's tick.
+            updated.profileId
+              ? eq(strengthSessions.profileId, updated.profileId)
+              : isNull(strengthSessions.profileId)
           )
         );
       for (const twin of twins) {
@@ -142,6 +147,11 @@ export async function PATCH(
           .update(strengthSets)
           .set({ sessionId: updated.id })
           .where(eq(strengthSets.sessionId, twin.id));
+        // Pain logs cascade-delete with the session, so move them across too.
+        await db
+          .update(painLogs)
+          .set({ sessionId: updated.id })
+          .where(eq(painLogs.sessionId, twin.id));
         if (twin.gcalEventId) {
           isConnected()
             .then((connected) => {

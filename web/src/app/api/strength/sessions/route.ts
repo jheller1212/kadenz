@@ -4,6 +4,7 @@ import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
+import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
@@ -11,7 +12,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 
 const CreateSchema = z.object({
-  type: z.enum(["upper", "lower", "lower_achilles", "upper_achilles", "achilles", "full_body"]),
+  type: z.enum(STRENGTH_SESSION_TYPES),
   date: z.string().datetime(),
   planId: z.string().uuid().optional(),
   force: z.boolean().optional(),

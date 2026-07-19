@@ -429,7 +429,10 @@ export async function findMatchingStrengthSession(
       and(
         gte(strengthSessions.date, dayStart),
         lte(strengthSessions.date, dayEnd),
-        ne(strengthSessions.status, "skipped")
+        ne(strengthSessions.status, "skipped"),
+        // Imports are the owner's activities — never auto-complete a
+        // household member's planned session.
+        isNull(strengthSessions.profileId)
       )
     );
   if (sessions.length === 0) return null;

@@ -12,7 +12,17 @@ export type Equipment =
   | "kettlebell"
   | "pullup_bar"
   | "band";
-export type StrengthSessionType = "upper" | "lower" | "lower_achilles" | "upper_achilles" | "achilles" | "full_body";
+/** Every schedulable strength session type — the one list all schemas use. */
+export const STRENGTH_SESSION_TYPES = [
+  "upper",
+  "lower",
+  "lower_achilles",
+  "upper_achilles",
+  "achilles",
+  "full_body",
+] as const;
+
+export type StrengthSessionType = (typeof STRENGTH_SESSION_TYPES)[number];
 export type PainTiming = "during" | "after" | "next_day";
 
 // Role within an Achilles session — drives the "explosive first, slow heavy
