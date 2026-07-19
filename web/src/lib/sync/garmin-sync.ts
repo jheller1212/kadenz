@@ -4,11 +4,12 @@
 // so retries and the daily cron top-up reuse the same machinery as gcal.
 
 import { db, syncOutbox, workouts, plans, strengthSessions } from "@/db";
-import { eq, and, asc, gte, lte, ne, isNull } from "drizzle-orm";
+import { eq, and, asc, gte, lte, ne, isNull, isNotNull, inArray } from "drizzle-orm";
 import { garminClient, toGarminDate } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims } from "./sync-manager";
+import { rowsNeedingRepush } from "./garmin-heal";
 import { buildPlannedSession } from "@/lib/strength/service";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
@@ -283,6 +284,64 @@ export async function queueGarminStrengthDelete(
     });
 
   processGarminOutbox().catch(console.error);
+}
+
+/**
+ * Make Garmin match the plan again, additively.
+ *
+ * Anything Kadenz believes it pushed but that is no longer on Garmin gets its
+ * stored id cleared, so the normal window push re-creates it — this is how a
+ * plan repairs itself after workouts are removed on Garmin's side. Nothing is
+ * ever deleted here; repair only ever adds.
+ */
+export async function resyncGarminWindow(): Promise<{
+  repushed: number;
+  runsQueued: number;
+  strengthQueued: number;
+}> {
+  const empty = { repushed: 0, runsQueued: 0, strengthQueued: 0 };
+  if (!garminClient.isConfigured()) return empty;
+  if (!(await isGarminWorkoutSyncEnabled())) return empty;
+
+  const onGarmin = await garminClient.listWorkouts(300);
+  const idsOnGarmin = new Set(onGarmin.map((w) => w.garminWorkoutId));
+
+  const [runRows, strengthRows] = await Promise.all([
+    db
+      .select({ id: workouts.id, garminWorkoutId: workouts.garminWorkoutId })
+      .from(workouts)
+      .where(isNotNull(workouts.garminWorkoutId)),
+    db
+      .select({ id: strengthSessions.id, garminWorkoutId: strengthSessions.garminWorkoutId })
+      .from(strengthSessions)
+      .where(isNotNull(strengthSessions.garminWorkoutId)),
+  ]);
+
+  const staleRuns = rowsNeedingRepush(runRows, idsOnGarmin);
+  const staleStrength = rowsNeedingRepush(strengthRows, idsOnGarmin);
+
+  if (staleRuns.length > 0) {
+    await db
+      .update(workouts)
+      .set({ garminWorkoutId: null })
+      .where(inArray(workouts.id, staleRuns));
+  }
+  if (staleStrength.length > 0) {
+    await db
+      .update(strengthSessions)
+      .set({ garminWorkoutId: null })
+      .where(inArray(strengthSessions.id, staleStrength));
+  }
+
+  // Cleared ids look "never pushed", so the window sync re-creates them.
+  const runsQueued = await queueGarminWindowSync();
+  const strengthQueued = await queueGarminStrengthWindowSync();
+
+  return {
+    repushed: staleRuns.length + staleStrength.length,
+    runsQueued,
+    strengthQueued,
+  };
 }
 
 export async function processGarminOutbox(): Promise<SyncResult> {

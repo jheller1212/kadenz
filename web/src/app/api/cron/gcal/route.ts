@@ -9,6 +9,7 @@ import {
   processGarminOutbox,
   queueGarminStrengthWindowSync,
   queueGarminWindowSync,
+  resyncGarminWindow,
 } from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
@@ -60,6 +61,9 @@ export async function GET(request: NextRequest) {
 
   try {
     if (await isGarminWorkoutSyncEnabled()) {
+      // Self-heal first: anything we pushed that has vanished from Garmin
+      // gets recreated, then the window rolls forward as usual.
+      out.garminResync = await resyncGarminWindow();
       out.garminQueued = await queueGarminWindowSync();
       // Kraft sessions ride the same rolling window as runs.
       out.garminStrengthQueued = await queueGarminStrengthWindowSync();
