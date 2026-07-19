@@ -10,7 +10,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY main.py workouts.py ./
+# Every module the app imports at runtime, plus the bundled taxonomy snapshot.
+# Missing files here fail only at container start, not at build — keep in sync.
+COPY main.py workouts.py taxonomy.py ./
+COPY data ./data
 
 EXPOSE 8080
 
