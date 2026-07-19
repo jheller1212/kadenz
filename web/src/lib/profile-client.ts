@@ -30,5 +30,14 @@ export function switchProfile(profile: { id: string; name: string } | null) {
     document.cookie = `${ID_COOKIE}=; path=/; max-age=0`;
     document.cookie = `${NAME_COOKIE}=; path=/; max-age=0`;
   }
+  // Screens paint instantly from cached snapshots; without clearing them the
+  // new profile briefly sees the previous athlete's sessions.
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("kadenz_cache:")) localStorage.removeItem(key);
+    }
+  } catch {
+    /* storage unavailable — the reload still fetches fresh data */
+  }
   window.location.reload();
 }

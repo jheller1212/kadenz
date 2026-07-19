@@ -9,7 +9,6 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate": "drizzle-kit migrate",
     "seed:strength": "tsx src/db/seed-strength.ts"
   },
   "dependencies": {

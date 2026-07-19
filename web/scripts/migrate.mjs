@@ -40,6 +40,7 @@ async function main() {
   }
 
   const sql = postgres(url, { max: 1, onnotice: () => {} });
+  const failures = [];
   try {
     for (const file of files) {
       const raw = readFileSync(join(drizzleDir, file), "utf8");
@@ -48,13 +49,31 @@ async function main() {
         .map((s) => s.replace(/^\s*--.*$/gm, "").trim())
         .filter(Boolean);
       let applied = 0;
-      for (const stmt of statements) {
-        await sql.unsafe(stmt);
-        applied++;
+      try {
+        for (const stmt of statements) {
+          await sql.unsafe(stmt);
+          applied++;
+        }
+        console.log(`[migrate] ${file}: ${applied} statement(s) ok`);
+      } catch (err) {
+        // One bad file must not hide every migration behind it — record it
+        // and keep going, then report loudly at the end.
+        failures.push({ file, statement: applied + 1, message: err?.message ?? String(err) });
+        console.error(`[migrate] ${file}: FAILED at statement ${applied + 1}: ${err?.message ?? err}`);
       }
-      console.log(`[migrate] ${file}: ${applied} statement(s) ok`);
     }
-    console.log("[migrate] done.");
+    if (failures.length > 0) {
+      console.error("");
+      console.error("=".repeat(72));
+      console.error(`[migrate] ${failures.length} MIGRATION(S) FAILED — the schema is not what the code expects:`);
+      for (const f of failures) {
+        console.error(`  - ${f.file} (statement ${f.statement}): ${f.message}`);
+      }
+      console.error("=".repeat(72));
+      console.error("");
+    } else {
+      console.log("[migrate] done.");
+    }
   } catch (err) {
     console.error("[migrate] error (build continues):", err?.message ?? err);
   } finally {

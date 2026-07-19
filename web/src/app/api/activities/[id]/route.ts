@@ -295,7 +295,9 @@ export async function GET(
       id: activity.id,
       stravaId: activity.stravaId ?? "",
       source: activity.stravaId ? "strava" : activity.garminId ? "garmin" : "manual",
-      name: plannedWorkout?.title ?? "Run",
+      // The planned workout's title when it's linked, else what the device
+      // called it — "Run" for everything erased strength sessions and names.
+      name: plannedWorkout?.title ?? activity.name ?? "Run",
       date: activity.startDate?.toISOString() ?? "",
       distanceKm: activity.distanceKm ?? 0,
       durationSeconds: activity.durationSeconds ?? 0,
