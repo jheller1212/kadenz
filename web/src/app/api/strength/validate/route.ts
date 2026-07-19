@@ -3,10 +3,13 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
+import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 
 const ValidateSchema = z.object({
-  type: z.enum(["upper", "lower", "lower_achilles"]),
+  // Must match the create schema — a narrower list 422'd real requests
+  // (e.g. full_body), so constraint feedback silently failed in the UI.
+  type: z.enum(STRENGTH_SESSION_TYPES),
   date: z.string().datetime(),
   excludeSessionId: z.string().uuid().optional(),
   planId: z.string().uuid().optional(),
