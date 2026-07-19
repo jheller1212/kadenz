@@ -9,7 +9,7 @@ import {
   patchStrengthEvent,
 } from "./gcal-client";
 import type { WorkoutEventInput, StrengthEventInput } from "./gcal-client";
-import { buildSessionPlan } from "@/lib/strength/session";
+import { buildPlannedSession } from "@/lib/strength/service";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
 const MAX_ATTEMPTS = 3;
@@ -288,7 +288,14 @@ async function fetchStrengthSessionForSync(
   });
   if (!row) return null;
 
-  const plan = buildSessionPlan(row.type as StrengthSessionType);
+  // Build the SAME plan the athlete sees — with their complaints, loads,
+  // duration and history — so the calendar/watch description matches the app
+  // instead of a generic base session (was buildSessionPlan with no context).
+  const { exercises: plan } = await buildPlannedSession(
+    row.type as StrengthSessionType,
+    row.date,
+    row.profileId
+  );
   return {
     sessionId: row.id,
     title: row.title,
