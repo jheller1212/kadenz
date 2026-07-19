@@ -210,3 +210,48 @@ def test_list_workouts_survives_a_schedule_lookup_failure():
         out = main.list_workouts(None, with_schedules=True)
 
     assert out["workouts"][0]["scheduledDates"] == []
+
+
+def test_created_workouts_carry_the_kadenz_tag():
+    """Ownership marker — reconcile must never delete another app's workouts."""
+    from workouts import KADENZ_TAG
+
+    payload = _payload([WorkoutBlock(type="work", distance_meters=5000)])
+    assert KADENZ_TAG in (payload["description"] or "")
+
+
+def test_strength_workouts_carry_the_kadenz_tag():
+    from workouts import (
+        CreateStrengthWorkoutRequest,
+        KADENZ_TAG,
+        StrengthExercise,
+        _build_strength_workout_payload,
+    )
+
+    payload = _build_strength_workout_payload(
+        CreateStrengthWorkoutRequest(
+            title="Upper",
+            date="2026-08-01",
+            exercises=[StrengthExercise(name="Goblet squat", sets=3, reps=8)],
+        )
+    )
+    assert KADENZ_TAG in (payload["description"] or "")
+
+
+def test_listing_flags_foreign_workouts():
+    """Anything without the tag is someone else's and must be reported as such."""
+    import main
+
+    def fake_call(path, method="GET", **kwargs):
+        if path.startswith("/workout-service/workouts"):
+            return [
+                {"workoutId": 1, "workoutName": "Easy Run 10km", "description": "x\n[kadenz]"},
+                {"workoutId": 2, "workoutName": "Magic Mile", "description": None},
+            ]
+        return []
+
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.list_workouts(None)
+
+    assert out["workouts"][0]["createdByKadenz"] is True
+    assert out["workouts"][1]["createdByKadenz"] is False

@@ -3,18 +3,30 @@ import { isNotNull } from "drizzle-orm";
 import { garminClient } from "@/lib/sync/garmin-client";
 
 // ── POST /api/garmin/reconcile ───────────────────────────────────────────────
-// Deletes workouts that exist on Garmin but that Kadenz no longer tracks —
-// leftovers from regenerated plans, pre-fix duplicate moves, or deletions that
-// happened while the sync queue was wedged. Kadenz is the source of truth:
-// anything on the watch whose id we don't hold is stale by definition.
+// Removes leftovers Kadenz itself created on Garmin: duplicates from the old
+// move bug, or deletions that never ran while the sync queue was wedged.
+//
+// A Garmin account is SHARED with other apps (Benchmark) and the athlete's own
+// hand-made workouts. "Kadenz does not track it" therefore does NOT mean
+// "safe to delete" — only workouts carrying the Kadenz tag are ever removed,
+// and the caller must pass {"confirm": true} to delete anything at all.
+// Without it the route reports what it would do and changes nothing.
 
 // Deleting is one Garmin round-trip each; cap per call so the function always
 // returns. The response reports what is left so it can simply be run again.
 const MAX_DELETES_PER_RUN = 20;
 
-export async function POST() {
+export async function POST(request: Request) {
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin worker not configured" }, { status: 503 });
+  }
+
+  let confirm = false;
+  try {
+    const body = (await request.json().catch(() => ({}))) as { confirm?: boolean };
+    confirm = body.confirm === true;
+  } catch {
+    /* no body → dry run */
   }
 
   try {
@@ -35,8 +47,13 @@ export async function POST() {
       if (r.garminWorkoutId) tracked.add(r.garminWorkoutId);
     }
 
-    const orphans = onGarmin.filter((w) => !tracked.has(w.garminWorkoutId));
-    const batch = orphans.slice(0, MAX_DELETES_PER_RUN);
+    // Ours, and no longer referenced by any row. Anything untagged belongs to
+    // another app or to the athlete — it is reported, never deleted.
+    const orphans = onGarmin.filter(
+      (w) => w.createdByKadenz && !tracked.has(w.garminWorkoutId)
+    );
+    const foreign = onGarmin.filter((w) => !w.createdByKadenz).length;
+    const batch = confirm ? orphans.slice(0, MAX_DELETES_PER_RUN) : [];
     const deleted: string[] = [];
     const failed: Array<{ id: string; error: string }> = [];
 
@@ -54,7 +71,9 @@ export async function POST() {
 
     return Response.json({
       ok: true,
+      dryRun: !confirm,
       onGarmin: onGarmin.length,
+      notOurs: foreign,
       trackedByKadenz: tracked.size,
       orphans: orphans.length,
       deleted: deleted.length,
