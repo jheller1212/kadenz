@@ -72,7 +72,21 @@ export async function PUT(request: NextRequest) {
   const profileId = getActiveProfileId(request);
 
   try {
-    const values = {
+    // Only fields the request actually sent. A partial update (one slider tap
+    // from another device) must not null out bodyweight/energy/sleep the user
+    // logged elsewhere — the previous `?? null` wrote every column every time.
+    const patch: Record<string, unknown> = {};
+    if (data.restDay !== undefined) patch.restDay = data.restDay;
+    if (data.illness !== undefined) patch.illness = data.illness;
+    if (data.injury !== undefined) patch.injury = data.injury;
+    if (data.bodyweightKg !== undefined) patch.bodyweightKg = data.bodyweightKg;
+    if (data.energy !== undefined) patch.energy = data.energy;
+    if (data.sleepQuality !== undefined) patch.sleepQuality = data.sleepQuality;
+    if (data.soreness !== undefined) patch.soreness = data.soreness;
+    if (data.note !== undefined) patch.note = data.note;
+
+    // Insert needs the non-null defaults the columns expect for a brand-new row.
+    const insertValues = {
       date,
       profileId,
       restDay: data.restDay ?? false,
@@ -101,10 +115,10 @@ export async function PUT(request: NextRequest) {
     const [row] = existing
       ? await db
           .update(wellnessLogs)
-          .set({ ...values, updatedAt: new Date() })
+          .set({ ...patch, updatedAt: new Date() })
           .where(eq(wellnessLogs.id, existing.id))
           .returning()
-      : await db.insert(wellnessLogs).values(values).returning();
+      : await db.insert(wellnessLogs).values(insertValues).returning();
     return Response.json(row);
   } catch (err) {
     console.error("DB error upserting wellness log:", err);

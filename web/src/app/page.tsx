@@ -1443,7 +1443,9 @@ export default function Home() {
     setCompleting(true);
     setCompleteError(false);
     try {
-      const res = await apiFetch(`/api/workouts/${wo.id}/complete`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
+      // Same offline-safe path as the checkbox — tapping this offline used to
+      // hard-error instead of queueing.
+      const res = await mutateWithQueue(`/api/workouts/${wo.id}/complete`, { method: "PATCH", body: "{}" });
       if (res.ok) {
         haptic("success");
         applyWorkoutStatus(wo.id, "completed");

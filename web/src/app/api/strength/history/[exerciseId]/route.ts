@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, strengthExercises, painLogs } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
 
@@ -109,11 +109,16 @@ export async function GET(
       (a, b) => a.date.getTime() - b.date.getTime()
     );
 
+    // Pain only for THIS exercise's sessions (which are already profile-scoped
+    // by the query above). The old version fetched every athlete's pain logs
+    // for every exercise.
     let pain: Array<{ date: Date; score: number }> = [];
-    if (exercise.category === "achilles") {
+    if (exercise.category === "achilles" && sessions.length > 0) {
+      const sessionIds = sessions.map((x) => x.sessionId);
       const pl = await db
         .select({ date: painLogs.createdAt, score: painLogs.score })
         .from(painLogs)
+        .where(inArray(painLogs.sessionId, sessionIds))
         .orderBy(asc(painLogs.createdAt));
       pain = pl.map((p) => ({ date: p.date, score: p.score }));
     }
