@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { WheelPicker } from "@/components/ui/WheelPicker";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -394,19 +395,23 @@ export default function StrengthSetupPage() {
                   <label className="block text-[14px] font-semibold text-text-1" htmlFor="bodyweight-input">
                     Bodyweight (kg)
                   </label>
-                  <input
-                    id="bodyweight-input"
-                    type="number"
-                    inputMode="decimal"
-                    min={20}
-                    max={300}
-                    step={0.5}
-                    placeholder="e.g. 75"
-                    value={bodyweightKg}
-                    onChange={(e) => { markInteracted(); setBodyweightKg(e.target.value); }}
-                    className="mt-3 w-full rounded-xl border border-hairline bg-elevated px-4 py-3 text-[17px] font-semibold text-text-1 outline-none focus:border-accent"
-                  />
-                  <p className="mt-2 text-[13px] text-text-3">Leave blank to skip and use standard starting weights.</p>
+                  <div className="mt-3">
+                    <WheelPicker
+                      min={35}
+                      max={160}
+                      step={1}
+                      value={Number(bodyweightKg) || 75}
+                      onChange={(v) => { markInteracted(); setBodyweightKg(String(v)); }}
+                      unit="kg"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { markInteracted(); setBodyweightKg(""); }}
+                    className="press mt-3 w-full rounded-xl bg-elevated py-2.5 text-[13px] font-semibold text-text-2"
+                  >
+                    Skip — use standard starting weights
+                  </button>
                 </div>
               )}
 

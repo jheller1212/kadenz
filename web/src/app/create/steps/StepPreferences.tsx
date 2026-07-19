@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { WheelPicker } from "@/components/ui/WheelPicker";
 import { ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
@@ -125,15 +126,13 @@ export function StepPreferences({
                     <span className="text-[13px] font-semibold text-text-2">Current weekly km</span>
                     <span className="text-sm font-bold tabular-nums text-accent">{currentWeeklyKm} km</span>
                   </div>
-                  <input
-                    type="range"
+                  <WheelPicker
                     min={0}
                     max={100}
                     step={5}
                     value={currentWeeklyKm}
-                    onChange={(e) => onCurrentWeeklyKm(Number(e.target.value))}
-                    className="w-full accent-[var(--k-accent)]"
-                    aria-label={`Current weekly km: ${currentWeeklyKm}`}
+                    onChange={onCurrentWeeklyKm}
+                    unit="km"
                   />
                   {currentWeeklyKm === 0 && (
                     <p className="text-xs leading-relaxed text-text-3">
@@ -150,15 +149,13 @@ export function StepPreferences({
                       {longRunCapKm === 0 ? "No cap" : `${longRunCapKm} km`}
                     </span>
                   </div>
-                  <input
-                    type="range"
+                  <WheelPicker
                     min={0}
                     max={42}
                     step={1}
                     value={longRunCapKm}
-                    onChange={(e) => onLongRunCapKm(Number(e.target.value))}
-                    className="w-full accent-[var(--k-progress)]"
-                    aria-label={`Long run cap: ${longRunCapKm === 0 ? "none" : longRunCapKm + " km"}`}
+                    onChange={onLongRunCapKm}
+                    unit="km"
                   />
                 </div>
 
@@ -170,15 +167,13 @@ export function StepPreferences({
                       {easyRunMinKm === 0 ? "No min" : `${easyRunMinKm} km`}
                     </span>
                   </div>
-                  <input
-                    type="range"
+                  <WheelPicker
                     min={0}
                     max={15}
                     step={1}
                     value={easyRunMinKm}
-                    onChange={(e) => onEasyRunMinKm(Number(e.target.value))}
-                    className="w-full accent-[var(--k-progress)]"
-                    aria-label={`Easy run minimum: ${easyRunMinKm === 0 ? "none" : easyRunMinKm + " km"}`}
+                    onChange={onEasyRunMinKm}
+                    unit="km"
                   />
                 </div>
 
