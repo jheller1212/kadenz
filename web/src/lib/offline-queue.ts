@@ -12,6 +12,8 @@ const MAX_AGE_MS = 48 * 3600_000;
 const MAX_ENTRIES = 50;
 
 export interface QueuedMutation {
+  /** Stable identity — lets a flush merge instead of clobbering new writes. */
+  id: string;
   url: string;
   method: string;
   body?: string;
@@ -23,7 +25,9 @@ function readQueue(): QueuedMutation[] {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const list = JSON.parse(raw) as QueuedMutation[];
-    return list.filter((m) => Date.now() - m.ts < MAX_AGE_MS);
+    return list
+      .map((m) => (m.id ? m : { ...m, id: newId() }))
+      .filter((m) => Date.now() - m.ts < MAX_AGE_MS);
   } catch {
     return [];
   }
@@ -80,7 +84,14 @@ export async function mutateWithQueue(
 }
 
 function enqueue(url: string, init: { method: string; body?: string }): void {
-  writeQueue([...readQueue(), { url, method: init.method, body: init.body, ts: Date.now() }]);
+  writeQueue([
+    ...readQueue(),
+    { id: newId(), url, method: init.method, body: init.body, ts: Date.now() },
+  ]);
+}
+
+function newId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /** True when this exact endpoint already has parked writes. */
@@ -123,7 +134,11 @@ export async function flushQueue(): Promise<void> {
         break;
       }
     }
-    writeQueue(remaining);
+    // Anything enqueued WHILE this flush ran is in storage but not in our
+    // snapshot — merge it back, or those writes would be silently dropped.
+    const handled = new Set(queue.map((m) => m.id));
+    const addedDuringFlush = readQueue().filter((m) => !handled.has(m.id));
+    writeQueue([...remaining, ...addedDuringFlush]);
     if (remaining.length < queue.length) {
       window.dispatchEvent(new Event("kadenz:queue-flushed"));
     }
