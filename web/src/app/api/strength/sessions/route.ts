@@ -6,11 +6,12 @@ import { getActiveProfileId } from "@/lib/profiles";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
-import { buildPlannedSession } from "@/lib/strength/service";
+import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
+import type { PlannedExercise } from "@/lib/strength/session";
 
 const CreateSchema = z.object({
   type: z.enum(STRENGTH_SESSION_TYPES),
@@ -131,6 +132,32 @@ export async function POST(request: NextRequest) {
     }
 
     const template = SESSION_TEMPLATES[data.type];
+    // A custom-workout session (title override) already carries its own
+    // exact exercise list and duration estimate from the client — don't
+    // re-fit it against the stock template, that would silently replace the
+    // real custom-workout duration with a stock-template-based guess.
+    const isCustom = data.title != null;
+
+    let targetDurationMinutes: number;
+    let plannedExercises: PlannedExercise[];
+    if (isCustom) {
+      targetDurationMinutes = data.targetDurationMinutes ?? template.targetDurationMinutes;
+      plannedExercises = (await buildPlannedSession(data.type, date, profileId)).exercises;
+    } else {
+      // Honor the athlete's Kraft settings length (30/45/60 min) — an
+      // explicit override wins, otherwise fall back to the saved
+      // preference, and only then to the template's nominal length.
+      const chosenMinutes =
+        data.targetDurationMinutes ??
+        (await getPlanDurationMinutes(profileId)) ??
+        template.targetDurationMinutes;
+      const built = await buildPlannedSession(data.type, date, profileId, chosenMinutes);
+      plannedExercises = built.exercises;
+      // Store the plan's real estimate, not the nominal chosen number — this
+      // is what makes the duration setting show the truth downstream.
+      targetDurationMinutes = built.estimatedDurationMinutes;
+    }
+
     const [session] = await db
       .insert(strengthSessions)
       .values({
@@ -140,8 +167,7 @@ export async function POST(request: NextRequest) {
         dayOfWeek: date.getDay(),
         type: data.type,
         title: data.title ?? template.title,
-        targetDurationMinutes:
-          data.targetDurationMinutes ?? template.targetDurationMinutes,
+        targetDurationMinutes,
         status: "planned",
       })
       .returning();
@@ -163,7 +189,6 @@ export async function POST(request: NextRequest) {
         .catch(() => {});
     }
 
-    const plannedExercises = await buildPlannedSession(data.type, date, profileId);
     return Response.json({ session, plannedExercises, violations }, { status: 201 });
   } catch (err) {
     console.error("DB error creating strength session:", err);

@@ -4,6 +4,7 @@ import { eq, and, gte, lt, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, painLogs, activities } from "@/db";
 import { buildPlannedSession } from "@/lib/strength/service";
 import { clearsAutoScheduled } from "@/lib/strength/reconcile";
+import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -39,11 +40,30 @@ export async function GET(
     if (!session) {
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
-    const plannedExercises = await buildPlannedSession(
-      session.type as StrengthSessionType,
-      new Date(session.date),
-      session.profileId
-    );
+    const type = session.type as StrengthSessionType;
+    // A custom-workout session (title differs from the stock template's
+    // title) already carries its own real duration — never re-fit it
+    // against the stock template's exercise list.
+    const isCustom = session.title !== SESSION_TEMPLATES[type].title;
+    const { exercises: plannedExercises, estimatedDurationMinutes } =
+      await buildPlannedSession(
+        type,
+        new Date(session.date),
+        session.profileId,
+        isCustom ? undefined : session.targetDurationMinutes ?? undefined
+      );
+
+    // Self-heal: a session's targetDurationMinutes may still hold the
+    // nominal Kraft-settings choice (30/45/60) from auto-scheduling, not the
+    // real estimate of the plan actually produced — bring it in line with
+    // the truth on first read so the app and Garmin push it correctly too.
+    if (!isCustom && session.targetDurationMinutes !== estimatedDurationMinutes) {
+      await db
+        .update(strengthSessions)
+        .set({ targetDurationMinutes: estimatedDurationMinutes })
+        .where(eq(strengthSessions.id, id));
+      session.targetDurationMinutes = estimatedDurationMinutes;
+    }
 
     // A linked Strava activity contributes HR + duration to the logged sets.
     const [linkedActivity] = await db

@@ -58,6 +58,18 @@ export interface ExerciseDef {
   equipment?: Equipment[];
 }
 
+/**
+ * Trim priority for duration-fitting (see duration-fit.ts):
+ *  - "primary": a main compound lift. Kept at every session length; only its
+ *    set count flexes.
+ *  - "accessory": isolation/finisher work. First to go when a session has to
+ *    shrink, and never added back to fatten a longer session.
+ * Achilles-role exercises (see ExerciseDef.achillesRole) are NEVER
+ * "accessory" regardless of this field — the tendon program is load-bearing,
+ * not optional, and is protected from removal in the fitting logic itself.
+ */
+export type SlotPriority = "primary" | "accessory";
+
 /** A prescribed slot in a session template. */
 export interface TemplateSlot {
   exerciseSlug: string;
@@ -67,6 +79,8 @@ export interface TemplateSlot {
   restSeconds: number;
   /** Loaded per hand/leg rather than a matched pair, when relevant. */
   perSide?: boolean;
+  /** Trim priority; omitted = "primary" (see SlotPriority). */
+  priority?: SlotPriority;
 }
 
 export interface SessionTemplate {
