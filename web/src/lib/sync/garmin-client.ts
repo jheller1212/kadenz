@@ -81,6 +81,9 @@ export interface GarminStrengthWorkout {
 export interface GarminWorkoutSummary {
   garminWorkoutId: string;
   name: string | null;
+  description: string | null;
+  /** Carries the Kadenz tag — the only workouts reconcile may delete. */
+  createdByKadenz: boolean;
   sportType: string | null;
   scheduledDates: string[];
 }

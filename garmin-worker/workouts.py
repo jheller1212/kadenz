@@ -224,6 +224,17 @@ _EXERCISE_TAXONOMY: dict[str, tuple[str, str]] = {
 # ── Running/cycling payload builders ─────────────────────────────────────────
 
 
+KADENZ_TAG = "[kadenz]"
+
+
+def _tag_description(description: str | None) -> str:
+    """Stamp Kadenz ownership into the workout description."""
+    base = (description or "").strip()
+    if KADENZ_TAG in base:
+        return base
+    return f"{base}\n{KADENZ_TAG}".strip()
+
+
 def _pace_to_speed(pace_sec_km: int) -> float:
     """Convert sec/km pace to m/s (Garmin uses m/s internally)."""
     return 1000.0 / pace_sec_km
@@ -409,7 +420,9 @@ def _build_workout_payload(
         "sportType": sport,
         "subSportType": None,
         "workoutName": req.title,
-        "description": req.description,
+        # Ownership marker: reconcile deletes ONLY workouts carrying this tag,
+        # so other apps' (Benchmark) and hand-made workouts are never touched.
+        "description": _tag_description(req.description),
         "estimatedDurationInSecs": None,
         "estimatedDistanceInMeters": None,
         "poolLength": None,
@@ -526,7 +539,7 @@ def _build_strength_workout_payload(
         "sportType": _SPORT_STRENGTH,
         "subSportType": None,
         "workoutName": req.title,
-        "description": None,
+        "description": _tag_description(None),
         "estimatedDurationInSecs": None,
         "estimatedDistanceInMeters": None,
         "poolLength": None,

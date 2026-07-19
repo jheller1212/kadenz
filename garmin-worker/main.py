@@ -29,6 +29,7 @@ with warnings.catch_warnings():
     import garth
 
 from workouts import (  # noqa: F401 — re-exported for tests/consumers
+    KADENZ_TAG,
     CreateStrengthWorkoutRequest,
     CreateWorkoutRequest,
     MoveWorkoutRequest,
@@ -380,6 +381,8 @@ def list_workouts(_auth: Auth, limit: int = 100, with_schedules: bool = False):
             {
                 "garminWorkoutId": str(workout_id),
                 "name": w.get("workoutName"),
+                "description": w.get("description"),
+                "createdByKadenz": KADENZ_TAG in (w.get("description") or ""),
                 "sportType": (w.get("sportType") or {}).get("sportTypeKey"),
                 "scheduledDates": scheduled,
             }
