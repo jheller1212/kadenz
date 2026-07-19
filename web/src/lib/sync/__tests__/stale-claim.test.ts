@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isStaleClaim, STALE_CLAIM_MS } from "../outbox-claims";
+import { isStaleClaim, isMootFailure, STALE_CLAIM_MS } from "../outbox-claims";
 
 describe("isStaleClaim", () => {
   const now = new Date("2026-07-19T12:00:00Z");
@@ -22,5 +22,20 @@ describe("isStaleClaim", () => {
   it("reclaims a job abandoned past the staleness window", () => {
     const old = new Date(now.getTime() - STALE_CLAIM_MS - 1);
     expect(isStaleClaim({ status: "processing", claimedAt: old }, now)).toBe(true);
+  });
+});
+
+describe("isMootFailure", () => {
+  it("treats vanished entities and deleted events as settled", () => {
+    expect(isMootFailure("Strength session abc not found")).toBe(true);
+    expect(isMootFailure("Not Found")).toBe(true);
+    expect(isMootFailure("Request failed with status 404")).toBe(true);
+    expect(isMootFailure("Resource has been deleted")).toBe(true);
+  });
+
+  it("still retries transient failures", () => {
+    expect(isMootFailure("ETIMEDOUT")).toBe(false);
+    expect(isMootFailure("503 Service Unavailable")).toBe(false);
+    expect(isMootFailure("rate limit exceeded")).toBe(false);
   });
 });

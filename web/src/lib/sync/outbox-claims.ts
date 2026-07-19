@@ -14,3 +14,18 @@ export function isStaleClaim(
   if (!job.claimedAt) return true;
   return now.getTime() - job.claimedAt.getTime() > STALE_CLAIM_MS;
 }
+
+/**
+ * True when a job can never succeed: its entity is gone, or the calendar event
+ * it targets no longer exists. Retrying these forever only burns quota and
+ * hides real failures behind a wall of noise.
+ */
+export function isMootFailure(errorMessage: string): boolean {
+  const m = errorMessage.toLowerCase();
+  return (
+    m.includes("not found") ||
+    m.includes("404") ||
+    m.includes("has been deleted") ||
+    m.includes("resource has been deleted")
+  );
+}

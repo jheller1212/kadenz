@@ -1,6 +1,6 @@
 import { db, syncOutbox, workouts, strengthSessions } from "@/db";
 import { eq, and, asc, or, lt, isNull } from "drizzle-orm";
-import { STALE_CLAIM_MS } from "./outbox-claims";
+import { STALE_CLAIM_MS, isMootFailure } from "./outbox-claims";
 import {
   createEvent,
   patchEvent,
@@ -255,7 +255,13 @@ export async function processGCalOutbox(): Promise<SyncResult> {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       const newAttempts = job.attempts + 1;
-      const nextStatus = newAttempts >= MAX_ATTEMPTS ? "failed" : "pending";
+      // A vanished entity or already-deleted calendar event is a settled
+      // outcome, not a transient error — drop it instead of retrying to the cap.
+      const nextStatus = isMootFailure(errorMsg)
+        ? "completed"
+        : newAttempts >= MAX_ATTEMPTS
+        ? "failed"
+        : "pending";
 
       await db
         .update(syncOutbox)
