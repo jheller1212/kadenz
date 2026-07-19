@@ -11,6 +11,8 @@ import {
   type ProgressionSuggestion,
   type PainGateResult,
 } from "./progression";
+import { estimateWorkoutDuration } from "./estimate";
+import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
 import type {
   ExerciseDef,
   ExerciseSessionHistory,
@@ -50,6 +52,10 @@ export interface PlannedExercise {
   lastDate: string | null;
   progression: ProgressionSuggestion;
   painGated: boolean;
+  /** Trim priority for duration-fitting — see duration-fit.ts. */
+  priority: "primary" | "accessory" | "achilles";
+  /** True only for the week-based HSR calf raises — never duration-trimmed. */
+  setsLocked: boolean;
 }
 
 export interface BuildSessionOptions {
@@ -63,6 +69,13 @@ export interface BuildSessionOptions {
   ability?: "beginner" | "intermediate" | "advanced";
   /** Bodyweight/sex/experience for personalised cold-start loads. */
   lifterProfile?: LifterProfile | null;
+  /**
+   * The athlete's chosen session length (Kraft settings: 30/45/60 min). When
+   * given, the plan is reshaped (see duration-fit.ts) so its estimate
+   * actually lands near this budget instead of staying at the template's
+   * fixed nominal length regardless of what was chosen.
+   */
+  targetDurationMinutes?: number;
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -80,7 +93,7 @@ export function buildSessionPlan(
   const ability = opts.ability ?? "intermediate";
   const lifterProfile = opts.lifterProfile ?? null;
 
-  return template.slots.map((slot, slotIdx) => {
+  const plan = template.slots.map((slot, slotIdx) => {
     const ex = EXERCISE_BY_SLUG[slot.exerciseSlug];
     const history = historyBySlug[slot.exerciseSlug] ?? [];
 
@@ -126,6 +139,13 @@ export function buildSessionPlan(
       painGated = true;
     }
 
+    // Achilles-role work (both HSR and flexible explosive/toe-walk) is
+    // never "accessory" regardless of the template's slot.priority — the
+    // tendon program is load-bearing, not optional (see duration-fit.ts).
+    const priority: PlannedExercise["priority"] = ex.achillesRole
+      ? "achilles"
+      : slot.priority ?? "primary";
+
     return {
       slug: ex.slug,
       name: ex.name,
@@ -146,8 +166,29 @@ export function buildSessionPlan(
       lastDate: history[0]?.date.toISOString() ?? null,
       progression,
       painGated,
+      priority,
+      setsLocked: isHsrExercise(slot.exerciseSlug),
     };
   });
+
+  if (opts.targetDurationMinutes == null) return plan;
+
+  // Reshape the plan so its estimate actually reflects the chosen session
+  // length (see duration-fit.ts) — otherwise the setting is stored/displayed
+  // but never consumed, and 30/45/60 min all produce the same workout.
+  const { exercises: fitted } = fitSessionToDuration(plan, opts.targetDurationMinutes);
+  return fitted.map((ex) => ({
+    ...ex,
+    // HSR label stays as-is (locked); everything else's label follows sets.
+    prescription: ex.setsLocked
+      ? ex.prescription
+      : repRangeLabel(ex.sets, ex.repLow, ex.repHigh),
+  }));
+}
+
+/** Estimated real-world duration (minutes) of an already-built session plan. */
+export function estimateSessionMinutes(exercises: PlannedExercise[]): number {
+  return estimateWorkoutDuration(exercises);
 }
 
 // ── Achilles ordering rule ────────────────────────────────────────────────────

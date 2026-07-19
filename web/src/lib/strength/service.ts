@@ -8,7 +8,11 @@ import {
   strengthSets,
   painLogs,
 } from "@/db";
-import { buildSessionPlan, type PlannedExercise } from "./session";
+import {
+  buildSessionPlan,
+  estimateSessionMinutes,
+  type PlannedExercise,
+} from "./session";
 import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
 import type { LifterProfile } from "./load-model";
@@ -112,25 +116,58 @@ export async function getPainGate(
   return evaluatePainGate(logs);
 }
 
-/** Build the planned exercises for a session, with prefill + gate context. */
+export interface PlannedSessionResult {
+  exercises: PlannedExercise[];
+  /** Real-world estimate (minutes) of the plan actually produced — this is
+   *  the truth that should be written back to a session's
+   *  `targetDurationMinutes`, not the nominal duration that was requested. */
+  estimatedDurationMinutes: number;
+}
+
+/**
+ * Build the planned exercises for a session, with prefill + gate context.
+ *
+ * `targetDurationMinutes`, when given, is the athlete's chosen session
+ * length (Kraft settings: 30/45/60 min) — the plan is reshaped to fit it
+ * (see duration-fit.ts) rather than always producing the template's fixed
+ * nominal-length plan regardless of what was chosen.
+ */
 export async function buildPlannedSession(
   type: StrengthSessionType,
   date: Date,
-  profileId: string | null = null
-): Promise<PlannedExercise[]> {
+  profileId: string | null = null,
+  targetDurationMinutes?: number
+): Promise<PlannedSessionResult> {
   const [programWeek, historyBySlug, painGate, planSettings] = await Promise.all([
     getProgramWeek(date),
     getExerciseHistoryBySlug(date, profileId),
     getPainGate(date),
     getPlanSettingsForLoads(profileId),
   ]);
-  return buildSessionPlan(type, {
+  const exercises = buildSessionPlan(type, {
     programWeek,
     historyBySlug,
     painGate,
     ability: planSettings.ability,
     lifterProfile: planSettings.lifterProfile,
+    targetDurationMinutes,
   });
+  return { exercises, estimatedDurationMinutes: estimateSessionMinutes(exercises) };
+}
+
+/** The athlete's chosen Kraft session length (30/45/60 min), if configured. */
+export async function getPlanDurationMinutes(
+  profileId: string | null
+): Promise<number | undefined> {
+  const [row] = await db
+    .select({ durationMinutes: strengthPlanSettings.durationMinutes })
+    .from(strengthPlanSettings)
+    .where(
+      profileId
+        ? eq(strengthPlanSettings.profileId, profileId)
+        : isNull(strengthPlanSettings.profileId)
+    );
+  return row?.durationMinutes ?? undefined;
 }
 
 /**

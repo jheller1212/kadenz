@@ -11,6 +11,7 @@ import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims } from "./sync-manager";
 import { rowsNeedingRepush } from "./garmin-heal";
 import { buildPlannedSession } from "@/lib/strength/service";
+import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
 const MAX_ATTEMPTS = 3;
@@ -477,13 +478,28 @@ async function processGarminStrengthJob(
 
   if (row.status !== "planned" && !row.garminWorkoutId) return;
 
-  // The plan is derived, not stored: build it the same way the app does so the
-  // watch shows the loads the athlete is actually meant to lift today.
-  const planned = await buildPlannedSession(
-    row.type as StrengthSessionType,
+  const type = row.type as StrengthSessionType;
+  // A custom-workout session (title differs from the stock template's
+  // title) already has its own real content and duration — don't re-fit it
+  // against the stock template.
+  const isCustom = row.title !== SESSION_TEMPLATES[type].title;
+
+  // The plan is derived, not stored: build it the same way the app does so
+  // the watch shows the loads the athlete is actually meant to lift today —
+  // reshaped to the chosen session length so a 30-min day doesn't push a
+  // 50-min plan to the wrist.
+  const { exercises: planned, estimatedDurationMinutes } = await buildPlannedSession(
+    type,
     row.date,
-    row.profileId
+    row.profileId,
+    isCustom ? undefined : row.targetDurationMinutes ?? undefined
   );
+  if (!isCustom && row.targetDurationMinutes !== estimatedDurationMinutes) {
+    await db
+      .update(strengthSessions)
+      .set({ targetDurationMinutes: estimatedDurationMinutes })
+      .where(eq(strengthSessions.id, sessionId));
+  }
   const exercises = planned.map((ex) => ({
     name: ex.name,
     category: ex.category,

@@ -476,6 +476,13 @@ export const EXERCISE_BY_SLUG: Record<string, ExerciseDef> = Object.fromEntries(
 // ── Session templates ─────────────────────────────────────────────────────────
 // Slot order IS session order. For lower_achilles, explosive Achilles work is
 // placed before the slow-heavy HSR calf work (a hard rule, also validated).
+//
+// `priority: "accessory"` marks isolation/finisher work — the first thing
+// duration-fit.ts drops when a session has to shrink to fit a shorter chosen
+// length, and the last thing it adds sets to when a session has room to grow.
+// Everything else defaults to "primary" (main compound lifts). Achilles-role
+// exercises (see program.ts EXERCISES `achillesRole`) are hard-protected in
+// duration-fit.ts regardless of this field — the tendon program isn't optional.
 
 export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   upper: {
@@ -488,8 +495,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "renegade_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "lateral_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60 },
+      { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
+      { exerciseSlug: "lateral_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
     ],
   },
   lower: {
@@ -500,8 +507,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     slots: [
       { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
-      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
+      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
+      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
     ],
   },
   full_body: {
@@ -514,8 +521,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
-      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
     ],
   },
   upper_achilles: {
@@ -528,7 +535,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
       // Achilles: explosive first, then HSR
       { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
       { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
@@ -566,10 +573,10 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       // Main lower strength
       { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
-      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true },
+      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
+      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
       // Glute bridge last
-      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
     ],
   },
 };
