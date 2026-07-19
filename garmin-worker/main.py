@@ -223,13 +223,18 @@ def _list_schedules(garmin_workout_id: int) -> list[dict[str, Any]]:
     return [e for e in result if isinstance(e, dict)]
 
 
-def _unschedule_except(garmin_workout_id: int, keep_date: str) -> int:
-    """Drop calendar entries for this workout other than `keep_date`.
+def _prune_schedules(
+    garmin_workout_id: int, keep_schedule_id: int | None, keep_date: str
+) -> int:
+    """Drop every calendar entry for this workout except the one just created.
 
-    Garmin has no move API and scheduling again ADDS an entry, so without this
-    a rescheduled run shows up on both the old and the new day. Best-effort by
-    design: if the lookup or a delete fails we still schedule the new date —
-    a duplicate on the watch beats a workout that never arrives.
+    Garmin has no move API and scheduling ADDS an entry, so without this a
+    rescheduled run shows up on both the old and the new day. Runs AFTER the
+    new entry exists and never raises: the worst outcome is a leftover
+    duplicate, never a workout missing from the calendar.
+
+    Falls back to keeping entries on `keep_date` when Garmin's response didn't
+    include the new schedule id.
     """
     removed = 0
     try:
@@ -239,7 +244,14 @@ def _unschedule_except(garmin_workout_id: int, keep_date: str) -> int:
         return 0
     for entry in entries:
         schedule_id = entry.get("scheduleId")
-        if not schedule_id or entry.get("date") == keep_date:
+        if not schedule_id:
+            continue
+        keep = (
+            schedule_id == keep_schedule_id
+            if keep_schedule_id is not None
+            else entry.get("date") == keep_date
+        )
+        if keep:
             continue
         try:
             _garmin_call(f"/workout-service/schedule/{schedule_id}", method="DELETE")
@@ -301,15 +313,22 @@ def create_workout(body: CreateWorkoutRequest, _auth: Auth):
 def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
     """Reschedule a workout to a new date on Garmin Connect."""
     try:
-        # Garmin has no move API: scheduling ADDS an entry, so the previous
-        # day's entry must be removed or the run appears on both days.
-        removed = _unschedule_except(int(workout_id), body.scheduled_date)
+        # Schedule FIRST, prune second. Deleting first would blank the
+        # workout off the calendar entirely if the new schedule then failed.
         result = _schedule_workout(int(workout_id), body.scheduled_date)
     except GarminAuthError:
         raise
     except Exception as exc:
         logger.error("Failed to reschedule workout %s: %s", workout_id, exc)
         raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
+
+    # Pruning is deliberately outside the try: a failure here leaves a
+    # duplicate, which must not turn a successful move into a 502.
+    new_schedule_id = None
+    if isinstance(result, dict):
+        raw_id = result.get("workoutScheduleId") or result.get("scheduleId")
+        new_schedule_id = int(raw_id) if isinstance(raw_id, (int, str)) and str(raw_id).isdigit() else None
+    removed = _prune_schedules(int(workout_id), new_schedule_id, body.scheduled_date)
 
     return {
         "garmin_workout_id": workout_id,
