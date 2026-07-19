@@ -1,4 +1,5 @@
 import { db, plans, weeks, workouts } from "@/db";
+import { localWeekRange, localWeekdayIndex } from "@/lib/app-time";
 import { eq } from "drizzle-orm";
 import { workoutColor } from "@/lib/workout-colors";
 
@@ -60,11 +61,8 @@ export async function GET() {
 
     // "Current" window: the current calendar week, Monday-based — the whole
     // week counts as planned (same window as the Today screen's mileage card).
-    const weekStart = new Date(now);
-    weekStart.setHours(0, 0, 0, 0);
-    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
+    // Same week definition as the Today screen — see lib/app-time.
+    const { weekStart, weekEnd } = localWeekRange(now);
     const currentWorkouts = allWorkouts.filter((w) => {
       const d = new Date(w.date);
       return d >= weekStart && d < weekEnd && w.type !== "rest";
@@ -127,7 +125,7 @@ export async function GET() {
     // Week verdict uses the SAME rule as the Today screen's mileage card:
     // completed share of this week's mileage vs how far into the week we are,
     // with a 15-point grace band.
-    const dowIdx = (now.getDay() + 6) % 7; // Mon=0 … Sun=6
+    const dowIdx = localWeekdayIndex(now); // Mon=0 … Sun=6
     // Expect only the days BEFORE today: a run still scheduled for today
     // must not read as "behind" in the morning (counts from tomorrow).
     const expectedPct = Math.round(((dowIdx) / 7) * 100);

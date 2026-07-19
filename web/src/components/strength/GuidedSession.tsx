@@ -452,7 +452,10 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
     // The athlete's global rest preference wins so it actually carries over
     // between exercises; the template's per-exercise value is only a fallback.
     const ex = exercises.find((e) => e.slug === slug);
-    return prefsRef.current.kraftRestSeconds ?? ex?.restSeconds ?? 90;
+    // Per-exercise rest wins: three UIs let the athlete set it, and the
+    // estimator already honours it. The global setting is the fallback for
+    // exercises that don't prescribe their own.
+    return ex?.restSeconds ?? prefsRef.current.kraftRestSeconds ?? 90;
   }
 
   // ── Set logging (weight/reps confirmed during rest) ──────────────────────────
