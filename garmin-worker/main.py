@@ -206,16 +206,47 @@ def _schedule_workout(garmin_workout_id: int, date: str) -> dict[str, Any]:
 
 def _get_scheduled_workout_id(garmin_workout_id: int, date: str) -> int | None:
     """Find the schedule ID for a workout on a given date."""
+    for entry in _list_schedules(garmin_workout_id):
+        if entry.get("date") == date:
+            return entry.get("scheduleId")
+    return None
+
+
+def _list_schedules(garmin_workout_id: int) -> list[dict[str, Any]]:
+    """Every calendar entry Garmin holds for this workout."""
     result = _garmin_call(
         f"/workout-service/schedule/{garmin_workout_id}",
         method="GET",
     )
     if not result or not isinstance(result, list):
-        return None
-    for entry in result:
-        if entry.get("date") == date:
-            return entry.get("scheduleId")
-    return None
+        return []
+    return [e for e in result if isinstance(e, dict)]
+
+
+def _unschedule_except(garmin_workout_id: int, keep_date: str) -> int:
+    """Drop calendar entries for this workout other than `keep_date`.
+
+    Garmin has no move API and scheduling again ADDS an entry, so without this
+    a rescheduled run shows up on both the old and the new day. Best-effort by
+    design: if the lookup or a delete fails we still schedule the new date —
+    a duplicate on the watch beats a workout that never arrives.
+    """
+    removed = 0
+    try:
+        entries = _list_schedules(garmin_workout_id)
+    except Exception as exc:
+        logger.warning("Could not list schedules for workout %s: %s", garmin_workout_id, exc)
+        return 0
+    for entry in entries:
+        schedule_id = entry.get("scheduleId")
+        if not schedule_id or entry.get("date") == keep_date:
+            continue
+        try:
+            _garmin_call(f"/workout-service/schedule/{schedule_id}", method="DELETE")
+            removed += 1
+        except Exception as exc:
+            logger.warning("Could not remove stale schedule %s: %s", schedule_id, exc)
+    return removed
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -270,9 +301,9 @@ def create_workout(body: CreateWorkoutRequest, _auth: Auth):
 def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
     """Reschedule a workout to a new date on Garmin Connect."""
     try:
-        # Garmin's workout-service doesn't provide a direct "move" API.
-        # We re-schedule by posting a new schedule entry; the old one is
-        # overwritten if the workout was previously scheduled.
+        # Garmin has no move API: scheduling ADDS an entry, so the previous
+        # day's entry must be removed or the run appears on both days.
+        removed = _unschedule_except(int(workout_id), body.scheduled_date)
         result = _schedule_workout(int(workout_id), body.scheduled_date)
     except GarminAuthError:
         raise
@@ -283,6 +314,7 @@ def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
     return {
         "garmin_workout_id": workout_id,
         "scheduled_date": body.scheduled_date,
+        "removed_stale_schedules": removed,
         "result": result,
     }
 
