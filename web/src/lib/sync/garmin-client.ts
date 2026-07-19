@@ -91,6 +91,8 @@ export interface GarminWorkoutSummary {
 export interface GarminClient {
   isConfigured(): boolean;
   healthCheck(): Promise<boolean>;
+  /** True only when the Garmin session is actually usable, not just up. */
+  authOk(): Promise<boolean>;
   createWorkout(input: GarminRunWorkoutInput): Promise<string>;
   moveWorkout(garminWorkoutId: string, scheduledDate: string): Promise<void>;
   /** Replace an existing workout's contents in place, keeping its id. */
@@ -249,6 +251,21 @@ export const garminClient: GarminClient = {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async authOk() {
+    try {
+      const { url, token } = getConfig();
+      const res = await fetch(`${url}/auth-status`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as { authenticated?: boolean };
+      return data.authenticated === true;
     } catch {
       return false;
     }

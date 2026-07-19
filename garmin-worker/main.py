@@ -267,7 +267,23 @@ def _prune_schedules(
 
 @app.get("/health")
 def health():
+    """Liveness only — does not touch Garmin (kept cheap for the platform)."""
     return {"ok": True}
+
+
+@app.get("/auth-status")
+def auth_status():
+    """Whether the Garmin session is actually usable, not just whether the
+    worker is up. Cheap authenticated call; reports garmin_auth on failure so
+    the app can say "reconnect" instead of a false "Connected"."""
+    try:
+        _garmin_call("/userprofile-service/socialProfile", method="GET")
+        return {"authenticated": True}
+    except GarminAuthError:
+        return {"authenticated": False, "reason": "garmin_auth"}
+    except Exception as exc:
+        logger.warning("auth-status check failed: %s", exc)
+        return {"authenticated": False, "reason": "error"}
 
 
 @app.post("/workouts", status_code=201)

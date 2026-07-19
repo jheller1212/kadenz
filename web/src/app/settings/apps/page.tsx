@@ -247,7 +247,7 @@ function GCalConnection() {
 
 function GarminConnection() {
   const [status, setStatus] = useState<
-    "loading" | "unconfigured" | "healthy" | "unreachable"
+    "loading" | "unconfigured" | "healthy" | "auth_dead" | "unreachable"
   >("loading");
   const [syncWorkouts, setSyncWorkouts] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -263,7 +263,8 @@ function GarminConnection() {
           setStatus("unconfigured");
           return;
         }
-        setStatus(d.healthy ? "healthy" : "unreachable");
+        // Worker up but Garmin session dead → "reconnect", not a false green.
+        setStatus(!d.healthy ? "unreachable" : d.authenticated ? "healthy" : "auth_dead");
         // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from server
         setSyncWorkouts(Boolean(d.syncWorkouts));
       })
@@ -327,8 +328,10 @@ function GarminConnection() {
       : status === "unconfigured"
         ? "Garmin worker not deployed yet"
         : status === "healthy"
-          ? "Worker online"
-          : "Worker unreachable";
+          ? "Connected"
+          : status === "auth_dead"
+            ? "Garmin session expired — reconnect on the worker"
+            : "Worker unreachable";
 
   return (
     <div className="px-4 py-4">
@@ -347,6 +350,10 @@ function GarminConnection() {
           <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
             Connected
           </span>
+        ) : status === "auth_dead" ? (
+          <span className="shrink-0 rounded-full bg-warn/10 px-2.5 py-1 text-[12px] font-semibold text-warn">
+            Reconnect
+          </span>
         ) : status === "unreachable" ? (
           <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[12px] font-semibold text-danger">
             Offline
@@ -361,7 +368,7 @@ function GarminConnection() {
         </p>
       )}
 
-      {(status === "healthy" || status === "unreachable") && (
+      {(status === "healthy" || status === "auth_dead" || status === "unreachable") && (
         <>
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[14px] text-text-1">Send workouts to watch</p>
