@@ -17,7 +17,7 @@ import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
-import { mutateWithQueue, queuedCountFor, flushQueue } from "@/lib/offline-queue";
+import { mutateWithQueue, queuedCountFor, dropQueuedFor, flushQueue } from "@/lib/offline-queue";
 import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 
@@ -472,7 +472,12 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         durationSeconds: set.durationSec || null,
       }),
     })
-      .then(() => setPendingWrites(queuedCountFor(session.id)))
+      .then((r) => {
+        setPendingWrites(queuedCountFor(session.id));
+        // Neither sent nor parked — the server refused it outright. Say so;
+        // silence here is what lost sets in the first place.
+        if (!r.ok && !r.offline) setError("Couldn't save that set — check your connection.");
+      })
       .catch(() => setPendingWrites(queuedCountFor(session.id)));
   }
 
@@ -586,6 +591,9 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
     setError(null);
     haptic("warning");
     try {
+      // Cancel parked writes FIRST — a queued set replaying after the delete
+      // would resurrect the workout the user just threw away.
+      dropQueuedFor(session.id);
       const res = await apiFetch(`/api/strength/sessions/${session.id}/sets`, { method: "DELETE" });
       if (!res.ok) {
         setError("Couldn't discard the workout. Try again.");
