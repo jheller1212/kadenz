@@ -94,7 +94,7 @@ export interface GarminClient {
   listActivities(sinceIso: string, limit?: number): Promise<GarminActivity[]>;
   getActivity(garminId: string): Promise<GarminActivityDetail>;
   pushStrengthWorkout(workout: GarminStrengthWorkout): Promise<string>;
-  listWorkouts(limit?: number): Promise<GarminWorkoutSummary[]>;
+  listWorkouts(limit?: number, withSchedules?: boolean): Promise<GarminWorkoutSummary[]>;
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -108,7 +108,11 @@ function getConfig() {
   return { url: url.replace(/\/$/, ""), token };
 }
 
-async function workerFetch(path: string, init?: RequestInit): Promise<Response> {
+async function workerFetch(
+  path: string,
+  init?: RequestInit,
+  timeoutMs: number = TIMEOUT_MS
+): Promise<Response> {
   const { url, token } = getConfig();
   const res = await fetch(`${url}${path}`, {
     ...init,
@@ -117,7 +121,7 @@ async function workerFetch(path: string, init?: RequestInit): Promise<Response> 
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (res.status === 503) {
@@ -287,8 +291,13 @@ export const garminClient: GarminClient = {
     };
   },
 
-  async listWorkouts(limit = 100) {
-    const res = await workerFetch(`/workouts?limit=${limit}`);
+  async listWorkouts(limit = 100, withSchedules = false) {
+    const res = await workerFetch(
+      `/workouts?limit=${limit}&with_schedules=${withSchedules}`,
+      undefined,
+      // Listing many workouts is slower than a normal call.
+      30_000
+    );
     const data = (await res.json()) as { workouts?: GarminWorkoutSummary[] };
     return data.workouts ?? [];
   },

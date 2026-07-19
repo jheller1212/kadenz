@@ -171,12 +171,31 @@ def test_list_workouts_includes_scheduled_dates():
         return []
 
     with patch.object(main, "_garmin_call", side_effect=fake_call):
-        out = main.list_workouts(None)
+        out = main.list_workouts(None, with_schedules=True)
 
     ids = [w["garminWorkoutId"] for w in out["workouts"]]
     assert ids == ["1", "2"]
     assert out["workouts"][0]["scheduledDates"] == ["2026-08-01"]
     assert out["workouts"][1]["scheduledDates"] == []
+
+
+def test_list_workouts_skips_schedule_lookups_by_default():
+    """Reconcile matches ids only — the per-workout lookup is what timed it out."""
+    import main
+
+    paths = []
+
+    def fake_call(path, method="GET", **kwargs):
+        paths.append(path)
+        if path.startswith("/workout-service/workouts"):
+            return [{"workoutId": 5, "workoutName": "Y", "sportType": {"sportTypeKey": "running"}}]
+        return []
+
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        out = main.list_workouts(None)
+
+    assert out["workouts"][0]["scheduledDates"] == []
+    assert not any(p.startswith("/workout-service/schedule/") for p in paths)
 
 
 def test_list_workouts_survives_a_schedule_lookup_failure():
@@ -188,6 +207,6 @@ def test_list_workouts_survives_a_schedule_lookup_failure():
         raise RuntimeError("schedule service down")
 
     with patch.object(main, "_garmin_call", side_effect=fake_call):
-        out = main.list_workouts(None)
+        out = main.list_workouts(None, with_schedules=True)
 
     assert out["workouts"][0]["scheduledDates"] == []

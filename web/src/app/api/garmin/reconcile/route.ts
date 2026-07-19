@@ -8,6 +8,10 @@ import { garminClient } from "@/lib/sync/garmin-client";
 // happened while the sync queue was wedged. Kadenz is the source of truth:
 // anything on the watch whose id we don't hold is stale by definition.
 
+// Deleting is one Garmin round-trip each; cap per call so the function always
+// returns. The response reports what is left so it can simply be run again.
+const MAX_DELETES_PER_RUN = 20;
+
 export async function POST() {
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin worker not configured" }, { status: 503 });
@@ -32,10 +36,11 @@ export async function POST() {
     }
 
     const orphans = onGarmin.filter((w) => !tracked.has(w.garminWorkoutId));
+    const batch = orphans.slice(0, MAX_DELETES_PER_RUN);
     const deleted: string[] = [];
     const failed: Array<{ id: string; error: string }> = [];
 
-    for (const orphan of orphans) {
+    for (const orphan of batch) {
       try {
         await garminClient.deleteWorkout(orphan.garminWorkoutId);
         deleted.push(orphan.garminWorkoutId);
@@ -51,7 +56,9 @@ export async function POST() {
       ok: true,
       onGarmin: onGarmin.length,
       trackedByKadenz: tracked.size,
+      orphans: orphans.length,
       deleted: deleted.length,
+      remaining: orphans.length - deleted.length,
       failed,
     });
   } catch (err) {

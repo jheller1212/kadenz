@@ -339,7 +339,7 @@ def move_workout(workout_id: str, body: MoveWorkoutRequest, _auth: Auth):
 
 
 @app.get("/workouts")
-def list_workouts(_auth: Auth, limit: int = 100):
+def list_workouts(_auth: Auth, limit: int = 100, with_schedules: bool = False):
     """Workouts this account holds, newest first, with their calendar dates.
 
     Lets Kadenz reconcile: anything on Garmin that Kadenz no longer tracks is
@@ -366,12 +366,16 @@ def list_workouts(_auth: Auth, limit: int = 100):
         workout_id = w.get("workoutId")
         if workout_id is None:
             continue
-        try:
-            scheduled = [
-                e.get("date") for e in _list_schedules(int(workout_id)) if e.get("date")
-            ]
-        except Exception:
-            scheduled = []
+        # One extra call per workout — only worth it when the caller needs
+        # dates. Reconcile just matches ids, so it skips this entirely.
+        scheduled: list[str] = []
+        if with_schedules:
+            try:
+                scheduled = [
+                    e.get("date") for e in _list_schedules(int(workout_id)) if e.get("date")
+                ]
+            except Exception:
+                scheduled = []
         out.append(
             {
                 "garminWorkoutId": str(workout_id),
