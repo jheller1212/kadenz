@@ -87,15 +87,19 @@ export async function GET() {
     }
 
     // Today's workout
+    // A day can hold several rows — e.g. a workout rescheduled onto a day that
+    // already had a rest placeholder. The real session always wins, whatever
+    // sort order the moved row carried over from its old day.
+    const todaysRows = weekWorkouts.filter((wo) => {
+      const d = new Date(wo.date);
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    });
     const todayWorkout =
-      weekWorkouts.find((wo) => {
-        const d = new Date(wo.date);
-        return (
-          d.getFullYear() === now.getFullYear() &&
-          d.getMonth() === now.getMonth() &&
-          d.getDate() === now.getDate()
-        );
-      }) ?? null;
+      todaysRows.find((wo) => wo.type !== "rest") ?? todaysRows[0] ?? null;
 
     // Weekly stats
     const plannedKm = weekWorkouts.reduce((sum, w) => sum + (w.targetKm ?? 0), 0);

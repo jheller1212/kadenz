@@ -1,5 +1,6 @@
 import { db, syncOutbox, workouts, strengthSessions } from "@/db";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, or, lt, isNull } from "drizzle-orm";
+import { STALE_CLAIM_MS } from "./outbox-claims";
 import {
   createEvent,
   patchEvent,
@@ -35,7 +36,19 @@ export async function queueWorkoutSync(
       payload: payload ?? null,
       attempts: 0,
     })
-    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
+    .onConflictDoUpdate({
+      // Re-arm an existing row: a completed job for this key must not swallow
+      // a LATER change to the same entity (that left calendars permanently
+      // stale). Mirrors the garmin outbox.
+      target: syncOutbox.idempotencyKey,
+      set: {
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        processedAt: null,
+        claimedAt: null,
+      },
+    });
 
   // Fire-and-forget flush
   processGCalOutbox().catch(console.error);
@@ -64,7 +77,19 @@ export async function queueWorkoutEventDeletes(
   await db
     .insert(syncOutbox)
     .values(rows)
-    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
+    .onConflictDoUpdate({
+      // Re-arm an existing row: a completed job for this key must not swallow
+      // a LATER change to the same entity (that left calendars permanently
+      // stale). Mirrors the garmin outbox.
+      target: syncOutbox.idempotencyKey,
+      set: {
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        processedAt: null,
+        claimedAt: null,
+      },
+    });
   processGCalOutbox().catch(console.error);
 }
 
@@ -93,7 +118,19 @@ export async function queuePlanWorkoutsSync(
   await db
     .insert(syncOutbox)
     .values(rows)
-    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
+    .onConflictDoUpdate({
+      // Re-arm an existing row: a completed job for this key must not swallow
+      // a LATER change to the same entity (that left calendars permanently
+      // stale). Mirrors the garmin outbox.
+      target: syncOutbox.idempotencyKey,
+      set: {
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        processedAt: null,
+        claimedAt: null,
+      },
+    });
 
   // Fire-and-forget flush
   processGCalOutbox().catch(console.error);
@@ -119,7 +156,19 @@ export async function queueStrengthSessionSync(
       payload: payload ?? null,
       attempts: 0,
     })
-    .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
+    .onConflictDoUpdate({
+      // Re-arm an existing row: a completed job for this key must not swallow
+      // a LATER change to the same entity (that left calendars permanently
+      // stale). Mirrors the garmin outbox.
+      target: syncOutbox.idempotencyKey,
+      set: {
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        processedAt: null,
+        claimedAt: null,
+      },
+    });
 
   processGCalOutbox().catch(console.error);
 }
@@ -170,6 +219,8 @@ export async function processGCalOutbox(): Promise<SyncResult> {
     errors: [],
   };
 
+  await resetStaleClaims("gcal");
+
   // Fetch pending gcal jobs with remaining attempts
   const jobs = await db
     .select()
@@ -189,7 +240,7 @@ export async function processGCalOutbox(): Promise<SyncResult> {
     // Mark as processing
     await db
       .update(syncOutbox)
-      .set({ status: "processing", attempts: job.attempts + 1 })
+      .set({ status: "processing", attempts: job.attempts + 1, claimedAt: new Date() })
       .where(eq(syncOutbox.id, job.id));
 
     try {
@@ -328,4 +379,31 @@ async function processJob(
       await deleteEvent(gcalEventId);
     }
   }
+}
+
+// ── Stale-claim reaper ───────────────────────────────────────────────────────
+
+/**
+ * Return jobs abandoned mid-flight to "pending". Without this a killed
+ * invocation leaves a row in "processing" forever, and because its
+ * idempotency key still exists it also swallows every later enqueue for
+ * that entity.
+ */
+export async function resetStaleClaims(target: "gcal" | "garmin"): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_CLAIM_MS);
+  const rows = await db
+    .update(syncOutbox)
+    .set({ status: "pending", claimedAt: null })
+    .where(
+      and(
+        eq(syncOutbox.target, target),
+        eq(syncOutbox.status, "processing"),
+        or(isNull(syncOutbox.claimedAt), lt(syncOutbox.claimedAt, cutoff))
+      )
+    )
+    .returning({ id: syncOutbox.id });
+  if (rows.length > 0) {
+    console.warn(`Reset ${rows.length} stale ${target} outbox job(s)`);
+  }
+  return rows.length;
 }
