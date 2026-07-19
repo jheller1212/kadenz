@@ -353,10 +353,13 @@ function buildWeekDaysForDate(weekMonday: Date, allWorkouts: TodayApiWorkout[]):
   return Array.from({ length: 7 }, (_, i) => {
     const date = new Date(weekMonday);
     date.setDate(weekMonday.getDate() + i);
-    const workout = allWorkouts.find((wo) => {
+    // Prefer a real session over a rest placeholder when a day holds both
+    // (happens after a reschedule) — mirrors /api/today.
+    const dayRows = allWorkouts.filter((wo) => {
       const d = new Date(wo.date);
       return d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
-    }) ?? null;
+    });
+    const workout = dayRows.find((wo) => wo.type !== "rest") ?? dayRows[0] ?? null;
     return {
       date,
       dayNum: date.getDate(),

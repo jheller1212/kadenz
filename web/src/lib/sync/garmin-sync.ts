@@ -8,6 +8,7 @@ import { eq, and, asc, gte, lte, ne, isNull } from "drizzle-orm";
 import { garminClient, toGarminDate } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
+import { resetStaleClaims } from "./sync-manager";
 
 const MAX_ATTEMPTS = 3;
 
@@ -162,6 +163,8 @@ export async function queueGarminWindowSync(planId?: string): Promise<number> {
 // ── Process outbox ────────────────────────────────────────────────────────────
 
 export async function processGarminOutbox(): Promise<SyncResult> {
+  await resetStaleClaims("garmin");
+
   const result: SyncResult = { processed: 0, succeeded: 0, failed: 0, errors: [] };
 
   const jobs = await db
@@ -175,7 +178,7 @@ export async function processGarminOutbox(): Promise<SyncResult> {
     result.processed++;
     await db
       .update(syncOutbox)
-      .set({ status: "processing", attempts: job.attempts + 1 })
+      .set({ status: "processing", attempts: job.attempts + 1, claimedAt: new Date() })
       .where(eq(syncOutbox.id, job.id));
 
     try {

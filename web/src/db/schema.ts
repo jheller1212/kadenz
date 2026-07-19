@@ -368,6 +368,9 @@ export const syncOutbox = pgTable(
       .notNull()
       .defaultNow(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
+    // When a worker claimed the job. Lets the cron reset rows abandoned
+    // mid-flight (serverless timeout, deploy) instead of wedging forever.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
   },
   (t) => [
     index("sync_outbox_status_idx").on(t.status),

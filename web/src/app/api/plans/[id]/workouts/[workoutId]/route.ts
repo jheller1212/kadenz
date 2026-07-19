@@ -53,6 +53,9 @@ export async function PATCH(
     const d = new Date(date);
     setValues.date = d;
     setValues.dayOfWeek = d.getDay();
+    // Land ahead of anything already on the target day (typically a rest
+    // placeholder) so every "first workout of the day" lookup finds this one.
+    setValues.sortOrder = 0;
   }
   // Distance/pace overrides mark the workout as hand-tuned.
   if (rest.targetKm !== undefined || paceOffsetSecKm !== undefined) {
