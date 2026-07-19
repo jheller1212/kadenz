@@ -44,9 +44,11 @@ function BackToSettings() {
       type="button"
       onClick={() => {
         haptic("light");
-        // Deep link / fresh tab: nothing to pop, so go to settings directly.
+        // Deep link / fresh tab: nothing to pop. REPLACE rather than push —
+        // pushing would make settings' own back button return here, which is
+        // exactly the trap this fix removes.
         if (window.history.length > 1) router.back();
-        else router.push("/settings");
+        else router.replace("/settings");
       }}
       aria-label="Back to settings"
       className="press flex h-11 w-11 items-center justify-center rounded-lg active:bg-elevated"
