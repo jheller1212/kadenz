@@ -1,4 +1,5 @@
 import { type NextRequest } from "next/server";
+import { validateSessionCookie } from "@/lib/session";
 import { eq, and, lt } from "drizzle-orm";
 import { db, syncOutbox } from "@/db";
 import { processGCalOutbox } from "@/lib/sync/sync-manager";
@@ -20,8 +21,14 @@ const RETRY_CAP = 10;
 //   3. Garmin import: pull new watch activities (auto-tick planned workouts).
 
 export async function GET(request: NextRequest) {
+  // Either the cron secret (Vercel scheduler) or a signed-in session — the
+  // latter so the owner can force a sync run instead of waiting a day when
+  // something wedges.
   const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  const fromCron =
+    Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
+  const fromOwner = await validateSessionCookie(request.headers.get("cookie"));
+  if (!fromCron && !fromOwner) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

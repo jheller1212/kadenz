@@ -1284,7 +1284,9 @@ export default function Home() {
       }
     } catch {
       setLoadError(true);
-      setData({ activePlan: false });
+      // Never let a failed background/silent refresh wipe a good cached
+      // screen — only fall back to "no plan" when we truly have nothing yet.
+      setData((prev) => prev ?? { activePlan: false });
     } finally {
       setLoading(false);
     }
