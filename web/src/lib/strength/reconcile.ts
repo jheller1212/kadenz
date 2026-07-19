@@ -55,11 +55,19 @@ export function clearsAutoScheduled(updates: Record<string, unknown>): boolean {
  * (earlier this week) — so a week never exceeds the rotation's length. Per-day
  * blocking rides on each day's `taken` flag via the placement engine.
  */
+/**
+ * Per-week cap on NEW sessions, keyed by Monday. Lets the caller thin out
+ * training weeks that shouldn't carry a full strength load — a deload or the
+ * race week itself — without teaching this planner about plans.
+ */
+export type WeekBudget = (weekKey: string, rotationLength: number) => number;
+
 export function computeTopUpPlacements(
   strip: PlacementDay[],
   rotation: StrengthSessionType[],
   availableDays: number[],
-  sessionsByWeek: Map<string, number>
+  sessionsByWeek: Map<string, number>,
+  weekBudget?: WeekBudget
 ): Placement[] {
   const placements: Placement[] = [];
   let week: PlacementDay[] = [];
@@ -68,7 +76,9 @@ export function computeTopUpPlacements(
   const flush = () => {
     if (week.length === 0) return;
     const already = sessionsByWeek.get(weekKey) ?? 0;
-    const remaining = rotation.slice(Math.min(already, rotation.length));
+    const budget = weekBudget ? weekBudget(weekKey, rotation.length) : rotation.length;
+    const allowed = Math.max(0, Math.min(budget, rotation.length) - already);
+    const remaining = rotation.slice(Math.min(already, rotation.length)).slice(0, allowed);
     if (remaining.length > 0) {
       placements.push(...placeStrengthWeek(week, availableDays, remaining));
     }
