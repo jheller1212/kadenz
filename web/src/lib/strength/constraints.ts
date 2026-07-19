@@ -63,7 +63,10 @@ export function hasExplosiveWork(type: StrengthSessionType): boolean {
 }
 
 function isLowerDay(type: StrengthSessionType): boolean {
-  return type === "lower" || type === "lower_achilles";
+  // full_body loads the legs too — it reaches this validator now that the
+  // schema accepts every session type, and should get the same heavy-legs
+  // warning as a dedicated lower day.
+  return type === "lower" || type === "lower_achilles" || type === "full_body";
 }
 
 // ── Core validation ───────────────────────────────────────────────────────────
