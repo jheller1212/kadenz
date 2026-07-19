@@ -80,19 +80,24 @@ def test_plain_distance_block_unchanged():
     assert step["endConditionValue"] == "10000"
 
 
-def test_move_removes_the_previous_calendar_entry():
-    """Scheduling ADDS an entry, so the old day must be unscheduled."""
+def test_move_keeps_only_the_entry_it_just_created():
+    """Scheduling ADDS an entry; every earlier one for this workout goes."""
     import main
 
-    calls = []
+    schedules = [
+        {"scheduleId": 111, "date": "2026-08-01"},  # the old day
+        {"scheduleId": 222, "date": "2026-08-05"},  # a stale entry on the new day
+    ]
+    deleted = []
 
     def fake_call(path, method="GET", **kwargs):
-        calls.append((method, path))
         if method == "GET" and path.startswith("/workout-service/schedule/"):
-            return [
-                {"scheduleId": 111, "date": "2026-08-01"},
-                {"scheduleId": 222, "date": "2026-08-05"},
-            ]
+            return list(schedules)
+        if method == "DELETE":
+            deleted.append(int(path.rsplit("/", 1)[1]))
+            return {}
+        # POST = schedule: the new entry now exists too
+        schedules.append({"scheduleId": 333, "date": "2026-08-05"})
         return {"workoutScheduleId": 333}
 
     with patch.object(main, "_garmin_call", side_effect=fake_call):
@@ -100,23 +105,45 @@ def test_move_removes_the_previous_calendar_entry():
             "42", main.MoveWorkoutRequest(scheduled_date="2026-08-05"), None
         )
 
-    assert ("DELETE", "/workout-service/schedule/111") in calls
-    # The entry already on the target date is kept, not churned.
-    assert ("DELETE", "/workout-service/schedule/222") not in calls
-    assert result["removed_stale_schedules"] == 1
+    assert sorted(deleted) == [111, 222], deleted
+    assert 333 not in deleted, "must not delete the entry it just created"
+    assert result["removed_stale_schedules"] == 2
 
 
-def test_move_still_schedules_when_lookup_fails():
-    """A duplicate on the watch beats a workout that never arrives."""
+def test_move_schedules_before_pruning():
+    """A failed schedule must not leave the calendar emptied."""
     import main
 
-    scheduled = []
+    order = []
+
+    def fake_call(path, method="GET", **kwargs):
+        if method == "GET" and path.startswith("/workout-service/schedule/"):
+            order.append("list")
+            return [{"scheduleId": 111, "date": "2026-08-01"}]
+        if method == "DELETE":
+            order.append("delete")
+            return {}
+        order.append("schedule")
+        raise RuntimeError("Garmin refused the new schedule")
+
+    with patch.object(main, "_garmin_call", side_effect=fake_call):
+        try:
+            main.move_workout("42", main.MoveWorkoutRequest(scheduled_date="2026-08-05"), None)
+        except Exception:
+            pass
+
+    assert "delete" not in order, "nothing may be deleted when scheduling failed"
+    assert order[0] == "schedule"
+
+
+def test_move_succeeds_even_if_pruning_fails():
+    """A leftover duplicate must not turn a successful move into an error."""
+    import main
 
     def fake_call(path, method="GET", **kwargs):
         if method == "GET" and path.startswith("/workout-service/schedule/"):
             raise RuntimeError("Garmin down")
-        scheduled.append(path)
-        return {"workoutScheduleId": 999}
+        return {"workoutScheduleId": 333}
 
     with patch.object(main, "_garmin_call", side_effect=fake_call):
         result = main.move_workout(
@@ -124,4 +151,6 @@ def test_move_still_schedules_when_lookup_fails():
         )
 
     assert result["removed_stale_schedules"] == 0
-    assert scheduled, "new schedule must still be created"
+    assert result["scheduled_date"] == "2026-08-05"
+
+
