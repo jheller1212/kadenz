@@ -22,6 +22,8 @@ const marathonConfig: PlanConfig = {
   hillyArea: false,
   currentWeeklyKm: 30,
   longRunCapKm: 0,
+  raceElevation: "flat",
+  easyRunMinKm: 0,
 };
 
 const halfConfig: PlanConfig = {
@@ -36,6 +38,8 @@ const halfConfig: PlanConfig = {
   hillyArea: false,
   currentWeeklyKm: 25,
   longRunCapKm: 0,
+  raceElevation: "flat",
+  easyRunMinKm: 0,
 };
 
 const fiveKConfig: PlanConfig = {
@@ -50,6 +54,8 @@ const fiveKConfig: PlanConfig = {
   hillyArea: false,
   currentWeeklyKm: 15,
   longRunCapKm: 0,
+  raceElevation: "flat",
+  easyRunMinKm: 0,
 };
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -147,6 +153,24 @@ describe("generatePlan — phase distribution", () => {
     const plan = generatePlan(marathonConfig);
     const lastWeek = plan.weeks[plan.weeks.length - 1];
     expect(lastWeek.type).toBe("race");
+  });
+
+  it("race workout lands on the actual race date for every weekday", () => {
+    // Regression: week count used to round, ending the plan a week early
+    // whenever race day fell Mon-Thu — the race workout then landed 7 days
+    // before the real race.
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const raceDate = new Date(makeDate(16));
+      raceDate.setUTCDate(raceDate.getUTCDate() + dayOffset);
+      const plan = generatePlan({ ...marathonConfig, raceDate });
+      const raceWorkout = plan.weeks
+        .flatMap((w) => w.workouts)
+        .find((w) => w.type === "race");
+      expect(raceWorkout).toBeDefined();
+      expect(raceWorkout!.date.toISOString().slice(0, 10)).toBe(
+        raceDate.toISOString().slice(0, 10)
+      );
+    }
   });
 
   it("taper weeks exist near the end", () => {

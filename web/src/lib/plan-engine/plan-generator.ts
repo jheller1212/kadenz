@@ -1109,14 +1109,15 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   // Derive pace zones
   const paces = getPaceZones(vdot);
 
-  // Calculate plan length in weeks (from planStartMonday to race date)
-  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const totalWeeks = Math.max(
-    4,
-    Math.round(
-      (config.raceDate.getTime() - planStartMonday.getTime()) / msPerWeek
-    )
+  // Plan length in weeks, counted so the race ALWAYS falls inside the final
+  // week. Week i spans planStartMonday + (i-1)*7 … +6 days, so the race sits
+  // in week floor(daysToRace / 7) + 1. Rounding here instead would end the
+  // plan a week early whenever race day is Mon-Thu.
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysToRace = Math.round(
+    (config.raceDate.getTime() - planStartMonday.getTime()) / msPerDay
   );
+  const totalWeeks = Math.max(4, Math.floor(daysToRace / 7) + 1);
 
   // Build phase map
   const phases = buildPhaseMap(totalWeeks);
