@@ -16,7 +16,7 @@ import { VideoSheet } from "@/components/strength/VideoSheet";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
-import { mutateWithQueue, queuedCount, flushQueue } from "@/lib/offline-queue";
+import { mutateWithQueue, queuedCountFor, flushQueue } from "@/lib/offline-queue";
 import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 
@@ -213,7 +213,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   // refresh the count whenever the queue drains.
   useEffect(() => {
     function refresh() {
-      setPendingWrites(queuedCount());
+      setPendingWrites(queuedCountFor(session.id));
     }
     function retry() {
       void flushQueue().then(refresh);
@@ -468,8 +468,8 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         durationSeconds: set.durationSec || null,
       }),
     })
-      .then((r) => setPendingWrites(r.offline ? queuedCount() : queuedCount()))
-      .catch(() => setPendingWrites(queuedCount()));
+      .then(() => setPendingWrites(queuedCountFor(session.id)))
+      .catch(() => setPendingWrites(queuedCountFor(session.id)));
   }
 
   function doneSet() {
@@ -620,7 +620,9 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       }
       // Only drop the recovery snapshot once every set write has actually
       // reached the server — otherwise a queued set could be lost for good.
-      if (queuedCount() === 0) clearGuidedSnapshot();
+      // Scoped to THIS session: an unrelated queued mutation elsewhere in the
+      // app must not keep a stale "resume workout" card alive.
+      if (queuedCountFor(session.id) === 0) clearGuidedSnapshot();
       onFinish({ setsLogged, totalSets, durationMinutes });
     } catch {
       setError("Network error — couldn't finish the session.");

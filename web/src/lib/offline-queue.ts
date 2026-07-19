@@ -5,6 +5,7 @@
 // (4xx other than 408/429) so a bad request can't wedge the queue forever.
 
 import { apiFetch } from "@/lib/api";
+import { isRetryableStatus } from "@/lib/retryable-status";
 
 const KEY = "kadenz_offline_queue_v1";
 const MAX_AGE_MS = 48 * 3600_000;
@@ -55,12 +56,27 @@ export async function mutateWithQueue(
       headers: { "Content-Type": "application/json" },
       ...(init.body !== undefined ? { body: init.body } : {}),
     });
+    // A server that is down or throttling is no more the caller's problem
+    // than a dead network — park those too, so the write is never lost.
+    if (isRetryableStatus(res.status)) {
+      enqueue(url, init);
+      return { ok: true, offline: true };
+    }
     return { ok: res.ok, offline: false, res };
   } catch {
     // fetch threw → network failure. Park it.
-    writeQueue([...readQueue(), { url, method: init.method, body: init.body, ts: Date.now() }]);
+    enqueue(url, init);
     return { ok: true, offline: true };
   }
+}
+
+function enqueue(url: string, init: { method: string; body?: string }): void {
+  writeQueue([...readQueue(), { url, method: init.method, body: init.body, ts: Date.now() }]);
+}
+
+/** Queued mutations whose URL contains `match` — lets a screen track its own. */
+export function queuedCountFor(match: string): number {
+  return readQueue().filter((m) => m.url.includes(match)).length;
 }
 
 let flushing = false;
@@ -81,7 +97,7 @@ export async function flushQueue(): Promise<void> {
           headers: { "Content-Type": "application/json" },
           ...(m.body !== undefined ? { body: m.body } : {}),
         });
-        const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+        const retryable = isRetryableStatus(res.status);
         if (retryable) {
           remaining.push(...queue.slice(i));
           break;
