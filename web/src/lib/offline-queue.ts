@@ -28,7 +28,10 @@ function readQueue(): QueuedMutation[] {
     if (!raw) return [];
     const list = JSON.parse(raw) as QueuedMutation[];
     return list
-      .map((m) => (m.id ? m : { ...m, id: newId() }))
+      // Legacy rows (queued before ids existed) must get the SAME id on every
+      // read — a fresh random one would make the flush merge treat an
+      // already-sent row as new and replay it forever.
+      .map((m) => (m.id ? m : { ...m, id: legacyId(m) }))
       .filter((m) => Date.now() - m.ts < MAX_AGE_MS);
   } catch {
     return [];
@@ -41,10 +44,6 @@ function writeQueue(list: QueuedMutation[]): void {
   } catch {
     /* storage unavailable — queue is best-effort */
   }
-}
-
-export function queuedCount(): number {
-  return readQueue().length;
 }
 
 /**
@@ -86,14 +85,24 @@ export async function mutateWithQueue(
 }
 
 function enqueue(url: string, init: { method: string; body?: string }): void {
-  writeQueue([
-    ...readQueue(),
+  updateQueue((list) => [
+    ...list,
     { id: newId(), url, method: init.method, body: init.body, ts: Date.now() },
   ]);
 }
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function legacyId(m: { ts: number; url: string; method: string }): string {
+  return `legacy-${m.ts}-${m.method}-${m.url}`;
+}
+
+/** Read-modify-write in one step, re-reading immediately before the write so
+ *  a concurrent enqueue is far less likely to be clobbered. */
+function updateQueue(fn: (list: QueuedMutation[]) => QueuedMutation[]): void {
+  writeQueue(fn(readQueue()));
 }
 
 /** True when this exact endpoint already has parked writes. */
@@ -139,8 +148,10 @@ export async function flushQueue(): Promise<void> {
     // Anything enqueued WHILE this flush ran is in storage but not in our
     // snapshot — merge it back, or those writes would be silently dropped.
     const handled = new Set(queue.map((m) => m.id));
-    const addedDuringFlush = readQueue().filter((m) => !handled.has(m.id));
-    writeQueue([...remaining, ...addedDuringFlush]);
+    updateQueue((current) => [
+      ...remaining,
+      ...current.filter((m) => !handled.has(m.id)),
+    ]);
     if (remaining.length < queue.length) {
       window.dispatchEvent(new Event("kadenz:queue-flushed"));
     }

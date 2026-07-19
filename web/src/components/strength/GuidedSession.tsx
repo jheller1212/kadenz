@@ -10,6 +10,7 @@ import { formatRecency } from "@/lib/recency";
 import {
   clearGuidedSnapshot,
   saveGuidedSnapshot,
+  loadGuidedSnapshot,
   type GuidedWorkSet,
 } from "@/lib/strength/guided-snapshot";
 import { VideoSheet } from "@/components/strength/VideoSheet";
@@ -213,6 +214,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   // refresh the count whenever the queue drains.
   useEffect(() => {
     function refresh() {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reads localStorage, client-only
       setPendingWrites(queuedCountFor(session.id));
     }
     function retry() {
@@ -229,6 +231,8 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       document.removeEventListener("visibilitychange", retry);
       clearInterval(interval);
     };
+    // session is stable for the lifetime of this mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Last performance per exercise — fetched lazily, cached for the session ──
@@ -622,7 +626,22 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       // reached the server — otherwise a queued set could be lost for good.
       // Scoped to THIS session: an unrelated queued mutation elsewhere in the
       // app must not keep a stale "resume workout" card alive.
-      if (queuedCountFor(session.id) === 0) clearGuidedSnapshot();
+      if (queuedCountFor(session.id) === 0) {
+        clearGuidedSnapshot();
+      } else {
+        // Keep it only as insurance for the parked writes, flagged so it is
+        // never offered as a resumable workout, and drop it as soon as they land.
+        const snap = loadGuidedSnapshot();
+        if (snap) saveGuidedSnapshot({ ...snap, finishedAt: Date.now() });
+        const sessionId = session.id;
+        const clearWhenDrained = () => {
+          if (queuedCountFor(sessionId) > 0) return;
+          clearGuidedSnapshot();
+          window.removeEventListener("kadenz:queue-flushed", clearWhenDrained);
+        };
+        window.addEventListener("kadenz:queue-flushed", clearWhenDrained);
+        void flushQueue();
+      }
       onFinish({ setsLogged, totalSets, durationMinutes });
     } catch {
       setError("Network error — couldn't finish the session.");

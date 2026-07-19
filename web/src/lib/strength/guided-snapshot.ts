@@ -25,6 +25,9 @@ export interface GuidedSnapshot {
   exercises: PlannedExercise[];
   exIndex: number;
   work: Record<string, GuidedWorkSet[]>;
+  /** Set when the workout was finished but set writes were still queued. Such
+   *  a snapshot exists only to protect those writes — never offer to resume it. */
+  finishedAt?: number;
 }
 
 const KEY = "kadenz_guided_session_v1";
