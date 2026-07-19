@@ -14,7 +14,8 @@ import {
 } from "@/components/ui/wizard";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
-import type { Equipment } from "@/lib/strength/types";
+import type { Complaint, Equipment } from "@/lib/strength/types";
+import { COMPLAINT_LABELS, STRENGTH_COMPLAINTS } from "@/lib/strength/types";
 import {
   DEFAULT_EQUIPMENT,
   EQUIPMENT_OPTIONS,
@@ -34,10 +35,18 @@ const STEPS = [
   "ability",
   "sex",
   "bodyweight",
+  "complaints",
   "days",
   "equipment",
 ] as const;
 type Step = (typeof STEPS)[number];
+
+// "None" is its own pseudo-option: selecting it clears every real complaint,
+// and picking any real complaint clears "none" — the two are mutually
+// exclusive by construction, not just by convention.
+const COMPLAINT_OPTIONS: Array<{ key: Complaint; title: string }> = STRENGTH_COMPLAINTS.map(
+  (key) => ({ key, title: COMPLAINT_LABELS[key] })
+);
 
 const GOALS: Array<{ key: Goal; title: string; sub: string }> = [
   {
@@ -103,6 +112,8 @@ export default function StrengthSetupPage() {
   const [bodyweightKg, setBodyweightKg] = useState<string>("");
   const [days, setDays] = useState<number[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>(DEFAULT_EQUIPMENT);
+  // Empty = "None / nothing bothering me" — the normal, default answer.
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState(false);
@@ -127,6 +138,7 @@ export default function StrengthSetupPage() {
         if (typeof s.bodyweightKg === "number") setBodyweightKg(String(s.bodyweightKg));
         if (Array.isArray(s.availableDays)) setDays(s.availableDays);
         if (Array.isArray(s.equipment)) setEquipment(s.equipment);
+        if (Array.isArray(s.complaints)) setComplaints(s.complaints);
         if ([8, 12, 16].includes(s.blockWeeks)) setBlockWeeks(s.blockWeeks);
       } catch {
         /* fresh setup */
@@ -196,6 +208,7 @@ export default function StrengthSetupPage() {
           bodyweightKg: parseBodyweight(bodyweightKg),
           availableDays: days,
           equipment,
+          complaints,
           active: true,
           // Only sent when there is no running plan supplying the structure.
           blockWeeks: hasRunningPlan === false ? blockWeeks : null,
@@ -228,6 +241,12 @@ export default function StrengthSetupPage() {
     );
   }
 
+  function toggleComplaint(key: Complaint) {
+    markInteracted();
+    haptic("light");
+    setComplaints((c) => (c.includes(key) ? c.filter((x) => x !== key) : [...c, key]));
+  }
+
   const TITLES: Record<Step, { title: string; sub: string }> = {
     goal: {
       title: "What is your strength goal?",
@@ -252,6 +271,10 @@ export default function StrengthSetupPage() {
     bodyweight: {
       title: "What's your bodyweight?",
       sub: "Helps us pick a starting weight for new exercises instead of a one-size-fits-all default. Optional — you can skip this.",
+    },
+    complaints: {
+      title: "Any current or recurring running complaints?",
+      sub: "Select any that apply — this only shapes which exercises you get, not whether you can continue setup. This isn't medical advice, and persistent or worsening pain deserves a physio or doctor, not just this app.",
     },
     days: {
       title: "Which days are you free to train on?",
@@ -385,6 +408,26 @@ export default function StrengthSetupPage() {
                   />
                   <p className="mt-2 text-[13px] text-text-3">Leave blank to skip and use standard starting weights.</p>
                 </div>
+              )}
+
+              {step === "complaints" && (
+                <>
+                  <OptionCard
+                    selected={complaints.length === 0}
+                    onSelect={() => { markInteracted(); setComplaints([]); }}
+                    title="None / nothing bothering me"
+                    sub="The normal answer — most runners pick this"
+                  />
+                  {COMPLAINT_OPTIONS.map((c) => (
+                    <OptionCard
+                      key={c.key}
+                      selected={false}
+                      onSelect={() => toggleComplaint(c.key)}
+                      title={c.title}
+                      trailing={<WizardCheck on={complaints.includes(c.key)} />}
+                    />
+                  ))}
+                </>
               )}
 
               {step === "days" &&

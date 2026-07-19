@@ -1,8 +1,8 @@
 import {
   EXERCISE_BY_SLUG,
-  SESSION_TEMPLATES,
   hsrPrescriptionForWeek,
   isHsrExercise,
+  sessionTemplateFor,
 } from "./program";
 import { snapToLevel } from "./weights";
 import {
@@ -14,6 +14,7 @@ import {
 import { estimateWorkoutDuration } from "./estimate";
 import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
 import type {
+  Complaint,
   ExerciseDef,
   ExerciseSessionHistory,
   StrengthSessionType,
@@ -53,7 +54,7 @@ export interface PlannedExercise {
   progression: ProgressionSuggestion;
   painGated: boolean;
   /** Trim priority for duration-fitting — see duration-fit.ts. */
-  priority: "primary" | "accessory" | "achilles";
+  priority: "primary" | "accessory" | "achilles" | "targeted";
   /** True only for the week-based HSR calf raises — never duration-trimmed. */
   setsLocked: boolean;
 }
@@ -69,6 +70,15 @@ export interface BuildSessionOptions {
   ability?: "beginner" | "intermediate" | "advanced";
   /** Bodyweight/sex/experience for personalised cold-start loads. */
   lifterProfile?: LifterProfile | null;
+  /**
+   * Reported running complaints (Kraft setup, optional step). "achilles"
+   * keeps the athlete on today's dedicated achilles/HSR programme, already
+   * baked into the achilles/lower_achilles/upper_achilles templates. Every
+   * other complaint injects a small targeted block into the ordinary
+   * lower/full_body sessions (see program.ts TARGETED_WORK). Empty/absent =
+   * the general runner default (no targeted work).
+   */
+  complaints?: Complaint[];
   /**
    * The athlete's chosen session length (Kraft settings: 30/45/60 min). When
    * given, the plan is reshaped (see duration-fit.ts) so its estimate
@@ -86,7 +96,7 @@ export function buildSessionPlan(
   type: StrengthSessionType,
   opts: BuildSessionOptions = {}
 ): PlannedExercise[] {
-  const template = SESSION_TEMPLATES[type];
+  const template = sessionTemplateFor(type, opts.complaints ?? []);
   const programWeek = opts.programWeek ?? 1;
   const historyBySlug = opts.historyBySlug ?? {};
   const painGate = opts.painGate ?? { triggered: false, reason: null };

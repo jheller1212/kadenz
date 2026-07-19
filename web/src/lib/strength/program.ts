@@ -1,4 +1,10 @@
-import type { ExerciseDef, SessionTemplate, StrengthSessionType } from "./types";
+import type {
+  Complaint,
+  ExerciseDef,
+  SessionTemplate,
+  StrengthSessionType,
+  TemplateSlot,
+} from "./types";
 
 // ── Exercise catalogue ────────────────────────────────────────────────────────
 // The single source of truth for seeding `strength_exercises` and for building
@@ -267,6 +273,106 @@ export const EXERCISES: ExerciseDef[] = [
     dumbbells: 1,
     holdNote: "on hips",
   },
+  // General runner calf work — ordinary strength, not the achilles rehab
+  // protocol. Belongs in the default lower/full_body rotation for everyone,
+  // achilles-goal or not (achilles-goal athletes already get HSR calf work
+  // in their combo/achilles sessions, so this only appears on plain
+  // lower/full_body days).
+  {
+    slug: "standing_calf_raise",
+    equipment: ["dumbbell"],
+    primaryMuscle: "Calves",
+    name: "Standing calf raise",
+    category: "lower",
+    tempoNote: "Full range, controlled — no bouncing",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 15,
+    startWeightKg: 10,
+    dumbbells: 1,
+    holdNote: "both hands",
+  },
+
+  // ── Complaint-targeted work (see TARGETED_WORK below) — small, well-
+  // evidenced additions for a reported non-Achilles complaint. Not part of
+  // the default rotation; injected only when the matching complaint is set.
+  {
+    slug: "single_leg_calf_raise",
+    equipment: [],
+    primaryMuscle: "Calves",
+    secondaryMuscles: ["Feet"],
+    name: "Single-leg calf raise",
+    category: "lower",
+    equipmentNote: "Bodyweight; hold a wall for balance if needed",
+    tempoNote: "Slow up and down, full range",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+  },
+  {
+    slug: "tibialis_raise",
+    equipment: [],
+    primaryMuscle: "Shin (tibialis anterior)",
+    name: "Tibialis raise",
+    category: "lower",
+    equipmentNote: "Heels on a step or thick book, toes hanging off the edge",
+    tempoNote: "Slow controlled raise, pause at the top",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 20,
+  },
+  {
+    slug: "step_down",
+    equipment: ["box"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes"],
+    name: "Step-down (eccentric)",
+    category: "lower",
+    equipmentNote: "Low step or box; standing on one leg, lower slowly, tap the heel down",
+    tempoNote: "3–4 s down, keep the knee tracking over the toes",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+  },
+  {
+    slug: "side_lying_leg_raise",
+    equipment: [],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hip abductors"],
+    name: "Side-lying leg raise",
+    category: "lower",
+    equipmentNote: "Lying on your side, legs stacked and straight",
+    tempoNote: "Lift to hip height, slow controlled lower",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "clamshell",
+    equipment: [],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hip external rotators"],
+    name: "Clamshell",
+    category: "lower",
+    equipmentNote: "Lying on your side, knees bent, feet together",
+    tempoNote: "Open the top knee against resistance, slow controlled close",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 20,
+  },
+  {
+    slug: "nordic_curl_negative",
+    equipment: ["chair"],
+    primaryMuscle: "Hamstrings",
+    name: "Nordic curl negative",
+    category: "lower",
+    equipmentNote: "Kneeling, ankles anchored under a chair or couch",
+    tempoNote: "Lower yourself forward as slowly as you can control, catch with your hands",
+    defaultSets: 3,
+    repLow: 5,
+    repHigh: 8,
+  },
+
   // ── Extended library (custom-workout builder; home setup: dumbbells + chair
   // + floor, no bench). Not part of any stock session template.
   {
@@ -509,6 +615,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
       { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
       { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
+      // Ordinary runner calf work — not the Achilles HSR protocol.
+      { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
     ],
   },
   full_body: {
@@ -523,6 +631,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
       { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
       { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
+      // Ordinary runner calf work — not the Achilles HSR protocol.
+      { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
     ],
   },
   upper_achilles: {
@@ -580,6 +690,82 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     ],
   },
 };
+
+// ── Complaint-targeted work ───────────────────────────────────────────────────
+// Maps a reported non-Achilles complaint to one small, well-evidenced slot,
+// injected into the ordinary lower/full_body sessions when that complaint is
+// present. "achilles" is handled separately (the existing dedicated
+// achilles/lower_achilles/upper_achilles session types + HSR protocol) and is
+// intentionally absent from this map.
+export const TARGETED_WORK: Partial<
+  Record<Complaint, { slug: string; slot: Omit<TemplateSlot, "exerciseSlug">; sessionTypes: StrengthSessionType[] }>
+> = {
+  plantar_fascia: {
+    slug: "single_leg_calf_raise",
+    slot: { sets: 3, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" },
+    sessionTypes: ["lower", "full_body"],
+  },
+  shin: {
+    slug: "tibialis_raise",
+    slot: { sets: 3, repLow: 15, repHigh: 20, restSeconds: 45, priority: "targeted" },
+    sessionTypes: ["lower", "full_body"],
+  },
+  knee: {
+    slug: "step_down",
+    slot: { sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true, priority: "targeted" },
+    sessionTypes: ["lower", "full_body"],
+  },
+  itb: {
+    slug: "side_lying_leg_raise",
+    slot: { sets: 3, repLow: 12, repHigh: 20, restSeconds: 60, perSide: true, priority: "targeted" },
+    sessionTypes: ["lower", "full_body"],
+  },
+  hamstring: {
+    slug: "nordic_curl_negative",
+    slot: { sets: 3, repLow: 5, repHigh: 8, restSeconds: 120, priority: "targeted" },
+    sessionTypes: ["lower", "full_body"],
+  },
+  hip_glute: {
+    slug: "clamshell",
+    slot: { sets: 3, repLow: 15, repHigh: 20, restSeconds: 45, perSide: true, priority: "targeted" },
+    sessionTypes: ["lower", "full_body"],
+  },
+};
+
+const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
+  "achilles",
+  "lower_achilles",
+  "upper_achilles",
+]);
+
+/**
+ * The session template an athlete actually gets for `type`, given their
+ * reported complaints. Achilles session types are always returned unchanged
+ * — that programme already exists and is complaint-independent once an
+ * athlete is on it. For every other session type, each non-Achilles
+ * complaint whose `TARGETED_WORK` entry lists `type` gets its slot appended.
+ */
+export function sessionTemplateFor(
+  type: StrengthSessionType,
+  complaints: Complaint[] = []
+): SessionTemplate {
+  const template = SESSION_TEMPLATES[type];
+  if (ACHILLES_SESSION_TYPES.has(type)) return template;
+
+  const extraSlots: TemplateSlot[] = [];
+  const seen = new Set<string>();
+  for (const complaint of complaints) {
+    if (complaint === "achilles") continue;
+    const targeted = TARGETED_WORK[complaint];
+    if (!targeted || !targeted.sessionTypes.includes(type)) continue;
+    if (seen.has(targeted.slug)) continue; // don't double-add a shared exercise
+    seen.add(targeted.slug);
+    extraSlots.push({ exerciseSlug: targeted.slug, ...targeted.slot });
+  }
+  if (extraSlots.length === 0) return template;
+
+  return { ...template, slots: [...template.slots, ...extraSlots] };
+}
 
 export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
   upper: 40,

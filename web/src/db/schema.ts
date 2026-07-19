@@ -562,6 +562,12 @@ export const strengthPlanSettings = pgTable(
     // advanced ≈ none/some/experienced) so it isn't duplicated here.
     bodyweightKg: real("bodyweight_kg"),
     sex: text("sex"), // "male" | "female" | "unspecified" | null = unanswered
+    // Reported running complaints (Kraft setup, optional step) — drives which
+    // programme the athlete gets (see lib/strength/schedule.ts rotationFor +
+    // lib/strength/program.ts TARGETED_WORK). Null/empty = general runner
+    // default, no targeted or Achilles work. Values are Complaint slugs (see
+    // lib/strength/types.ts STRENGTH_COMPLAINTS).
+    complaints: text("complaints").array(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

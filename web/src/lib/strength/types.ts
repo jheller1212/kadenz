@@ -25,6 +25,33 @@ export const STRENGTH_SESSION_TYPES = [
 export type StrengthSessionType = (typeof STRENGTH_SESSION_TYPES)[number];
 export type PainTiming = "during" | "after" | "next_day";
 
+// ── Reported running complaints (Kraft setup, optional step) ────────────────
+// Drives which programme an athlete gets: "achilles" keeps today's dedicated
+// Achilles/HSR sessions; every other complaint adds a small, well-evidenced
+// block of targeted work to the ordinary lower/full_body sessions instead of
+// prescribing a full rehab protocol. Empty/absent = general runner default.
+export const STRENGTH_COMPLAINTS = [
+  "achilles",
+  "plantar_fascia",
+  "shin",
+  "knee",
+  "itb",
+  "hamstring",
+  "hip_glute",
+] as const;
+
+export type Complaint = (typeof STRENGTH_COMPLAINTS)[number];
+
+export const COMPLAINT_LABELS: Record<Complaint, string> = {
+  achilles: "Achilles tendinopathy",
+  plantar_fascia: "Plantar fascia pain",
+  shin: "Shin pain (medial tibial stress)",
+  knee: "Patellofemoral / runner's knee",
+  itb: "ITB (outer knee) pain",
+  hamstring: "Hamstring (proximal tendon) pain",
+  hip_glute: "Hip / glute weakness or ache",
+};
+
 // Role within an Achilles session — drives the "explosive first, slow heavy
 // after" ordering rule.
 export type AchillesRole = "explosive" | "slow_heavy" | null;
@@ -64,11 +91,15 @@ export interface ExerciseDef {
  *    set count flexes.
  *  - "accessory": isolation/finisher work. First to go when a session has to
  *    shrink, and never added back to fatten a longer session.
+ *  - "targeted": complaint-specific work injected by a reported complaint
+ *    (see program.ts TARGETED_WORK). Protected the same way Achilles-role
+ *    work is — never dropped whole by duration-fitting, only its set count
+ *    may flex.
  * Achilles-role exercises (see ExerciseDef.achillesRole) are NEVER
  * "accessory" regardless of this field — the tendon program is load-bearing,
  * not optional, and is protected from removal in the fitting logic itself.
  */
-export type SlotPriority = "primary" | "accessory";
+export type SlotPriority = "primary" | "accessory" | "targeted";
 
 /** A prescribed slot in a session template. */
 export interface TemplateSlot {

@@ -3,7 +3,64 @@ import {
   type Placement,
   type PlacementDay,
 } from "./schedule-place";
-import type { StrengthSessionType } from "./types";
+import type { Complaint, StrengthSessionType } from "./types";
+
+// ── Session-type rotation ─────────────────────────────────────────────────────
+// Per goal and sessions/week. Running focus keeps upper body minimal (Benchmark's
+// framing); all-round mixes upper and lower evenly.
+//
+// The dedicated Achilles/HSR sessions (achilles, lower_achilles,
+// upper_achilles) are today's owner's-physio programme — prescribing tendon
+// rehab to someone with no tendon problem is wrong. They're only used when
+// the athlete has actually reported an Achilles complaint (see rotationFor
+// below); everyone else gets DEFAULT_ROTATIONS, the same shape with plain
+// lower/upper/full_body sessions instead.
+const ACHILLES_ROTATIONS: Record<string, Record<number, StrengthSessionType[]>> = {
+  running_focus: {
+    1: ["lower_achilles"],
+    2: ["lower_achilles", "full_body"],
+    3: ["lower_achilles", "full_body", "achilles"],
+    4: ["lower_achilles", "full_body", "achilles", "upper"],
+  },
+  all_round: {
+    1: ["full_body"],
+    2: ["upper", "lower"],
+    3: ["upper", "lower", "full_body"],
+    4: ["upper", "lower", "full_body", "upper_achilles"],
+  },
+};
+
+// General runner default (no Achilles complaint reported): the same rotation
+// shape, with the Achilles/HSR sessions replaced by their plain equivalents.
+// Any other reported complaint (plantar fascia, shin, knee, ITB, hamstring,
+// hip/glute) adds targeted work to whichever lower/full_body session lands
+// on the day — see program.ts TARGETED_WORK / sessionTemplateFor — the
+// rotation itself doesn't need to change for those.
+const DEFAULT_ROTATIONS: Record<string, Record<number, StrengthSessionType[]>> = {
+  running_focus: {
+    1: ["lower"],
+    2: ["lower", "full_body"],
+    3: ["lower", "full_body", "lower"],
+    4: ["lower", "full_body", "lower", "upper"],
+  },
+  all_round: {
+    1: ["full_body"],
+    2: ["upper", "lower"],
+    3: ["upper", "lower", "full_body"],
+    4: ["upper", "lower", "full_body", "upper"],
+  },
+};
+
+/** Session-type rotation for a goal/frequency, given the athlete's reported
+ *  complaints — the Achilles rotation only when "achilles" was reported. */
+export function rotationFor(
+  goal: string,
+  sessionsPerWeek: number,
+  complaints: Complaint[]
+): StrengthSessionType[] {
+  const table = complaints.includes("achilles") ? ACHILLES_ROTATIONS : DEFAULT_ROTATIONS;
+  return table[goal]?.[sessionsPerWeek] ?? table.running_focus[2];
+}
 
 // ── Reconcile invariants (pure, unit-tested) ─────────────────────────────────
 // The scheduler's contract, extracted so the DB routes stay thin:

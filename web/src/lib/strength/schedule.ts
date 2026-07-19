@@ -8,12 +8,13 @@ import { SESSION_TEMPLATES } from "./program";
 import type { PlacementDay } from "./schedule-place";
 import {
   computeTopUpPlacements,
+  rotationFor,
   weekBudgetFor,
   dateFromDayKey,
   isPrunable,
   weekKeyOf,
 } from "./reconcile";
-import type { StrengthSessionType } from "./types";
+import type { Complaint, StrengthSessionType } from "./types";
 
 // ── Weekly strength scheduler ────────────────────────────────────────────────
 // Tops up planned strength sessions for the next two weeks from the profile's
@@ -31,22 +32,8 @@ const HORIZON_DAYS = 14;
 const MAX_HORIZON_DAYS = 200;
 const APP_TZ = "Europe/Amsterdam";
 
-// Session-type rotation per goal and sessions/week. Running focus keeps upper
-// body minimal (Benchmark's framing); all-round mixes upper and lower evenly.
-const ROTATIONS: Record<string, Record<number, StrengthSessionType[]>> = {
-  running_focus: {
-    1: ["lower_achilles"],
-    2: ["lower_achilles", "full_body"],
-    3: ["lower_achilles", "full_body", "achilles"],
-    4: ["lower_achilles", "full_body", "achilles", "upper"],
-  },
-  all_round: {
-    1: ["full_body"],
-    2: ["upper", "lower"],
-    3: ["upper", "lower", "full_body"],
-    4: ["upper", "lower", "full_body", "upper_achilles"],
-  },
-};
+// Session-type rotation selection (rotationFor) lives in reconcile.ts, the
+// pure DB-free module, so it stays unit-testable without a database.
 
 /** Calendar-day key ("2026-07-14") of a timestamp in the household TZ. */
 function dayKey(d: Date): string {
@@ -70,9 +57,8 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     );
   if (!settings || !settings.active) return { created: 0 };
 
-  const rotation =
-    ROTATIONS[settings.goal]?.[settings.sessionsPerWeek] ??
-    ROTATIONS.running_focus[2];
+  const complaints = ((settings.complaints ?? []) as Complaint[]).filter(Boolean);
+  const rotation = rotationFor(settings.goal, settings.sessionsPerWeek, complaints);
 
   // Anchor at noon UTC — a timestamp whose calendar day is identical in UTC
   // and any European timezone, so stored dates can't drift across midnight.

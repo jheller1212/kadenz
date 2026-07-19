@@ -12,6 +12,10 @@ const EQUIPMENT_VALUES = [
   "dumbbell", "barbell", "bench", "chair", "box", "kettlebell", "pullup_bar", "band",
 ] as const;
 
+const COMPLAINT_VALUES = [
+  "achilles", "plantar_fascia", "shin", "knee", "itb", "hamstring", "hip_glute",
+] as const;
+
 const SettingsSchema = z.object({
   goal: z.enum(["running_focus", "all_round"]),
   durationMinutes: z.union([z.literal(30), z.literal(45), z.literal(60)]),
@@ -19,6 +23,9 @@ const SettingsSchema = z.object({
   ability: z.enum(["beginner", "intermediate", "advanced"]),
   availableDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
   equipment: z.array(z.enum(EQUIPMENT_VALUES)).max(EQUIPMENT_VALUES.length),
+  // Reported running complaints (optional Kraft setup step). Absent/empty =
+  // general runner default — no targeted or Achilles work.
+  complaints: z.array(z.enum(COMPLAINT_VALUES)).max(COMPLAINT_VALUES.length).optional(),
   active: z.boolean().optional().default(true),
   // Standalone block (only meaningful without a running plan to follow).
   blockWeeks: z.union([z.literal(8), z.literal(12), z.literal(16)]).nullish(),
@@ -70,6 +77,7 @@ export async function PUT(request: NextRequest) {
     const values = {
       ...rest,
       availableDays: [...new Set(data.availableDays)],
+      complaints: [...new Set(data.complaints ?? [])],
       blockWeeks: blockWeeks ?? null,
       // A block needs a start; default to today so the athlete's week 1 is
       // the week they set it up.

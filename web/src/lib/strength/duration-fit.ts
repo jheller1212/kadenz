@@ -12,13 +12,16 @@
 // array, and that block is exactly the work that must never be dropped.
 //
 //   1. Shrinking: drop whole "accessory" exercises first (isolation/finisher
-//      work), then reduce set counts on what's left — primary compound lifts
-//      before flexible Achilles work, and never the HSR-prescribed sets
-//      (those follow `hsrPrescriptionForWeek`, a rehab protocol, not a
-//      duration knob).
+//      work), then reduce set counts on what's left — primary compound lifts,
+//      then "targeted" complaint-specific work (see program.ts
+//      TARGETED_WORK), then flexible Achilles work — never the HSR-prescribed
+//      sets (those follow `hsrPrescriptionForWeek`, a rehab protocol, not a
+//      duration knob). "targeted" and "achilles" exercises are never dropped
+//      whole — a reported complaint or the tendon programme is the reason the
+//      session exists, not optional filler.
 //   2. Growing: add sets to primary lifts first, then accessories, then
-//      flexible Achilles work — never past a sane per-exercise cap, and never
-//      past the chosen budget itself.
+//      targeted work, then flexible Achilles work — never past a sane
+//      per-exercise cap, and never past the chosen budget itself.
 //
 // Pure and DB-free: takes/returns plain exercise-shaped records so it's
 // trivially unit-testable without touching session.ts's DB-aware wrapper.
@@ -27,7 +30,7 @@ import { estimateWorkoutDuration, type EstimatableSlot } from "./estimate";
 
 export interface DurationFitExercise extends EstimatableSlot {
   slug: string;
-  priority: "primary" | "accessory" | "achilles";
+  priority: "primary" | "accessory" | "achilles" | "targeted";
   /** True only for the week-based HSR calf raises — sets are never touched. */
   setsLocked: boolean;
 }
@@ -65,15 +68,21 @@ function lastAccessoryIndex(list: DurationFitExercise[]): number {
   return -1;
 }
 
-/** Index of a reducible exercise: primary before flexible Achilles work. */
+/**
+ * Index of a reducible exercise: primary lifts before targeted (complaint)
+ * work, before flexible Achilles work. Targeted work is protected the same
+ * way Achilles work is — never dropped whole (see lastAccessoryIndex above),
+ * only its set count flexes, and only once primary lifts are already at
+ * their floor.
+ */
 function reducibleIndex(list: DurationFitExercise[]): number {
-  const primaryIdx = list.findIndex(
-    (e) => e.priority === "primary" && !e.setsLocked && e.sets > MIN_SETS
-  );
-  if (primaryIdx !== -1) return primaryIdx;
-  return list.findIndex(
-    (e) => e.priority === "achilles" && !e.setsLocked && e.sets > MIN_SETS
-  );
+  for (const tier of ["primary", "targeted", "achilles"] as const) {
+    const idx = list.findIndex(
+      (e) => e.priority === tier && !e.setsLocked && e.sets > MIN_SETS
+    );
+    if (idx !== -1) return idx;
+  }
+  return -1;
 }
 
 /**
@@ -125,7 +134,7 @@ export function fitSessionToDuration<T extends DurationFitExercise>(
   // 2. Under the tolerance floor: grow sets — primary first, then
   // accessories still present, then flexible Achilles work — never past the
   // per-exercise cap and never past the budget itself.
-  const tiers: DurationFitExercise["priority"][] = ["primary", "accessory", "achilles"];
+  const tiers: DurationFitExercise["priority"][] = ["primary", "accessory", "targeted", "achilles"];
   for (const tier of tiers) {
     let progressed = true;
     while (estimate(list) < floorMinutes && progressed) {

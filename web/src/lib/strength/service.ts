@@ -17,10 +17,12 @@ import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
 import type { LifterProfile } from "./load-model";
 import type {
+  Complaint,
   ExerciseSessionHistory,
   StrengthSessionType,
   LoggedSet,
 } from "./types";
+import { STRENGTH_COMPLAINTS } from "./types";
 
 // ── Server-side helpers shared by the strength API routes ─────────────────────
 
@@ -150,6 +152,7 @@ export async function buildPlannedSession(
     painGate,
     ability: planSettings.ability,
     lifterProfile: planSettings.lifterProfile,
+    complaints: planSettings.complaints,
     targetDurationMinutes,
   });
   return { exercises, estimatedDurationMinutes: estimateSessionMinutes(exercises) };
@@ -177,12 +180,14 @@ export async function getPlanDurationMinutes(
 async function getPlanSettingsForLoads(profileId: string | null): Promise<{
   ability: "beginner" | "intermediate" | "advanced" | undefined;
   lifterProfile: LifterProfile | null;
+  complaints: Complaint[];
 }> {
   const [row] = await db
     .select({
       ability: strengthPlanSettings.ability,
       bodyweightKg: strengthPlanSettings.bodyweightKg,
       sex: strengthPlanSettings.sex,
+      complaints: strengthPlanSettings.complaints,
     })
     .from(strengthPlanSettings)
     .where(
@@ -197,11 +202,16 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
     row?.sex === "male" || row?.sex === "female" || row?.sex === "unspecified"
       ? row.sex
       : undefined;
+  const complaintSet = new Set<string>(STRENGTH_COMPLAINTS);
+  const complaints = (row?.complaints ?? []).filter((c): c is Complaint =>
+    complaintSet.has(c)
+  );
   return {
     ability,
     lifterProfile: row
       ? { bodyweightKg: row.bodyweightKg, sex, experience: ability }
       : null,
+    complaints,
   };
 }
 
