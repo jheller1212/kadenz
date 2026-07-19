@@ -96,3 +96,26 @@ export function computeTopUpPlacements(
   flush();
   return placements;
 }
+
+/**
+ * How many strength sessions a week should carry, given where it sits in the
+ * running plan. Strength supports the running, so it yields when running load
+ * peaks and disappears when it matters least to add fatigue.
+ *
+ *   base / build → full rotation (strength is the point of these weeks)
+ *   peak         → one fewer (running mileage is at its highest)
+ *   taper        → one fewer, floor 1 (keep the movement pattern, drop volume)
+ *   deload       → one fewer, floor 1
+ *   race week    → none
+ */
+export function weekBudgetFor(
+  info: { type: string; phase: string } | undefined,
+  rotationLength: number
+): number {
+  if (!info) return rotationLength;
+  if (info.type === "race") return 0;
+  if (info.type === "deload" || info.phase === "taper" || info.phase === "peak") {
+    return Math.max(1, rotationLength - 1);
+  }
+  return rotationLength;
+}

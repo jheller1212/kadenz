@@ -7,6 +7,7 @@ import { SESSION_TEMPLATES } from "./program";
 import type { PlacementDay } from "./schedule-place";
 import {
   computeTopUpPlacements,
+  weekBudgetFor,
   dateFromDayKey,
   isPrunable,
   weekKeyOf,
@@ -118,17 +119,8 @@ export async function ensureStrengthSchedule(profileId: string | null) {
       weekTypeByKey.set(weekKeyOf(dayKey(monday)), { type: w.type, phase: w.phase });
     }
   }
-  const weekBudget = (weekKey: string, rotationLength: number): number => {
-    const info = weekTypeByKey.get(weekKey);
-    if (!info) return rotationLength;
-    // Race week is for racing.
-    if (info.type === "race") return 0;
-    // Deload and taper: keep the habit, drop the volume.
-    if (info.type === "deload" || info.phase === "taper") {
-      return Math.max(1, rotationLength - 1);
-    }
-    return rotationLength;
-  };
+  const weekBudget = (weekKey: string, rotationLength: number): number =>
+    weekBudgetFor(weekTypeByKey.get(weekKey), rotationLength);
   // Query back to the Monday of the current week: sessions already done or
   // planned earlier this week must count against this week's cap even though
   // they sit before the top-up strip.
