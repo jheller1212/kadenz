@@ -147,6 +147,11 @@ export default function StrengthPage() {
   const [painError, setPainError] = useState<string | null>(null);
 
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
+  // Today's scheduled strength session(s), surfaced at the top of the picker so
+  // the planned workout is one tap away and manual types stay below it.
+  const [todaySessions, setTodaySessions] = useState<
+    Array<{ id: string; type: SessionType; title: string; status: string; targetDurationMinutes: number | null }>
+  >([]);
   // Saved in-progress guided session (accidental exits / reloads are resumable).
   const [resumeSnap, setResumeSnap] = useState<GuidedSnapshot | null>(null);
   const [resume, setResume] = useState<{
@@ -161,6 +166,25 @@ export default function StrengthPage() {
   useEffect(() => {
     if (phase === "picker") listWorkouts();
   }, [phase, listWorkouts]);
+
+  // Load today's scheduled strength sessions whenever we land on the picker.
+  useEffect(() => {
+    if (phase !== "picker") return;
+    let alive = true;
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date();
+    dayEnd.setHours(23, 59, 59, 999);
+    apiFetch(`/api/strength/sessions?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (alive) setTodaySessions(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [phase]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
@@ -220,11 +244,13 @@ export default function StrengthPage() {
     backToPicker();
   }
 
-  async function openSessionOverview(sessionId: string) {
+  // opts.deepLink: opened from a detail screen (Back → router.back()); the
+  // Kraft "today" card opens the same overview but Back returns to the picker.
+  async function openSessionOverview(sessionId: string, opts?: { deepLink?: boolean }) {
     setBusy(true);
     setError(null);
     setPhase("overview"); // show the overview shell immediately (loading, then filled)
-    fromDeepLinkRef.current = true;
+    fromDeepLinkRef.current = opts?.deepLink ?? false;
     try {
       adHocIdRef.current = null; // an existing planned session, never ad-hoc
       const detailRes = await apiFetch(`/api/strength/sessions/${sessionId}`);
@@ -254,7 +280,7 @@ export default function StrengthPage() {
     deepLinkRef.current = true;
     // Strip the param so a later back/refresh doesn't reopen this session.
     window.history.replaceState(null, "", "/strength");
-    openSessionOverview(sid);
+    openSessionOverview(sid, { deepLink: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -598,8 +624,51 @@ export default function StrengthPage() {
           </TransitionLink>
         } />
         <div className="px-4 pb-tabbar">
+          {(() => {
+            const todayPlanned = todaySessions.filter((s) => s.status === "planned");
+            return todayPlanned.length > 0 ? (
+              <div className="mb-5 mt-1">
+                <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                  Today
+                </p>
+                <div className="flex flex-col gap-3">
+                  {todayPlanned.map((s) => (
+                    <motion.button
+                      key={s.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => openSessionOverview(s.id)}
+                      whileTap={{ scale: busy ? 1 : 0.97 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                      style={{ touchAction: "manipulation" }}
+                      className="flex items-center gap-3 rounded-[var(--radius-card)] bg-accent/10 p-4 text-left ring-1 ring-accent/25 disabled:opacity-50"
+                    >
+                      <span
+                        className="h-11 w-1.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: TYPE_META[s.type]?.color ?? "var(--accent)" }}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[17px] font-bold text-text-1">
+                          {s.title || TYPE_META[s.type]?.title || "Strength"}
+                        </span>
+                        <span className="block text-[13px] text-text-3">
+                          {s.targetDurationMinutes ? `~${s.targetDurationMinutes} min · ` : ""}Scheduled for today
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-bold text-on-accent">
+                        Start
+                      </span>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          })()}
+
           <p className="text-[15px] text-text-2">
-            Select a workout or create a custom one to get started.
+            {todaySessions.some((s) => s.status === "planned")
+              ? "Or start another workout, or create a custom one."
+              : "Select a workout or create a custom one to get started."}
           </p>
 
           {error && (
