@@ -365,6 +365,10 @@ interface DayInfo {
   dayNum: number;
   isToday: boolean;
   workout: TodayApiWorkout | null;
+  // Every non-rest run on this day. `workout` stays the primary one for
+  // selection/stats; the strip renders a dot per entry so a double-run day
+  // (two sessions) doesn't silently drop the second.
+  workouts: TodayApiWorkout[];
 }
 
 function getMondayOfWeek(date: Date): Date {
@@ -387,12 +391,14 @@ function buildWeekDaysForDate(weekMonday: Date, allWorkouts: TodayApiWorkout[]):
       const d = new Date(wo.date);
       return d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
     });
-    const workout = dayRows.find((wo) => wo.type !== "rest") ?? dayRows[0] ?? null;
+    const runRows = dayRows.filter((wo) => wo.type !== "rest");
+    const workout = runRows[0] ?? dayRows[0] ?? null;
     return {
       date,
       dayNum: date.getDate(),
       isToday: date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear(),
       workout,
+      workouts: runRows,
     };
   });
 }
@@ -487,7 +493,6 @@ function CalendarStrip({
         const hasWorkout = day.workout && day.workout.type !== "rest";
         const strengthStatus = strengthDays[day.date.toDateString()];
         const completed = day.workout?.status === "completed";
-        const dotColor = day.workout?.type ? workoutDotColor[day.workout.type] : null;
         const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth() && day.date.getFullYear() === selectedDate.getFullYear();
         // Past planned (non-rest) workout that never got completed = missed
         const dayEnd = new Date(day.date);
@@ -519,18 +524,26 @@ function CalendarStrip({
                   }}
                 />
               )}
-              {hasWorkout && (
-                <div
-                  className="h-[7px] w-[7px] rounded-[2px]"
-                  style={{
-                    backgroundImage: missed || !day.workout
-                      ? "none"
-                      : workoutColor(day.workout.type).grad,
-                    backgroundColor: missed ? "var(--k-text-3)" : (dotColor ?? "var(--k-text-3)"),
-                    opacity: completed ? 1 : 0.85,
-                  }}
-                />
-              )}
+              {/* One dot per run this day — a double session shows two dots
+                  instead of silently dropping the second. */}
+              {(day.workouts.length > 0 ? day.workouts : hasWorkout && day.workout ? [day.workout] : [])
+                .filter((wo) => wo.type !== "rest")
+                .slice(0, 3)
+                .map((wo) => {
+                  const woDone = wo.status === "completed";
+                  const woMissed = !woDone && dayEnd.getTime() < Date.now() && !day.isToday;
+                  return (
+                    <div
+                      key={wo.id}
+                      className="h-[7px] w-[7px] rounded-[2px]"
+                      style={{
+                        backgroundImage: woMissed ? "none" : workoutColor(wo.type).grad,
+                        backgroundColor: woMissed ? "var(--k-text-3)" : (workoutDotColor[wo.type] ?? "var(--k-text-3)"),
+                        opacity: woDone ? 1 : 0.85,
+                      }}
+                    />
+                  );
+                })}
             </div>
           </button>
         );
