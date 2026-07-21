@@ -199,6 +199,7 @@ function EditWorkoutSheet({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed form fields when sheet opens
       setKm(workout.targetKm ?? null);
       setPaceOffset(0);
       setErr(null);
@@ -295,7 +296,7 @@ function EditWorkoutSheet({
 
         {!canEditDistance && (
           <p className="rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-[13px] text-text-3">
-            This session's distance comes from its intervals — adjust the pace instead.
+            This session&apos;s distance comes from its intervals — adjust the pace instead.
           </p>
         )}
 
@@ -420,6 +421,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data load, not a render cascade
     loadWorkout();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);

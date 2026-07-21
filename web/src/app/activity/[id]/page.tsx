@@ -1199,6 +1199,7 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data load, not a render cascade
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);

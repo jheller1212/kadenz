@@ -16,7 +16,9 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown>) {
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef<number | null>(null);
   const cb = useRef(onRefresh);
-  cb.current = onRefresh;
+  useEffect(() => {
+    cb.current = onRefresh;
+  });
 
   useEffect(() => {
     function onTouchStart(e: TouchEvent) {

@@ -177,6 +177,7 @@ function useWeather(selectedDate: Date | null) {
           parsed.daily &&
           Date.now() - (parsed.ts ?? 0) < WEATHER_SNAPSHOT_TTL_MS
         ) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init from storage
           setCache({ daily: parsed.daily, coords: parsed.coords, location: parsed.location });
           return;
         }
@@ -481,6 +482,8 @@ function CalendarStrip({
   onSwipeRight: () => void;
 }) {
   const touchStartX = useRef(0);
+  // Computed once at mount — "missed" only depends on the day already being in the past.
+  const [now] = useState(() => Date.now());
   function handleTouchStart(e: React.TouchEvent) { touchStartX.current = e.touches[0].clientX; }
   function handleTouchEnd(e: React.TouchEvent) {
     const diff = touchStartX.current - e.changedTouches[0].clientX;
@@ -497,7 +500,7 @@ function CalendarStrip({
         // Past planned (non-rest) workout that never got completed = missed
         const dayEnd = new Date(day.date);
         dayEnd.setHours(23, 59, 59, 999);
-        const missed = !!hasWorkout && !completed && dayEnd.getTime() < Date.now() && !day.isToday;
+        const missed = !!hasWorkout && !completed && dayEnd.getTime() < now && !day.isToday;
 
         return (
           <button key={i} onClick={() => onSelectDate(day)} className="press flex w-11 flex-col items-center gap-1 py-1">
@@ -742,6 +745,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
   const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(null);
   useEffect(() => {
     const cached = readCache<{ status: string; inBandPct: number | null }>("pace_verdict");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init from storage
     if (cached) setPace(cached);
     apiFetch("/api/pace-insights")
       .then((r) => (r.ok ? r.json() : null))
@@ -1019,6 +1023,7 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
   const router = useRouter();
   const [session, setSession] = useState<StrengthSessionLite | null>(initial);
   const [completing, setCompleting] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- resync local copy when parent sends new initial
   useEffect(() => { setSession(initial); }, [initial]);
 
   async function toggleComplete(e: React.MouseEvent) {
@@ -1468,6 +1473,7 @@ export default function Home() {
   useEffect(() => {
     const cached = readCache<TodayApiResponse>("today");
     if (cached?.activePlan) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only paint from cached snapshot
       applyToday(cached);
       const cachedAll = readCache<TodayApiWorkout[]>("today_all_workouts");
       if (cachedAll) setAllWorkouts(cachedAll);
@@ -1488,6 +1494,7 @@ export default function Home() {
     const baseDate = data?.weekWorkouts?.[0]?.date ? new Date(data.weekWorkouts[0].date) : new Date();
     const monday = getMondayOfWeek(baseDate);
     monday.setDate(monday.getDate() + weekOffset * 7);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- derived week strip; also set from loadData, kept in sync here
     setDays(buildWeekDaysForDate(monday, workouts));
   }, [weekOffset, allWorkouts, data]);
 
@@ -1730,6 +1737,7 @@ function CelebrationSheet({
   const [rpe, setRpe] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resync when workout prop changes
     setRpe(workout?.rpe ?? null);
   }, [workout]);
   if (!workout) return null;

@@ -79,7 +79,8 @@ export function WellnessCheckIn() {
       });
       if (res.ok) {
         haptic("light");
-        setSavedAt(Date.now());
+        // Only nullness matters (see `done`); a pure bump avoids Date.now() in render-reachable code.
+        setSavedAt((n) => (n ?? 0) + 1);
         // Let the readiness card (and anything else) recompute immediately.
         window.dispatchEvent(new Event("kadenz:wellness-saved"));
       } else {

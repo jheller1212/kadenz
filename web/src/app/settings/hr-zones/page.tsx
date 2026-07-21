@@ -47,6 +47,7 @@ export default function HrZonesPage() {
     const age = s.birthYear ? new Date().getFullYear() - s.birthYear : 35;
     const max = s.maxHrOverride ?? estimateMaxHr(age);
     const custom = !!(s.hrZoneBounds && s.hrZoneBounds.length === 4);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init from storage
     setBirthYear(s.birthYear ?? null);
     setMaxHr(max);
     setRestingHr(s.restingHr ?? null);
@@ -142,7 +143,7 @@ export default function HrZonesPage() {
       <div className="px-4">
         <p className="mt-2 text-[14px] leading-relaxed text-text-2">
           Heart rate zones indicate how much training load a run puts on your
-          body. By default they're estimated from your age — set your resting
+          body. By default they&apos;re estimated from your age — set your resting
           HR to refine the defaults with the heart-rate reserve (Karvonen)
           method, or adjust any boundary to match what you know from testing
           or your watch.

@@ -519,6 +519,7 @@ function RaceTimeSheet({
       ? existing.distance
       : options[0].value;
     const total = existing?.timeSeconds ?? 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed form fields when sheet opens
     setDistance(dist);
     setHours(Math.floor(total / 3600));
     setMinutes(Math.floor((total % 3600) / 60));
