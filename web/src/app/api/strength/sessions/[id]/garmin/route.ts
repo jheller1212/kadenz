@@ -64,16 +64,6 @@ export async function POST(
   };
 
   try {
-    // Confirm the Garmin session is actually usable before we try to write —
-    // a token that's up but unauthenticated should read as "reconnect", not
-    // a generic failure.
-    if (!(await garminClient.authOk())) {
-      return Response.json(
-        { error: "Garmin needs reconnecting before workouts can be sent." },
-        { status: 409 }
-      );
-    }
-
     if (session.garminWorkoutId) {
       // Update this session's existing watch workout in place (keeps its id,
       // avoids a duplicate) so the loads on the wrist match what was just set.

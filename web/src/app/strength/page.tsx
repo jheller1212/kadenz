@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -1002,6 +1002,34 @@ export default function StrengthPage() {
               <ChevronLeft className="h-5 w-5" strokeWidth={2.2} />
             </button>
           }
+          right={
+            garminConnected ? (
+              <button
+                type="button"
+                onClick={sendToWatch}
+                disabled={watchSend === "sending"}
+                aria-label={watchSend === "sent" ? "Sent to watch" : "Send to watch"}
+                title={watchSend === "sent" ? "Sent — start it on your watch" : "Send to watch"}
+                style={{ touchAction: "manipulation" }}
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors disabled:opacity-60 ${
+                  watchSend === "sent"
+                    ? "bg-accent text-on-accent"
+                    : watchSend === "error"
+                    ? "bg-danger/15 text-danger"
+                    : "bg-elevated text-text-1 active:bg-hairline"
+                }`}
+              >
+                {watchSend === "sent" ? (
+                  <Check className="h-[18px] w-[18px]" strokeWidth={2.6} />
+                ) : (
+                  <span className="relative flex items-center">
+                    <Watch className="h-[18px] w-[18px]" strokeWidth={2} />
+                    <ArrowUpRight className="-ml-1 -mt-2 h-3 w-3" strokeWidth={2.8} />
+                  </span>
+                )}
+              </button>
+            ) : undefined
+          }
         />
         <div className="px-4 pb-tabbar">
           <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
@@ -1101,39 +1129,10 @@ export default function StrengthPage() {
             </motion.button>
           </div>
 
-          <div className="mt-6 flex flex-col gap-2.5">
+          <div className="mt-6">
             <Button variant="primary" size="lg" full onClick={handleStart}>
               Start
             </Button>
-            {garminConnected && (
-              <button
-                type="button"
-                onClick={sendToWatch}
-                disabled={watchSend === "sending"}
-                style={{ touchAction: "manipulation" }}
-                className={`press flex items-center justify-center gap-2 rounded-[var(--radius-input)] py-3.5 text-[15px] font-semibold disabled:opacity-60 ${
-                  watchSend === "sent"
-                    ? "bg-accent/10 text-accent"
-                    : watchSend === "error"
-                    ? "bg-danger/10 text-danger"
-                    : "bg-elevated text-text-1"
-                }`}
-              >
-                <span className="relative flex items-center">
-                  <Watch className="h-[18px] w-[18px]" strokeWidth={2} />
-                  {watchSend !== "sent" && (
-                    <ArrowUpRight className="-ml-1 -mt-2 h-3.5 w-3.5" strokeWidth={2.6} />
-                  )}
-                </span>
-                {watchSend === "sending"
-                  ? "Sending…"
-                  : watchSend === "sent"
-                  ? "Sent to watch — start it there"
-                  : watchSend === "error"
-                  ? "Couldn't send — retry"
-                  : "Send to watch"}
-              </button>
-            )}
           </div>
         </div>
 
