@@ -207,28 +207,51 @@ def _schedule_workout(garmin_workout_id: int, date: str) -> dict[str, Any]:
 
 def _get_scheduled_workout_id(garmin_workout_id: int, date: str) -> int | None:
     """Find the schedule ID for a workout on a given date."""
-    for entry in _list_schedules(garmin_workout_id):
+    for entry in _list_schedules(garmin_workout_id, date):
         if entry.get("date") == date:
             return entry.get("scheduleId")
     return None
 
 
-def _list_schedules(garmin_workout_id: int) -> list[dict[str, Any]]:
+def _months_to_scan(*hint_dates: str | None) -> list[tuple[int, int]]:
+    """(year, month0) pairs to scan: a window around today plus around each
+    hint date's month, so a workout scheduled far from today is still found.
+    Months are 0-indexed, matching the calendar-service API."""
+    months: set[tuple[int, int]] = set()
+
+    def add_around(year: int, month1: int) -> None:  # month1 = 1-indexed
+        base = year * 12 + (month1 - 1)
+        for delta in (-1, 0, 1, 2):
+            months.add(divmod(base + delta, 12))
+
+    today = date_cls.today()
+    add_around(today.year, today.month)
+    for hint in hint_dates:
+        if not hint:
+            continue
+        try:
+            dt = date_cls.fromisoformat(hint[:10])
+        except (ValueError, TypeError):
+            continue
+        add_around(dt.year, dt.month)
+    return sorted(months)
+
+
+def _list_schedules(
+    garmin_workout_id: int, *hint_dates: str | None
+) -> list[dict[str, Any]]:
     """Every calendar entry Garmin holds for this workout, as {scheduleId, date}.
 
     Garmin has NO GET on /workout-service/schedule/{workoutId} — it 403s (that
     path is POST-only for scheduling). A workout's scheduled dates live in the
     calendar service instead, where each scheduled-workout item carries its
-    schedule id (the `id` field) and date. Scan a window around today (prev
-    month … +2) and return this workout's entries. Without this, scheduling
-    lookups always failed, so updates couldn't detect/prune stale dates and a
-    workout could sit on the wrong day (never appearing for today's session).
+    schedule id (the `id` field) and date. Scan a window around today AND around
+    each hint date (the reschedule target) so a workout scheduled far ahead is
+    still found. Without this, scheduling lookups always failed, so updates
+    couldn't detect/prune stale dates and a workout could sit on the wrong day.
     """
-    today = date_cls.today()
-    base = today.year * 12 + (today.month - 1)  # months are 0-indexed in the API
     entries: list[dict[str, Any]] = []
-    for delta in (-1, 0, 1, 2):
-        year, month0 = divmod(base + delta, 12)
+    for year, month0 in _months_to_scan(*hint_dates):
         try:
             cal = _garmin_call(
                 f"/calendar-service/year/{year}/month/{month0}", method="GET"
@@ -248,6 +271,34 @@ def _list_schedules(garmin_workout_id: int) -> list[dict[str, Any]]:
     return entries
 
 
+def _scheduled_dates_by_workout() -> dict[int, list[str]]:
+    """workoutId -> its scheduled dates, from ONE calendar-window scan.
+
+    Reconcile (list_workouts with_schedules) needs every workout's dates; doing
+    a per-workout lookup was an N-call fan-out. Scanning the window once and
+    bucketing by workoutId is O(months), not O(workouts x months).
+    """
+    by_id: dict[int, list[str]] = {}
+    for year, month0 in _months_to_scan():
+        try:
+            cal = _garmin_call(
+                f"/calendar-service/year/{year}/month/{month0}", method="GET"
+            )
+        except Exception as exc:
+            logger.warning("Calendar scan %s-%02d failed: %s", year, month0, exc)
+            continue
+        items = cal.get("calendarItems") if isinstance(cal, dict) else None
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
+            wid, dt = it.get("workoutId"), it.get("date")
+            if wid is not None and dt:
+                dates = by_id.setdefault(int(wid), [])
+                if dt not in dates:
+                    dates.append(dt)
+    return by_id
+
+
 def _prune_schedules(
     garmin_workout_id: int, keep_schedule_id: int | None, keep_date: str
 ) -> int:
@@ -263,7 +314,7 @@ def _prune_schedules(
     """
     removed = 0
     try:
-        entries = _list_schedules(garmin_workout_id)
+        entries = _list_schedules(garmin_workout_id, keep_date)
     except Exception as exc:
         logger.warning("Could not list schedules for workout %s: %s", garmin_workout_id, exc)
         return 0
@@ -490,6 +541,9 @@ def list_workouts(_auth: Auth, limit: int = 100, with_schedules: bool = False):
         raise HTTPException(status_code=502, detail=f"Garmin API error: {exc}")
 
     items = result if isinstance(result, list) else []
+    # One calendar-window scan for ALL workouts when dates are needed — reconcile
+    # matches ids only and skips this entirely (with_schedules=False).
+    schedule_map = _scheduled_dates_by_workout() if with_schedules else {}
     out = []
     for w in items:
         if not isinstance(w, dict):
@@ -497,16 +551,7 @@ def list_workouts(_auth: Auth, limit: int = 100, with_schedules: bool = False):
         workout_id = w.get("workoutId")
         if workout_id is None:
             continue
-        # One extra call per workout — only worth it when the caller needs
-        # dates. Reconcile just matches ids, so it skips this entirely.
-        scheduled: list[str] = []
-        if with_schedules:
-            try:
-                scheduled = [
-                    e.get("date") for e in _list_schedules(int(workout_id)) if e.get("date")
-                ]
-            except Exception:
-                scheduled = []
+        scheduled = schedule_map.get(int(workout_id), []) if with_schedules else []
         out.append(
             {
                 "garminWorkoutId": str(workout_id),
