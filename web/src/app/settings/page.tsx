@@ -26,6 +26,7 @@ import {
   Moon,
   Vibrate,
   Link2,
+  RefreshCw,
   Users,
   Camera,
   LogOut,
@@ -160,6 +161,7 @@ const PREFERENCE_ROWS = [
   { href: "/settings/theme", label: "Theme", icon: Moon },
   { href: "/settings/haptics", label: "Haptics", icon: Vibrate },
   { href: "/settings/apps", label: "Connected Apps", icon: Link2 },
+  { href: "/settings/sync", label: "Sync", icon: RefreshCw },
   { href: "/settings/household", label: "Household", icon: Users },
 ] as const;
 
