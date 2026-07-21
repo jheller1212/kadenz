@@ -357,9 +357,11 @@ def update_workout(workout_id: str, body: CreateWorkoutRequest, _auth: Auth):
         if existing is None:
             scheduled = _schedule_workout(int(workout_id), body.scheduled_date)
         removed = _prune_schedules(int(workout_id), existing, body.scheduled_date)
-    except GarminAuthError:
-        raise
     except Exception as exc:
+        # Best-effort: the content PUT already succeeded (a genuine auth failure
+        # would have 503'd there). Garmin's GET /workout-service/schedule/{id}
+        # returns 403 (POST-only) which _is_auth_error misreads as auth — that
+        # must not 503 a successful update, and skipping leaves no duplicate.
         logger.warning("Updated workout %s but rescheduling failed: %s", workout_id, exc)
 
     return {
@@ -397,9 +399,13 @@ def update_strength_workout(
         if existing is None:
             scheduled = _schedule_workout(int(workout_id), body.date)
         removed = _prune_schedules(int(workout_id), existing, body.date)
-    except GarminAuthError:
-        raise
     except Exception as exc:
+        # The content PUT above already succeeded (a genuine auth failure would
+        # have 503'd there), so scheduling is best-effort. Garmin returns 403 on
+        # GET /workout-service/schedule/{id} — it's POST-only — which
+        # _is_auth_error misreads as an auth error; that must NOT 503 an
+        # otherwise-successful update. Skipping the reschedule leaves the
+        # existing calendar entry intact, so no duplicate appears either.
         logger.warning("Updated strength workout %s but rescheduling failed: %s", workout_id, exc)
 
     return {
