@@ -110,7 +110,7 @@ class CreateStrengthWorkoutRequest(BaseModel):
 _SPORT_TYPE_MAP: dict[str, dict[str, Any]] = {
     "running": {"sportTypeId": 1, "sportTypeKey": "running"},
     "cycling": {"sportTypeId": 2, "sportTypeKey": "cycling"},
-    "swimming": {"sportTypeId": 5, "sportTypeKey": "lap_swimming"},
+    "swimming": {"sportTypeId": 4, "sportTypeKey": "lap_swimming"},
 }
 
 # Workout step type codes

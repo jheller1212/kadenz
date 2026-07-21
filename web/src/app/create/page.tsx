@@ -74,11 +74,9 @@ export default function CreatePlanPage() {
   const [hillyArea, setHillyArea] = useState(false);
 
   // Units display toggle (storage is always km)
-  const [useMiles, setUseMiles] = useState(false);
   useEffect(() => {
     const s = loadSettings();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
-    setUseMiles(s.units === "miles");
     setPaceLongRuns(s.paceTargetsLongRuns);
   }, []);
 
@@ -282,20 +280,6 @@ export default function CreatePlanPage() {
         progress={(stepIdx + 1) / STEPS.length}
         onBack={back}
         onClose={() => router.push("/")}
-        accessory={
-          <button
-            onClick={() => {
-              haptic("light");
-              const nextMiles = !useMiles;
-              setUseMiles(nextMiles);
-              saveSettings({ ...loadSettings(), units: nextMiles ? "miles" : "km" });
-            }}
-            className="press rounded-full bg-elevated px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-2"
-            aria-label={`Switch to ${useMiles ? "kilometers" : "miles"}`}
-          >
-            {useMiles ? "mi" : "km"}
-          </button>
-        }
       />
 
       <div className="flex-1 overflow-y-auto px-4 pb-32 pt-4">
