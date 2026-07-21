@@ -16,7 +16,7 @@ import logging
 import os
 import warnings
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, date as date_cls
 from typing import Annotated, Any
 
 from dotenv import load_dotenv
@@ -214,14 +214,38 @@ def _get_scheduled_workout_id(garmin_workout_id: int, date: str) -> int | None:
 
 
 def _list_schedules(garmin_workout_id: int) -> list[dict[str, Any]]:
-    """Every calendar entry Garmin holds for this workout."""
-    result = _garmin_call(
-        f"/workout-service/schedule/{garmin_workout_id}",
-        method="GET",
-    )
-    if not result or not isinstance(result, list):
-        return []
-    return [e for e in result if isinstance(e, dict)]
+    """Every calendar entry Garmin holds for this workout, as {scheduleId, date}.
+
+    Garmin has NO GET on /workout-service/schedule/{workoutId} — it 403s (that
+    path is POST-only for scheduling). A workout's scheduled dates live in the
+    calendar service instead, where each scheduled-workout item carries its
+    schedule id (the `id` field) and date. Scan a window around today (prev
+    month … +2) and return this workout's entries. Without this, scheduling
+    lookups always failed, so updates couldn't detect/prune stale dates and a
+    workout could sit on the wrong day (never appearing for today's session).
+    """
+    today = date_cls.today()
+    base = today.year * 12 + (today.month - 1)  # months are 0-indexed in the API
+    entries: list[dict[str, Any]] = []
+    for delta in (-1, 0, 1, 2):
+        year, month0 = divmod(base + delta, 12)
+        try:
+            cal = _garmin_call(
+                f"/calendar-service/year/{year}/month/{month0}", method="GET"
+            )
+        except Exception as exc:
+            logger.warning(
+                "Calendar scan %s-%02d failed for workout %s: %s",
+                year, month0, garmin_workout_id, exc,
+            )
+            continue
+        items = cal.get("calendarItems") if isinstance(cal, dict) else None
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
+            if it.get("workoutId") == garmin_workout_id and it.get("date") and it.get("id"):
+                entries.append({"scheduleId": it["id"], "date": it["date"]})
+    return entries
 
 
 def _prune_schedules(
