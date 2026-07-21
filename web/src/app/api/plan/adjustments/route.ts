@@ -3,6 +3,7 @@ import { z } from "zod";
 import { and, eq, gte, lt, lte, ne, inArray } from "drizzle-orm";
 import { db, plans, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
+import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 
 // ── Plan adjustments (Benchmark-style "adjustment tray") ─────────────────────────
@@ -190,7 +191,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fan out calendar updates for everything we touched (best-effort).
+    // Fan out to the watch (independent of GCal — self-gates on Garmin config)
+    // and to Google Calendar if connected, for everything we touched.
+    for (const id of touched) {
+      queueGarminWorkoutMove(id).catch((e) =>
+        console.error("Failed to queue Garmin workout update:", e)
+      );
+    }
     isConnected()
       .then((connected) => {
         if (!connected) return;

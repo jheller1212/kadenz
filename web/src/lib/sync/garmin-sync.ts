@@ -87,6 +87,7 @@ function startOfToday(): Date {
 export async function queueGarminWorkoutDeletes(
   items: Array<{ workoutId: string; garminWorkoutId: string }>
 ): Promise<void> {
+  if (!garminClient.isConfigured()) return;
   if (items.length === 0) return;
   for (const item of items) {
     await db
@@ -121,6 +122,7 @@ export async function queueGarminWorkoutDeletes(
  * call this freely. Pass a planId to scope to one plan; omit for all active.
  */
 export async function queueGarminWindowSync(planId?: string): Promise<number> {
+  if (!garminClient.isConfigured()) return 0;
   const now = new Date();
   const windowStart = new Date(now);
   windowStart.setHours(0, 0, 0, 0);
