@@ -480,6 +480,8 @@ function formatRaceTime(sec: number): string {
 }
 
 function EstimatedRaceTime({ plan }: { plan: GeneratedPlan }) {
+  // Computed once at mount — weeks-left doesn't need to tick live.
+  const [now] = useState(() => Date.now());
   if (!plan.vdot) return null;
   const distanceM = RACE_DISTANCES_M[plan.raceDistance];
   if (!distanceM) return null;
@@ -488,7 +490,7 @@ function EstimatedRaceTime({ plan }: { plan: GeneratedPlan }) {
   const slow = predicted * 1.03;
   const weeksLeft = Math.max(
     0,
-    Math.ceil((new Date(plan.raceDate).getTime() - Date.now()) / (7 * 24 * 3600 * 1000))
+    Math.ceil((new Date(plan.raceDate).getTime() - now) / (7 * 24 * 3600 * 1000))
   );
 
   return (

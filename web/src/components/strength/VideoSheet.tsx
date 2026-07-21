@@ -30,7 +30,7 @@ export function VideoSheet({ slug, title, onClose }: Props) {
           </div>
         )}
         <p className="mt-2 text-center text-[12px] text-text-3">
-          Timers keep running — close when you're ready.
+          Timers keep running — close when you&apos;re ready.
         </p>
       </div>
     </Sheet>

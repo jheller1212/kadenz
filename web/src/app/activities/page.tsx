@@ -756,6 +756,7 @@ export default function ActivitiesPage() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- async data load, not a render cascade
   useEffect(() => { refreshTrash(); }, [refreshTrash]);
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
 

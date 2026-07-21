@@ -21,6 +21,7 @@ export default function HouseholdPage() {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init from storage
     setActive(getActiveProfile());
     apiFetch("/api/profiles")
       .then((r) => (r.ok ? r.json() : []))

@@ -26,13 +26,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Non-blocking: the repo currently has pre-existing lint errors (new
-      # React 19 / eslint-config-next 16 hook rules). Surfaced in logs but not
-      # gating CI so it can be adopted without failing on day one. Flip to a
-      # required step once the existing lint debt is cleared.
+      # Blocking: the lint-error debt (React 19 / eslint-config-next 16 hook
+      # rules) is cleared. `eslint` exits non-zero on errors only — remaining
+      # warnings are surfaced in logs but do not gate CI.
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       # Blocking: `next build` does NOT fail on type errors in this setup, so
       # tsc is the only real type gate.

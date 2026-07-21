@@ -247,10 +247,10 @@ export default function StrengthPage() {
   }, [phase]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
     if (phase === "picker") {
       const snap = loadGuidedSnapshot();
       // A finished snapshot only guards queued writes — never offer to resume it.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init from storage
       setResumeSnap(snap && !snap.finishedAt ? snap : null);
     }
   }, [phase]);
@@ -340,6 +340,7 @@ export default function StrengthPage() {
     deepLinkRef.current = true;
     // Strip the param so a later back/refresh doesn't reopen this session.
     window.history.replaceState(null, "", "/strength");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only deep-link open, async load
     openSessionOverview(sid, { deepLink: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1203,6 +1204,33 @@ export default function StrengthPage() {
 
 const REST_PRESETS = [30, 60, 90];
 
+const stepBtn = "press flex h-10 w-10 items-center justify-center rounded-full bg-elevated";
+
+function Stepper({
+  label,
+  value,
+  unit,
+  onDelta,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  onDelta: (d: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-[13px] font-semibold text-text-2">{label}</span>
+      <div className="flex items-center gap-3">
+        <button type="button" aria-label={`Less ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(-1); }}>−</button>
+        <span className="min-w-[72px] text-center text-[17px] font-extrabold tabular-nums text-text-1">
+          {value}{unit && <span className="text-[12px] font-semibold text-text-3"> {unit}</span>}
+        </span>
+        <button type="button" aria-label={`More ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(1); }}>+</button>
+      </div>
+    </div>
+  );
+}
+
 function ExerciseEditor({
   exercise,
   onChange,
@@ -1212,32 +1240,6 @@ function ExerciseEditor({
   onChange: (patch: Partial<PlannedExercise>) => void;
   onDone: () => void;
 }) {
-  const stepBtn = "press flex h-10 w-10 items-center justify-center rounded-full bg-elevated";
-  function Stepper({
-    label,
-    value,
-    unit,
-    onDelta,
-  }: {
-    label: string;
-    value: string;
-    unit?: string;
-    onDelta: (d: number) => void;
-  }) {
-    return (
-      <div className="flex items-center justify-between">
-        <span className="text-[13px] font-semibold text-text-2">{label}</span>
-        <div className="flex items-center gap-3">
-          <button type="button" aria-label={`Less ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(-1); }}>−</button>
-          <span className="min-w-[72px] text-center text-[17px] font-extrabold tabular-nums text-text-1">
-            {value}{unit && <span className="text-[12px] font-semibold text-text-3"> {unit}</span>}
-          </span>
-          <button type="button" aria-label={`More ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(1); }}>+</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-4 px-4 pb-6">
       <p className="text-[15px] font-bold text-text-1">{exercise.name}</p>

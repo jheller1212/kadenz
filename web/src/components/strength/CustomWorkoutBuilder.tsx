@@ -96,6 +96,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
   // very first use (persisted afterwards, editable via the Equipment chip).
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed draft fields when sheet opens
       setName(initial?.name ?? "");
       setSlots(
         (initial?.slots ?? []).map((sl) => ({

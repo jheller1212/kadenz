@@ -118,6 +118,7 @@ export default function StrengthSetupPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState(false);
+  const [blockWeeks, setBlockWeeks] = useState<8 | 12 | 16>(12);
 
   // Prefill from saved settings when re-running the wizard — but never
   // clobber choices the user already started making.
@@ -151,7 +152,6 @@ export default function StrengthSetupPage() {
   // A standalone block only makes sense without a running plan to follow —
   // with a plan, strength already inherits its length, deloads and race week.
   const [hasRunningPlan, setHasRunningPlan] = useState<boolean | null>(null);
-  const [blockWeeks, setBlockWeeks] = useState<8 | 12 | 16>(12);
   useEffect(() => {
     let cancelled = false;
     apiFetch("/api/plans")
