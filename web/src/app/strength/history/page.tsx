@@ -7,6 +7,7 @@ import { NavBar } from "@/components/ui/NavBar";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
+import { displayWeight, weightUnitLabel } from "@/lib/units";
 
 interface Exercise {
   id: string;
@@ -128,7 +129,7 @@ export default function StrengthHistoryPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-bold text-text-1">{it.exercise.name}</p>
                     <p className="mt-0.5 text-[12px] text-text-3">
-                      {it.points.length} sessions · now {last} kg
+                      {it.points.length} sessions · now {displayWeight(last)} {weightUnitLabel()}
                       {it.exercise.category === "achilles" && it.pain.length > 0 ? " · pain tracked" : ""}
                     </p>
                   </div>

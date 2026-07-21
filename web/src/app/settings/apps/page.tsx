@@ -13,7 +13,7 @@ import { AlertCircle, Watch } from "lucide-react";
 // ── Integration connection rows (moved from /settings) ──────────────────────
 
 function StravaConnection() {
-  const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
+  const [status, setStatus] = useState<"loading" | "connected" | "disconnected" | "error">("loading");
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -21,9 +21,11 @@ function StravaConnection() {
 
   useEffect(() => {
     apiFetch("/api/integrations/strava/status")
-      .then((r) => r.json())
+      // A transient non-ok must not read as "disconnected" (that implies the
+      // user must reconnect); surface an honest "couldn't check" instead.
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("status"))))
       .then((d) => setStatus(d.connected ? "connected" : "disconnected"))
-      .catch(() => setStatus("disconnected"));
+      .catch(() => setStatus("error"));
   }, []);
 
   async function handleDisconnect() {
@@ -114,7 +116,7 @@ function StravaConnection() {
           <div className="min-w-0">
             <p className="text-[15px] font-medium text-text-1">Strava</p>
             <p className="truncate text-[13px] text-text-3">
-              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : "Auto-sync your activities"}
+              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : status === "error" ? "Couldn't reach the server" : "Auto-sync your activities"}
             </p>
           </div>
         </div>
@@ -131,6 +133,10 @@ function StravaConnection() {
           >
             Connect
           </a>
+        ) : status === "error" ? (
+          <span className="shrink-0 rounded-full bg-elevated px-2.5 py-1 text-[12px] font-semibold text-text-3">
+            Couldn&apos;t check
+          </span>
         ) : null}
       </div>
 
@@ -169,15 +175,15 @@ function StravaConnection() {
 }
 
 function GCalConnection() {
-  const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
+  const [status, setStatus] = useState<"loading" | "connected" | "disconnected" | "error">("loading");
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch("/api/integrations/gcal/status")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("status"))))
       .then((d) => setStatus(d.connected ? "connected" : "disconnected"))
-      .catch(() => setStatus("disconnected"));
+      .catch(() => setStatus("error"));
   }, []);
 
   async function handleDisconnect() {
@@ -207,7 +213,7 @@ function GCalConnection() {
           <div className="min-w-0">
             <p className="text-[15px] font-medium text-text-1">Google Calendar</p>
             <p className="truncate text-[13px] text-text-3">
-              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : "Sync workouts to your calendar"}
+              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : status === "error" ? "Couldn't reach the server" : "Sync workouts to your calendar"}
             </p>
           </div>
         </div>
@@ -224,6 +230,10 @@ function GCalConnection() {
           >
             Connect
           </a>
+        ) : status === "error" ? (
+          <span className="shrink-0 rounded-full bg-elevated px-2.5 py-1 text-[12px] font-semibold text-text-3">
+            Couldn&apos;t check
+          </span>
         ) : null}
       </div>
 
