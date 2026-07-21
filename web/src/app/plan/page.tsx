@@ -376,13 +376,9 @@ export default function PlanHubPage() {
           ))}
         </div>
 
-        {/* Strength */}
-        <section>
-          <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
-            Strength
-          </p>
-          <WeeklyStrengthPlan />
-        </section>
+        {/* Strength plan config lives in Manage Plan (the Strength tab), parallel
+            to the running plan — no duplicate setup card here. The scheduled
+            strength SESSIONS still appear inline in each week card below. */}
 
         {/* Week cards */}
         {plan.weeks.map((week) => (
