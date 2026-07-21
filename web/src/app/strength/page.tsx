@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays } from "lucide-react";
 import {
@@ -203,16 +204,33 @@ export default function StrengthPage() {
   // the feed): /strength?session=<id> jumps straight to THIS session's overview
   // — weights, reorder, then start guided — instead of the picker landing.
   const deepLinkRef = useRef(false);
+  const router = useRouter();
+  // True while the current overview was opened via deep-link, so its Back
+  // button returns to the detail screen we came from — not the Kraft picker.
+  const fromDeepLinkRef = useRef(false);
+
+  // Overview Back: to the detail screen when we deep-linked in, else the picker.
+  function overviewBack() {
+    if (fromDeepLinkRef.current) {
+      haptic("light");
+      fromDeepLinkRef.current = false;
+      router.back();
+      return;
+    }
+    backToPicker();
+  }
 
   async function openSessionOverview(sessionId: string) {
     setBusy(true);
     setError(null);
     setPhase("overview"); // show the overview shell immediately (loading, then filled)
+    fromDeepLinkRef.current = true;
     try {
       adHocIdRef.current = null; // an existing planned session, never ad-hoc
       const detailRes = await apiFetch(`/api/strength/sessions/${sessionId}`);
       if (!detailRes.ok) {
         setError("Couldn't load the session. Try again.");
+        fromDeepLinkRef.current = false;
         setPhase("picker");
         return;
       }
@@ -222,6 +240,7 @@ export default function StrengthPage() {
       setSortMode("custom");
     } catch {
       setError("Network error — couldn't load the session.");
+      fromDeepLinkRef.current = false;
       setPhase("picker");
     } finally {
       setBusy(false);
@@ -243,6 +262,7 @@ export default function StrengthPage() {
   async function pickType(type: SessionType) {
     setBusy(true);
     setError(null);
+    fromDeepLinkRef.current = false; // picker-started → Back returns to picker
     try {
       let sessionId: string | null = null;
       adHocIdRef.current = null;
@@ -332,6 +352,7 @@ export default function StrengthPage() {
   async function startCustomWorkout(template: CustomWorkoutTemplate) {
     setBusy(true);
     setError(null);
+    fromDeepLinkRef.current = false; // picker-started → Back returns to picker
     try {
       const res = await apiFetch("/api/strength/sessions", {
         method: "POST",
@@ -787,7 +808,7 @@ export default function StrengthPage() {
           left={
             <button
               type="button"
-              onClick={backToPicker}
+              onClick={overviewBack}
               aria-label="Back"
               style={{ touchAction: "manipulation" }}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-elevated text-text-1"
@@ -831,9 +852,10 @@ export default function StrengthPage() {
       (x, y) => MUSCLE_ORDER.indexOf(x[0]) - MUSCLE_ORDER.indexOf(y[0])
     );
     // Total time follows the current exercise list, not the stock template.
-    const liveEstimate = estimateWorkoutDuration(
-      exercises.map((e) => ({ sets: e.sets, repLow: e.repLow, repHigh: e.repHigh, restSeconds: e.restSeconds ?? 90 }))
-    );
+    // Pass the full exercises (never a stripped-down slot) so perSide accessories
+    // are counted the same way the detail screen and scheduler count them —
+    // dropping perSide here is what made this read 37 min for a 44 min session.
+    const liveEstimate = estimateWorkoutDuration(exercises);
 
     return (
       <main className="min-h-dvh bg-bg">
@@ -843,7 +865,7 @@ export default function StrengthPage() {
           left={
             <button
               type="button"
-              onClick={backToPicker}
+              onClick={overviewBack}
               aria-label="Back"
               style={{ touchAction: "manipulation" }}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-elevated text-text-1"

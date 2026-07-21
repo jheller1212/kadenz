@@ -4,10 +4,14 @@ export interface EstimatableSlot {
   sets: number;
   repLow: number;
   repHigh: number;
-  restSeconds: number;
+  /** Rest between sets; defaults to 90s when omitted so no caller needs to
+   *  re-map/default it (dropping fields is how estimates used to diverge). */
+  restSeconds?: number;
   /** Loaded per hand/leg — done sequentially, so it doubles the time cost. */
   perSide?: boolean;
 }
+
+const DEFAULT_REST_SECONDS = 90;
 
 // Simple heuristic: ~2 s per rep, plus 15 s setup per set, plus rest between sets.
 // perSide work (e.g. single-leg RDL, one-arm row) is performed on each side in
@@ -21,9 +25,10 @@ export function estimateWorkoutDuration(slots: EstimatableSlot[]): number {
     const effectiveSets = slot.perSide ? slot.sets * 2 : slot.sets;
     const avgReps = Math.ceil((slot.repLow + slot.repHigh) / 2);
     const secondsPerSet = 15 + avgReps * 2;
+    const rest = slot.restSeconds ?? DEFAULT_REST_SECONDS;
     totalSeconds +=
       secondsPerSet * effectiveSets +
-      slot.restSeconds * Math.max(0, effectiveSets - 1);
+      rest * Math.max(0, effectiveSets - 1);
   }
 
   return Math.ceil(totalSeconds / 60);
