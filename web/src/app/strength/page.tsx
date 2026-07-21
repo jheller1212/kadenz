@@ -199,6 +199,46 @@ export default function StrengthPage() {
   // so abandoned picker taps don't linger as phantom "missed" sessions.
   const adHocIdRef = useRef<string | null>(null);
 
+  // Deep-link from a session detail screen's "Start session" (Today, the plan,
+  // the feed): /strength?session=<id> jumps straight to THIS session's overview
+  // — weights, reorder, then start guided — instead of the picker landing.
+  const deepLinkRef = useRef(false);
+
+  async function openSessionOverview(sessionId: string) {
+    setBusy(true);
+    setError(null);
+    setPhase("overview"); // show the overview shell immediately (loading, then filled)
+    try {
+      adHocIdRef.current = null; // an existing planned session, never ad-hoc
+      const detailRes = await apiFetch(`/api/strength/sessions/${sessionId}`);
+      if (!detailRes.ok) {
+        setError("Couldn't load the session. Try again.");
+        setPhase("picker");
+        return;
+      }
+      const detail: SessionDetail = await detailRes.json();
+      setSession(detail);
+      setExercises(detail.plannedExercises);
+      setSortMode("custom");
+    } catch {
+      setError("Network error — couldn't load the session.");
+      setPhase("picker");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (deepLinkRef.current) return;
+    const sid = new URLSearchParams(window.location.search).get("session");
+    if (!sid) return;
+    deepLinkRef.current = true;
+    // Strip the param so a later back/refresh doesn't reopen this session.
+    window.history.replaceState(null, "", "/strength");
+    openSessionOverview(sid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Picker → adopt today's planned session of this type, or create one ──────
   async function pickType(type: SessionType) {
     setBusy(true);
@@ -736,6 +776,41 @@ export default function StrengthPage() {
   }
 
   // ── Phase 2: Overview (editable, no clock) ───────────────────────────────────
+  // Deep-link overview while the session detail is still loading — show the
+  // overview chrome (never a flash of the picker) with a light placeholder.
+  if (phase === "overview" && !session) {
+    return (
+      <main className="min-h-dvh bg-bg">
+        <NavBar
+          title=""
+          large={false}
+          left={
+            <button
+              type="button"
+              onClick={backToPicker}
+              aria-label="Back"
+              style={{ touchAction: "manipulation" }}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-elevated text-text-1"
+            >
+              <ChevronLeft className="h-5 w-5" strokeWidth={2.2} />
+            </button>
+          }
+        />
+        <div className="px-4 pb-tabbar">
+          <div className="h-7 w-40 animate-pulse rounded-md bg-elevated" />
+          <div className="mt-2 h-4 w-28 animate-pulse rounded-md bg-elevated" />
+          <div className="mt-5 space-y-2.5">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-16 animate-pulse rounded-[var(--radius-input)] bg-elevated" />
+            ))}
+          </div>
+          {error && <p className="mt-4 text-[13px] font-medium text-danger">{error}</p>}
+        </div>
+        <BottomNav active="strength" />
+      </main>
+    );
+  }
+
   if (phase === "overview" && session) {
     const addable = catalog.filter(
       (r) =>

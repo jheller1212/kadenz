@@ -367,7 +367,9 @@ export default function StrengthSessionPage({
               size="lg"
               onClick={() => {
                 haptic("medium");
-                router.push("/strength");
+                // Deep-link straight into THIS session's overview (weights,
+                // reorder, then start guided) — not the Kraft picker landing.
+                router.push(`/strength?session=${id}`);
               }}
             >
               <span className="flex items-center justify-center gap-2">
