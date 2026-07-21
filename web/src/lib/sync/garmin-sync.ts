@@ -10,7 +10,7 @@ import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims } from "./sync-manager";
 import { rowsNeedingRepush } from "./garmin-heal";
-import { buildPlannedSession } from "@/lib/strength/service";
+import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
@@ -488,11 +488,17 @@ async function processGarminStrengthJob(
   // the watch shows the loads the athlete is actually meant to lift today —
   // reshaped to the chosen session length so a 30-min day doesn't push a
   // 50-min plan to the wrist.
+  // Fit to the athlete's Kraft length SETTING, not the stored estimate — see
+  // the sessions/[id] route: feeding targetDurationMinutes back as the fit
+  // target shrinks the session on each pass.
+  const fitMinutes = isCustom
+    ? undefined
+    : (await getPlanDurationMinutes(row.profileId)) ?? undefined;
   const { exercises: planned, estimatedDurationMinutes } = await buildPlannedSession(
     type,
     row.date,
     row.profileId,
-    isCustom ? undefined : row.targetDurationMinutes ?? undefined
+    fitMinutes
   );
   if (!isCustom && row.targetDurationMinutes !== estimatedDurationMinutes) {
     await db
