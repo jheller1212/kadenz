@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -152,6 +152,10 @@ export default function StrengthPage() {
   const [todaySessions, setTodaySessions] = useState<
     Array<{ id: string; type: SessionType; title: string; status: string; targetDurationMinutes: number | null }>
   >([]);
+  // "Send to watch": only offered when Garmin is actually usable. watchSend
+  // tracks the button's state for the current exercise setup.
+  const [garminConnected, setGarminConnected] = useState(false);
+  const [watchSend, setWatchSend] = useState<"idle" | "sending" | "sent" | "error">("idle");
   // Saved in-progress guided session (accidental exits / reloads are resumable).
   const [resumeSnap, setResumeSnap] = useState<GuidedSnapshot | null>(null);
   const [resume, setResume] = useState<{
@@ -166,6 +170,62 @@ export default function StrengthPage() {
   useEffect(() => {
     if (phase === "picker") listWorkouts();
   }, [phase, listWorkouts]);
+
+  // Is the watch connected? Decides whether "Send to watch" is offered.
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/api/garmin/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (alive && s) setGarminConnected(Boolean(s.authenticated));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Any change to the exercise setup invalidates a prior "sent to watch" — the
+  // wrist would be stale — so reset the button so the athlete can re-send.
+  const exerciseSignature = exercises
+    .map((e) => `${e.slug}:${e.sets}:${e.repLow}:${e.suggestedWeightKg}`)
+    .join("|");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting UI state on setup change
+    setWatchSend("idle");
+  }, [exerciseSignature]);
+
+  async function sendToWatch() {
+    if (!session || watchSend === "sending") return;
+    haptic("medium");
+    setWatchSend("sending");
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${session.id}/garmin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exercises: exercises.map((e) => ({
+            name: e.name,
+            category: e.category,
+            sets: e.sets,
+            // Garmin takes a single rep target; the low end is the honest floor.
+            reps: e.repLow,
+            weightKg: e.suggestedWeightKg ?? e.lastWeightKg ?? null,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        setWatchSend("error");
+        haptic("warning");
+        return;
+      }
+      setWatchSend("sent");
+      haptic("success");
+    } catch {
+      setWatchSend("error");
+      haptic("warning");
+    }
+  }
 
   // Load today's scheduled strength sessions whenever we land on the picker.
   useEffect(() => {
@@ -1041,10 +1101,39 @@ export default function StrengthPage() {
             </motion.button>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 flex flex-col gap-2.5">
             <Button variant="primary" size="lg" full onClick={handleStart}>
               Start
             </Button>
+            {garminConnected && (
+              <button
+                type="button"
+                onClick={sendToWatch}
+                disabled={watchSend === "sending"}
+                style={{ touchAction: "manipulation" }}
+                className={`press flex items-center justify-center gap-2 rounded-[var(--radius-input)] py-3.5 text-[15px] font-semibold disabled:opacity-60 ${
+                  watchSend === "sent"
+                    ? "bg-accent/10 text-accent"
+                    : watchSend === "error"
+                    ? "bg-danger/10 text-danger"
+                    : "bg-elevated text-text-1"
+                }`}
+              >
+                <span className="relative flex items-center">
+                  <Watch className="h-[18px] w-[18px]" strokeWidth={2} />
+                  {watchSend !== "sent" && (
+                    <ArrowUpRight className="-ml-1 -mt-2 h-3.5 w-3.5" strokeWidth={2.6} />
+                  )}
+                </span>
+                {watchSend === "sending"
+                  ? "Sending…"
+                  : watchSend === "sent"
+                  ? "Sent to watch — start it there"
+                  : watchSend === "error"
+                  ? "Couldn't send — retry"
+                  : "Send to watch"}
+              </button>
+            )}
           </div>
         </div>
 
