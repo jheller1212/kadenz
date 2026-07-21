@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { db, strengthSessions } from "@/db";
+import { db, strengthSessions, plans } from "@/db";
 import { garminClient } from "@/lib/sync/garmin-client";
+import { garminLabel, planWeekNumber } from "@/lib/sync/garmin-label";
 
 // ── POST /api/strength/sessions/[id]/garmin ───────────────────────────────────
 // Push THIS session to the watch with the exact exercises the athlete just set
@@ -47,6 +48,7 @@ export async function POST(
       id: strengthSessions.id,
       title: strengthSessions.title,
       date: strengthSessions.date,
+      targetDurationMinutes: strengthSessions.targetDurationMinutes,
       garminWorkoutId: strengthSessions.garminWorkoutId,
     })
     .from(strengthSessions)
@@ -56,9 +58,21 @@ export async function POST(
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
 
+  // Same "W3 · Upper — Kraft · 30 min" label the background sync uses, so a
+  // manual send and an auto-sync produce the identical Garmin name (and update
+  // the same workout in place — no duplicate).
+  const [activePlan] = await db
+    .select({ startDate: plans.startDate })
+    .from(plans)
+    .where(eq(plans.status, "active"))
+    .limit(1);
+
   const workout = {
     sessionId: session.id,
-    title: session.title,
+    title: garminLabel(session.title, {
+      weekNumber: activePlan ? planWeekNumber(session.date, activePlan.startDate) : null,
+      metric: session.targetDurationMinutes ? `${session.targetDurationMinutes} min` : null,
+    }),
     date: session.date,
     exercises: body.exercises,
   };

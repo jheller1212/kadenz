@@ -11,6 +11,7 @@ import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims } from "./sync-manager";
 import { rowsNeedingRepush } from "./garmin-heal";
 import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
+import { garminLabel, planWeekNumber } from "./garmin-label";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
@@ -408,7 +409,10 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
 
   const row = await db.query.workouts.findFirst({
     where: (w, { eq }) => eq(w.id, workoutId),
-    with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+    with: {
+      blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
+      week: { columns: { weekNumber: true } },
+    },
   });
   if (!row) throw new Error(`Workout ${workoutId} not found`);
   // Rest days and already-completed workouts never go to the watch.
@@ -417,7 +421,8 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
   const scheduledDate = toGarminDate(row.date);
 
   const input = {
-    title: row.title,
+    // "W3 · Easy Run 10km" — week-prefixed so the watch list is unambiguous.
+    title: garminLabel(row.title, { weekNumber: row.week?.weekNumber ?? null }),
     description: row.description,
     scheduledDate,
     blocks: row.blocks.map((b) => ({
@@ -517,9 +522,23 @@ async function processGarminStrengthJob(
   }));
   if (exercises.length === 0) return;
 
+  // Week-prefix + duration so the watch list reads like the plan:
+  // "W3 · Upper — Kraft · 30 min". Week comes from the active running plan the
+  // strength schedule follows; standalone blocks (no plan) just omit it.
+  const [activePlan] = await db
+    .select({ startDate: plans.startDate })
+    .from(plans)
+    .where(eq(plans.status, "active"))
+    .limit(1);
+  const durationMin = isCustom
+    ? row.targetDurationMinutes
+    : estimatedDurationMinutes;
   const workout = {
     sessionId: row.id,
-    title: row.title,
+    title: garminLabel(row.title, {
+      weekNumber: activePlan ? planWeekNumber(row.date, activePlan.startDate) : null,
+      metric: durationMin ? `${durationMin} min` : null,
+    }),
     date: row.date,
     exercises,
   };
