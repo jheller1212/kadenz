@@ -108,6 +108,10 @@ interface WeatherCache {
 
 const LOCATION_CACHE_KEY = "kadenz_weather_location";
 const LOCATION_REFRESH_MS = 7 * 24 * 3600_000; // silent IP refresh cadence
+// Full forecast snapshot cache: the daily forecast barely moves within an hour,
+// so re-hitting open-meteo + reverse-geocode on every mount was pure waste.
+const WEATHER_SNAPSHOT_KEY = "kadenz_weather_snapshot";
+const WEATHER_SNAPSHOT_TTL_MS = 10 * 60_000; // 10 minutes
 
 /** Local calendar date (YYYY-MM-DD) — the forecast API keys days locally. */
 function localDateKey(d: Date): string {
@@ -149,11 +153,35 @@ function useWeather(selectedDate: Date | null) {
             }
           }
           setCache({ daily, coords: { lat, lon }, location: loc });
+          try {
+            localStorage.setItem(
+              WEATHER_SNAPSHOT_KEY,
+              JSON.stringify({ daily, coords: { lat, lon }, location: loc, ts: Date.now() })
+            );
+          } catch { /* storage unavailable */ }
         })
         .catch(() => {});
     }
 
     if (cache.coords) return; // already fetched
+
+    // Serve a recent snapshot instantly and skip the network entirely — the
+    // forecast doesn't meaningfully change within 10 minutes, and this stops
+    // the every-mount refetch. A background refresh still runs once it expires.
+    try {
+      const snap = localStorage.getItem(WEATHER_SNAPSHOT_KEY);
+      if (snap) {
+        const parsed = JSON.parse(snap) as WeatherCache & { ts?: number };
+        if (
+          parsed.coords &&
+          parsed.daily &&
+          Date.now() - (parsed.ts ?? 0) < WEATHER_SNAPSHOT_TTL_MS
+        ) {
+          setCache({ daily: parsed.daily, coords: parsed.coords, location: parsed.location });
+          return;
+        }
+      }
+    } catch { /* corrupt/unavailable — fall through to a live fetch */ }
 
     function resolveLocation(lat: number, lon: number, persist = false) {
       if (persist) {
