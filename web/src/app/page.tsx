@@ -1022,7 +1022,7 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
             <p className="mt-0.5 text-xs text-text-3">
               {new Date(session.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
               {session.targetDurationMinutes
-                ? ` · ${Math.max(5, session.targetDurationMinutes - 5)}m - ${session.targetDurationMinutes + 5}m`
+                ? ` · ~${session.targetDurationMinutes} min`
                 : ""}
             </p>
             <p className="mt-1.5 text-sm font-semibold text-text-2">Strength</p>
