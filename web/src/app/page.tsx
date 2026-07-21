@@ -1247,7 +1247,9 @@ export default function Home() {
   const weather = useWeather(selectedDate);
 
   const applyToday = useCallback((json: TodayApiResponse, opts?: { keepSelection?: boolean }) => {
-    setData(json);
+    // Skip the whole cascade when a heartbeat returns identical data — setData
+    // with a new object re-renders the entire (large) Home tree otherwise.
+    setData((prev) => (prev && JSON.stringify(prev) === JSON.stringify(json) ? prev : json));
     if (json.activePlan && json.weekWorkouts && json.weekWorkouts.length > 0) {
       // Use the first workout's date to determine which week to show
       // (handles fallback when plan starts in a future week)
@@ -1275,7 +1277,7 @@ export default function Home() {
     }
   }, []);
 
-  const loadData = useCallback(async (opts?: { silent?: boolean }) => {
+  const loadData = useCallback(async (opts?: { silent?: boolean; withPlan?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setLoadError(false);
     try {
@@ -1285,13 +1287,19 @@ export default function Home() {
       applyToday(json, { keepSelection: opts?.silent });
       writeCache("today", json);
 
-      if (json.activePlan && json.planId) {
+      // The full nested plan (every week + workout + block) is heavy and rarely
+      // changes, so a 60s heartbeat must NOT refetch it — only a foreground
+      // load or an explicit change (mutation, plan adjustment) does. It's what
+      // powers browsing to other weeks; today's own workouts are in /api/today.
+      if (json.activePlan && json.planId && opts?.withPlan !== false) {
         const planRes = await apiFetch(`/api/plans/${json.planId}`);
         if (planRes.ok) {
           const plan = await planRes.json();
           const wo: TodayApiWorkout[] = [];
           for (const week of plan.weeks ?? []) for (const w of week.workouts ?? []) wo.push(w);
-          setAllWorkouts(wo);
+          setAllWorkouts((prev) =>
+            JSON.stringify(prev) === JSON.stringify(wo) ? prev : wo
+          );
           writeCache("today_all_workouts", wo);
         }
       }
@@ -1385,12 +1393,18 @@ export default function Home() {
     });
   }, []);
 
-  // Live updates: refetch silently when the app regains focus and on a slow
-  // interval while visible — webhook-synced Strava activities appear without
-  // a manual reload.
+  // Live updates: refetch silently on focus and on a slow interval while
+  // visible, so webhook-synced activities appear without a manual reload.
+  // Heartbeats are today-only (no heavy plan refetch) and throttled — focus
+  // and visibilitychange both fire on a tab return, which used to double it.
+  const lastRefresh = useRef(0);
   useEffect(() => {
     function refresh() {
-      if (document.visibilityState === "visible") loadData({ silent: true });
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefresh.current < 30_000) return;
+      lastRefresh.current = now;
+      loadData({ silent: true, withPlan: false });
     }
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
