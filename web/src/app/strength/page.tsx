@@ -23,13 +23,25 @@ import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
-import GuidedSession, {
-  unlockGuidedAudio,
-  type GuidedFinishSummary,
-  type PlannedExercise,
-  type SessionType,
+import dynamic from "next/dynamic";
+import { unlockGuidedAudio } from "@/lib/strength/guided-audio";
+import type {
+  GuidedFinishSummary,
+  PlannedExercise,
+  SessionType,
 } from "@/components/strength/GuidedSession";
-import { CustomWorkoutBuilder } from "@/components/strength/CustomWorkoutBuilder";
+// Heavy, full-screen surfaces only reached deep in the flow — load them on
+// demand so the strength landing bundle stays small.
+const GuidedSession = dynamic(() => import("@/components/strength/GuidedSession"), {
+  ssr: false,
+});
+const CustomWorkoutBuilder = dynamic(
+  () =>
+    import("@/components/strength/CustomWorkoutBuilder").then(
+      (m) => m.CustomWorkoutBuilder
+    ),
+  { ssr: false }
+);
 import { SortableItem } from "@/components/strength/SortableItem";
 import { SortChips } from "@/components/strength/SortChips";
 import { sortExerciseList, type ExerciseSortMode } from "@/lib/strength/sort";

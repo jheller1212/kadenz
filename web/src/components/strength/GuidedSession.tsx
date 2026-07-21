@@ -19,6 +19,8 @@ import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
 import { mutateWithQueue, queuedCountFor, dropQueuedFor, flushQueue } from "@/lib/offline-queue";
 import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
+import { getAudioCtx, unlockGuidedAudio } from "@/lib/strength/guided-audio";
+export { unlockGuidedAudio };
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
@@ -92,40 +94,6 @@ const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max
 // ── Audio (Web Speech + a tiny Web Audio beep), both best-effort ──────────────
 // iOS gates both behind a user gesture, so `unlockGuidedAudio` must be called
 // synchronously from the Start button's onClick before this component mounts.
-
-let sharedAudioCtx: AudioContext | null = null;
-function getAudioCtx(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AC) return null;
-  if (!sharedAudioCtx) {
-    try {
-      sharedAudioCtx = new AC();
-    } catch {
-      return null;
-    }
-  }
-  return sharedAudioCtx;
-}
-
-export function unlockGuidedAudio() {
-  const s = loadSettings();
-  try {
-    if (s.kraftAudio && s.kraftVoice && CUE_VOLUME_GAIN[s.cueVolume] > 0 && typeof window !== "undefined" && "speechSynthesis" in window) {
-      const u = new SpeechSynthesisUtterance("Let's go");
-      u.volume = CUE_VOLUME_GAIN[s.cueVolume];
-      window.speechSynthesis.speak(u);
-    }
-  } catch {
-    /* best-effort */
-  }
-  try {
-    const ctx = getAudioCtx();
-    if (ctx && ctx.state === "suspended") ctx.resume();
-  } catch {
-    /* best-effort */
-  }
-}
 
 function Stepper({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
