@@ -5,6 +5,7 @@ import { queueGarminStrengthDelete } from "@/lib/sync/garmin-sync";
 import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
+import { buildPlannedSession } from "./service";
 import type { PlacementDay } from "./schedule-place";
 import {
   computeTopUpPlacements,
@@ -207,6 +208,25 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     weekBudget
   );
 
+  // Store the plan's REAL fitted estimate — not the nominal chosen length — so
+  // Today/Kraft show the same duration the session actually is (a 45-min
+  // setting whose fit only fills ~33 min must read 33, not 45). The duration
+  // varies only by session type here, so memoise one build per type instead of
+  // one per placement (a full plan can be 100+ sessions).
+  const durationByType = new Map<StrengthSessionType, number>();
+  async function estimatedMinutesFor(type: StrengthSessionType, date: Date): Promise<number> {
+    const cached = durationByType.get(type);
+    if (cached != null) return cached;
+    const { estimatedDurationMinutes } = await buildPlannedSession(
+      type,
+      date,
+      profileId,
+      settings.durationMinutes
+    );
+    durationByType.set(type, estimatedDurationMinutes);
+    return estimatedDurationMinutes;
+  }
+
   let created = 0;
   for (const placement of placements) {
     const day = strip.find((d) => d.key === placement.key)!;
@@ -220,7 +240,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
         type: placement.type,
         title: template.title,
         status: "planned",
-        targetDurationMinutes: settings.durationMinutes,
+        targetDurationMinutes: await estimatedMinutesFor(placement.type, day.date),
         autoScheduled: true,
       })
       .onConflictDoNothing()
@@ -230,6 +250,42 @@ export async function ensureStrengthSchedule(profileId: string | null) {
       if (gcal) {
         queueStrengthSessionSync(row.id, "create", "gcal").catch(() => {});
       }
+    }
+  }
+
+  // Heal existing near-term auto sessions whose stored duration predates this
+  // estimate (created before this fix, or after a settings/estimator change),
+  // so the Today and week views stop showing a stale number. Bounded to the
+  // next 4 weeks — the range those screens actually display — and the estimate
+  // is memoised, so this is a handful of reads plus updates only where changed.
+  const healEnd = new Date(anchor);
+  healEnd.setUTCDate(healEnd.getUTCDate() + 28);
+  const nearTerm = await db
+    .select({
+      id: strengthSessions.id,
+      type: strengthSessions.type,
+      date: strengthSessions.date,
+      targetDurationMinutes: strengthSessions.targetDurationMinutes,
+    })
+    .from(strengthSessions)
+    .where(
+      and(
+        profileId
+          ? eq(strengthSessions.profileId, profileId)
+          : isNull(strengthSessions.profileId),
+        eq(strengthSessions.status, "planned"),
+        eq(strengthSessions.autoScheduled, true),
+        gte(strengthSessions.date, anchor),
+        lte(strengthSessions.date, healEnd)
+      )
+    );
+  for (const s of nearTerm) {
+    const est = await estimatedMinutesFor(s.type as StrengthSessionType, s.date);
+    if (s.targetDurationMinutes !== est) {
+      await db
+        .update(strengthSessions)
+        .set({ targetDurationMinutes: est })
+        .where(eq(strengthSessions.id, s.id));
     }
   }
 

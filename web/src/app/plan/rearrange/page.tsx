@@ -367,8 +367,8 @@ function StrengthCard({
           <Dumbbell className="h-3 w-3 shrink-0" strokeWidth={2} />
           <span>
             {session.targetDurationMinutes
-              ? `${Math.max(5, session.targetDurationMinutes - 5)}m – ${session.targetDurationMinutes + 5}m`
-              : "25m – 35m"}
+              ? `~${session.targetDurationMinutes} min`
+              : "~30 min"}
           </span>
         </span>
       </span>
