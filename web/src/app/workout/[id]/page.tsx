@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
-import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
+import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel } from "@/lib/units";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
 import { Radio } from "lucide-react";
@@ -124,13 +124,6 @@ function getCoachingTip(type: string, targetKm?: number | null, maxPace?: number
     default:
       return "Run at the prescribed effort level and listen to your body.";
   }
-}
-
-// ── Pace to speed conversion (for treadmill) ────────────────────────────────
-
-function paceToSpeed(secPerKm: number): string {
-  const kmPerHour = 3600 / secPerKm;
-  return kmPerHour.toFixed(1);
 }
 
 // ── Options sheet ────────────────────────────────────────────────────────────
@@ -728,7 +721,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                             const unit = paceUnitLabel(settings.units);
                             return <span className="font-normal text-text-2">
                               {mode === "treadmill"
-                                ? ` — no faster than ${paceToSpeed(block.minPaceSecKm)} km/h`
+                                ? ` — no faster than ${displaySpeed(block.minPaceSecKm, settings.units).toFixed(1)} ${speedUnitLabel(settings.units)}`
                                 : ` — no faster than ${formatPace(block.minPaceSecKm, useMiles)}${unit}`
                               }
                             </span>;
@@ -737,7 +730,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                             const unit = paceUnitLabel(settings.units);
                             return <span className="font-normal text-text-2">
                               {mode === "treadmill"
-                                ? ` at ${paceToSpeed(block.targetPaceSecKm)} km/h`
+                                ? ` at ${displaySpeed(block.targetPaceSecKm, settings.units).toFixed(1)} ${speedUnitLabel(settings.units)}`
                                 : ` at ${formatPace(block.targetPaceSecKm, useMiles)}${unit}`
                               }
                             </span>;
@@ -755,7 +748,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                         return (
                           <p className="text-[13px] text-text-3 mt-0.5">
                             {mode === "treadmill"
-                              ? `Speed: ${paceToSpeed(block.maxPaceSecKm)} – ${paceToSpeed(block.minPaceSecKm)} km/h`
+                              ? `Speed: ${displaySpeed(block.maxPaceSecKm, settings.units).toFixed(1)} – ${displaySpeed(block.minPaceSecKm, settings.units).toFixed(1)} ${speedUnitLabel(settings.units)}`
                               : `Pace range: ${formatPace(block.minPaceSecKm, useMiles)} – ${formatPace(block.maxPaceSecKm, useMiles)}${unit}`
                             }
                           </p>

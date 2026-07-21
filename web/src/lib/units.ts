@@ -48,6 +48,17 @@ export function paceUnitLabel(unit?: "km" | "miles"): "/km" | "/mi" {
   return (unit ?? loadSettings().units) === "miles" ? "/mi" : "/km";
 }
 
+/** Treadmill speed from a stored sec/km pace, in the display unit (mph when
+ *  miles) — a treadmill is set by SPEED, so show it in the athlete's unit. */
+export function displaySpeed(secPerKm: number, unit?: "km" | "miles"): number {
+  const kmPerHour = 3600 / secPerKm;
+  return (unit ?? loadSettings().units) === "miles" ? kmPerHour / KM_PER_MILE : kmPerHour;
+}
+
+export function speedUnitLabel(unit?: "km" | "miles"): "km/h" | "mph" {
+  return (unit ?? loadSettings().units) === "miles" ? "mph" : "km/h";
+}
+
 export function displayTemp(celsius: number, unit?: "celsius" | "fahrenheit"): number {
   const u = unit ?? loadSettings().tempUnit;
   return u === "fahrenheit" ? Math.round(celsius * 1.8 + 32) : Math.round(celsius);
