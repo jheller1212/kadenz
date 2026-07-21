@@ -1,6 +1,19 @@
 // Bump this on any change to the caching strategy to force old caches to purge.
 const CACHE_NAME = "kadenz-v3";
 const OFFLINE_ASSETS = ["/manifest.webmanifest"];
+// The cache name is stable across deploys, so hashed chunks from old builds
+// would accumulate forever. Cap it and evict the oldest (cache.keys() returns
+// in insertion order) whenever it grows past the limit.
+const MAX_CACHE_ENTRIES = 250;
+
+async function trimCache() {
+  const cache = await caches.open(CACHE_NAME);
+  const keys = await cache.keys();
+  if (keys.length <= MAX_CACHE_ENTRIES) return;
+  // Delete the oldest overflow entries.
+  const overflow = keys.length - MAX_CACHE_ENTRIES;
+  await Promise.all(keys.slice(0, overflow).map((k) => cache.delete(k)));
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -19,6 +32,7 @@ self.addEventListener("activate", (event) => {
           keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
         )
       )
+      .then(() => trimCache())
       .then(() => self.clients.claim())
   );
 });
@@ -42,7 +56,9 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res.ok) {
             const clone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+            caches.open(CACHE_NAME).then((cache) =>
+              cache.put(req, clone).then(trimCache)
+            );
           }
           return res;
         })
@@ -68,7 +84,9 @@ self.addEventListener("fetch", (event) => {
           fetch(req).then((res) => {
             if (res.ok) {
               const clone = res.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+              caches.open(CACHE_NAME).then((cache) =>
+                cache.put(req, clone).then(trimCache)
+              );
             }
             return res;
           })
