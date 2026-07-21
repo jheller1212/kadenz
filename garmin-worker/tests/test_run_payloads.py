@@ -1,8 +1,32 @@
 """Run-workout payload shapes: interval distance, step ordering, rescheduling."""
 
+from datetime import date as _real_date
 from unittest.mock import patch
 
 from workouts import CreateWorkoutRequest, WorkoutBlock, _build_workout_payload
+
+
+class _FixedToday(_real_date):
+    """date subclass with a pinned today() so calendar-window scans are
+    deterministic regardless of when the tests run."""
+
+    @classmethod
+    def today(cls):
+        return _real_date(2026, 8, 1)
+
+
+def _calendar_for(path, schedules, workout_id=42):
+    """Build a calendar-service response for the month in `path` from a list of
+    {scheduleId, date} entries — mirrors how a workout's schedule really lives
+    in the calendar (`id` = schedule id)."""
+    parts = path.strip("/").split("/")
+    year, month0 = int(parts[2]), int(parts[4])  # month is 0-indexed in the API
+    items = [
+        {"workoutId": workout_id, "id": s["scheduleId"], "date": s["date"], "itemType": "workout"}
+        for s in schedules
+        if int(s["date"][:4]) == year and int(s["date"][5:7]) - 1 == month0
+    ]
+    return {"calendarItems": items}
 
 
 def _flatten(steps):
@@ -91,8 +115,8 @@ def test_move_keeps_only_the_entry_it_just_created():
     deleted = []
 
     def fake_call(path, method="GET", **kwargs):
-        if method == "GET" and path.startswith("/workout-service/schedule/"):
-            return list(schedules)
+        if method == "GET" and path.startswith("/calendar-service/"):
+            return _calendar_for(path, schedules)
         if method == "DELETE":
             deleted.append(int(path.rsplit("/", 1)[1]))
             return {}
@@ -166,11 +190,14 @@ def test_list_workouts_includes_scheduled_dates():
                 {"workoutId": 1, "workoutName": "Easy Run", "sportType": {"sportTypeKey": "running"}},
                 {"workoutId": 2, "workoutName": "Upper", "sportType": {"sportTypeKey": "strength_training"}},
             ]
-        if path.startswith("/workout-service/schedule/1"):
-            return [{"scheduleId": 11, "date": "2026-08-01"}]
+        if path.startswith("/calendar-service/"):
+            # Workout 1 is scheduled on 2026-08-01; workout 2 isn't scheduled.
+            return _calendar_for(path, [{"scheduleId": 11, "date": "2026-08-01"}], workout_id=1)
         return []
 
-    with patch.object(main, "_garmin_call", side_effect=fake_call):
+    with patch.object(main, "date_cls", _FixedToday), patch.object(
+        main, "_garmin_call", side_effect=fake_call
+    ):
         out = main.list_workouts(None, with_schedules=True)
 
     ids = [w["garminWorkoutId"] for w in out["workouts"]]
@@ -262,11 +289,12 @@ def test_update_workout_edits_in_place_and_keeps_the_schedule():
     import main
 
     calls = []
+    schedules = [{"scheduleId": 55, "date": "2026-08-05"}]
 
     def fake_call(path, method="GET", **kwargs):
         calls.append((method, path))
-        if method == "GET" and path.startswith("/workout-service/schedule/"):
-            return [{"scheduleId": 55, "date": "2026-08-05"}]
+        if method == "GET" and path.startswith("/calendar-service/"):
+            return _calendar_for(path, schedules)
         return {}
 
     body = main.CreateWorkoutRequest(
@@ -288,12 +316,16 @@ def test_update_workout_schedules_when_the_date_moved():
     import main
 
     calls = []
+    schedules = [{"scheduleId": 55, "date": "2026-08-01"}]  # old day only
 
     def fake_call(path, method="GET", **kwargs):
         calls.append((method, path))
-        if method == "GET" and path.startswith("/workout-service/schedule/"):
-            return [{"scheduleId": 55, "date": "2026-08-01"}]  # old day only
-        return {"workoutScheduleId": 77}
+        if method == "GET" and path.startswith("/calendar-service/"):
+            return _calendar_for(path, schedules)
+        if method == "POST" and path.startswith("/workout-service/schedule/"):
+            schedules.append({"scheduleId": 77, "date": "2026-08-05"})  # new day
+            return {"workoutScheduleId": 77}
+        return {}
 
     body = main.CreateWorkoutRequest(
         title="Easy Run 12km",
