@@ -28,4 +28,23 @@ describe("estimateWorkoutDuration", () => {
     const slot = { sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 };
     expect(estimateWorkoutDuration([slot, slot])).toBe(10);
   });
+
+  it("counts perSide work as double the sets (the 44 vs 37 min bug)", () => {
+    const base = { sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 };
+    const single = estimateWorkoutDuration([base]);
+    const perSide = estimateWorkoutDuration([{ ...base, perSide: true }]);
+    // 6 effective sets × (15+20)=210s work + 5×90=450s rest = 660s → 11 min
+    expect(perSide).toBe(11);
+    expect(perSide).toBeGreaterThan(single);
+  });
+
+  it("defaults rest to 90s when restSeconds is omitted (no caller re-map needed)", () => {
+    const withRest = estimateWorkoutDuration([
+      { sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+    ]);
+    const withoutRest = estimateWorkoutDuration([
+      { sets: 3, repLow: 8, repHigh: 12 },
+    ]);
+    expect(withoutRest).toBe(withRest);
+  });
 });
