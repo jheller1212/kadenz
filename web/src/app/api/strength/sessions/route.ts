@@ -191,17 +191,18 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    // Fan out to Google Calendar if connected (owner sessions only).
+    // Fan out to the watch and (if connected) Google Calendar. Owner sessions
+    // only. Garmin is independent of GCal — the queue self-gates on Garmin
+    // config — so a new Kraft session reaches the watch immediately.
     if (!profileId) {
+      queueGarminStrengthMove(session.id).catch((err) =>
+        console.error("Failed to queue Garmin strength push:", err)
+      );
       isConnected()
         .then((connected) => {
           if (connected) {
             queueStrengthSessionSync(session.id, "create", "gcal").catch((err) =>
               console.error("Failed to queue strength gcal sync:", err)
-            );
-            // Push to the watch too — a Kraft session is a real workout there.
-            queueGarminStrengthMove(session.id).catch((err) =>
-              console.error("Failed to queue Garmin strength push:", err)
             );
           }
         })

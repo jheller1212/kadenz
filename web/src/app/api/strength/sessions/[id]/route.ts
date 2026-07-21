@@ -201,14 +201,17 @@ export async function PATCH(
     }
 
     if (updates.date || updates.status) {
+      // Garmin is independent of Google Calendar: push to the watch whenever a
+      // session changes (the queue self-gates on Garmin being configured), so a
+      // reschedule/tick reaches the calendar immediately even without GCal.
+      queueGarminStrengthMove(id).catch((err) =>
+        console.error("Failed to queue Garmin strength update:", err)
+      );
       isConnected()
         .then((connected) => {
           if (connected) {
             queueStrengthSessionSync(id, "update", "gcal").catch((err) =>
               console.error("Failed to queue strength gcal update:", err)
-            );
-            queueGarminStrengthMove(id).catch((err) =>
-              console.error("Failed to queue Garmin strength update:", err)
             );
           }
         })
