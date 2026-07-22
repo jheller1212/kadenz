@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import { Activity, CalendarDays, Dumbbell } from "lucide-react";
+import { KadenzMark } from "@/components/ui/KadenzMark";
 
 // Full-screen sign-in / onboarding shown when the app has no valid session.
 // Connecting Strava mints the session cookie (see api/auth/strava/callback).
@@ -13,11 +14,12 @@ export function ConnectScreen() {
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 300, damping: 22 }}
-          className="mb-6 flex h-20 w-20 items-center justify-center rounded-[22px] bg-accent"
+          className="mb-6 flex h-20 w-20 items-center justify-center rounded-[26%]"
+          style={{ background: "var(--k-signature-grad)" }}
         >
-          <Activity className="h-10 w-10 text-on-accent" strokeWidth={2.5} />
+          <KadenzMark className="h-11 w-11 text-[#0B0B0F]" />
         </motion.div>
-        <h1 className="text-[32px] font-extrabold tracking-tight text-text-1">Kadenz</h1>
+        <h1 className="font-display text-[38px] uppercase tracking-[0.04em] text-text-1">Kadenz</h1>
         <p className="mt-2 max-w-[280px] text-[15px] leading-relaxed text-text-2">
           Structured running plans that adapt to the runs you actually do.
         </p>

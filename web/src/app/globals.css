@@ -1,9 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  /* iOS system font — renders SF Pro on Apple devices, graceful elsewhere. */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  /* Volt type system: Archivo carries the interface, Anton the loud display. */
+  --font-sans: var(--font-archivo), -apple-system, BlinkMacSystemFont,
+    "Segoe UI", system-ui, Roboto, sans-serif;
+  --font-display: var(--font-anton), "Archivo", system-ui, sans-serif;
 
   /* iOS-style corner radii */
   --radius-card: 20px;
@@ -38,35 +39,35 @@
 
 /* Dark theme (default) — designed, not inverted */
 :root {
-  --k-bg: #0A0A0B;
-  --k-bg-grad: linear-gradient(180deg, #0C0C0E 0%, #08080A 100%);
-  --k-surface: #17181B;
-  --k-surface-grad: linear-gradient(180deg, #1B1C20 0%, #141518 100%);
-  --k-elevated: #212227;
-  --k-float: #26282E;
-  --k-float-grad: linear-gradient(180deg, #2A2C33 0%, #222429 100%);
-  --k-hairline: #2A2B30;
+  /* Volt theme — ink canvas, warm paper text, volt-green accent */
+  --k-bg: #0B0B0F;
+  --k-bg-grad: linear-gradient(180deg, #0F0F14 0%, #08080B 100%);
+  --k-surface: #141419;
+  --k-surface-grad: linear-gradient(180deg, #17171D 0%, #111116 100%);
+  --k-elevated: #1E1E26;
+  --k-float: #26262F;
+  --k-float-grad: linear-gradient(180deg, #2A2A34 0%, #222229 100%);
+  --k-hairline: #26262F;
 
-  --k-text-1: #FAFAFA;
-  --k-text-2: #A6A8B0;
-  --k-text-3: #878B95;
+  --k-text-1: #F4F4EE;
+  --k-text-2: #A0A0AC;
+  --k-text-3: #83838F;
 
-  /* Accent — near-white in dark, "lit" via gradient */
-  --k-accent: #FAFAFA;
-  --k-accent-grad: linear-gradient(180deg, #FFFFFF 0%, #E4E7ED 100%);
-  --k-on-accent: #101114;
+  /* Accent — Volt green, ink text on top */
+  --k-accent: #C8FF3D;
+  --k-accent-grad: linear-gradient(180deg, #D6FF5E 0%, #B7F52A 100%);
+  --k-on-accent: #0B0B0F;
 
-  /* Progress teal + kinetic pair (ring gradients) */
-  --k-progress: #2DD4BF;
-  --k-progress-2: #38BDF8;
+  /* Progress cyan + ultraviolet pair (ring gradients) */
+  --k-progress: #35E4D4;
+  --k-progress-2: #7C5CFF;
 
-  /* Signature gradient — at most ONE hero moment per screen.
-     Default identity: "Dawn" (running at sunrise). */
-  --k-signature-grad: var(--k-sig-dawn);
-  --k-signature-ink: #FFFFFF;
+  /* Signature gradient — the Volt "kinetic aurora", one hero moment per screen. */
+  --k-signature-grad: var(--k-sig-kinetic);
+  --k-signature-ink: #0B0B0F;
   --k-sig-dawn: linear-gradient(140deg, #FFAB5E 0%, #FF7759 52%, #EF5B7B 100%);
-  --k-sig-kinetic: linear-gradient(140deg, #2DD4BF 0%, #38BDF8 58%, #4F7CF7 100%);
-  --k-sig-aurora: linear-gradient(140deg, #4ADE80 0%, #2DD4BF 50%, #38BDF8 100%);
+  --k-sig-kinetic: linear-gradient(120deg, #C8FF3D 0%, #35E4D4 46%, #7C5CFF 100%);
+  --k-sig-aurora: linear-gradient(120deg, #C8FF3D 0%, #35E4D4 46%, #7C5CFF 100%);
 
   --k-warn: #FFB547;
   --k-danger: #FF5C5C;
@@ -75,20 +76,20 @@
   /* Workout type spectrum (spines, dots, badges) — meaning, never decoration */
   /* Workout type palette: easy=lime→green, tempo=amber, interval=red,
      long=purple, strength=blue. Gradients are the canonical rendering. */
-  --k-type-easy: #7BC232;
-  --k-type-easy-grad: linear-gradient(135deg, #C3D82E 0%, #5CB531 100%);
-  --k-type-recovery: #7BC232;
-  --k-type-recovery-grad: linear-gradient(135deg, #C3D82E 0%, #5CB531 100%);
-  --k-type-tempo: #F2A113;
-  --k-type-tempo-grad: linear-gradient(135deg, #F7B32B 0%, #ED8B00 100%);
-  --k-type-interval: #E0402E;
-  --k-type-interval-grad: linear-gradient(135deg, #F0562E 0%, #C62828 100%);
-  --k-type-long: #8655F0;
-  --k-type-long-grad: linear-gradient(135deg, #9B6BF3 0%, #7C3AED 100%);
-  --k-type-race: #FF4D4D;
-  --k-type-race-grad: linear-gradient(135deg, #FF6B5E 0%, #D32F2F 100%);
-  --k-type-strength: #3B82F6;
-  --k-type-strength-grad: linear-gradient(135deg, #60A5FA 0%, #2563EB 100%);
+  --k-type-easy: #4ADE80;
+  --k-type-easy-grad: linear-gradient(135deg, #63E88F 0%, #34C46B 100%);
+  --k-type-recovery: #4ADE80;
+  --k-type-recovery-grad: linear-gradient(135deg, #63E88F 0%, #34C46B 100%);
+  --k-type-tempo: #FFB547;
+  --k-type-tempo-grad: linear-gradient(135deg, #FFC46B 0%, #F59E1F 100%);
+  --k-type-interval: #C084FC;
+  --k-type-interval-grad: linear-gradient(135deg, #CE9CFD 0%, #A855F7 100%);
+  --k-type-long: #60A5FA;
+  --k-type-long-grad: linear-gradient(135deg, #7FB8FB 0%, #3B82F6 100%);
+  --k-type-race: #FF5A3C;
+  --k-type-race-grad: linear-gradient(135deg, #FF7A60 0%, #E5401F 100%);
+  --k-type-strength: #7C5CFF;
+  --k-type-strength-grad: linear-gradient(135deg, #9A80FF 0%, #6A45F5 100%);
 
   /* Elevation — dark uses lighter surfaces; shadows collapse to a 0.5px ring */
   --k-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
@@ -117,23 +118,27 @@
 
 /* Light theme — cool-neutral canvas, white gradient cards, soft shadows */
 html.light {
-  --k-bg: #EEF0F4;
-  --k-bg-grad: linear-gradient(180deg, #F2F4F8 0%, #EAEDF2 100%);
+  /* Volt theme — warm paper canvas, ink text, volt-green accent */
+  --k-bg: #F4F4EE;
+  --k-bg-grad: linear-gradient(180deg, #F7F7F1 0%, #EEEEE6 100%);
   --k-surface: #FFFFFF;
-  --k-surface-grad: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-  --k-elevated: #E7EAF0;
+  --k-surface-grad: linear-gradient(180deg, #FFFFFF 0%, #F6F6F0 100%);
+  --k-elevated: #ECECE3;
   --k-float: #FFFFFF;
-  --k-float-grad: linear-gradient(180deg, #FFFFFF 0%, #F5F7FA 100%);
-  --k-hairline: #DEE1E8;
+  --k-float-grad: linear-gradient(180deg, #FFFFFF 0%, #F4F4EC 100%);
+  --k-hairline: #E2E2D8;
 
-  /* text-3 darkened from v1 #969BA6 — that failed WCAG AA on white */
-  --k-text-1: #16181D;
-  --k-text-2: #5F646E;
-  --k-text-3: #646973;
+  --k-text-1: #0B0B0F;
+  --k-text-2: #565660;
+  --k-text-3: #6A6A74;
 
-  --k-accent: #1A1A1A;
-  --k-accent-grad: linear-gradient(180deg, #33363D 0%, #131418 100%);
-  --k-on-accent: #FFFFFF;
+  /* Volt green accent, ink text on top */
+  --k-accent: #C8FF3D;
+  --k-accent-grad: linear-gradient(180deg, #D6FF5E 0%, #B7F52A 100%);
+  --k-on-accent: #0B0B0F;
+
+  --k-progress: #16B8A6;
+  --k-progress-2: #7C5CFF;
 
   --k-warn: #E8850A;
   --k-danger: #E03A3A;
@@ -153,6 +158,13 @@ html.light {
   --k-material-border: rgba(0, 0, 0, 0.08);
   --k-scrim: rgba(10, 12, 16, 0.4);
   --k-desk: #C7C7CC;
+}
+
+/* Loud display face (Anton) — logo wordmark, hero titles, big numbers. */
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
 /* ── Base / native shell ─────────────────────────────────────────────────── */
