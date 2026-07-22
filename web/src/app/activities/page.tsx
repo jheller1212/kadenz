@@ -732,6 +732,27 @@ export default function ActivitiesPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, []);
 
+  // Garmin has no activity webhook (unlike Strava), so nothing pushes new watch
+  // activities in. Pull them in the background when this screen opens — throttled
+  // so we don't wake the worker on every navigation — and refresh the list if
+  // anything new arrived, so the athlete never has to import by hand.
+  useEffect(() => {
+    const KEY = "kadenz_garmin_import_at";
+    const THROTTLE_MS = 3 * 60_000;
+    let last = 0;
+    try { last = Number(localStorage.getItem(KEY) || 0); } catch { /* no storage */ }
+    if (Date.now() - last < THROTTLE_MS) return;
+    try { localStorage.setItem(KEY, String(Date.now())); } catch { /* no storage */ }
+    let alive = true;
+    apiFetch("/api/garmin/import", { method: "POST" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (alive && res && (res.imported ?? 0) > 0) load();
+      })
+      .catch(() => { /* not connected / offline — silent */ });
+    return () => { alive = false; };
+  }, []);
+
   const { pull, refreshing } = usePullToRefresh(load);
   useScrollRestoration(!loading);
   const [addOpen, setAddOpen] = useState(false);
