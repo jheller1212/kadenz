@@ -6,6 +6,7 @@ import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
+import { Segmented } from "@/components/ui/Segmented";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
@@ -252,16 +253,38 @@ interface ZoneTimes {
   total: number;
 }
 
-function TimeInZonesCard({ zones }: { zones: ZoneTimes }) {
+type ZoneRange = "week" | "month" | "ytd" | "year";
+const ZONE_RANGE_OPTIONS = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "ytd", label: "YTD" },
+  { value: "year", label: "1 Year" },
+];
+
+function TimeInZonesCard({
+  zones,
+  range,
+  onRange,
+}: {
+  zones: ZoneTimes | null;
+  range: ZoneRange;
+  onRange: (r: ZoneRange) => void;
+}) {
   return (
     <section className="k-card p-4">
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+      <div className="mb-4">
+        <p className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-text-3">
           Time in zones
         </p>
-        <p className="text-[11px] text-text-3">this month</p>
+        <Segmented options={ZONE_RANGE_OPTIONS} value={range} onChange={(v) => onRange(v as ZoneRange)} />
       </div>
 
+      {!zones ? (
+        <p className="py-6 text-center text-[13px] text-text-3">
+          No heart-rate data in this range.
+        </p>
+      ) : (
+      <>
       {/* Stacked bar — one segment per zone with time in it */}
       <div className="flex h-3 gap-px overflow-hidden rounded-full">
         {zones.seconds.map((s, i) =>
@@ -295,6 +318,8 @@ function TimeInZonesCard({ zones }: { zones: ZoneTimes }) {
           </div>
         ))}
       </div>
+      </>
+      )}
     </section>
   );
 }
@@ -399,6 +424,10 @@ export default function StatsPage() {
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
   const [perf, setPerf] = useState<Performance | null>(null);
   const [zoneTimes, setZoneTimes] = useState<ZoneTimes | null>(null);
+  const [zoneRange, setZoneRange] = useState<ZoneRange>("month");
+  // True once any range has returned HR data — keeps the card (and its range
+  // selector) on screen even when the chosen range happens to be empty.
+  const [hadHrData, setHadHrData] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -406,24 +435,42 @@ export default function StatsPage() {
   // client settings, so we pass them to the API. Fails silently — the card
   // just stays hidden.
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
         const { bounds, max } = getUserZoneBounds();
         const now = new Date();
-        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        let from: Date;
+        if (zoneRange === "week") {
+          from = new Date(now);
+          from.setDate(now.getDate() - now.getDay() + 1);
+          from.setHours(0, 0, 0, 0);
+        } else if (zoneRange === "month") {
+          from = new Date(now.getFullYear(), now.getMonth(), 1);
+        } else if (zoneRange === "ytd") {
+          from = new Date(now.getFullYear(), 0, 1);
+        } else {
+          from = new Date(now);
+          from.setFullYear(now.getFullYear() - 1);
+        }
         const res = await apiFetch(
-          `/api/stats/hr-zones?month=${month}&bounds=${bounds.join(",")}&max=${max}`
+          `/api/stats/hr-zones?from=${from.toISOString()}&to=${now.toISOString()}&bounds=${bounds.join(",")}&max=${max}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as { zones: { seconds: number }[] };
         const seconds = data.zones.map((z) => z.seconds);
         const total = seconds.reduce((s, n) => s + n, 0);
-        if (total > 0) setZoneTimes({ seconds, total });
+        if (!alive) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch result
+        setZoneTimes(total > 0 ? { seconds, total } : null);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch result
+        if (total > 0) setHadHrData(true);
       } catch {
         // no HR data / offline — hide the card
       }
     })();
-  }, []);
+    return () => { alive = false; };
+  }, [zoneRange]);
 
   useEffect(() => {
     async function load() {
@@ -605,7 +652,9 @@ export default function StatsPage() {
             )}
 
             {/* Time in HR zones (current month) */}
-            {zoneTimes && <TimeInZonesCard zones={zoneTimes} />}
+            {hadHrData && (
+              <TimeInZonesCard zones={zoneTimes} range={zoneRange} onRange={setZoneRange} />
+            )}
 
             {/* Personal records */}
             {perf.records && perf.records.some((r) => r.timeSeconds != null) && (
