@@ -100,6 +100,9 @@ class StrengthExercise(BaseModel):
 
 class CreateStrengthWorkoutRequest(BaseModel):
     title: str = Field(description="Workout title shown in Garmin Connect")
+    description: str | None = Field(
+        default=None, description="Overview text (plan / week / summary)"
+    )
     date: str = Field(description="ISO date string (YYYY-MM-DD) to schedule on")
     exercises: list[StrengthExercise] = Field(min_length=1)
 
@@ -539,7 +542,7 @@ def _build_strength_workout_payload(
         "sportType": _SPORT_STRENGTH,
         "subSportType": None,
         "workoutName": req.title,
-        "description": _tag_description(None),
+        "description": _tag_description(req.description),
         "estimatedDurationInSecs": None,
         "estimatedDistanceInMeters": None,
         "poolLength": None,

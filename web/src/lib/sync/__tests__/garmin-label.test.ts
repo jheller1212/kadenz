@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { garminLabel, planWeekNumber } from "../garmin-label";
+import { garminLabel, garminDescription, planWeekNumber } from "../garmin-label";
 
 describe("planWeekNumber", () => {
   const start = new Date("2026-01-05T00:00:00Z"); // a Monday
@@ -27,5 +27,26 @@ describe("garminLabel", () => {
   it("omits the week when absent (standalone block)", () => {
     expect(garminLabel("Upper — Kraft", { metric: "30 min" })).toBe("Upper — Kraft · 30 min");
     expect(garminLabel("Easy Run 10km")).toBe("Easy Run 10km");
+  });
+});
+
+describe("garminDescription", () => {
+  it("leads with plan name + week progress, then the body", () => {
+    expect(
+      garminDescription({
+        planName: "Half Marathon Plan",
+        weekNumber: 2,
+        totalWeeks: 8,
+        body: "Conversational pace. Should feel easy throughout.",
+      })
+    ).toBe("Half Marathon Plan (Week 2/8)\n\nConversational pace. Should feel easy throughout.");
+  });
+  it("falls back to a bare week when the plan name is missing", () => {
+    expect(garminDescription({ weekNumber: 3, totalWeeks: 8, body: "Easy" })).toBe(
+      "Week 3/8\n\nEasy"
+    );
+  });
+  it("omits the header entirely for a standalone workout (no week)", () => {
+    expect(garminDescription({ body: "Easy run" })).toBe("Easy run");
   });
 });

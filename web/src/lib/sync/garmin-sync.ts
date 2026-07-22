@@ -11,7 +11,7 @@ import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims } from "./sync-manager";
 import { rowsNeedingRepush } from "./garmin-heal";
 import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
-import { garminLabel, planWeekNumber } from "./garmin-label";
+import { garminLabel, garminDescription, planWeekNumber } from "./garmin-label";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
@@ -414,6 +414,7 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
     with: {
       blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
       week: { columns: { weekNumber: true } },
+      plan: { columns: { name: true, planLengthWeeks: true } },
     },
   });
   if (!row) throw new Error(`Workout ${workoutId} not found`);
@@ -425,7 +426,13 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
   const input = {
     // "W3 · Easy Run 10km" — week-prefixed so the watch list is unambiguous.
     title: garminLabel(row.title, { weekNumber: row.week?.weekNumber ?? null }),
-    description: row.description,
+    // Benchmark-style overview: "Plan Name (Week 3/8)" then the workout's notes.
+    description: garminDescription({
+      planName: row.plan?.name,
+      weekNumber: row.week?.weekNumber ?? null,
+      totalWeeks: row.plan?.planLengthWeeks ?? null,
+      body: row.description,
+    }),
     scheduledDate,
     blocks: row.blocks.map((b) => ({
       type: b.type,
@@ -528,18 +535,30 @@ async function processGarminStrengthJob(
   // "W3 · Upper — Kraft · 30 min". Week comes from the active running plan the
   // strength schedule follows; standalone blocks (no plan) just omit it.
   const [activePlan] = await db
-    .select({ startDate: plans.startDate })
+    .select({
+      name: plans.name,
+      startDate: plans.startDate,
+      planLengthWeeks: plans.planLengthWeeks,
+    })
     .from(plans)
     .where(eq(plans.status, "active"))
     .limit(1);
   const durationMin = isCustom
     ? row.targetDurationMinutes
     : estimatedDurationMinutes;
+  const weekNumber = activePlan ? planWeekNumber(row.date, activePlan.startDate) : null;
   const workout = {
     sessionId: row.id,
     title: garminLabel(row.title, {
-      weekNumber: activePlan ? planWeekNumber(row.date, activePlan.startDate) : null,
+      weekNumber,
       metric: durationMin ? `${durationMin} min` : null,
+    }),
+    // Benchmark-style overview: "Plan Name (Week 3/8)" then a strength summary.
+    description: garminDescription({
+      planName: activePlan?.name,
+      weekNumber,
+      totalWeeks: activePlan?.planLengthWeeks ?? null,
+      body: `Strength · ${exercises.length} exercises${durationMin ? ` · ~${durationMin} min` : ""}`,
     }),
     date: row.date,
     exercises,

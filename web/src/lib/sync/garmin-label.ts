@@ -23,3 +23,27 @@ export function garminLabel(
   if (opts.metric) parts.push(opts.metric);
   return parts.join(" · ");
 }
+
+/** Benchmark-style workout overview: a plan/week header line, then the workout's own
+ *  description. e.g. "Half Marathon Plan (Week 2/8)\n\nConversational pace…".
+ *  The worker appends the [kadenz] ownership tag beneath. */
+export function garminDescription(opts: {
+  planName?: string | null;
+  weekNumber?: number | null;
+  totalWeeks?: number | null;
+  body?: string | null;
+}): string {
+  const lines: string[] = [];
+  if (opts.weekNumber != null) {
+    const wk = opts.totalWeeks
+      ? `Week ${opts.weekNumber}/${opts.totalWeeks}`
+      : `Week ${opts.weekNumber}`;
+    lines.push(opts.planName ? `${opts.planName} (${wk})` : wk);
+  }
+  const body = opts.body?.trim();
+  if (body) {
+    if (lines.length) lines.push("");
+    lines.push(body);
+  }
+  return lines.join("\n");
+}

@@ -74,6 +74,7 @@ export interface GarminStrengthExercise {
 export interface GarminStrengthWorkout {
   sessionId: string;
   title: string;
+  description?: string | null;
   date: Date;
   exercises: GarminStrengthExercise[];
 }
@@ -123,6 +124,7 @@ function getConfig() {
 function toWorkerStrengthPayload(workout: GarminStrengthWorkout) {
   return {
     title: workout.title,
+    description: workout.description ?? null,
     date: toGarminDate(workout.date),
     exercises: workout.exercises.map((e) => ({
       name: e.name,
