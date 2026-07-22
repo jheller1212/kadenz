@@ -60,6 +60,7 @@ import {
 import { formatRecency } from "@/lib/recency";
 import { displayWeight, formatWeightKg, weightUnitLabel } from "@/lib/units";
 import { EXERCISES } from "@/lib/strength/program";
+import { COMPLAINT_SHORT_LABELS, type Complaint } from "@/lib/strength/types";
 import { formatLoad, stepWeight } from "@/lib/strength/weights";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
@@ -156,6 +157,10 @@ export default function StrengthPage() {
   // tracks the button's state for the current exercise setup.
   const [garminConnected, setGarminConnected] = useState(false);
   const [watchSend, setWatchSend] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  // The athlete's reported running complaints. The post-session pain check-in is
+  // rehab tracking — it only makes sense (and only appears) for the areas they
+  // actually flagged; no complaints → no prompt.
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   // Saved in-progress guided session (accidental exits / reloads are resumable).
   const [resumeSnap, setResumeSnap] = useState<GuidedSnapshot | null>(null);
   const [resume, setResume] = useState<{
@@ -178,6 +183,20 @@ export default function StrengthPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
         if (alive && s) setGarminConnected(Boolean(s.authenticated));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Load reported complaints — gates the post-session pain check-in.
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/api/strength/plan-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (alive && s && Array.isArray(s.complaints)) setComplaints(s.complaints as Complaint[]);
       })
       .catch(() => {});
     return () => {
@@ -883,11 +902,17 @@ export default function StrengthPage() {
             {summary.setsLogged}/{summary.totalSets} sets logged · {summary.durationMinutes} min
           </p>
 
-          {/* Achilles pain check-in — feeds the pain gate + history sparkline */}
-          {session && (
+          {/* Complaint-driven pain check-in — only for the areas the athlete
+              flagged (feeds the pain gate + history sparkline). No complaints,
+              no prompt. */}
+          {session && complaints.length > 0 && (
             <div className="mt-6 rounded-[var(--radius-input)] bg-elevated p-4 text-left">
               <p className="text-[13px] font-semibold text-text-2">
-                {painLogged ? "Pain logged — thanks." : "Any Achilles pain right now? (0 = none, 10 = worst)"}
+                {painLogged
+                  ? "Pain logged — thanks."
+                  : `Any ${complaints
+                      .map((c) => COMPLAINT_SHORT_LABELS[c])
+                      .join(" / ")} pain right now? (0 = none, 10 = worst)`}
               </p>
               {!painLogged && (
                 <div className="mt-3 grid grid-cols-11 gap-1">
