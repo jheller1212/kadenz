@@ -1,5 +1,21 @@
 import type { Metadata, Viewport } from "next";
+import { Archivo, Anton } from "next/font/google";
 import "./globals.css";
+
+// Volt type system: Archivo carries the interface, Anton is the loud display
+// face (titles, big numbers). Exposed as CSS vars consumed in globals.css.
+const archivo = Archivo({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800", "900"],
+  variable: "--font-archivo",
+  display: "swap",
+});
+const anton = Anton({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-anton",
+  display: "swap",
+});
 import { ServiceWorkerRegistration } from "./sw-register";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SessionProvider } from "@/components/SessionProvider";
@@ -17,6 +33,7 @@ export const metadata: Metadata = {
   other: { "mobile-web-app-capable": "yes" },
   icons: {
     icon: [
+      { url: "/mark.svg", type: "image/svg+xml" },
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
@@ -26,7 +43,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   // Dynamically updated per active theme by ThemeProvider; light is the default.
-  themeColor: "#EEF0F4",
+  themeColor: "#F4F4EE",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -41,7 +58,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased light">
+    <html lang="en" className={`h-full antialiased light ${archivo.variable} ${anton.variable}`}>
       <head>
         <link rel="preconnect" href="https://api.open-meteo.com" />
         <script dangerouslySetInnerHTML={{ __html: `
