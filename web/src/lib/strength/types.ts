@@ -52,6 +52,17 @@ export const COMPLAINT_LABELS: Record<Complaint, string> = {
   hip_glute: "Hip / glute weakness or ache",
 };
 
+// Short body-area words for inline prompts ("Any Achilles / knee pain?").
+export const COMPLAINT_SHORT_LABELS: Record<Complaint, string> = {
+  achilles: "Achilles",
+  plantar_fascia: "plantar fascia",
+  shin: "shin",
+  knee: "knee",
+  itb: "ITB",
+  hamstring: "hamstring",
+  hip_glute: "hip / glute",
+};
+
 // Role within an Achilles session — drives the "explosive first, slow heavy
 // after" ordering rule.
 export type AchillesRole = "explosive" | "slow_heavy" | null;
