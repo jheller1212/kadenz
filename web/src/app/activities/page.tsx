@@ -201,6 +201,32 @@ function computeWeeklyBars(workouts: ActivityWorkout[], weekStart: Date): WeekBa
   return bars;
 }
 
+// Monthly mileage buckets for the longer ranges (YTD / last 12 months).
+function computeMonthlyBars(workouts: ActivityWorkout[], months: number): WeekBar[] {
+  const now = new Date();
+  const bars: WeekBar[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const km = workouts
+      .filter((wo) => {
+        const d = new Date(wo.date);
+        return d >= start && d < end && wo.type !== "rest";
+      })
+      .reduce((sum, wo) => sum + (wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0), 0);
+    bars.push({ label: start.toLocaleDateString("en-US", { month: "short" }), km: displayDistance(km), startDate: start });
+  }
+  return bars;
+}
+
+type PerfRange = "week" | "month" | "ytd" | "year";
+const PERF_RANGE_OPTIONS = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "ytd", label: "YTD" },
+  { value: "year", label: "1 Year" },
+];
+
 // ── PR badge hex colors ───────────────────────────────────────────────────────
 
 const PR_DISPLAY: Record<string, { label: string; color: string; bgColor: string }> = {
@@ -618,6 +644,8 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
       .finally(() => setPrsLoading(false));
   }, []);
 
+  const [range, setRange] = useState<PerfRange>("week");
+
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
@@ -625,34 +653,63 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
 
-  const dateRangeLabel = `${weekStart.toLocaleDateString("en-US", { day: "numeric", month: "short" })} – ${weekEnd.toLocaleDateString("en-US", { day: "numeric", month: "short" })}`;
+  // Range start/end + label for the selected timeframe.
+  let rangeStart: Date;
+  let rangeEnd: Date = now;
+  let dateRangeLabel: string;
+  if (range === "week") {
+    rangeStart = weekStart;
+    rangeEnd = weekEnd;
+    dateRangeLabel = `${weekStart.toLocaleDateString("en-US", { day: "numeric", month: "short" })} – ${weekEnd.toLocaleDateString("en-US", { day: "numeric", month: "short" })}`;
+  } else if (range === "month") {
+    rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    dateRangeLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  } else if (range === "ytd") {
+    rangeStart = new Date(now.getFullYear(), 0, 1);
+    dateRangeLabel = `${now.getFullYear()} to date`;
+  } else {
+    rangeStart = new Date(now);
+    rangeStart.setFullYear(now.getFullYear() - 1);
+    dateRangeLabel = "Last 12 months";
+  }
 
-  const thisWeekWorkouts = workouts.filter((wo) => {
+  const inRange = workouts.filter((wo) => {
     const d = new Date(wo.date);
-    return d >= weekStart && d <= weekEnd && wo.type !== "rest";
+    return d >= rangeStart && d <= rangeEnd && wo.type !== "rest";
   });
 
-  const thisWeekKm = thisWeekWorkouts.reduce((s, wo) => s + (wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0), 0);
-  const thisWeekSec = thisWeekWorkouts.reduce((s, wo) => s + (wo.durationSeconds ?? wo.activity?.durationSeconds ?? (wo.targetDurationMinutes ?? 0) * 60), 0);
+  const rangeKm = inRange.reduce((s, wo) => s + (wo.distanceKm ?? wo.activity?.distanceKm ?? wo.targetKm ?? 0), 0);
+  const rangeSec = inRange.reduce((s, wo) => s + (wo.durationSeconds ?? wo.activity?.durationSeconds ?? (wo.targetDurationMinutes ?? 0) * 60), 0);
 
-  const bars = computeWeeklyBars(workouts, weekStart);
+  // Weekly bars for short ranges, monthly for the long ones.
+  const bars =
+    range === "week" || range === "month"
+      ? computeWeeklyBars(workouts, weekStart)
+      : computeMonthlyBars(workouts, range === "ytd" ? now.getMonth() + 1 : 12);
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Range selector */}
+      <Segmented
+        options={PERF_RANGE_OPTIONS}
+        value={range}
+        onChange={(v) => setRange(v as PerfRange)}
+      />
+
       {/* Date range header */}
       <div className="flex items-center justify-between">
         <p className="text-[17px] font-bold text-text-1">{dateRangeLabel}</p>
         <span className="rounded-full bg-elevated px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-3">
-          This week
+          {PERF_RANGE_OPTIONS.find((o) => o.value === range)?.label}
         </span>
       </div>
 
       {/* Summary stats */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { label: "KILOMETERS", value: thisWeekKm > 0 ? thisWeekKm.toFixed(2) : "0.00" },
-          { label: "TIME",       value: thisWeekSec > 0 ? formatSeconds(thisWeekSec) : "0s" },
-          { label: "ACTIVITIES", value: thisWeekWorkouts.length.toString() },
+          { label: "KILOMETERS", value: rangeKm > 0 ? rangeKm.toFixed(2) : "0.00" },
+          { label: "TIME",       value: rangeSec > 0 ? formatSeconds(rangeSec) : "0s" },
+          { label: "ACTIVITIES", value: inRange.length.toString() },
         ].map(({ label, value }) => (
           <div key={label} className="rounded-[var(--radius-input)] bg-surface p-3 text-center">
             <p className="text-[9px] font-semibold uppercase tracking-wider text-text-3">{label}</p>
@@ -663,7 +720,9 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
 
       {/* Weekly mileage bar chart */}
       <div className="k-card p-4">
-        <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-text-3">Weekly mileage</p>
+        <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-text-3">
+          {range === "ytd" || range === "year" ? "Monthly mileage" : "Weekly mileage"}
+        </p>
         <WeeklyBarChart bars={bars} />
       </div>
 
