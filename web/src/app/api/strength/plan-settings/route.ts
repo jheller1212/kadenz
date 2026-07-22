@@ -34,6 +34,8 @@ const SettingsSchema = z.object({
   // today's global default loads (see lib/strength/load-model.ts).
   bodyweightKg: z.number().min(20).max(300).nullable().optional(),
   sex: z.enum(["male", "female", "unspecified"]).nullable().optional(),
+  // Preferred rest between sets (seconds). null = program per-exercise defaults.
+  restSeconds: z.number().int().min(15).max(300).nullable().optional(),
 }).refine((s) => new Set(s.availableDays).size >= s.sessionsPerWeek, {
   message: "Pick at least as many distinct days as sessions per week",
 });
@@ -117,5 +119,52 @@ export async function PUT(request: NextRequest) {
   } catch (err) {
     console.error("[plan-settings] save failed", err);
     return Response.json({ error: "Failed to save settings" }, { status: 500 });
+  }
+}
+
+// ── PATCH /api/strength/plan-settings ─────────────────────────────────────────
+// Partial update of plan-affecting preferences that live outside the setup
+// wizard (currently just the rest-timer length, changed from Kraft settings).
+// Only touches an EXISTING plan — a no-op if the athlete has no strength plan —
+// and reconciles the upcoming schedule so the change reaches the app, calendar
+// and watch immediately.
+
+const PatchSchema = z
+  .object({ restSeconds: z.number().int().min(15).max(300).nullable() })
+  .strict();
+
+export async function PATCH(request: NextRequest) {
+  const profileId = getActiveProfileId(request);
+
+  let data: z.infer<typeof PatchSchema>;
+  try {
+    data = PatchSchema.parse(await request.json());
+  } catch (err) {
+    return Response.json(
+      { error: "Invalid request", details: err instanceof z.ZodError ? err.issues : undefined },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const updated = await db
+      .update(strengthPlanSettings)
+      .set({ restSeconds: data.restSeconds, updatedAt: new Date() })
+      .where(profCond(profileId))
+      .returning({ id: strengthPlanSettings.id, active: strengthPlanSettings.active });
+
+    // No plan yet → nothing to reconcile; the preference will apply once a plan
+    // is set up (the value is also kept client-side for the guided timer).
+    if (updated.length === 0) return Response.json({ ok: true, hadPlan: false });
+
+    // Prescriptions are derived at read time, so no session rows need rewriting —
+    // but re-run ensure so the calendar/watch descriptions (which bake the rest
+    // in) refresh to the new value.
+    if (updated[0].active) await ensureStrengthSchedule(profileId);
+
+    return Response.json({ ok: true, hadPlan: true });
+  } catch (err) {
+    console.error("[plan-settings] rest patch failed", err);
+    return Response.json({ error: "Failed to update rest preference" }, { status: 500 });
   }
 }

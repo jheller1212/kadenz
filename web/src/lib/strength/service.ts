@@ -154,6 +154,7 @@ export async function buildPlannedSession(
     lifterProfile: planSettings.lifterProfile,
     complaints: planSettings.complaints,
     targetDurationMinutes,
+    restSecondsOverride: planSettings.restSeconds,
   });
   return { exercises, estimatedDurationMinutes: estimateSessionMinutes(exercises) };
 }
@@ -181,6 +182,7 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
   ability: "beginner" | "intermediate" | "advanced" | undefined;
   lifterProfile: LifterProfile | null;
   complaints: Complaint[];
+  restSeconds: number | null;
 }> {
   const [row] = await db
     .select({
@@ -188,6 +190,7 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
       bodyweightKg: strengthPlanSettings.bodyweightKg,
       sex: strengthPlanSettings.sex,
       complaints: strengthPlanSettings.complaints,
+      restSeconds: strengthPlanSettings.restSeconds,
     })
     .from(strengthPlanSettings)
     .where(
@@ -212,6 +215,7 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
       ? { bodyweightKg: row.bodyweightKg, sex, experience: ability }
       : null,
     complaints,
+    restSeconds: row?.restSeconds ?? null,
   };
 }
 
