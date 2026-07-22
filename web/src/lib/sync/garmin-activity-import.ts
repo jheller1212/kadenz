@@ -81,11 +81,13 @@ async function importRun(act: GarminActivity, startDate: Date): Promise<void> {
     name: act.name,
     startDate,
     distanceKm,
-    durationSeconds: act.durationSeconds,
+    // Garmin returns these as floats (e.g. durationSeconds 2297.51); the columns
+    // are integers, so round before insert or the whole import 500s.
+    durationSeconds: act.durationSeconds != null ? Math.round(act.durationSeconds) : null,
     avgPaceSecKm: act.avgPaceSecPerKm != null ? Math.round(act.avgPaceSecPerKm) : null,
     avgHr: act.avgHr != null ? Math.round(act.avgHr) : null,
     maxHr: act.maxHr != null ? Math.round(act.maxHr) : null,
-    elevationGain: act.elevationGain,
+    elevationGain: act.elevationGain != null ? Math.round(act.elevationGain) : null,
     splitsJson,
   });
 
@@ -111,7 +113,8 @@ async function importStrength(act: GarminActivity, startDate: Date): Promise<voi
     sportType: act.activityType || "WeightTraining",
     name: act.name,
     startDate,
-    durationSeconds: act.durationSeconds,
+    // Round the float duration — integer column (see importRun).
+    durationSeconds: act.durationSeconds != null ? Math.round(act.durationSeconds) : null,
     avgHr: act.avgHr != null ? Math.round(act.avgHr) : null,
     maxHr: act.maxHr != null ? Math.round(act.maxHr) : null,
   });
@@ -203,12 +206,19 @@ export async function runGarminImport(): Promise<GarminImportResult> {
       continue;
     }
 
-    if (act.kind === "run") {
-      await importRun(act, startDate);
-    } else {
-      await importStrength(act, startDate);
+    // One malformed activity must not abort the whole import (it used to 500
+    // the entire run, so nothing imported). Log and skip the bad one.
+    try {
+      if (act.kind === "run") {
+        await importRun(act, startDate);
+      } else {
+        await importStrength(act, startDate);
+      }
+      result.imported++;
+    } catch (err) {
+      console.error(`Garmin import: failed to store activity ${act.garminId}:`, err);
+      result.skippedOther++;
     }
-    result.imported++;
   }
 
   await saveImportTimestamp(importStartedAt);
