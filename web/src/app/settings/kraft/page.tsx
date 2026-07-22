@@ -6,6 +6,18 @@ import { Switch } from "@/components/ui/8bit-switch";
 import { Segmented } from "@/components/ui/Segmented";
 import { SettingsSubpage } from "@/components/ui/SettingsSubpage";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
+import { apiFetch } from "@/lib/api";
+
+// Persist the rest-length preference to the strength plan (server) so it drives
+// the plan's prescriptions, not just the guided-session countdown. Reconciles
+// the schedule; a no-op if there's no active plan.
+function patchPlanRest(restSeconds: number) {
+  apiFetch("/api/strength/plan-settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ restSeconds }),
+  }).catch(() => {});
+}
 
 const VOLUME_OPTIONS = [
   { value: "off", label: "Off" },
@@ -18,8 +30,17 @@ export default function KraftSettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
   useEffect(() => {
+    const s = loadSettings();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
-    setSettings(loadSettings());
+    setSettings(s);
+    // Reconcile the plan's rest with the local preference on open — if they've
+    // drifted (e.g. the preference predates this wiring), push local → server.
+    apiFetch("/api/strength/plan-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((ps) => {
+        if (ps && ps.restSeconds !== s.kraftRestSeconds) patchPlanRest(s.kraftRestSeconds);
+      })
+      .catch(() => {});
   }, []);
 
   function update(patch: Partial<UserSettings>) {
@@ -106,7 +127,12 @@ export default function KraftSettingsPage() {
                     { value: "90", label: "90s" },
                   ]}
                   value={String(settings.kraftRestSeconds)}
-                  onChange={(v) => update({ kraftRestSeconds: parseInt(v) })}
+                  onChange={(v) => {
+                    const n = parseInt(v);
+                    update({ kraftRestSeconds: n });
+                    // Also the rest your plan prescribes, not just the timer.
+                    patchPlanRest(n);
+                  }}
                 />
               </div>
             )}

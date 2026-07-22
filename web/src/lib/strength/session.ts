@@ -86,6 +86,12 @@ export interface BuildSessionOptions {
    * fixed nominal length regardless of what was chosen.
    */
   targetDurationMinutes?: number;
+  /**
+   * The athlete's preferred rest between sets (Kraft settings). When set, it
+   * overrides every non-rehab exercise's prescribed rest, so the plan matches
+   * their rest-timer choice. HSR/Achilles rehab work keeps its own protocol.
+   */
+  restSecondsOverride?: number | null;
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -121,6 +127,11 @@ export function buildSessionPlan(
         restSeconds = restSeconds + 30;
       } else if (ability === "advanced" && slotIdx < 2) {
         sets = sets + 1;
+      }
+      // The athlete's rest-timer preference wins over the program default (and
+      // the beginner +30) for regular lifts — rehab work above keeps its scheme.
+      if (opts.restSecondsOverride != null) {
+        restSeconds = opts.restSecondsOverride;
       }
     }
     let prescription = repRangeLabel(sets, repLow, repHigh);

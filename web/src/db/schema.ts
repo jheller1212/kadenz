@@ -568,6 +568,10 @@ export const strengthPlanSettings = pgTable(
     // default, no targeted or Achilles work. Values are Complaint slugs (see
     // lib/strength/types.ts STRENGTH_COMPLAINTS).
     complaints: text("complaints").array(),
+    // Preferred rest between sets (seconds). null = use the program's
+    // per-exercise defaults; set = override every non-rehab exercise's rest so
+    // the athlete's rest-timer choice is what the plan actually prescribes.
+    restSeconds: integer("rest_seconds"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

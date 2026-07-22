@@ -79,6 +79,29 @@ describe("ability scaling", () => {
   });
 });
 
+describe("rest preference override", () => {
+  it("uses the athlete's rest choice on every regular lift (60 over the program's 90)", () => {
+    const plan = buildSessionPlan("upper", { restSecondsOverride: 60 });
+    expect(plan.every((p) => p.restSeconds === 60)).toBe(true);
+  });
+
+  it("overrides even the beginner +30 bump", () => {
+    const plan = buildSessionPlan("upper", { ability: "beginner", restSecondsOverride: 45 });
+    expect(plan[0].restSeconds).toBe(45); // not 90 + 30
+  });
+
+  it("leaves HSR rehab rest untouched by the override", () => {
+    const plan = buildSessionPlan("lower_achilles", { restSecondsOverride: 30, programWeek: 1 });
+    const calf = plan.find((p) => p.slug === "straight_knee_calf_raise")!;
+    expect(calf.restSeconds).not.toBe(30);
+  });
+
+  it("falls back to program defaults when no override is set", () => {
+    const plan = buildSessionPlan("upper", {});
+    expect(plan[0].restSeconds).toBe(90);
+  });
+});
+
 describe("validateAchillesOrdering", () => {
   it("accepts explosive-before-slow-heavy", () => {
     const r = validateAchillesOrdering([
