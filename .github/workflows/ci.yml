@@ -44,6 +44,10 @@ jobs:
       # constructed lazily and never connects at build time, so no DATABASE_URL
       # or OAuth credentials are required. Verified: build passes with env unset.
       - name: Build
+        # next build (webpack) peaks above CI's default ~2 GB Node heap and OOMs;
+        # the runner has ~7 GB, so give the build room.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build
 
   worker:
