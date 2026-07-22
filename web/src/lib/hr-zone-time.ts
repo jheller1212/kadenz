@@ -102,7 +102,8 @@ export function computeZoneSeconds(
 
 /** "24:35" under an hour, "1:24h" style h:mm above. */
 export function formatZoneTime(seconds: number): string {
-  const s = Math.round(seconds);
+  // Positive sub-second time reads as 1s, never 0 (nothing shorter than 1s).
+  const s = seconds > 0 ? Math.max(1, Math.round(seconds)) : 0;
   if (s >= 3600) {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
@@ -114,7 +115,7 @@ export function formatZoneTime(seconds: number): string {
 
 /** "1h 24m" / "24m" — used in the Stats legend. */
 export function formatZoneDuration(seconds: number): string {
-  const s = Math.round(seconds);
+  const s = seconds > 0 ? Math.max(1, Math.round(seconds)) : 0;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;

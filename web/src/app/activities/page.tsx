@@ -109,9 +109,11 @@ function formatDuration(minutes: number): string {
 }
 
 function formatSeconds(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
+  // Never render a fractional/sub-second duration (a positive value < 1s → 1s).
+  const total = seconds > 0 ? Math.max(1, Math.round(seconds)) : 0;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
   if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`;
   if (m > 0) return `${m}m ${s.toString().padStart(2, "0")}s`;
   return `${s}s`;
