@@ -12,14 +12,21 @@ import { and, gte, isNotNull, lt } from "drizzle-orm";
 // average_heartrate + moving_time (km-level resolution), and activities
 // without splits (e.g. strength) fall back to avgHr over the full duration.
 
-const QuerySchema = z.object({
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
-  bounds: z
-    .string()
-    .transform((s) => s.split(",").map(Number))
-    .pipe(z.array(z.number().int().min(40).max(250)).length(4)),
-  max: z.coerce.number().int().min(60).max(250),
-});
+const QuerySchema = z
+  .object({
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+    // Arbitrary range (Week / YTD / 1-Year etc.) — an alternative to month.
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    bounds: z
+      .string()
+      .transform((s) => s.split(",").map(Number))
+      .pipe(z.array(z.number().int().min(40).max(250)).length(4)),
+    max: z.coerce.number().int().min(60).max(250),
+  })
+  .refine((q) => Boolean(q.month) || (Boolean(q.from) && Boolean(q.to)), {
+    message: "Provide month, or both from and to",
+  });
 
 interface RawSplit {
   average_heartrate?: number;
@@ -37,7 +44,9 @@ function zoneIndexFor(hr: number, bounds: number[]): number {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const parsed = QuerySchema.safeParse({
-    month: searchParams.get("month"),
+    month: searchParams.get("month") ?? undefined,
+    from: searchParams.get("from") ?? undefined,
+    to: searchParams.get("to") ?? undefined,
     bounds: searchParams.get("bounds"),
     max: searchParams.get("max"),
   });
@@ -47,11 +56,18 @@ export async function GET(request: NextRequest) {
       { status: 422 }
     );
   }
-  const { month, bounds } = parsed.data;
+  const { month, from, to, bounds } = parsed.data;
 
-  const [year, mon] = month.split("-").map(Number);
-  const monthStart = new Date(year, mon - 1, 1);
-  const monthEnd = new Date(year, mon, 1);
+  let monthStart: Date;
+  let monthEnd: Date;
+  if (from && to) {
+    monthStart = new Date(from);
+    monthEnd = new Date(to);
+  } else {
+    const [year, mon] = month!.split("-").map(Number);
+    monthStart = new Date(year, mon - 1, 1);
+    monthEnd = new Date(year, mon, 1);
+  }
 
   try {
     // Guard payload cost: only the columns the aggregation needs.
