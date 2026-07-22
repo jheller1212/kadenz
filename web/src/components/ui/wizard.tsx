@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { ArrowLeft, Check, X } from "lucide-react";
 import { haptic } from "@/lib/haptics";
 
-// ── Benchmark-style wizard primitives ─────────────────────────────────────────────
+// ── Wizard primitives ─────────────────────────────────────────────────────────
 // Shared by the strength setup tour and the run-plan creation flow: thin
 // progress bar between back/close, white option cards with an accent
 // selection ring, rounded-square checkmarks, radial rings.
@@ -96,7 +96,7 @@ export function WizardCheck({ on }: { on: boolean }) {
   );
 }
 
-/** Radial progress ring (Benchmark-style donut), fill 0–1. */
+/** Radial progress ring (donut), fill 0–1. */
 export function RadialRing({ fill, active = true }: { fill: number; active?: boolean }) {
   const r = 16;
   const c = 2 * Math.PI * r;

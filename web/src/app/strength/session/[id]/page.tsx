@@ -16,7 +16,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import type { PlannedExercise } from "@/components/strength/GuidedSession";
 
-// ── Strength session preview / summary in the Benchmark workout anatomy ──────────
+// ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
 // sessions show the recorded sets. Reached from Today, the plan, and the
 // Activities feed.
@@ -318,7 +318,7 @@ export default function StrengthSessionPage({
         ) : planned.length === 0 ? (
           <EmptyState title="No sets logged" message="This session has no recorded sets." />
         ) : (
-          // The prescription: Benchmark-style block per planned exercise.
+          // The prescription: one block per planned exercise.
           planned.map((ex, i) => {
             const muscle = muscleFor(ex.slug);
             return (

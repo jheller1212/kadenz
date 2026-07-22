@@ -1,6 +1,6 @@
 "use client";
 
-// "Your Plan" hub (Benchmark-style): hero card with week progress, quick actions,
+// "Your Plan" hub: hero card with week progress, quick actions,
 // then one card per plan week with day-by-day chips. Rearranging lives in
 // /plan/rearrange, week ticking in /plan/overview, settings in /plan/manage.
 

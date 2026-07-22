@@ -719,7 +719,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                           }
                           if (shouldShowPace && isEasy && block.minPaceSecKm) {
                             // Easy running has a speed CAP, not a target — the
-                            // Benchmark framing: anything slower is on plan.
+                            // framing: anything slower is on plan.
                             const unit = paceUnitLabel(settings.units);
                             return <span className="font-normal text-text-2">
                               {mode === "treadmill"

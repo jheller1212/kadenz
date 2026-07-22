@@ -73,7 +73,7 @@
   --k-success: #34D399;
 
   /* Workout type spectrum (spines, dots, badges) — meaning, never decoration */
-  /* Benchmark type palette: easy=lime→green, tempo=amber, interval=red,
+  /* Workout type palette: easy=lime→green, tempo=amber, interval=red,
      long=purple, strength=blue. Gradients are the canonical rendering. */
   --k-type-easy: #7BC232;
   --k-type-easy-grad: linear-gradient(135deg, #C3D82E 0%, #5CB531 100%);

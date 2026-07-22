@@ -67,7 +67,7 @@ describe("generatePlan — input validation", () => {
     ).toThrow("daysPerWeek");
   });
 
-  it("accepts daysPerWeek of 2 (Benchmark-style onboarding minimum)", () => {
+  it("accepts daysPerWeek of 2 (onboarding minimum)", () => {
     const plan = generatePlan({ ...marathonConfig, daysPerWeek: 2 });
     expect(plan.daysPerWeek).toBe(2);
   });

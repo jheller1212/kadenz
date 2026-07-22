@@ -6,8 +6,8 @@ import {
 import type { Complaint, StrengthSessionType } from "./types";
 
 // ── Session-type rotation ─────────────────────────────────────────────────────
-// Per goal and sessions/week. Running focus keeps upper body minimal (Benchmark's
-// framing); all-round mixes upper and lower evenly.
+// Per goal and sessions/week. Running focus keeps upper body minimal;
+// all-round mixes upper and lower evenly.
 //
 // The dedicated Achilles/HSR sessions (achilles, lower_achilles,
 // upper_achilles) are today's owner's-physio programme — prescribing tendon

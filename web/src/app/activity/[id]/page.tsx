@@ -282,7 +282,7 @@ function AreaChart({
 }
 
 // ── Route Map Hero ────────────────────────────────────────────────────────────
-// Benchmark-style minimal route thumbnail: the decoded summary polyline drawn as
+// Minimal route thumbnail: the decoded summary polyline drawn as
 // an inline SVG — no tile servers, works offline and inside the PWA's CSP.
 
 function RouteMap({ polyline, color }: { polyline: string; color: string }) {

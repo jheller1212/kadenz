@@ -25,7 +25,7 @@ describe("rowsNeedingRepush", () => {
 describe("ourOrphanIds", () => {
   it("never returns a workout another app created", () => {
     const onGarmin = [
-      { garminWorkoutId: "1", createdByKadenz: false }, // Benchmark's
+      { garminWorkoutId: "1", createdByKadenz: false }, // another app's
       { garminWorkoutId: "2", createdByKadenz: true },  // ours, unreferenced
       { garminWorkoutId: "3", createdByKadenz: true },  // ours, still tracked
     ];

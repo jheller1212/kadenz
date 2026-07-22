@@ -517,7 +517,7 @@ function CalendarStrip({
               {day.dayNum}
             </div>
             <div className="flex h-2 items-center gap-[3px]">
-              {/* Strength dot first (left), Benchmark-style uniform blue gradient */}
+              {/* Strength dot first (left), uniform blue gradient */}
               {strengthStatus && (
                 <div
                   className="h-[7px] w-[7px] rounded-[2px]"
@@ -769,7 +769,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
       ? "Pace needs review"
       : "Pace variable";
   const pct = stats.plannedKm > 0 ? Math.round((stats.completedKm / stats.plannedKm) * 100) : 0;
-  // The arc takes the color of the most recent completed run (Benchmark-style).
+  // The arc takes the color of the most recent completed run.
   const lastCompletedRun = [...weekWorkouts]
     .filter((d) => d.workout?.status === "completed" && d.workout.type !== "rest")
     .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
@@ -898,7 +898,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
             </button>
 
-            {/* Week summary card — Benchmark split: RUN and STRENGTH rows */}
+            {/* Week summary card — split into RUN and STRENGTH rows */}
             <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Week {currentWeek}/{totalWeeks}</p>
@@ -1226,7 +1226,7 @@ export default function Home() {
   const [data, setData] = useState<TodayApiResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [days, setDays] = useState<DayInfo[]>([]);
-  // Calendar-day keys of this week's strength sessions (Benchmark-style 2nd dot).
+  // Calendar-day keys of this week's strength sessions (2nd dot).
   const [strengthDays, setStrengthDays] = useState<Record<string, string>>({});
   const [weekStrength, setWeekStrength] = useState<StrengthSessionLite[]>([]);
   const [strengthTarget, setStrengthTarget] = useState<number | null>(null);
@@ -1619,7 +1619,7 @@ export default function Home() {
 
         {/* In-progress guided strength workout — resume from where it left off */}
 
-        {/* Missed-session adjustment tray (Benchmark-style) */}
+        {/* Missed-session adjustment tray */}
         <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />
 
         {/* Section header + weather */}
@@ -1701,7 +1701,7 @@ export default function Home() {
         onSelectWeek={(week) => { setWeekOffset(week - currentWeek); setSelectedDate(null); setSelectedWorkout(null); }}
       />
 
-      {/* Workout half-sheet (Benchmark-style card tap) */}
+      {/* Workout half-sheet (card tap) */}
       <WorkoutHalfSheet
         workout={sheetWorkout}
         planId={data?.planId}
@@ -1825,7 +1825,7 @@ function CelebrationSheet({
 
 
 // ── Workout half-sheet ───────────────────────────────────────────────────────
-// Benchmark-style: tapping the Today workout card opens a compact action sheet
+// Tapping the Today workout card opens a compact action sheet
 // instead of navigating straight to the full preview.
 
 function WorkoutHalfSheet({

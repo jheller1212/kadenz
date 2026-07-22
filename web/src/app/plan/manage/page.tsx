@@ -221,7 +221,7 @@ export default function ManagePlanPage() {
       <NavBar title="Manage Plan" large={false} centerAlways left={backButton} />
 
       <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-8 pt-2">
-        {/* Tab control — Benchmark underline style */}
+        {/* Tab control — underline style */}
         <div className="relative -mx-4 flex border-b border-hairline">
           {([["running", "Running"], ["strength", "Strength"]] as const).map(([value, label]) => (
             <button

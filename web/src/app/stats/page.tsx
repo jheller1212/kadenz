@@ -714,7 +714,7 @@ export default function StatsPage() {
                   </p>
                 </div>
               </div>
-              {/* Plan-level progress: one dash per week (Benchmark style) */}
+              {/* Plan-level progress: one dash per week */}
               <div className="mt-4 flex gap-1.5">
                 {Array.from({ length: plan.planLengthWeeks }, (_, i) => (
                   <div

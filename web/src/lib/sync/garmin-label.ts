@@ -24,7 +24,7 @@ export function garminLabel(
   return parts.join(" · ");
 }
 
-/** Benchmark-style workout overview: a plan/week header line, then the workout's own
+/** Workout overview: a plan/week header line, then the workout's own
  *  description. e.g. "Half Marathon Plan (Week 2/8)\n\nConversational pace…".
  *  The worker appends the [kadenz] ownership tag beneath. */
 export function garminDescription(opts: {

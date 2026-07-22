@@ -1,4 +1,4 @@
-# Kadenz — Strength Module + Benchmark-Parity Handoff
+# Kadenz — Strength Module + Competitive-Parity Handoff
 
 _Last updated: 2026-07-11. Written at the end of a Claude Code **web** session so a
 future Claude (in **terminal**) can pick the work up. Read this top to bottom
@@ -167,15 +167,15 @@ strength module, Performance stats, activity linking, ad-hoc strength logging.
   missing `raceElevation` and `easyRunMinKm` (added to the type later). `tsc
   --noEmit` reports these — they're test-only, product code is clean.
 - **Pre-existing lint errors** in `app/page.tsx` (see §2).
-- The **RPE post-workout feedback loop** (the other half of Benchmark's "adaptive")
+- The **RPE post-workout feedback loop** (the other half of the "adaptive" story)
   was intentionally deferred — it needs a new `workouts` column (migration),
   which couldn't be applied from the web sandbox.
 
 ---
 
-## 6. Remaining Benchmark-parity backlog (not yet built)
+## 6. Remaining competitive-parity backlog (not yet built)
 
-From the Benchmark deep-dive this session. Community/social is **explicitly out of
+From the competitor deep-dive this session. Community/social is **explicitly out of
 scope** (owner isn't shipping a public app). Prioritized:
 
 1. **Readiness & recovery** — `wellness_logs` table + Intervals HRV/RHR/sleep

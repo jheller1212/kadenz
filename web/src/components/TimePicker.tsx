@@ -30,7 +30,7 @@ function WheelColumn({
   );
 }
 
-// Three thumb-scrollable drums (hours : minutes : seconds), Benchmark-style —
+// Three thumb-scrollable drums (hours : minutes : seconds) —
 // the centered row is the selected value.
 export function TimePicker({ hours, minutes, seconds, onHours, onMinutes, onSeconds }: TimePickerProps) {
   return (

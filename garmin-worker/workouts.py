@@ -424,7 +424,7 @@ def _build_workout_payload(
         "subSportType": None,
         "workoutName": req.title,
         # Ownership marker: reconcile deletes ONLY workouts carrying this tag,
-        # so other apps' (Benchmark) and hand-made workouts are never touched.
+        # so other apps' and hand-made workouts are never touched.
         "description": _tag_description(req.description),
         "estimatedDurationInSecs": None,
         "estimatedDistanceInMeters": None,

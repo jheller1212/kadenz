@@ -58,7 +58,7 @@ function BackToSettings() {
   );
 }
 
-/** Benchmark-style single-select row: label left, filled radio dot on the right. */
+/** Single-select row: label left, filled radio dot on the right. */
 export function RadioRow({
   title,
   subtitle,

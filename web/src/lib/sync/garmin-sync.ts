@@ -426,7 +426,7 @@ async function processGarminJob(job: typeof syncOutbox.$inferSelect): Promise<vo
   const input = {
     // "W3 · Easy Run 10km" — week-prefixed so the watch list is unambiguous.
     title: garminLabel(row.title, { weekNumber: row.week?.weekNumber ?? null }),
-    // Benchmark-style overview: "Plan Name (Week 3/8)" then the workout's notes.
+    // Plan/week overview: "Plan Name (Week 3/8)" then the workout's notes.
     description: garminDescription({
       planName: row.plan?.name,
       weekNumber: row.week?.weekNumber ?? null,
@@ -553,7 +553,7 @@ async function processGarminStrengthJob(
       weekNumber,
       metric: durationMin ? `${durationMin} min` : null,
     }),
-    // Benchmark-style overview: "Plan Name (Week 3/8)" then a strength summary.
+    // Plan/week overview: "Plan Name (Week 3/8)" then a strength summary.
     description: garminDescription({
       planName: activePlan?.name,
       weekNumber,

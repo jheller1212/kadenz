@@ -840,7 +840,7 @@ export default function ActivitiesPage() {
           </p>
         )}
 
-        {/* Tab control — Benchmark underline style */}
+        {/* Tab control — underline style */}
         <div className="relative -mx-4 flex border-b border-hairline">
           {([["workouts", "Workouts"], ["performance", "Performance"]] as const).map(([value, label]) => (
             <button

@@ -1,6 +1,6 @@
 // Shared presentation helpers for the Plan hub pages (/plan, /plan/overview,
 // /plan/manage). Colors mirror the rearrange calendar's type palette; strength
-// is uniformly blue (Benchmark-style), regardless of session type.
+// is uniformly blue, regardless of session type.
 
 import type { WorkoutType } from "@/lib/plan-engine/types";
 

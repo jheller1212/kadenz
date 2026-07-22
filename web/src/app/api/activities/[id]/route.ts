@@ -324,7 +324,7 @@ export async function GET(
 }
 
 // ── PATCH /api/activities/[id] — link / unlink to a run or strength session ────
-// Benchmark-style manual reconciliation: attach a recorded activity (with its HR)
+// Manual reconciliation: attach a recorded activity (with its HR)
 // to a planned run workout or strength session, or detach it.
 
 const LinkSchema = z

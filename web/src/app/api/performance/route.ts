@@ -3,7 +3,7 @@ import { isNotNull } from "drizzle-orm";
 
 // ── GET /api/performance ──────────────────────────────────────────────────────
 // Lifetime running stats, personal records, and achievement badges derived from
-// recorded activities (Benchmark-style "Performance" tab). Runs only — strength
+// recorded activities ("Performance" tab). Runs only — strength
 // sessions carry no distance and are excluded.
 
 interface RawSplit {

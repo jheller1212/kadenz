@@ -139,10 +139,10 @@ function runSpine(type: WorkoutType): string {
   return `linear-gradient(180deg, ${c}, ${darken(c)})`;
 }
 
-// Strength is uniformly blue (Benchmark-style), regardless of session type.
+// Strength is uniformly blue, regardless of session type.
 const STRENGTH_SPINE = "linear-gradient(180deg, #60A5FA, #2563EB)";
 
-/** "13 Jul" — Benchmark-style day-first short date. */
+/** "13 Jul" — day-first short date. */
 function formatDayMonth(d: Date) {
   return `${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`;
 }
@@ -258,7 +258,7 @@ function isPastWeek(week: GeneratedWeek): boolean {
   return end < new Date();
 }
 
-// ── Completed badge (Benchmark-style check on the card's top-right) ───────────────
+// ── Completed badge (check on the card's top-right) ───────────────────────────
 
 function CompletedBadge() {
   return (
@@ -551,7 +551,7 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
         ))}
       </div>
 
-      {/* Estimated race time (VDOT prediction, Benchmark-style) */}
+      {/* Estimated race time (VDOT prediction) */}
       <EstimatedRaceTime plan={plan} />
 
       {/* Micro volume chart */}
@@ -825,7 +825,7 @@ function PlanPageInner() {
 
   // ── Run move / swap ───────────────────────────────────────────────────────
   // Every day (incl. rest) is a real workout row, so a run landing on an
-  // occupied day swaps the two runs' dates (Benchmark behaviour). A run onto an
+  // occupied day swaps the two runs' dates. A run onto an
   // empty day is a single move.
   function applyRunDates(
     runId: string,

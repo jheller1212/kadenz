@@ -23,7 +23,7 @@ import {
   saveEquipment,
 } from "@/lib/strength/equipment";
 
-// ── Benchmark-style stepped setup wizard for the weekly strength schedule ────────
+// ── Stepped setup wizard for the weekly strength schedule ────────────────────
 
 type Goal = "running_focus" | "all_round";
 type Ability = "beginner" | "intermediate" | "advanced";

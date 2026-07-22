@@ -4,7 +4,7 @@ import { db, activities, plans, workouts, strengthSessions } from "@/db";
 
 // ── GET /api/activities/[id]/candidates ───────────────────────────────────────
 // Planned run workouts and strength sessions near the activity's date that a
-// recorded activity could be linked to (Benchmark-style manual reconciliation).
+// recorded activity could be linked to (manual reconciliation).
 // Window: ±3 days around the activity start.
 
 const WINDOW_DAYS = 3;

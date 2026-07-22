@@ -6,7 +6,7 @@ import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 
-// ── Plan adjustments (Benchmark-style "adjustment tray") ─────────────────────────
+// ── Plan adjustments ("adjustment tray") ─────────────────────────────────────
 // Detects missed run sessions and lets the athlete realign: mark them missed,
 // or redistribute their volume across the week's remaining runs. Works entirely
 // on existing columns (status / date / targetKm) — no schema change.

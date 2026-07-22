@@ -536,7 +536,7 @@ export const painLogs = pgTable(
   (t) => [index("pain_logs_session_id_idx").on(t.sessionId)]
 );
 
-// Recurring weekly strength schedule preferences (Benchmark-style setup wizard).
+// Recurring weekly strength schedule preferences (guided setup wizard).
 // One row per profile (NULL = owner); the scheduler tops up planned sessions.
 export const strengthPlanSettings = pgTable(
   "strength_plan_settings",

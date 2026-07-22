@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 
 // ── Plan adjustment tray ──────────────────────────────────────────────────────
-// Benchmark-style prompt shown on Today when run sessions were missed. Offers to
+// Prompt shown on Today when run sessions were missed. Offers to
 // redistribute the missed volume across the week's remaining runs, or simply
 // mark the sessions as missed so the plan moves on.
 

@@ -6,7 +6,7 @@ interface Props {
   title: ReactNode;
   /** Render the large inline title below the bar (iOS large-title style). */
   large?: boolean;
-  /** Always show the centered title (Benchmark-style persistent header) instead
+  /** Always show the centered title (persistent header) instead
       of crossfading it in on scroll. Interactive titles stay tappable. */
   centerAlways?: boolean;
   left?: ReactNode;

@@ -7,7 +7,7 @@ live in `web/src/app/globals.css`.
 
 ## Principles
 
-- Benchmark's clarity, but *our* identity — cool-neutral palette, depth and light
+- The clarity of a best-in-class running app, but *our* identity — cool-neutral palette, depth and light
   instead of flat fills. Like Apple Fitness / iOS widgets: layered, material.
 - **Gradients are a system, not decoration.** Every surface token has a `-grad`
   twin (2–4% vertical luminance shift). Gradients never sit under body text —

@@ -9,7 +9,7 @@ import { haptic } from "@/lib/haptics";
 import { loadSettings, saveSettings } from "@/lib/settings";
 import { estimateMaxHr, getHrZones } from "@/lib/plan-engine/hr-zones";
 
-// ── Heart Rate Zones — Benchmark-style: the user adjusts each zone's upper bound
+// ── Heart Rate Zones: the user adjusts each zone's upper bound
 // directly; age only seeds the defaults. ─────────────────────────────────────
 
 const ZONES = [

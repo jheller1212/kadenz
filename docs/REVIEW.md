@@ -1,6 +1,6 @@
-# Kadenz — Full Review & Benchmark Comparison
+# Kadenz — Full Review & Competitive Comparison
 
-> Reviewed June 3, 2026. Based on Kadenz codebase (commit 1c89f81), 33 Benchmark screenshots (IMG_1707–1739), Benchmark support docs, and 4 dedicated research agents.
+> Reviewed June 3, 2026. Based on Kadenz codebase (commit 1c89f81), 33 competitor screenshots (IMG_1707–1739), competitor support docs, and 4 dedicated research agents.
 
 ---
 
@@ -93,16 +93,16 @@
 - No achievement system (first run, 10 sessions, 50 runs, streak badges)
 - No completed plans archive
 - No all-time stats (total distance, total time, longest run, etc.)
-- No "Benchmark Score" equivalent (performance metric relative to plan)
+- No performance-score metric relative to plan
 
 ### Plan Management
 - No Plan Hub screen (central dashboard with plan actions)
 - No Training Calendar view (day-by-day, editable, full-plan view)
 - No "+ Add workout" per day (instant/ad-hoc workouts)
 - No Vacation/Holiday Mode (pause plan without losing progress)
-- No "Not Feeling 100%" feature — Benchmark's is sophisticated: 4 intensity levels, 3–14 day range, return-to-training speed (slow/balanced/quickly), separate toggle for strength sessions, auto-extends if needed
-- No Plan Realignment — Benchmark auto-detects missed workouts on Mondays and offers skip/rearrange/extend/rebuild options based on how much was missed (1 workout vs 1 week vs 1+ month)
-- No Mileage Insights — Benchmark shows 4-state status (on track / ahead / behind / way behind) with specific recommendations (accept/dismiss)
+- No "Not Feeling 100%" feature — the leading app's is sophisticated: 4 intensity levels, 3–14 day range, return-to-training speed (slow/balanced/quickly), separate toggle for strength sessions, auto-extends if needed
+- No Plan Realignment — the leading app auto-detects missed workouts on Mondays and offers skip/rearrange/extend/rebuild options based on how much was missed (1 workout vs 1 week vs 1+ month)
+- No Mileage Insights — the leading app shows 4-state status (on track / ahead / behind / way behind) with specific recommendations (accept/dismiss)
 - No coach commentary or workout briefings per week
 - No estimated race time predictions based on current fitness
 - No plan name customization
@@ -124,13 +124,13 @@
 - No profile photo or user profile screen
 - No onboarding flow for first-time users (jumps straight to empty state CTA)
 - No workout detail page with rich block visualization (route exists at /workout/[id] but minimal)
-- No "Workout Briefing" — Benchmark generates personalized pre-workout text including weather, hydration tips, where the session fits in the cycle, and insights from previous workout
+- No "Workout Briefing" — the leading app generates personalized pre-workout text including weather, hydration tips, where the session fits in the cycle, and insights from previous workout
 
 ---
 
-## Part 3: Kadenz vs Benchmark — Full Comparison
+## Part 3: Kadenz vs the Market Leader — Full Comparison
 
-| Aspect | Benchmark | Kadenz |
+| Aspect | Market Leader | Kadenz |
 |--------|-------|--------|
 | **Business model** | Subscription ($9.99/mo annual, $19.99/mo monthly) | Open-source, self-hosted, free |
 | **Target audience** | Mass market, all levels, 4.9-star rated | Single user (you), technical runner |
@@ -139,7 +139,7 @@
 | **Workout types** | Running + Strength + Yoga + Pilates + Strides + Time Trial | Running only |
 | **Navigation** | 5 tabs (Today/Plan/Activities/Community/Support) + Profile | 3 tabs (Today/Plan/Stats) |
 | **Activity history** | Full history with metrics, badges, route maps, monthly groups, filters | Not implemented |
-| **Gamification** | PRs, achievements, completed plans, streaks, Benchmark Score, Benchmark Levels | Not implemented |
+| **Gamification** | PRs, achievements, completed plans, streaks, performance score, levels | Not implemented |
 | **Social** | Community spaces, polls, race groups, location groups | N/A (single-user) |
 | **Coach input** | Weekly commentary + AI workout briefings + post-run insights | Algorithmic only |
 | **Watch sync** | Official Garmin/Apple/COROS/Suunto/Fitbit/Amazfit | Reverse-engineered Garmin only |
@@ -159,20 +159,20 @@
 | **Shoe tracking** | Per-shoe mileage with replacement reminders | No |
 | **Audio cues** | In-run coaching: start/stop, pace alerts, splits, halfway, with voice selection | N/A (web app) |
 
-### Where Kadenz is BETTER than Benchmark
-1. **Plan transparency** — Every block, every pace target, every phase visible and auditable. Benchmark is a black box.
-2. **Elevation-aware pacing** — 4-level profile with specific percentage adjustments vs Benchmark's binary "hilly" toggle.
-3. **Available days selector** — Kadenz asks "which days"; Benchmark asks "how many" then picks for you.
-4. **Drag-drop editing** — Inline reordering in the plan view vs Benchmark's separate calendar mode.
+### Where Kadenz is BETTER than the Market Leader
+1. **Plan transparency** — Every block, every pace target, every phase visible and auditable. The market leader is a black box.
+2. **Elevation-aware pacing** — 4-level profile with specific percentage adjustments vs the market leader's binary "hilly" toggle.
+3. **Available days selector** — Kadenz asks "which days"; the market leader asks "how many" then picks for you.
+4. **Drag-drop editing** — Inline reordering in the plan view vs the market leader's separate calendar mode.
 5. **No subscription** — Free, self-hosted, your data stays in your Postgres.
 6. **Open algorithm** — Jack Daniels VDOT is published, peer-reviewed science. You can audit and modify every calculation.
-7. **RPE mode** — First-class toggle between pace targets and RPE; Benchmark added this later and it's buried in settings.
-8. **Plan creation depth** — Long run cap, easy run minimum, and current weekly km baseline are more granular than Benchmark's Progressive/Steady/Gradual slider.
-9. **Google Calendar sync** — Direct calendar integration for seeing workouts alongside life events. Benchmark has this but treats it as secondary.
+7. **RPE mode** — First-class toggle between pace targets and RPE; the market leader added this later and it's buried in settings.
+8. **Plan creation depth** — Long run cap, easy run minimum, and current weekly km baseline are more granular than the market leader's Progressive/Steady/Gradual slider.
+9. **Google Calendar sync** — Direct calendar integration for seeing workouts alongside life events. The market leader has this but treats it as secondary.
 
 ---
 
-## Part 4: Getting Close to Benchmark's UI/UX
+## Part 4: Getting Close to the Market Leader's UI/UX
 
 ### Priority 1 — Core Experience Gaps (High Impact)
 
@@ -184,22 +184,22 @@ The single biggest gap. Without completed activity data, Kadenz is a plan genera
 - **Performance sub-tab**: Weekly/monthly distance bar chart, plan progress stats, volume progression (existing), workout distribution (existing)
 - **Data source**: Strava webhook activity.create > Strava API GET /activities/{id} > match to planned workout > store in completed_activities
 
-**Post-run feedback** (simpler than Benchmark's):
+**Post-run feedback** (simpler than the market leader's):
 - After marking complete or auto-matching from Strava: "How did it feel?" — Easy / On Target / Hard / Terrible
 - Store rating, use it to suggest plan adjustments later
 
 #### 1B. Training Calendar View
-The most-used screen in Benchmark. Add as a sub-view in Plan tab (toggle between "Week View" and "Calendar"):
+The most-used screen in the market leader. Add as a sub-view in Plan tab (toggle between "Week View" and "Calendar"):
 
 - Full-plan day-by-day scroll: each day shows date | colored workout card | "+ Add" button
 - Completed workouts: checkmark + actual distance/time
 - "GO TO THIS WEEK" floating pill for quick navigation
 - Week headers: date range, WEEK N badge, total km, phase badge
-- Drag workouts between days (within-week or +/- 1 week, matching Benchmark's constraint)
+- Drag workouts between days (within-week or +/- 1 week, matching the market leader's constraint)
 - Scrollable from week 1 to race week
 
 #### 1C. "Not Feeling 100%" / Plan Adaptation
-Benchmark's implementation is sophisticated. Start simpler:
+The market leader's implementation is sophisticated. Start simpler:
 
 - Button on Today screen or Plan tab: "Adapt this week"
 - Options: "Reduce intensity" / "Easy runs only" / "Skip this week"
@@ -219,7 +219,7 @@ When the user opens Kadenz on a Monday and has missed 2+ workouts from last week
 #### 2A. Personal Records
 Track PRs for: 1K, 1MI, 5K, 5MI, 10K, 10MI, Half, Marathon
 - Auto-detect from completed activities (check if any segment of a run covers the distance faster than current PR)
-- Badge grid in Performance sub-tab (hexagonal like Benchmark or circular)
+- Badge grid in Performance sub-tab (hexagonal or circular)
 - Date achieved + time shown per badge
 - New PR notification when set
 - Optional: feed PR improvements back into VDOT recalculation for dynamic plan adjustment
@@ -254,7 +254,7 @@ Free API: Open-Meteo (no key needed)
 - Running-relevant context: "Good conditions for your long run" or "Hot — consider hydrating before you head out"
 
 #### 3B. Instant Workouts
-"Add Run" grid on Today screen (like Benchmark's colorful tiles):
+"Add Run" grid on Today screen (colorful tiles):
 - Easy Run, Tempo, Intervals, Hills, Long Run, Race
 - Tapping one creates a one-off workout using plan engine defaults
 - Added to today's calendar without disrupting the structured plan
@@ -404,7 +404,7 @@ Two APIs available:
 - Schedule workouts on specific dates
 - Auto-syncs to compatible Garmin devices (Forerunner, Fenix, Enduro, etc.)
 - Pace targets, distance, duration per step — appears on the watch face
-- This is what Benchmark uses for Garmin integration
+- This is what the leading commercial apps use for Garmin integration
 
 **Activity API** (pull completed activities FROM Garmin):
 - Distance, time, pace, heart rate, GPS track, calories
@@ -504,7 +504,6 @@ Two APIs available:
 - [Strava API changes (Notebookcheck)](https://www.notebookcheck.net/Strava-just-pulled-a-Reddit-on-its-developer-community.1312468.0.html)
 - [Strava charges developers $11.99/mo (Mezha)](https://mezha.net/eng/bukvy/7adff94f_strava_restricts_public/)
 - [Strava tightens API (TechRepublic)](https://www.techrepublic.com/article/news-strava-api-scraping-crackdown/)
-- [Strava + Benchmark Bundle Press Release](https://press.strava.com/articles/strava-benchmark-launch-combined-subscription-bundle)
 
 ### Garmin Developer
 - [Connect Developer Program](https://developer.garmin.com/gc-developer-program/)
@@ -514,20 +513,5 @@ Two APIs available:
 - [Connect IQ SDK](https://developer.garmin.com/connect-iq/)
 - [Why Integrate Garmin API Directly in 2026 (SpikeAPI)](https://www.spikeapi.com/blog/why-integrate-garmin-api-directly)
 
-### Benchmark
-- [App Review 2026 (Run with Rachel)](https://runwithrachel.co.uk/benchmark-app-review/)
-- [App Review 2026 (InstaPV)](https://instapv.co.uk/benchmark-app-review/)
-- [Screen Designs (ScreensDesign)](https://screensdesign.com/showcase/benchmark-running-training-plans)
-- [Features](https://www.benchmark.com/features)
-- [Pricing](https://www.benchmark.com/pricing)
-- [Training Plans](https://www.benchmark.com/training/training-plans)
-- [Key Features Guide (Support)](https://support.benchmark.com/en/articles/10473504-guide-to-key-benchmark-features)
-- [Training Calendar (Support)](https://support.benchmark.com/en/articles/10137793-how-to-use-and-manage-your-training-calendar)
-- [Training Preferences (Support)](https://support.benchmark.com/en/articles/10393191-how-to-use-training-preferences)
-- [Running Schedule (Support)](https://support.benchmark.com/en/articles/6206024-adjusting-your-running-schedule)
-- [App Features Collection (Support)](https://support.benchmark.com/en/collections/16740555-app-features)
-- [FAQs Collection (Support)](https://support.benchmark.com/en/collections/3431949-benchmark-app-faqs)
-- [Onboarding Flow Screenshots (Reteno)](https://gallery.reteno.com/flows/app-screens-benchmark)
-- [Sentiment & Intel Report (Marlvel)](https://marlvel.ai/intel-report/health-fitness/benchmark-running-plans-coach)
-- [Nike Run Club vs Benchmark (Mostly Media)](https://mostly.media/nike-run-club-vs-benchmark-which-running-app-delivers-real-value-in-2025/)
-- [Strava + Benchmark Review (Mostly Media)](https://mostly.media/stravas-benchmark-app-worth-the-premium-review-breakdown/)
+### Competitor research
+Market-leader app reviews, feature/pricing pages, support docs, onboarding-flow screenshots, and sentiment reports were reviewed for this comparison. Source links omitted here as they reference the competitor brand directly.

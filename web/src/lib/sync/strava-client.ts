@@ -500,7 +500,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
     });
     if (strengthSessionId) {
       // Grab the calendar event id before we clear it, so we can remove the
-      // now-completed session from the calendar (Benchmark-style auto-cleanup).
+      // now-completed session from the calendar (auto-cleanup).
       const [sess] = await db
         .select({ gcalEventId: strengthSessions.gcalEventId })
         .from(strengthSessions)

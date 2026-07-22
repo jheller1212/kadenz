@@ -6,7 +6,7 @@ import { garminClient } from "@/lib/sync/garmin-client";
 // Removes leftovers Kadenz itself created on Garmin: duplicates from the old
 // move bug, or deletions that never ran while the sync queue was wedged.
 //
-// A Garmin account is SHARED with other apps (Benchmark) and the athlete's own
+// A Garmin account is SHARED with other apps and the athlete's own
 // hand-made workouts. "Kadenz does not track it" therefore does NOT mean
 // "safe to delete" — only workouts carrying the Kadenz tag are ever removed,
 // and the caller must pass {"confirm": true} to delete anything at all.

@@ -1,4 +1,4 @@
-// Benchmark-parity workout type palette. Single source of truth for JS call
+// Workout type palette. Single source of truth for JS call
 // sites; CSS twins live in globals.css as --k-type-* / --k-type-*-grad.
 
 export interface TypeColor {
