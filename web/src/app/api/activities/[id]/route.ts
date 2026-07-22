@@ -298,6 +298,9 @@ export async function GET(
       // The planned workout's title when it's linked, else what the device
       // called it — "Run" for everything erased strength sessions and names.
       name: plannedWorkout?.title ?? activity.name ?? "Run",
+      // Sport hint for the client (share copy, run-only sections). Linked
+      // strength sessions and strength_training/weight device types are strength.
+      sportType: activity.strengthSessionId ? "strength" : activity.sportType ?? null,
       date: activity.startDate?.toISOString() ?? "",
       distanceKm: activity.distanceKm ?? 0,
       durationSeconds: activity.durationSeconds ?? 0,

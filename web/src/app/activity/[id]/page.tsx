@@ -46,6 +46,7 @@ interface ActivityDetail {
   stravaId: string;
   source: "strava" | "garmin" | "manual";
   name: string;
+  sportType: string | null;
   date: string;
   distanceKm: number;
   durationSeconds: number;
@@ -379,6 +380,9 @@ function SummaryStats({ activity }: { activity: ActivityDetail }) {
 
 function ShareButton({ activity }: { activity: ActivityDetail }) {
   const [copied, setCopied] = useState(false);
+  const isStrength =
+    /strength|weight/i.test(activity.sportType ?? "") ||
+    (activity.distanceKm === 0 && activity.durationSeconds > 0);
 
   async function share() {
     haptic("light");
@@ -387,7 +391,12 @@ function ShareButton({ activity }: { activity: ActivityDetail }) {
       month: "short",
       year: "numeric",
     });
-    const text = `${activity.name} — ${displayDistance(activity.distanceKm, 2).toFixed(2)} ${distanceUnitLabel()} in ${formatDuration(activity.durationSeconds)} (${formatPace(displayPace(activity.avgPaceSecKm))}${paceUnitLabel()}) · ${dateStr}`;
+    // Strength has no distance/pace — share duration (+ avg HR) instead.
+    const text = isStrength
+      ? `${activity.name} — ${formatDuration(activity.durationSeconds)}${
+          activity.avgHr ? `, avg HR ${activity.avgHr}` : ""
+        } · ${dateStr}`
+      : `${activity.name} — ${displayDistance(activity.distanceKm, 2).toFixed(2)} ${distanceUnitLabel()} in ${formatDuration(activity.durationSeconds)} (${formatPace(displayPace(activity.avgPaceSecKm))}${paceUnitLabel()}) · ${dateStr}`;
     const url = window.location.href;
 
     if (navigator.share) {
@@ -413,7 +422,7 @@ function ShareButton({ activity }: { activity: ActivityDetail }) {
     <Button variant="secondary" full onClick={share}>
       <span className="flex items-center justify-center gap-2">
         <Share2 className="h-4 w-4" strokeWidth={2} />
-        {copied ? "Copied" : "Share run"}
+        {copied ? "Copied" : isStrength ? "Share workout" : "Share run"}
       </span>
     </Button>
   );
