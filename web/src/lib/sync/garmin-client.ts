@@ -89,6 +89,14 @@ export interface GarminWorkoutSummary {
   scheduledDates: string[];
 }
 
+/** One exercise as performed on the watch, in the order it was done. */
+export interface GarminPerformedExercise {
+  category: string | null;
+  name: string | null;
+  sets: number;
+  reps: number[];
+}
+
 export interface GarminClient {
   isConfigured(): boolean;
   healthCheck(): Promise<boolean>;
@@ -105,6 +113,7 @@ export interface GarminClient {
   deleteWorkout(garminWorkoutId: string): Promise<void>;
   listActivities(sinceIso: string, limit?: number): Promise<GarminActivity[]>;
   getActivity(garminId: string): Promise<GarminActivityDetail>;
+  getExerciseSets(garminId: string): Promise<GarminPerformedExercise[]>;
   pushStrengthWorkout(workout: GarminStrengthWorkout): Promise<string>;
   listWorkouts(limit?: number, withSchedules?: boolean): Promise<GarminWorkoutSummary[]>;
 }
@@ -352,6 +361,12 @@ export const garminClient: GarminClient = {
       })),
       lapCount: raw.lapCount ?? 0,
     };
+  },
+
+  async getExerciseSets(garminId) {
+    const res = await workerFetch(`/activities/${encodeURIComponent(garminId)}/exercise-sets`);
+    const data = (await res.json()) as { exercises?: GarminPerformedExercise[] };
+    return data.exercises ?? [];
   },
 
   async listWorkouts(limit = 100, withSchedules = false) {
