@@ -17,12 +17,13 @@ import { useSwipeBack } from "@/lib/useSwipeBack";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel } from "@/lib/units";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
-import { Radio, Play } from "lucide-react";
+import { Radio, Play, Music } from "lucide-react";
 import {
   clearRunSnapshot,
   loadRunSnapshot,
   type RunSnapshot,
 } from "@/lib/run-snapshot";
+import { openSpotify } from "@/lib/spotify";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -386,6 +387,23 @@ function blockDetail(
     parts.push(`${block.durationMinutes} mins`);
   }
   return parts.length > 0 ? ` (${parts.join(" · ")})` : "";
+}
+
+// Opens Spotify (app if installed, else web player) so the athlete can line up
+// music before a run. No account/scopes — just a launch.
+function MusicButton() {
+  return (
+    <button
+      onClick={() => {
+        haptic("light");
+        openSpotify();
+      }}
+      className="press flex w-full items-center justify-center gap-2 py-2.5 text-[14px] font-semibold text-text-2"
+    >
+      <Music className="h-4 w-4" strokeWidth={2.2} />
+      Open Spotify for music
+    </button>
+  );
 }
 
 export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -864,6 +882,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
               >
                 Discard & start over
               </Button>
+              <MusicButton />
             </>
           ) : (
             <>
@@ -885,6 +904,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
               <Button variant="secondary" full busy={completing} onClick={handleComplete}>
                 {completing ? "Saving..." : "Mark complete"}
               </Button>
+              <MusicButton />
             </>
           )}
         </div>
