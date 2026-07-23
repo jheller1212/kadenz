@@ -19,6 +19,7 @@
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "googleapis": "^171.4.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.11.0",
     "motion": "^12.42.2",
     "next": "16.2.4",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^20.19.39",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -8,6 +8,7 @@ import { CUE_VOLUME_GAIN, loadSettings, type UserSettings } from "@/lib/settings
 import { haptic } from "@/lib/haptics";
 import { openSpotify } from "@/lib/spotify";
 import { encodePolyline, type LatLng } from "@/lib/polyline";
+import { RunMap } from "@/components/RunMap";
 import {
   clearRunSnapshot,
   saveRunSnapshot,
@@ -232,6 +233,7 @@ export function GuidedRun({
   // GPS state.
   const [gpsOn, setGpsOn] = useState(false);
   const [gpsDenied, setGpsDenied] = useState(false);
+  const [livePos, setLivePos] = useState<LatLng | null>(null); // drives the live map
   const watchRef = useRef<number | null>(null);
   const lastFixRef = useRef<GeolocationCoordinates | null>(null);
   const distanceMRef = useRef(0); // total metres
@@ -456,6 +458,7 @@ export function GuidedRun({
             // Seed the route with the first good fix.
             trackRef.current.push([c.latitude, c.longitude]);
           }
+          if (accurate) setLivePos([c.latitude, c.longitude]);
           lastFixRef.current = c;
         },
         () => setGpsDenied(true),
@@ -843,7 +846,38 @@ export function GuidedRun({
         )}
       </div>
 
-      {/* Current step card */}
+      {/* Live map (GPS) — route fills the screen, step info overlaid */}
+      {gpsOn && livePos ? (
+        <div className="relative mt-2 flex-1 overflow-hidden">
+          <RunMap trackRef={trackRef} position={livePos} />
+          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center px-4">
+            <div className="flex items-center gap-2 rounded-full bg-bg/85 px-4 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.25)] backdrop-blur">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-accent-fg">
+                {stepIdx + 1}/{steps.length}
+              </span>
+              <span className="text-[14px] font-bold text-text-1">
+                {step?.label}
+                {step?.detail ? ` · ${step.detail}` : ""}
+              </span>
+            </div>
+          </div>
+          {step?.kind === "rest" && restRem != null && (
+            <div className="pointer-events-none absolute inset-x-0 top-16 flex justify-center">
+              <span className="rounded-2xl bg-bg/85 px-5 py-2 text-[40px] font-extrabold tabular-nums text-text-1 backdrop-blur">
+                {restRem}s
+              </span>
+            </div>
+          )}
+          {paused && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+              <span className="rounded-full bg-warn/90 px-4 py-1.5 text-[13px] font-bold uppercase tracking-wider text-on-accent">
+                Paused
+              </span>
+            </div>
+          )}
+        </div>
+      ) : (
+      /* Current step card (no GPS) */
       <div className="flex-1 flex flex-col items-center justify-center px-6">
         <AnimatePresence mode="wait">
           <motion.div
@@ -902,6 +936,7 @@ export function GuidedRun({
           </p>
         )}
       </div>
+      )}
 
       {/* Controls */}
       <div
