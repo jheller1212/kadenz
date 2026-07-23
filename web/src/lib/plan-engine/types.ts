@@ -1,4 +1,4 @@
-export type RaceDistance = "5k" | "10k" | "half" | "marathon";
+export type RaceDistance = "5k" | "10k" | "half" | "marathon" | "ultra";
 
 /**
  * What a plan is for. "race" is the classic goal-time plan (peaks + tapers to a

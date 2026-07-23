@@ -12,7 +12,7 @@ import { garminClient } from "@/lib/sync/garmin-client";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 
 const PlanConfigSchema = z.object({
-  raceDistance: z.enum(["5k", "10k", "half", "marathon"]),
+  raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra"]),
   goalTimeSeconds: z.number().int().positive(),
   startDate: z.string().datetime(),
   raceDate: z.string().datetime(),

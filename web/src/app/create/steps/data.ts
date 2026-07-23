@@ -7,6 +7,7 @@ export const DISTANCE_OPTIONS: { distance: RaceDistance; label: string; sublabel
   { distance: "10k", label: "10K", sublabel: "6.2 miles" },
   { distance: "half", label: "Half Marathon", sublabel: "13.1 miles" },
   { distance: "marathon", label: "Marathon", sublabel: "26.2 miles" },
+  { distance: "ultra", label: "Ultra", sublabel: "50 km · 31 miles" },
 ];
 
 export const DISTANCE_LABEL: Record<RaceDistance, string> = {
@@ -14,6 +15,7 @@ export const DISTANCE_LABEL: Record<RaceDistance, string> = {
   "10k": "10K",
   half: "Half Marathon",
   marathon: "Marathon",
+  ultra: "Ultra (50K)",
 };
 
 /** Sensible goal-time prefill per distance (seconds). */
@@ -22,6 +24,7 @@ export const DEFAULT_GOAL_SECONDS: Record<RaceDistance, number> = {
   "10k": 55 * 60,
   half: 2 * 3600,
   marathon: 4 * 3600,
+  ultra: 5 * 3600 + 30 * 60,
 };
 
 // Realistic goal time ranges per distance (seconds) [world record … slow recreational]
@@ -30,6 +33,7 @@ export const GOAL_TIME_RANGES: Record<RaceDistance, { wr: number; elite: number;
   "10k": { wr: 1577, elite: 1920, slow: 5400 },
   half: { wr: 3456, elite: 4200, slow: 12600 },
   marathon: { wr: 7260, elite: 8700, slow: 25200 },
+  ultra: { wr: 9720, elite: 12600, slow: 32400 },
 };
 
 // ── Popular races ────────────────────────────────────────────────────────────

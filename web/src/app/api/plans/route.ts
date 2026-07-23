@@ -16,7 +16,7 @@ const PlanConfigSchema = z.object({
   // "race" is the default so existing clients keep working unchanged.
   intent: z.enum(["race", "get_fit", "maintain", "return"]).default("race"),
   // Optional for non-race intents (defaults to the 10k reference then).
-  raceDistance: z.enum(["5k", "10k", "half", "marathon"]).optional(),
+  raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra"]).optional(),
   // Required for race; synthesized for non-race.
   goalTimeSeconds: z.number().int().positive().optional(),
   startDate: z.string().datetime(),

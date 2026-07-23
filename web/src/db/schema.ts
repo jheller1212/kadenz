@@ -20,6 +20,7 @@ export const raceDistanceEnum = pgEnum("race_distance", [
   "10k",
   "half",
   "marathon",
+  "ultra",
 ]);
 
 export const planStatusEnum = pgEnum("plan_status", [

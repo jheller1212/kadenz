@@ -465,6 +465,7 @@ function DayRow({
 // ── Plan header ───────────────────────────────────────────────────────────────
 
 const RACE_SHORT: Record<GeneratedPlan["raceDistance"], string> = {
+  ultra: "50K",
   "5k": "5K",
   "10k": "10K",
   half: "Half",

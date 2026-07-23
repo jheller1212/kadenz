@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 
-type RaceDistance = "5k" | "10k" | "half" | "marathon";
+type RaceDistance = "5k" | "10k" | "half" | "marathon" | "ultra";
 type Volume = "beginner" | "low" | "medium" | "high" | "elite";
 type Difficulty = "easy" | "moderate" | "hard";
 
@@ -215,6 +215,7 @@ function EditPlanInner() {
               { value: "10k", label: "10K" },
               { value: "half", label: "Half" },
               { value: "marathon", label: "Full" },
+              { value: "ultra", label: "Ultra" },
             ]}
           />
         </div>

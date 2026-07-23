@@ -39,6 +39,7 @@ const MIN_PEAK_KM: Record<string, number> = {
   "10k": 35,
   "half": 45,
   "marathon": 55,
+  "ultra": 70,
 };
 
 /** Peak-volume scaling per training-volume preference */
@@ -61,6 +62,7 @@ function computePeakKm(
     "10k": 1.5,
     "half": 1.6,
     "marathon": 1.8,
+    "ultra": 2.0,
   };
   const mult = multiplier[raceDistance] ?? 1.5;
   const factor = VOLUME_FACTOR[trainingVolume] ?? 1.0;
@@ -126,6 +128,7 @@ function raceLabel(d: string): string {
     "10k": "10K",
     half: "Half Marathon",
     marathon: "Marathon",
+    ultra: "Ultra (50K)",
   };
   return labels[d] ?? d;
 }

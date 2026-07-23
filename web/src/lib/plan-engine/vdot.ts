@@ -120,5 +120,6 @@ export const RACE_DISTANCES_M = {
   "10k": 10000,
   half: 21097.5,
   marathon: 42195,
+  ultra: 50000,
   mile: 1609.344,
 } as const;

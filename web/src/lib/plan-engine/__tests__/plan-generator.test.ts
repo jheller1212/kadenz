@@ -811,3 +811,42 @@ describe("generatePlan — week numbering", () => {
     }
   });
 });
+
+// ── Ultra (50K) distance ─────────────────────────────────────────────────────
+
+describe("generatePlan — ultra", () => {
+  const ultraConfig: PlanConfig = {
+    raceDistance: "ultra",
+    goalTimeSeconds: 5 * 3600 + 30 * 60,
+    startDate: makeDate(0),
+    raceDate: makeDate(16),
+    daysPerWeek: 5,
+    trainingVolume: "medium",
+    trainingDifficulty: "moderate",
+    preferredLongRunDay: 6,
+    hillyArea: false,
+    currentWeeklyKm: 45,
+    longRunCapKm: 0,
+    raceElevation: "flat",
+    easyRunMinKm: 0,
+  };
+
+  it("generates a valid ultra plan with a race workout", () => {
+    const plan = generatePlan(ultraConfig);
+    expect(plan.raceDistance).toBe("ultra");
+    expect(plan.weeks.length).toBeGreaterThan(4);
+    const raceWeek = plan.weeks.find((w) => w.type === "race");
+    expect(raceWeek?.workouts.some((w) => w.type === "race")).toBe(true);
+    expect(plan.vdot).toBeGreaterThan(0);
+  });
+
+  it("peaks higher than a comparable marathon block", () => {
+    const ultraPeak = Math.max(...generatePlan(ultraConfig).weeks.map((w) => w.targetKm));
+    const marathonPeak = Math.max(
+      ...generatePlan({ ...ultraConfig, raceDistance: "marathon", goalTimeSeconds: 4 * 3600 }).weeks.map(
+        (w) => w.targetKm
+      )
+    );
+    expect(ultraPeak).toBeGreaterThanOrEqual(marathonPeak);
+  });
+});
