@@ -229,6 +229,9 @@ export const workouts = pgTable(
     // True once the athlete hand-tuned this workout (distance/pace override).
     edited: boolean("edited").notNull().default(false),
     targetDurationMinutes: integer("target_duration_minutes"),
+    // Elapsed time of a completed guided phone run (seconds); null for runs
+    // completed without the guided player or imported from Strava/Garmin.
+    actualDurationSeconds: integer("actual_duration_seconds"),
     gcalEventId: text("gcal_event_id"),
     garminWorkoutId: text("garmin_workout_id"),
     stravaActivityId: text("strava_activity_id"),

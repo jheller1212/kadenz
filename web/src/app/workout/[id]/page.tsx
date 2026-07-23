@@ -67,6 +67,8 @@ interface WorkoutDetail {
   status: string;
   rpe?: number | null;
   edited?: boolean;
+  actualKm?: number | null;
+  actualDurationSeconds?: number | null;
   date: string;
   dayOfWeek: number;
   blocks: WorkoutBlock[];
@@ -389,6 +391,17 @@ function blockDetail(
   return parts.length > 0 ? ` (${parts.join(" · ")})` : "";
 }
 
+// Compact elapsed-time label: h:mm:ss over an hour, else m:ss. Never renders a
+// sub-second run (fleet convention: nothing shorter than one second).
+function fmtDurationShort(totalSeconds: number): string {
+  const s = Math.max(1, Math.round(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
 // Opens Spotify (app if installed, else web player) so the athlete can line up
 // music before a run. No account/scopes — just a launch.
 function MusicButton() {
@@ -515,13 +528,24 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          summary.distanceKm != null ? { actualKm: summary.distanceKm } : {}
-        ),
+        body: JSON.stringify({
+          ...(summary.distanceKm != null ? { actualKm: summary.distanceKm } : {}),
+          ...(summary.elapsedSeconds > 0 ? { durationSeconds: summary.elapsedSeconds } : {}),
+        }),
       });
       if (res.ok) {
         haptic("success");
-        setWorkout((prev) => (prev ? { ...prev, status: "completed" } : prev));
+        setWorkout((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "completed",
+                actualKm: summary.distanceKm ?? prev.actualKm,
+                actualDurationSeconds:
+                  summary.elapsedSeconds > 0 ? summary.elapsedSeconds : prev.actualDurationSeconds,
+              }
+            : prev
+        );
       } else {
         setActionError("Run saved locally, but we couldn't mark it complete. Try again.");
       }
@@ -675,6 +699,31 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
               <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={color} useMiles={useMiles} />
             </div>
           </div>
+
+          {/* Actual result (guided phone run) */}
+          {isCompleted &&
+            ((workout.actualKm != null && workout.actualKm > 0) ||
+              (workout.actualDurationSeconds != null && workout.actualDurationSeconds > 0)) && (
+              <div className="mt-4 flex items-end gap-8 rounded-[var(--radius-card)] bg-elevated px-4 py-3">
+                {workout.actualKm != null && workout.actualKm > 0 && (
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-accent-fg">Actual distance</p>
+                    <p className="text-[20px] font-extrabold tabular-nums text-text-1">
+                      {displayDistance(workout.actualKm, 2, settings.units)}
+                      {distanceUnitLabel(settings.units)}
+                    </p>
+                  </div>
+                )}
+                {workout.actualDurationSeconds != null && workout.actualDurationSeconds > 0 && (
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-accent-fg">Actual time</p>
+                    <p className="text-[20px] font-extrabold tabular-nums text-text-1">
+                      {fmtDurationShort(workout.actualDurationSeconds)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
           {/* Pace structure visualization */}
           {workout.blocks.length > 0 && (

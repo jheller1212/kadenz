@@ -7,6 +7,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 
 const CompleteSchema = z.object({
   actualKm: z.number().nonnegative().optional(),
+  durationSeconds: z.number().int().nonnegative().optional(),
   rpe: z.number().min(0).max(10).optional(),
 });
 
@@ -42,6 +43,9 @@ export async function PATCH(
       .set({
         status: "completed",
         ...(parsed.data.actualKm !== undefined ? { actualKm: parsed.data.actualKm } : {}),
+        ...(parsed.data.durationSeconds !== undefined
+          ? { actualDurationSeconds: parsed.data.durationSeconds }
+          : {}),
         ...(parsed.data.rpe !== undefined ? { rpe: parsed.data.rpe } : {}),
         updatedAt: new Date(),
       })
