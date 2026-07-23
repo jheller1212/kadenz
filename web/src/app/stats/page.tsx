@@ -12,6 +12,12 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration } from "@/lib/hr-zone-time";
+import {
+  collapseToThreeZones,
+  bandPercents,
+  classifyDistribution,
+  polarizationIndex,
+} from "@/lib/training-distribution";
 import type {
   GeneratedPlan,
   GeneratedWeek,
@@ -301,26 +307,97 @@ function TimeInZonesCard({
         )}
       </div>
 
-      {/* Legend */}
+      {/* Legend — duration + share of total time */}
       <div className="mt-4 flex flex-col gap-2.5">
-        {zones.seconds.map((s, i) => (
-          <div key={i} className="flex items-center gap-2.5">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: HR_ZONE_META[i].color }}
-            />
-            <span className="text-[13px] text-text-2">
-              {HR_ZONE_META[i].label} · {HR_ZONE_META[i].name}
-            </span>
-            <span className="ml-auto text-[13px] font-semibold tabular-nums text-text-1">
-              {s > 0 ? formatZoneDuration(s) : "—"}
-            </span>
-          </div>
-        ))}
+        {zones.seconds.map((s, i) => {
+          const pct = zones.total > 0 ? Math.round((s / zones.total) * 100) : 0;
+          return (
+            <div key={i} className="flex items-center gap-2.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: HR_ZONE_META[i].color }}
+              />
+              <span className="text-[13px] text-text-2">
+                {HR_ZONE_META[i].label} · {HR_ZONE_META[i].name}
+              </span>
+              <span className="ml-auto flex items-baseline gap-2 tabular-nums">
+                <span className="text-[13px] font-semibold text-text-1">
+                  {s > 0 ? `${pct}%` : "—"}
+                </span>
+                <span className="w-14 text-right text-[12px] text-text-3">
+                  {s > 0 ? formatZoneDuration(s) : ""}
+                </span>
+              </span>
+            </div>
+          );
+        })}
       </div>
+
+      <TrainingDistribution seconds={zones.seconds} />
       </>
       )}
     </section>
+  );
+}
+
+// ── 3-band distribution + polarized/pyramidal classification ──────────────────
+// Collapses the 5 zones to Low (Z1+Z2) / Moderate (Z3+Z4) / High (Z5), the model
+// used in the endurance literature and by intervals.icu, and labels the pattern
+// plus the Treff (2019) Polarization Index.
+
+const BAND_COLORS = ["#3B82F6", "#F2A113", "#E0402E"]; // low / moderate / high
+
+function TrainingDistribution({ seconds }: { seconds: number[] }) {
+  const three = collapseToThreeZones(seconds);
+  if (three.total <= 0) return null;
+  const pct = bandPercents(three);
+  const cls = classifyDistribution(three);
+  const pi = polarizationIndex(three);
+  const bands = [
+    { label: "Low", sub: "Z1–2", value: pct.low },
+    { label: "Moderate", sub: "Z3–4", value: pct.moderate },
+    { label: "High", sub: "Z5", value: pct.high },
+  ];
+
+  return (
+    <div className="mt-5 border-t border-hairline pt-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+          Training distribution
+        </p>
+        {cls && (
+          <span className="rounded-full bg-elevated px-2.5 py-1 text-[12px] font-bold text-text-1">
+            {cls.label}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {bands.map((b, i) => (
+          <div key={b.label} className="rounded-[var(--radius-input)] bg-elevated px-3 py-2.5 text-center">
+            <p className="text-[20px] font-extrabold tabular-nums leading-none" style={{ color: BAND_COLORS[i] }}>
+              {b.value}%
+            </p>
+            <p className="mt-1 text-[12px] font-semibold text-text-2">{b.label}</p>
+            <p className="text-[11px] text-text-3">{b.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {cls && (
+        <p className="mt-3 text-[12px] leading-snug text-text-3">
+          {cls.description}
+          {pi != null && (
+            <>
+              {" "}
+              Polarization index{" "}
+              <span className="font-semibold text-text-2 tabular-nums">{pi.toFixed(2)}</span>
+              {" "}({pi > 2 ? "polarized" : "non-polarized"}).
+            </>
+          )}
+        </p>
+      )}
+    </div>
   );
 }
 
