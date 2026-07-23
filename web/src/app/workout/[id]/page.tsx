@@ -17,7 +17,12 @@ import { useSwipeBack } from "@/lib/useSwipeBack";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel } from "@/lib/units";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
-import { Radio } from "lucide-react";
+import { Radio, Play } from "lucide-react";
+import {
+  clearRunSnapshot,
+  loadRunSnapshot,
+  type RunSnapshot,
+} from "@/lib/run-snapshot";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -401,6 +406,16 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [menuOpen, setMenuOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [guiding, setGuiding] = useState(false);
+  // A parked/reloaded run for THIS workout, offered as "Resume". `resuming`
+  // distinguishes reopening it (restore state) from a fresh Start.
+  const [resumeSnap, setResumeSnap] = useState<RunSnapshot | null>(null);
+  const [resuming, setResuming] = useState(false);
+
+  useEffect(() => {
+    const snap = loadRunSnapshot();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
+    if (snap && snap.workoutId === id) setResumeSnap(snap);
+  }, [id]);
 
   const [editOpen, setEditOpen] = useState(false);
 
@@ -474,6 +489,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
 
   async function handleGuidedFinish(summary: GuidedRunFinish) {
     setGuiding(false);
+    setResuming(false);
+    setResumeSnap(null);
     if (!workout) return;
     setActionError(null);
     try {
@@ -819,6 +836,35 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
             </>
+          ) : resumeSnap ? (
+            <>
+              <Button
+                variant="primary"
+                full
+                size="lg"
+                onClick={() => {
+                  haptic("medium");
+                  setResuming(true);
+                  setGuiding(true);
+                }}
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <Play className="h-5 w-5" strokeWidth={2.2} fill="currentColor" />
+                  Resume run
+                </span>
+              </Button>
+              <Button
+                variant="secondary"
+                full
+                onClick={() => {
+                  haptic("light");
+                  clearRunSnapshot();
+                  setResumeSnap(null);
+                }}
+              >
+                Discard & start over
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -827,6 +873,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                 size="lg"
                 onClick={() => {
                   haptic("medium");
+                  setResuming(false);
                   setGuiding(true);
                 }}
               >
@@ -847,11 +894,22 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       <AnimatePresence>
         {guiding && (
           <GuidedRun
+            workoutId={workout.id}
             title={workout.title}
             blocks={workout.blocks}
             useMiles={useMiles}
+            resumeFrom={resuming ? resumeSnap : null}
             onFinish={handleGuidedFinish}
-            onClose={() => setGuiding(false)}
+            onMinimize={() => {
+              setGuiding(false);
+              setResuming(false);
+              setResumeSnap(loadRunSnapshot());
+            }}
+            onClose={() => {
+              setGuiding(false);
+              setResuming(false);
+              setResumeSnap(null);
+            }}
           />
         )}
       </AnimatePresence>

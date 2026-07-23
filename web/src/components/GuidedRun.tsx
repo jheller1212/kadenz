@@ -2,10 +2,15 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, ChevronRight, Play, Pause, Check, MapPin, MapPinOff } from "lucide-react";
+import { X, ChevronRight, ChevronDown, Play, Pause, Check, MapPin, MapPinOff } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { CUE_VOLUME_GAIN, loadSettings, type UserSettings } from "@/lib/settings";
 import { haptic } from "@/lib/haptics";
+import {
+  clearRunSnapshot,
+  saveRunSnapshot,
+  type RunSnapshot,
+} from "@/lib/run-snapshot";
 
 // ── Guided run player ─────────────────────────────────────────────────────────
 // Walks a run's blocks step-by-step with spoken/beeped coaching, background-safe
@@ -153,26 +158,38 @@ function fmtClock(totalSeconds: number): string {
 }
 
 export function GuidedRun({
+  workoutId,
   title,
   blocks,
   useMiles,
+  resumeFrom,
   onFinish,
+  onMinimize,
   onClose,
 }: {
+  workoutId: string;
   title: string;
   blocks: GuidedRunBlock[];
   useMiles: boolean;
+  /** When set, restore an in-progress run instead of running the pre-run phase. */
+  resumeFrom?: RunSnapshot | null;
   onFinish: (summary: GuidedRunFinish) => void;
+  /** Park the run (keep the snapshot) and leave the overlay. */
+  onMinimize?: () => void;
   onClose: () => void;
 }) {
   const prefsRef = useRef<UserSettings>(loadSettings());
   const [steps] = useState<Step[]>(() => buildSteps(blocks));
-  const [stepIdx, setStepIdx] = useState(0);
+  // Resuming a parked run restores its position + skips the pre-run phase, so
+  // both seed from resumeFrom at first render (the effect only restores refs).
+  const [stepIdx, setStepIdx] = useState(() =>
+    resumeFrom ? Math.min(buildSteps(blocks).length - 1, Math.max(0, resumeFrom.stepIdx)) : 0
+  );
   const [paused, setPaused] = useState(false);
   // "started" gates the clock: while false we're in the pre-run phase
   // (numeric countdown, or waiting for motion). The elapsed clock, step audio
   // and auto-advance only begin once the run actually starts.
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(() => !!resumeFrom);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [awaitingMotion, setAwaitingMotion] = useState(false);
   const autoPausedRef = useRef(false); // paused by auto-pause, not by the user
@@ -313,6 +330,7 @@ export function GuidedRun({
     beep(880, 200);
     speak("Workout complete. Great work!");
     haptic("success");
+    clearRunSnapshot();
     if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
     wakeRef.current?.release().catch(() => {});
     onFinish({
@@ -351,10 +369,22 @@ export function GuidedRun({
     prefsRef.current = loadSettings();
     const p = prefsRef.current;
     // Prime the audio graph within the launching gesture chain — a later beep
-    // from a timer callback can't unlock it on iOS. The clock does NOT start
-    // here: the pre-run phase (countdown / wait-for-motion) starts it.
+    // from a timer callback can't unlock it on iOS.
     beep(700, 60);
-    if (p.runStartOnMotion && p.runGps && "geolocation" in navigator) {
+
+    if (resumeFrom) {
+      // Resuming a parked/reloaded run: restore the clock and position, skip the
+      // pre-run phase entirely. The clock kept counting while parked (its start
+      // is timestamp-based), matching a minimized lift session.
+      startRef.current = resumeFrom.startedAt;
+      distanceMRef.current = resumeFrom.distanceM;
+      nextSplitRef.current = resumeFrom.nextSplit;
+      splitStartTimeRef.current = resumeFrom.splitStartSec;
+      stepStartRef.current = resumeFrom.stepStartSec;
+      stepStartDistRef.current = resumeFrom.stepStartDistM;
+      lastMoveAtRef.current = Date.now();
+      // stepIdx + started were seeded from resumeFrom at first render.
+    } else if (p.runStartOnMotion && p.runGps && "geolocation" in navigator) {
       setAwaitingMotion(true);
     } else if (p.runCountdown) {
       setCountdown(3);
@@ -582,6 +612,53 @@ export function GuidedRun({
     if (holdTimerRef.current != null) clearTimeout(holdTimerRef.current);
   }, []);
 
+  // ── Resumable snapshot ──────────────────────────────────────────────────────
+  const buildSnapshot = useCallback((): RunSnapshot | null => {
+    if (startRef.current == null) return null;
+    return {
+      v: 1,
+      savedAt: Date.now(),
+      workoutId,
+      title,
+      useMiles,
+      startedAt: startRef.current,
+      stepIdx,
+      distanceM: distanceMRef.current,
+      nextSplit: nextSplitRef.current,
+      splitStartSec: splitStartTimeRef.current,
+      stepStartSec: stepStartRef.current,
+      stepStartDistM: stepStartDistRef.current,
+    };
+  }, [workoutId, title, useMiles, stepIdx]);
+
+  // Persist on start, on every step change, and every 5s — so a minimize OR a
+  // hard reload can resume from a recent position.
+  useEffect(() => {
+    if (!started) return;
+    const persist = () => {
+      const snap = buildSnapshot();
+      if (snap) saveRunSnapshot(snap);
+    };
+    persist();
+    const id = setInterval(persist, 5000);
+    return () => clearInterval(id);
+  }, [started, buildSnapshot]);
+
+  const minimize = useCallback(() => {
+    haptic("light");
+    // A parked run keeps counting (like a lift session), so drop any pause.
+    if (paused) doResume();
+    const snap = buildSnapshot();
+    if (snap) saveRunSnapshot(snap);
+    onMinimize?.();
+  }, [paused, doResume, buildSnapshot, onMinimize]);
+
+  const closeAndDiscard = useCallback(() => {
+    haptic("light");
+    clearRunSnapshot();
+    onClose();
+  }, [onClose]);
+
   const step = steps[stepIdx];
   const totalElapsed = view.elapsed;
   const dispDist = useMiles ? view.distKm * 0.621371 : view.distKm;
@@ -602,29 +679,38 @@ export function GuidedRun({
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <button
-          onClick={() => {
-            haptic("light");
-            onClose();
-          }}
+          onClick={closeAndDiscard}
           className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
-          aria-label="Close guided run"
+          aria-label="Discard guided run"
         >
           <X className="h-5 w-5 text-text-2" strokeWidth={2} />
         </button>
         <p className="text-[13px] font-semibold text-text-2 truncate px-2">{title}</p>
-        <div
-          className="flex h-9 w-9 items-center justify-center rounded-full"
-          aria-label={gpsOn ? "GPS active" : gpsDenied ? "GPS unavailable" : "Acquiring GPS"}
-          title={gpsOn ? "GPS active" : gpsDenied ? "GPS unavailable" : "Acquiring GPS"}
-        >
-          {gpsDenied ? (
-            <MapPinOff className="h-5 w-5 text-text-3" strokeWidth={2} />
-          ) : (
-            <MapPin
-              className={`h-5 w-5 ${gpsOn ? "text-accent-fg" : "text-text-3"}`}
-              strokeWidth={2}
-            />
+        <div className="flex items-center gap-2">
+          {started && (
+            <button
+              onClick={minimize}
+              className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
+              aria-label="Minimize — keep running in the background"
+              title="Minimize"
+            >
+              <ChevronDown className="h-5 w-5 text-text-2" strokeWidth={2} />
+            </button>
           )}
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-full"
+            aria-label={gpsOn ? "GPS active" : gpsDenied ? "GPS unavailable" : "Acquiring GPS"}
+            title={gpsOn ? "GPS active" : gpsDenied ? "GPS unavailable" : "Acquiring GPS"}
+          >
+            {gpsDenied ? (
+              <MapPinOff className="h-5 w-5 text-text-3" strokeWidth={2} />
+            ) : (
+              <MapPin
+                className={`h-5 w-5 ${gpsOn ? "text-accent-fg" : "text-text-3"}`}
+                strokeWidth={2}
+              />
+            )}
+          </div>
         </div>
       </div>
 
