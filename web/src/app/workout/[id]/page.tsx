@@ -24,6 +24,8 @@ import {
   type RunSnapshot,
 } from "@/lib/run-snapshot";
 import { openSpotify } from "@/lib/spotify";
+import { fuelingAdvice, shouldShowFueling } from "@/lib/fueling";
+import { Droplet, Zap } from "lucide-react";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -402,6 +404,52 @@ function fmtDurationShort(totalSeconds: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+// Carbs + hydration guidance for long runs and race day.
+function FuelingCard({ type, durationMinutes }: { type: string; durationMinutes: number | null }) {
+  if (!shouldShowFueling(type, durationMinutes)) return null;
+  const advice = fuelingAdvice(durationMinutes ?? 0, type);
+  if (!advice) return null;
+  return (
+    <section className="rounded-[var(--radius-card)] bg-surface p-4">
+      <div className="flex items-center gap-2">
+        <Zap className="h-4 w-4 text-accent-fg" strokeWidth={2.4} />
+        <h2 className="text-[15px] font-bold text-text-1">
+          {advice.showChecklist ? "Race-day fuelling" : "Fuelling"}
+        </h2>
+      </div>
+      {advice.carbsPerHour > 0 && (
+        <div className="mt-3 flex gap-8">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-text-3">Carbs</p>
+            <p className="text-[20px] font-extrabold tabular-nums text-text-1">
+              {advice.carbsPerHour}
+              <span className="text-[12px] font-semibold text-text-3"> g/h</span>
+            </p>
+            <p className="text-[11px] text-text-3">~{advice.totalCarbsG} g total</p>
+          </div>
+          <div>
+            <p className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-text-3">
+              <Droplet className="h-3 w-3" strokeWidth={2.4} /> Fluid
+            </p>
+            <p className="text-[20px] font-extrabold tabular-nums text-text-1">
+              {advice.hydrationMlPerHour}
+              <span className="text-[12px] font-semibold text-text-3"> ml/h</span>
+            </p>
+          </div>
+        </div>
+      )}
+      <ul className="mt-3 flex flex-col gap-1.5">
+        {advice.tips.map((t, i) => (
+          <li key={i} className="flex gap-2 text-[13px] leading-snug text-text-2">
+            <span className="text-accent-fg">·</span>
+            <span>{t}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // Opens Spotify (app if installed, else web player) so the athlete can line up
 // music before a run. No account/scopes — just a launch.
 function MusicButton() {
@@ -738,6 +786,10 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
             </div>
           )}
         </section>
+
+        {!isCompleted && (
+          <FuelingCard type={workout.type} durationMinutes={workout.targetDurationMinutes ?? null} />
+        )}
 
         {actionError && (
           <div className="rounded-[var(--radius-card)] bg-danger/10 p-4 text-[13px] text-danger">
