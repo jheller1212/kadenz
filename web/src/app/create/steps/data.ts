@@ -1,4 +1,38 @@
-import type { RaceDistance, RunnerLevel, TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
+import type { PlanIntent, RaceDistance, RunnerLevel, TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
+
+// ── Plan variants (a curated style per intent) ────────────────────────────────
+// Each variant pre-sets a few knobs (difficulty / volume / days) that the later
+// steps still show and can override — a friendly front door, not a new input.
+
+export interface PlanVariant {
+  key: string;
+  label: string;
+  sub: string;
+  apply: Partial<{
+    trainingDifficulty: TrainingDifficulty;
+    trainingVolume: TrainingVolume;
+    daysPerWeek: number;
+  }>;
+}
+
+export const VARIANTS: Record<PlanIntent, PlanVariant[]> = {
+  race: [
+    { key: "balanced", label: "Balanced", sub: "A bit of everything — the classic build", apply: { trainingDifficulty: "moderate" } },
+    { key: "speed", label: "Speed-focused", sub: "More quality sessions, sharper legs", apply: { trainingDifficulty: "hard" } },
+  ],
+  get_fit: [
+    { key: "easy", label: "Easy miles", sub: "Almost all relaxed running", apply: { trainingDifficulty: "easy" } },
+    { key: "mixed", label: "Easy + a little speed", sub: "Mostly easy with some faster work", apply: { trainingDifficulty: "moderate" } },
+  ],
+  maintain: [
+    { key: "steady", label: "Just ticking over", sub: "Keep the habit, low effort", apply: { trainingDifficulty: "easy", trainingVolume: "low" } },
+    { key: "sharp", label: "Keep some sharpness", sub: "Hold fitness with a weekly quality run", apply: { trainingDifficulty: "moderate" } },
+  ],
+  return: [
+    { key: "cautious", label: "Extra cautious", sub: "Fewer sessions, gentler ramp", apply: { daysPerWeek: 3 } },
+    { key: "standard", label: "Standard", sub: "The usual return-to-running progression", apply: { daysPerWeek: 4 } },
+  ],
+};
 
 // ── Distances ────────────────────────────────────────────────────────────────
 

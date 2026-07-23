@@ -12,6 +12,7 @@ import { haptic } from "@/lib/haptics";
 import { loadSettings, saveSettings } from "@/lib/settings";
 import { StepGoal, type GoalTab } from "./steps/StepGoal";
 import { StepLevel } from "./steps/StepLevel";
+import { StepVariant } from "./steps/StepVariant";
 import { StepDays } from "./steps/StepDays";
 import { StepAvailability } from "./steps/StepAvailability";
 import { StepTimeline } from "./steps/StepTimeline";
@@ -23,13 +24,15 @@ import {
   POPULAR_RACES,
   RUNNER_LEVELS,
   SUGGESTED_DAYS,
+  VARIANTS,
   isoToday,
   suggestLongRunDay,
   weeksBetween,
   type PopularRace,
+  type PlanVariant,
 } from "./steps/data";
 
-const STEPS = ["goal", "level", "days", "availability", "timeline", "preferences"] as const;
+const STEPS = ["goal", "level", "variant", "days", "availability", "timeline", "preferences"] as const;
 type Step = (typeof STEPS)[number];
 
 function addWeeksIso(startIso: string, weeks: number): string {
@@ -106,6 +109,9 @@ export default function CreatePlanPage() {
   // ── Step 2: Runner level ──────────────────────────────────────────────────
   const [runnerLevel, setRunnerLevel] = useState<RunnerLevel | null>(null);
 
+  // ── Step: Variant (style for the chosen intent) ───────────────────────────
+  const [variantKey, setVariantKey] = useState<string | null>(null);
+
   // ── Step 3+4: Days & availability ─────────────────────────────────────────
   const [daysPerWeek, setDaysPerWeek] = useState(4);
   const [availableDays, setAvailableDays] = useState<number[]>(SUGGESTED_DAYS[4]);
@@ -153,8 +159,17 @@ export default function CreatePlanPage() {
   function handleIntent(i: PlanIntent) {
     haptic("light");
     setIntent(i);
+    // Variants are per-intent — clear the previous pick.
+    setVariantKey(null);
     // Non-race plans have no race/goal — drop any locked race selection.
     if (i !== "race") setSelectedRaceId(null);
+  }
+
+  function applyVariant(v: PlanVariant) {
+    setVariantKey(v.key);
+    if (v.apply.trainingDifficulty) setTrainingDifficulty(v.apply.trainingDifficulty);
+    if (v.apply.trainingVolume) setTrainingVolume(v.apply.trainingVolume);
+    if (v.apply.daysPerWeek) applyDays(v.apply.daysPerWeek);
   }
 
   function handleDistance(d: RaceDistance) {
@@ -222,6 +237,8 @@ export default function CreatePlanPage() {
         );
       case "level":
         return runnerLevel !== null;
+      case "variant":
+        return variantKey !== null;
       case "days":
         return daysPerWeek >= 2 && daysPerWeek <= 6;
       case "availability":
@@ -328,6 +345,10 @@ export default function CreatePlanPage() {
       title: "How would you describe yourself as a runner?",
       sub: "This tunes your starting volume and intensity — you can adjust everything later.",
     },
+    variant: {
+      title: "Pick a style",
+      sub: "Choose the flavour of your plan — swipe to compare. You can fine-tune it later.",
+    },
     days: {
       title: "How many days per week do you want to run?",
       sub: "Be honest about what fits your life. Consistency wins.",
@@ -404,6 +425,13 @@ export default function CreatePlanPage() {
                   </>
                 )}
                 {step === "level" && <StepLevel value={runnerLevel} onChange={handleLevel} />}
+                {step === "variant" && (
+                  <StepVariant
+                    variants={VARIANTS[intent]}
+                    selectedKey={variantKey}
+                    onSelect={applyVariant}
+                  />
+                )}
                 {step === "days" && (
                   <StepDays value={daysPerWeek} onChange={applyDays} runnerLevel={runnerLevel} />
                 )}
