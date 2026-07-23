@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration, zonesArePersonalized } from "@/lib/hr-zone-time";
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from "@/lib/settings";
+import { SPORT_LABEL, SPORT_ORDER, type SportBucket } from "@/lib/sport";
 import {
   collapseToThreeZones,
   bandPercents,
@@ -329,12 +330,28 @@ function TimeInZonesCard({
   range,
   onRange,
   personalized,
+  sport,
+  onSport,
+  availableSports,
 }: {
   zones: ZoneTimes | null;
   range: ZoneRange;
   onRange: (r: ZoneRange) => void;
   personalized: boolean;
+  sport: SportBucket | "all";
+  onSport: (s: SportBucket | "all") => void;
+  availableSports: SportBucket[];
 }) {
+  // Chips only when there's more than one sport to choose between; the selected
+  // sport always stays selectable even if this range happens to have none of it.
+  const ordered = SPORT_ORDER.filter((b) => availableSports.includes(b));
+  const chips: (SportBucket | "all")[] =
+    ordered.length > 1
+      ? ["all", ...ordered]
+      : sport !== "all"
+      ? ["all", sport]
+      : [];
+
   return (
     <section className="k-card p-4">
       <div className="mb-4">
@@ -343,6 +360,25 @@ function TimeInZonesCard({
         </p>
         <Segmented options={ZONE_RANGE_OPTIONS} value={range} onChange={(v) => onRange(v as ZoneRange)} />
       </div>
+
+      {chips.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {chips.map((c) => {
+            const active = c === sport;
+            return (
+              <button
+                key={c}
+                onClick={() => onSport(c)}
+                className={`press rounded-full px-3 py-1.5 text-[13px] font-semibold ${
+                  active ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                }`}
+              >
+                {c === "all" ? "All sports" : SPORT_LABEL[c]}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {!personalized && <ZonePersonalizePrompt />}
 
@@ -563,6 +599,8 @@ export default function StatsPage() {
   const [perf, setPerf] = useState<Performance | null>(null);
   const [zoneTimes, setZoneTimes] = useState<ZoneTimes | null>(null);
   const [zoneRange, setZoneRange] = useState<ZoneRange>("month");
+  const [zoneSport, setZoneSport] = useState<SportBucket | "all">("all");
+  const [availableSports, setAvailableSports] = useState<SportBucket[]>([]);
   // True once any range has returned HR data — keeps the card (and its range
   // selector) on screen even when the chosen range happens to be empty.
   const [hadHrData, setHadHrData] = useState(false);
@@ -608,23 +646,25 @@ export default function StatsPage() {
           from.setFullYear(now.getFullYear() - 1);
         }
         const res = await apiFetch(
-          `/api/stats/hr-zones?from=${from.toISOString()}&to=${now.toISOString()}&bounds=${bounds.join(",")}&max=${max}`
+          `/api/stats/hr-zones?from=${from.toISOString()}&to=${now.toISOString()}&bounds=${bounds.join(",")}&max=${max}&sport=${zoneSport}`
         );
         if (!res.ok) return;
-        const data = (await res.json()) as { zones: { seconds: number }[] };
+        const data = (await res.json()) as {
+          zones: { seconds: number }[];
+          availableSports?: SportBucket[];
+        };
         const seconds = data.zones.map((z) => z.seconds);
         const total = seconds.reduce((s, n) => s + n, 0);
         if (!alive) return;
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch result
         setZoneTimes(total > 0 ? { seconds, total } : null);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch result
+        setAvailableSports(data.availableSports ?? []);
         if (total > 0) setHadHrData(true);
       } catch {
         // no HR data / offline — hide the card
       }
     })();
     return () => { alive = false; };
-  }, [zoneRange, settingsTick]);
+  }, [zoneRange, zoneSport, settingsTick]);
 
   useEffect(() => {
     async function load() {
@@ -807,7 +847,15 @@ export default function StatsPage() {
 
             {/* Time in HR zones (current month) */}
             {hadHrData && (
-              <TimeInZonesCard zones={zoneTimes} range={zoneRange} onRange={setZoneRange} personalized={personalized} />
+              <TimeInZonesCard
+                zones={zoneTimes}
+                range={zoneRange}
+                onRange={setZoneRange}
+                personalized={personalized}
+                sport={zoneSport}
+                onSport={setZoneSport}
+                availableSports={availableSports}
+              />
             )}
 
             {/* Personal records */}

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db, activities } from "@/db";
 import { and, gte, isNotNull, lt } from "drizzle-orm";
+import { sportBucket, type SportBucket } from "@/lib/sport";
 
 // ── GET /api/stats/hr-zones?month=YYYY-MM&bounds=139,152,160,169&max=185 ─────
 // Time in HR zones for one month. Zone bounds are client-side (settings), so
@@ -23,6 +24,8 @@ const QuerySchema = z
       .transform((s) => s.split(",").map(Number))
       .pipe(z.array(z.number().int().min(40).max(250)).length(4)),
     max: z.coerce.number().int().min(60).max(250),
+    // Filter to one sport bucket; "all" (default) counts everything.
+    sport: z.enum(["all", "run", "ride", "swim", "strength", "other"]).default("all"),
   })
   .refine((q) => Boolean(q.month) || (Boolean(q.from) && Boolean(q.to)), {
     message: "Provide month, or both from and to",
@@ -49,6 +52,7 @@ export async function GET(request: NextRequest) {
     to: searchParams.get("to") ?? undefined,
     bounds: searchParams.get("bounds"),
     max: searchParams.get("max"),
+    sport: searchParams.get("sport") ?? undefined,
   });
   if (!parsed.success) {
     return Response.json(
@@ -56,7 +60,7 @@ export async function GET(request: NextRequest) {
       { status: 422 }
     );
   }
-  const { month, from, to, bounds } = parsed.data;
+  const { month, from, to, bounds, sport } = parsed.data;
 
   let monthStart: Date;
   let monthEnd: Date;
@@ -77,6 +81,8 @@ export async function GET(request: NextRequest) {
         splitsJson: activities.splitsJson,
         avgHr: activities.avgHr,
         durationSeconds: activities.durationSeconds,
+        sportType: activities.sportType,
+        strengthSessionId: activities.strengthSessionId,
       })
       .from(activities)
       .where(
@@ -89,30 +95,45 @@ export async function GET(request: NextRequest) {
 
     const seconds = [0, 0, 0, 0, 0];
     let counted = 0;
+    // Buckets that have HR-usable data in this range — drives the sport chips
+    // on the client, independent of the currently selected filter.
+    const availableSports = new Set<SportBucket>();
 
     for (const row of rows) {
-      let contributed = false;
+      const bucket = sportBucket(row.sportType, row.strengthSessionId != null);
+      const include = sport === "all" || bucket === sport;
+
+      // Gather this row's per-zone seconds first, so we know whether it has any
+      // HR-usable data before deciding availability / aggregation.
+      const rowSeconds = [0, 0, 0, 0, 0];
+      let hasHr = false;
       if (Array.isArray(row.splitsJson)) {
         for (const s of row.splitsJson as RawSplit[]) {
           const hr = s.average_heartrate;
           const dt = s.moving_time ?? s.elapsed_time;
           if (hr == null || hr <= 0 || dt == null || dt <= 0) continue;
-          seconds[zoneIndexFor(hr, bounds)] += dt;
-          contributed = true;
+          rowSeconds[zoneIndexFor(hr, bounds)] += dt;
+          hasHr = true;
         }
       }
-      // No per-split HR (strength sessions, manual entries): whole duration
-      // in the zone of the activity's average HR.
-      if (!contributed && row.avgHr && row.avgHr > 0 && row.durationSeconds) {
-        seconds[zoneIndexFor(row.avgHr, bounds)] += row.durationSeconds;
-        contributed = true;
+      // No per-split HR (strength sessions, manual entries): whole duration in
+      // the zone of the activity's average HR.
+      if (!hasHr && row.avgHr && row.avgHr > 0 && row.durationSeconds) {
+        rowSeconds[zoneIndexFor(row.avgHr, bounds)] += row.durationSeconds;
+        hasHr = true;
       }
-      if (contributed) counted++;
+
+      if (!hasHr) continue;
+      availableSports.add(bucket);
+      if (!include) continue;
+      for (let z = 0; z < 5; z++) seconds[z] += rowSeconds[z];
+      counted++;
     }
 
     return Response.json({
       zones: seconds.map((s) => ({ seconds: Math.round(s) })),
       activities: counted,
+      availableSports: [...availableSports],
     });
   } catch (err) {
     console.error("Error aggregating HR zone time:", err);
