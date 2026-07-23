@@ -11,10 +11,12 @@
  * Deload volume is 70% of the preceding week.
  */
 
-import { calculateVdot, RACE_DISTANCES_M } from "./vdot";
+import { calculateVdot, predictRaceTime, RACE_DISTANCES_M } from "./vdot";
 import { getPaceZones } from "./pace-zones";
 import type {
   PlanConfig,
+  PlanIntent,
+  RunnerLevel,
   GeneratedPlan,
   GeneratedWeek,
   GeneratedWorkout,
@@ -956,8 +958,8 @@ function buildWeek(
     : pickTrainingDays(config.daysPerWeek, config.preferredLongRunDay);
 
   const qualityDays = QUALITY_DAYS[config.trainingDifficulty];
-  // For race week, use the actual race date's day of week
-  const raceDayOfWeek = config.raceDate.getDay(); // 0=Sun...6=Sat
+  // For race week, use the actual race date's day of week (race intent only).
+  const raceDayOfWeek = config.raceDate ? config.raceDate.getDay() : longRunDay; // 0=Sun...6=Sat
   const longOrRaceDay = type === "race" ? raceDayOfWeek : longRunDay;
 
   // For race week, ensure the race day is in the training days
@@ -1093,7 +1095,11 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   if (config.goalTimeSeconds <= 0) {
     throw new Error("goalTimeSeconds must be positive");
   }
-  if (config.raceDate <= config.startDate) {
+  if (!config.raceDate) {
+    throw new Error("raceDate is required for a race plan");
+  }
+  const raceDate = config.raceDate;
+  if (raceDate <= config.startDate) {
     throw new Error("raceDate must be after startDate");
   }
 
@@ -1115,7 +1121,7 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   // plan a week early whenever race day is Mon-Thu.
   const msPerDay = 24 * 60 * 60 * 1000;
   const daysToRace = Math.round(
-    (config.raceDate.getTime() - planStartMonday.getTime()) / msPerDay
+    (raceDate.getTime() - planStartMonday.getTime()) / msPerDay
   );
   const totalWeeks = Math.max(4, Math.floor(daysToRace / 7) + 1);
 
@@ -1148,11 +1154,12 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
 
   return {
     name,
+    intent: "race",
     raceDistance: config.raceDistance,
     goalTimeSeconds: config.goalTimeSeconds,
     vdot: Math.round(vdot * 10) / 10,
     startDate: config.startDate,
-    raceDate: config.raceDate,
+    raceDate,
     planLengthWeeks: totalWeeks,
     daysPerWeek: config.daysPerWeek,
     preferredLongRunDay: config.preferredLongRunDay,
@@ -1166,4 +1173,124 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     runnerLevel: config.runnerLevel ?? null,
     weeks,
   };
+}
+
+// ── Non-race ("steady") generator ─────────────────────────────────────────────
+// Get-fit / maintain plans have no race day and no goal time. They reuse the
+// exact same week builder (buildWeek) — so workouts, paces, days-per-week and
+// availability all behave identically — but with a non-race phase/volume map
+// (no peak, no taper, no race week) and paces derived from the athlete's
+// self-reported level. The race generator above is left completely untouched.
+
+/** Representative VDOT per self-reported level, used to derive training paces
+ *  when there's no goal time. Roughly: easy pace 7:00 / 5:40 / 4:50 / 4:10 per km. */
+const RUNNER_LEVEL_VDOT: Record<RunnerLevel, number> = {
+  beginner: 32,
+  intermediate: 42,
+  advanced: 52,
+  elite: 62,
+};
+
+export function vdotForRunnerLevel(level: RunnerLevel | null | undefined): number {
+  return RUNNER_LEVEL_VDOT[level ?? "beginner"] ?? 40;
+}
+
+/** Phase per week for a steady plan: maintain = all base; get-fit ramps base→build
+ *  for variety. Never peak/taper (those exist to sharpen for a race day). */
+function steadyPhaseMap(weeks: number, intent: PlanIntent): WeekPhase[] {
+  if (intent === "maintain") return Array(weeks).fill("base");
+  const baseWeeks = Math.max(1, Math.round(weeks * 0.4));
+  return Array.from({ length: weeks }, (_, i) => (i < baseWeeks ? "base" : "build"));
+}
+
+/** Deload every 4th week; never a race week. */
+function steadyWeekType(weekIndex: number): WeekType {
+  return (weekIndex + 1) % 4 === 0 ? "deload" : "normal";
+}
+
+/** Flat volume for maintain; a gentle ≤10%/week ramp to +30% for get-fit. */
+function steadyVolume(config: PlanConfig, weeks: number, intent: PlanIntent): number[] {
+  const start = Math.max(config.currentWeeklyKm || 0, 10);
+  const cap = intent === "maintain" ? start : start * 1.3;
+  const volumes: number[] = [];
+  let lastNormal = start;
+  for (let i = 0; i < weeks; i++) {
+    const deload = steadyWeekType(i) === "deload";
+    const target = intent === "maintain" ? start : Math.min(lastNormal * 1.1, cap);
+    if (deload) {
+      volumes.push(Math.round(target * 0.7));
+    } else {
+      lastNormal = Math.round(target);
+      volumes.push(lastNormal);
+    }
+  }
+  return volumes;
+}
+
+export function generateSteadyPlan(config: PlanConfig): GeneratedPlan {
+  if (config.daysPerWeek < 2 || config.daysPerWeek > 6) {
+    throw new Error("daysPerWeek must be between 2 and 6");
+  }
+  const intent: PlanIntent = config.intent === "maintain" ? "maintain" : "get_fit";
+  const weeks = config.planLengthWeeks ?? 8;
+  if (weeks < 4 || weeks > 26) {
+    throw new Error("planLengthWeeks must be between 4 and 26");
+  }
+
+  const startDow = config.startDate.getDay();
+  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
+  const planStartMonday = addDays(config.startDate, mondayOffset);
+  const planEnd = addDays(planStartMonday, weeks * 7 - 1); // last Sunday
+
+  const vdot = vdotForRunnerLevel(config.runnerLevel);
+  const paces = getPaceZones(vdot);
+  const phases = steadyPhaseMap(weeks, intent);
+  const volumes = steadyVolume(config, weeks, intent);
+
+  // buildWeek/distributeVolume need a reference race distance for interval/long
+  // sizing and never trigger the race-day branch (no week is type "race"). 10k
+  // is a neutral mid reference; raceDate is set to the plan end so downstream
+  // consumers that read it show "days left in plan", not a real race.
+  const refConfig: PlanConfig = { ...config, raceDistance: "10k", raceDate: planEnd };
+
+  const weeksOut: GeneratedWeek[] = [];
+  for (let i = 0; i < weeks; i++) {
+    const weekStartDate = addDays(planStartMonday, i * 7);
+    const skipBeforeDate = i === 0 ? config.startDate : undefined;
+    weeksOut.push(
+      buildWeek(i + 1, weekStartDate, phases[i], steadyWeekType(i), volumes[i], refConfig, paces, skipBeforeDate)
+    );
+  }
+
+  const goalTimeSeconds = Math.round(predictRaceTime(vdot, RACE_DISTANCES_M["10k"]));
+  const name = intent === "maintain" ? `Maintain — ${weeks} weeks` : `Get Fit — ${weeks} weeks`;
+
+  return {
+    name,
+    intent,
+    raceDistance: "10k",
+    goalTimeSeconds,
+    vdot: Math.round(vdot * 10) / 10,
+    startDate: config.startDate,
+    raceDate: planEnd,
+    planLengthWeeks: weeks,
+    daysPerWeek: config.daysPerWeek,
+    preferredLongRunDay: config.preferredLongRunDay,
+    currentWeeklyKm: config.currentWeeklyKm,
+    trainingVolume: config.trainingVolume,
+    trainingDifficulty: config.trainingDifficulty,
+    longRunCapKm: config.longRunCapKm,
+    easyRunMinKm: config.easyRunMinKm ?? 0,
+    hillyArea: config.hillyArea,
+    availableDays: normalizeAvailableDays(config.availableDays),
+    runnerLevel: config.runnerLevel ?? null,
+    weeks: weeksOut,
+  };
+}
+
+/** Dispatch to the right generator based on intent (defaults to race). */
+export function generatePlanForConfig(config: PlanConfig): GeneratedPlan {
+  return config.intent && config.intent !== "race"
+    ? generateSteadyPlan(config)
+    : generatePlan(config);
 }

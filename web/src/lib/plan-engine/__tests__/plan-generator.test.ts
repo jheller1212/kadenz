@@ -337,7 +337,7 @@ describe("generatePlan — workout structure", () => {
     expect(raceWeek).toBeDefined();
     const raceWorkout = raceWeek!.workouts.filter((w) => w.type === "race");
     expect(raceWorkout).toHaveLength(1);
-    expect(raceWorkout[0].dayOfWeek).toBe(marathonConfig.raceDate.getUTCDay());
+    expect(raceWorkout[0].dayOfWeek).toBe(marathonConfig.raceDate!.getUTCDay());
   });
 
   it("base phase has no interval or tempo workouts", () => {

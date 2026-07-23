@@ -97,7 +97,7 @@ export async function PUT(
     startDate: new Date(data.startDate),
     raceDate: new Date(data.raceDate),
   };
-  if (config.raceDate <= config.startDate) {
+  if (config.raceDate && config.raceDate <= config.startDate) {
     return Response.json({ error: "raceDate must be after startDate" }, { status: 422 });
   }
 

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db, plans, weeks, workouts, blocks } from "@/db";
-import { generatePlan } from "@/lib/plan-engine/plan-generator";
+import { generatePlanForConfig } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
 import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -13,10 +13,16 @@ import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
 const PlanConfigSchema = z.object({
-  raceDistance: z.enum(["5k", "10k", "half", "marathon"]),
-  goalTimeSeconds: z.number().int().positive(),
+  // "race" is the default so existing clients keep working unchanged.
+  intent: z.enum(["race", "get_fit", "maintain"]).default("race"),
+  // Optional for non-race intents (defaults to the 10k reference then).
+  raceDistance: z.enum(["5k", "10k", "half", "marathon"]).optional(),
+  // Required for race; synthesized for non-race.
+  goalTimeSeconds: z.number().int().positive().optional(),
   startDate: z.string().datetime(),
-  raceDate: z.string().datetime(),
+  // Race intent needs a race date; non-race intents use planLengthWeeks instead.
+  raceDate: z.string().datetime().optional(),
+  planLengthWeeks: z.number().int().min(4).max(26).optional(),
   daysPerWeek: z.number().int().min(2).max(6),
   trainingVolume: z.enum(["beginner", "low", "medium", "high", "elite"]),
   trainingDifficulty: z.enum(["easy", "moderate", "hard"]),
@@ -49,14 +55,34 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+  const isRace = data.intent === "race";
+
+  // Per-intent required fields.
+  if (isRace && (data.goalTimeSeconds == null || !data.raceDate)) {
+    return Response.json(
+      { error: "Race plans require goalTimeSeconds and raceDate" },
+      { status: 422 }
+    );
+  }
+  if (!isRace && data.planLengthWeeks == null) {
+    return Response.json(
+      { error: "Non-race plans require planLengthWeeks" },
+      { status: 422 }
+    );
+  }
+
   const config: PlanConfig = {
     ...data,
+    // Non-race plans use a neutral reference distance; the generator overrides it.
+    raceDistance: data.raceDistance ?? "10k",
+    // Synthesized for non-race by the generator; 0 here just satisfies the type.
+    goalTimeSeconds: data.goalTimeSeconds ?? 0,
     startDate: new Date(data.startDate),
-    raceDate: new Date(data.raceDate),
+    raceDate: data.raceDate ? new Date(data.raceDate) : undefined,
   };
 
-  // Validate date ordering
-  if (config.raceDate <= config.startDate) {
+  // Validate date ordering (race intent only — non-race derives its own end).
+  if (isRace && config.raceDate && config.raceDate <= config.startDate) {
     return Response.json(
       { error: "raceDate must be after startDate" },
       { status: 422 }
@@ -65,7 +91,7 @@ export async function POST(request: NextRequest) {
 
   let generatedPlan;
   try {
-    generatedPlan = generatePlan(config);
+    generatedPlan = generatePlanForConfig(config);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Plan generation failed";
     return Response.json({ error: message }, { status: 422 });
@@ -83,6 +109,7 @@ export async function POST(request: NextRequest) {
       .insert(plans)
       .values({
         name: generatedPlan.name,
+        intent: generatedPlan.intent,
         raceDistance: generatedPlan.raceDistance,
         goalTimeSeconds: generatedPlan.goalTimeSeconds,
         vdot: generatedPlan.vdot,

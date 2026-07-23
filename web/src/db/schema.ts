@@ -154,6 +154,9 @@ export const plans = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
+    // "race" | "get_fit" | "maintain". Non-race plans have no real race day/goal;
+    // race_distance/goal_time/race_date carry synthetic reference values for them.
+    intent: text("intent").notNull().default("race"),
     raceDistance: raceDistanceEnum("race_distance").notNull(),
     goalTimeSeconds: integer("goal_time_seconds").notNull(),
     vdot: real("vdot").notNull(),

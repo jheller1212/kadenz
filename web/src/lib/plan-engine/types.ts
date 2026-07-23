@@ -1,5 +1,14 @@
 export type RaceDistance = "5k" | "10k" | "half" | "marathon";
 
+/**
+ * What a plan is for. "race" is the classic goal-time plan (peaks + tapers to a
+ * race day). The non-race intents have no race day and no goal time:
+ *  - "get_fit"  — build general fitness, gentle volume ramp.
+ *  - "maintain" — hold current fitness at low time cost, flat volume.
+ * (Injury-aware "return" is planned as a follow-up.)
+ */
+export type PlanIntent = "race" | "get_fit" | "maintain";
+
 /** A pace zone with min/target/max in seconds per km */
 export interface PaceZone {
   minPaceSecKm: number;
@@ -61,14 +70,18 @@ export type WorkoutType =
 export type BlockType = "warmup" | "work" | "recovery" | "cooldown";
 
 export interface PlanConfig {
-  /** Race distance */
+  /** What the plan is for. Defaults to "race" when omitted (back-compat). */
+  intent?: PlanIntent;
+  /** Race distance (the reference distance for non-race intents). */
   raceDistance: RaceDistance;
-  /** Goal finish time in seconds */
+  /** Goal finish time in seconds (race intent only; synthesized otherwise). */
   goalTimeSeconds: number;
   /** Plan start date (Monday of week 1) */
   startDate: Date;
-  /** Race date */
-  raceDate: Date;
+  /** Race date (race intent only; non-race plans derive their own end date). */
+  raceDate?: Date;
+  /** Plan length in weeks for non-race intents (race intent derives it from raceDate). */
+  planLengthWeeks?: number;
   /** Training days per week (3–6) */
   daysPerWeek: number;
   /** Overall volume preference */
@@ -138,6 +151,8 @@ export interface GeneratedWeek {
 export interface GeneratedPlan {
   /** Plan name derived from goal */
   name: string;
+  /** What the plan is for (defaults to "race"). */
+  intent: PlanIntent;
   raceDistance: RaceDistance;
   goalTimeSeconds: number;
   vdot: number;

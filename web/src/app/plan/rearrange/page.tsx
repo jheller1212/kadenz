@@ -58,6 +58,7 @@ import type {
 function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
   return {
     name: raw.name as string,
+    intent: (raw.intent as GeneratedPlan["intent"]) ?? "race",
     raceDistance: raw.raceDistance as GeneratedPlan["raceDistance"],
     goalTimeSeconds: raw.goalTimeSeconds as number,
     vdot: raw.vdot as number,
