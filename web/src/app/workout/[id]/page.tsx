@@ -569,6 +569,20 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  function markCompletedLocally(summary: GuidedRunFinish) {
+    setWorkout((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: "completed",
+            actualKm: summary.distanceKm ?? prev.actualKm,
+            actualDurationSeconds:
+              summary.elapsedSeconds > 0 ? summary.elapsedSeconds : prev.actualDurationSeconds,
+          }
+        : prev
+    );
+  }
+
   async function handleGuidedFinish(summary: GuidedRunFinish) {
     setGuiding(false);
     setResuming(false);
@@ -576,6 +590,29 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     if (!workout) return;
     setActionError(null);
     try {
+      // With GPS: save the whole run as an activity (route + splits) linked to
+      // the workout, so it lands in the Activities feed with a map.
+      if (summary.distanceKm != null && summary.distanceKm > 0) {
+        const res = await apiFetch(`/api/workouts/${workout.id}/record`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            distanceKm: summary.distanceKm,
+            durationSeconds: summary.elapsedSeconds,
+            ...(summary.polyline ? { polyline: summary.polyline } : {}),
+            ...(summary.splits ? { splits: summary.splits } : {}),
+            startedAt: new Date(Date.now() - summary.elapsedSeconds * 1000).toISOString(),
+          }),
+        });
+        if (res.ok) {
+          haptic("success");
+          markCompletedLocally(summary);
+          return;
+        }
+        // Fall through to a plain completion if recording failed.
+      }
+
+      // No GPS distance (or record failed): just mark the workout complete.
       const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -586,17 +623,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       });
       if (res.ok) {
         haptic("success");
-        setWorkout((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: "completed",
-                actualKm: summary.distanceKm ?? prev.actualKm,
-                actualDurationSeconds:
-                  summary.elapsedSeconds > 0 ? summary.elapsedSeconds : prev.actualDurationSeconds,
-              }
-            : prev
-        );
+        markCompletedLocally(summary);
       } else {
         setActionError("Run saved locally, but we couldn't mark it complete. Try again.");
       }

@@ -1,5 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { decodePolyline, polylineToPath } from "../polyline";
+import { decodePolyline, encodePolyline, polylineToPath } from "../polyline";
+
+describe("encodePolyline", () => {
+  it("encodes the canonical reference points", () => {
+    expect(
+      encodePolyline([
+        [38.5, -120.2],
+        [40.7, -120.95],
+        [43.252, -126.453],
+      ])
+    ).toBe("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
+  });
+
+  it("round-trips through decode within precision", () => {
+    const pts: [number, number][] = [
+      [50.8503, 4.3517],
+      [50.8511, 4.3529],
+      [50.852, 4.354],
+    ];
+    const back = decodePolyline(encodePolyline(pts));
+    expect(back).toHaveLength(pts.length);
+    back.forEach(([lat, lng], i) => {
+      expect(lat).toBeCloseTo(pts[i][0], 4);
+      expect(lng).toBeCloseTo(pts[i][1], 4);
+    });
+  });
+
+  it("encodes empty input as empty", () => {
+    expect(encodePolyline([])).toBe("");
+  });
+});
 
 describe("decodePolyline", () => {
   it("decodes the canonical reference polyline", () => {

@@ -7,6 +7,7 @@ import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { CUE_VOLUME_GAIN, loadSettings, type UserSettings } from "@/lib/settings";
 import { haptic } from "@/lib/haptics";
 import { openSpotify } from "@/lib/spotify";
+import { encodePolyline, type LatLng } from "@/lib/polyline";
 import {
   clearRunSnapshot,
   saveRunSnapshot,
@@ -32,9 +33,20 @@ export interface GuidedRunBlock {
   sortOrder: number;
 }
 
+export interface RunSplit {
+  /** Metres in this split (usually one km or one mile). */
+  distance: number;
+  moving_time: number;
+  elapsed_time: number;
+}
+
 export interface GuidedRunFinish {
   elapsedSeconds: number;
   distanceKm: number | null; // null when GPS was off/unavailable
+  /** Encoded route polyline, or null when GPS was off / too few points. */
+  polyline: string | null;
+  /** Per-split times, or null when GPS was off. */
+  splits: RunSplit[] | null;
 }
 
 interface Step {
@@ -223,6 +235,9 @@ export function GuidedRun({
   const watchRef = useRef<number | null>(null);
   const lastFixRef = useRef<GeolocationCoordinates | null>(null);
   const distanceMRef = useRef(0); // total metres
+  const trackRef = useRef<LatLng[]>([]); // accepted GPS fixes, for the route
+  const splitsRef = useRef<{ distance: number; moving_time: number; elapsed_time: number }[]>([]);
+  const lastSplitElapsedRef = useRef(0); // elapsed sec when the last split closed
   const stepStartDistRef = useRef(0);
   const livePaceRef = useRef<number | null>(null);
   const lastTickDistRef = useRef(0); // metres seen at the previous auto-pause check
@@ -348,9 +363,12 @@ export function GuidedRun({
     clearRunSnapshot();
     if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
     wakeRef.current?.release().catch(() => {});
+    const track = trackRef.current;
     onFinish({
       elapsedSeconds: Math.round(elapsed()),
       distanceKm: gpsOn ? Math.round((distanceMRef.current / 1000) * 100) / 100 : null,
+      polyline: gpsOn && track.length >= 2 ? encodePolyline(track) : null,
+      splits: gpsOn && splitsRef.current.length > 0 ? [...splitsRef.current] : null,
     });
   }, [beep, speak, elapsed, gpsOn, onFinish]);
 
@@ -426,10 +444,17 @@ export function GuidedRun({
             livePaceRef.current = 1000 / c.speed;
           }
           const prev = lastFixRef.current;
-          if (prev && (c.accuracy == null || c.accuracy < 35)) {
+          const accurate = c.accuracy == null || c.accuracy < 35;
+          if (prev && accurate) {
             const d = haversine(prev, c);
             // Reject GPS jitter / teleports.
-            if (d > 1 && d < 60) distanceMRef.current += d;
+            if (d > 1 && d < 60) {
+              distanceMRef.current += d;
+              trackRef.current.push([c.latitude, c.longitude]);
+            }
+          } else if (!prev && accurate) {
+            // Seed the route with the first good fix.
+            trackRef.current.push([c.latitude, c.longitude]);
           }
           lastFixRef.current = c;
         },
@@ -565,19 +590,28 @@ export function GuidedRun({
         }
       }
 
-      // Split announcements (GPS).
-      if (gpsOn && prefsRef.current.runSplitCues) {
+      // Split recording + announcements (GPS). Record every split for the saved
+      // activity even when the spoken cue is off.
+      if (gpsOn) {
         const units = Math.floor(distanceMRef.current / splitUnitM);
         if (units >= nextSplitRef.current) {
           const now = elapsed();
           const splitSecs = now - splitStartTimeRef.current;
           splitStartTimeRef.current = now;
           nextSplitRef.current = units + 1;
-          const m = Math.floor(splitSecs / 60);
-          const s = Math.round(splitSecs % 60);
-          const unitWord = useMiles ? "mile" : "kilometre";
-          speak(`${units} ${unitWord}${units === 1 ? "" : "s"}. ${m} ${s < 10 ? "oh " : ""}${s}.`);
-          beep(760, 90);
+          splitsRef.current.push({
+            distance: Math.round(splitUnitM),
+            moving_time: Math.max(1, Math.round(splitSecs)),
+            elapsed_time: Math.max(1, Math.round(splitSecs)),
+          });
+          lastSplitElapsedRef.current = now;
+          if (prefsRef.current.runSplitCues) {
+            const m = Math.floor(splitSecs / 60);
+            const s = Math.round(splitSecs % 60);
+            const unitWord = useMiles ? "mile" : "kilometre";
+            speak(`${units} ${unitWord}${units === 1 ? "" : "s"}. ${m} ${s < 10 ? "oh " : ""}${s}.`);
+            beep(760, 90);
+          }
         }
       }
 

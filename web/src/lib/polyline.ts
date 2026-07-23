@@ -4,6 +4,31 @@
 
 export type LatLng = [number, number];
 
+/** Encode lat/lng points into a Google encoded polyline (precision 5). */
+export function encodePolyline(points: LatLng[]): string {
+  let lastLat = 0;
+  let lastLng = 0;
+  let out = "";
+  const enc = (value: number): string => {
+    let v = value < 0 ? ~(value << 1) : value << 1;
+    let s = "";
+    while (v >= 0x20) {
+      s += String.fromCharCode((0x20 | (v & 0x1f)) + 63);
+      v >>= 5;
+    }
+    s += String.fromCharCode(v + 63);
+    return s;
+  };
+  for (const [lat, lng] of points) {
+    const iLat = Math.round(lat * 1e5);
+    const iLng = Math.round(lng * 1e5);
+    out += enc(iLat - lastLat) + enc(iLng - lastLng);
+    lastLat = iLat;
+    lastLng = iLng;
+  }
+  return out;
+}
+
 export function decodePolyline(encoded: string): LatLng[] {
   const points: LatLng[] = [];
   let index = 0;
