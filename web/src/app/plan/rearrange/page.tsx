@@ -537,6 +537,8 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
             ? RACE_SHORT[plan.raceDistance]
             : plan.intent === "maintain"
             ? "HOLD"
+            : plan.intent === "return"
+            ? "RTR"
             : "FIT"}
         </div>
       </div>

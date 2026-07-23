@@ -5,9 +5,10 @@ export type RaceDistance = "5k" | "10k" | "half" | "marathon";
  * race day). The non-race intents have no race day and no goal time:
  *  - "get_fit"  — build general fitness, gentle volume ramp.
  *  - "maintain" — hold current fitness at low time cost, flat volume.
- * (Injury-aware "return" is planned as a follow-up.)
+ *  - "return"   — injury/illness return-to-running: conservative run/walk
+ *                 progression ramping to continuous running.
  */
-export type PlanIntent = "race" | "get_fit" | "maintain";
+export type PlanIntent = "race" | "get_fit" | "maintain" | "return";
 
 /** A pace zone with min/target/max in seconds per km */
 export interface PaceZone {

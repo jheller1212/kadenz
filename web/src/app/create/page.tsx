@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { AlertCircle, Trophy, TrendingUp, Activity } from "lucide-react";
+import { AlertCircle, Trophy, TrendingUp, Activity, HeartPulse } from "lucide-react";
 import type { PlanIntent, RaceDistance, RunnerLevel, TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
 import { Button } from "@/components/ui/Button";
 import { WizardHeader, WizardTitle } from "@/components/ui/wizard";
@@ -47,6 +47,7 @@ const INTENT_OPTIONS: {
   { key: "race", label: "Train for a race", sub: "Goal time, peak & taper to race day", Icon: Trophy },
   { key: "get_fit", label: "Get fitter", sub: "Build fitness — no race, no goal time", Icon: TrendingUp },
   { key: "maintain", label: "Maintain", sub: "Hold your fitness at low time cost", Icon: Activity },
+  { key: "return", label: "Return to running", sub: "Back from injury or illness — run/walk, eased in", Icon: HeartPulse },
 ];
 
 function IntentSelector({
@@ -386,6 +387,8 @@ export default function CreatePlanPage() {
                       <p className="mt-5 rounded-[var(--radius-input)] bg-elevated px-4 py-3 text-[13px] leading-snug text-text-2">
                         {intent === "maintain"
                           ? "We'll build a steady plan that holds your fitness — mostly easy running, no race, no goal time. Set how many weeks next."
+                          : intent === "return"
+                          ? "We'll ease you back with a run/walk plan that grows to continuous running — capped and gentle, with a consolidation week built in. Always stop and walk if anything hurts. Set how many weeks next."
                           : "We'll build a plan to get you fitter — easy running with a little variety, ramping gently. No race or goal time needed. Set how many weeks next."}
                       </p>
                     )}

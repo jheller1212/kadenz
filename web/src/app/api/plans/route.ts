@@ -14,7 +14,7 @@ import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 
 const PlanConfigSchema = z.object({
   // "race" is the default so existing clients keep working unchanged.
-  intent: z.enum(["race", "get_fit", "maintain"]).default("race"),
+  intent: z.enum(["race", "get_fit", "maintain", "return"]).default("race"),
   // Optional for non-race intents (defaults to the 10k reference then).
   raceDistance: z.enum(["5k", "10k", "half", "marathon"]).optional(),
   // Required for race; synthesized for non-race.

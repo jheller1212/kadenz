@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   generateSteadyPlan,
+  generateReturnPlan,
   generatePlanForConfig,
   vdotForRunnerLevel,
 } from "../plan-generator";
@@ -74,6 +75,45 @@ describe("generateSteadyPlan", () => {
   });
 });
 
+describe("generateReturnPlan", () => {
+  it("starts with run/walk and ends continuous; no race day", () => {
+    const plan = generateReturnPlan({ ...base, intent: "return", planLengthWeeks: 8 });
+    expect(plan.intent).toBe("return");
+    expect(plan.weeks).toHaveLength(8);
+    expect(plan.name).toBe("Return to Running — 8 weeks");
+    expect(workoutTypes(plan).includes("race")).toBe(false);
+
+    // Week 1 has at least one run/walk session; final week has a continuous run.
+    const week1Titles = plan.weeks[0].workouts.map((w) => w.title).join(" ");
+    expect(week1Titles).toMatch(/Run\/Walk/);
+    const lastTitles = plan.weeks[7].workouts.map((w) => w.title).join(" ");
+    expect(lastTitles).toMatch(/Easy Run \d+ min/);
+
+    // Every scheduled session carries the stop-on-pain safety note.
+    const runs = plan.weeks.flatMap((w) => w.workouts).filter((w) => w.type !== "rest");
+    expect(runs.length).toBeGreaterThan(0);
+    expect(runs.every((w) => /hurts?|pain/i.test(w.description ?? ""))).toBe(true);
+  });
+
+  it("caps sessions at 4/week even if more days offered", () => {
+    const plan = generateReturnPlan({ ...base, intent: "return", planLengthWeeks: 6, daysPerWeek: 6 });
+    expect(plan.daysPerWeek).toBe(4);
+    const wk = plan.weeks[0].workouts.filter((w) => w.type !== "rest");
+    expect(wk.length).toBeLessThanOrEqual(4);
+  });
+
+  it("consolidation (deload) week every 4th week, but the final week graduates", () => {
+    const plan = generateReturnPlan({ ...base, intent: "return", planLengthWeeks: 8 });
+    expect(plan.weeks[3].type).toBe("deload"); // week 4 consolidates
+    expect(plan.weeks[7].type).toBe("normal"); // week 8 graduates to continuous
+  });
+
+  it("rejects out-of-range length", () => {
+    expect(() => generateReturnPlan({ ...base, intent: "return", planLengthWeeks: 2 })).toThrow();
+    expect(() => generateReturnPlan({ ...base, intent: "return", planLengthWeeks: 20 })).toThrow();
+  });
+});
+
 describe("generatePlanForConfig dispatch", () => {
   it("routes race intent to the race generator (has a race day)", () => {
     const plan = generatePlanForConfig({
@@ -91,6 +131,12 @@ describe("generatePlanForConfig dispatch", () => {
     const plan = generatePlanForConfig({ ...base, intent: "get_fit", planLengthWeeks: 8 });
     expect(plan.intent).toBe("get_fit");
     expect(workoutTypes(plan).includes("race")).toBe(false);
+  });
+
+  it("routes return intent to the return generator", () => {
+    const plan = generatePlanForConfig({ ...base, intent: "return", planLengthWeeks: 8 });
+    expect(plan.intent).toBe("return");
+    expect(plan.weeks[0].workouts.some((w) => /Run\/Walk/.test(w.title))).toBe(true);
   });
 
   it("defaults missing intent to race", () => {

@@ -1288,9 +1288,163 @@ export function generateSteadyPlan(config: PlanConfig): GeneratedPlan {
   };
 }
 
+// ── Return-to-running generator ───────────────────────────────────────────────
+// A conservative run/walk progression for coming back from injury or illness.
+// Each stage is one session's structure; the plan walks from mostly-walking to
+// continuous running across its weeks, with a consolidation ("hold") week every
+// 4th week. Sessions are easy-effort only and deliberately capped — the guiding
+// rule, stated on every workout, is to stop and walk on any pain. This pairs
+// with the app's existing readiness score and pain check-ins.
+
+const RTR_STAGES: { run: number; walk: number; reps: number }[] = [
+  { run: 1, walk: 2, reps: 8 }, // ~24 min, mostly walking
+  { run: 2, walk: 2, reps: 6 },
+  { run: 3, walk: 2, reps: 5 },
+  { run: 5, walk: 2, reps: 4 },
+  { run: 8, walk: 2, reps: 3 },
+  { run: 10, walk: 1, reps: 3 },
+  { run: 15, walk: 1, reps: 2 },
+  { run: 25, walk: 0, reps: 1 }, // continuous easy run
+];
+
+// A consolidation ("hold") week repeats the prior week's stage rather than
+// advancing — a safety pause. Every 4th week, EXCEPT the final week, which
+// always graduates to the top (continuous-running) stage.
+function isRtrHoldWeek(weekIdx: number, weeks: number): boolean {
+  return weekIdx > 0 && weekIdx !== weeks - 1 && (weekIdx + 1) % 4 === 0;
+}
+
+function rtrStageForWeek(weekIdx: number, weeks: number) {
+  const effIdx = isRtrHoldWeek(weekIdx, weeks) ? weekIdx - 1 : weekIdx;
+  const denom = Math.max(1, weeks - 1);
+  const stage = Math.round((effIdx / denom) * (RTR_STAGES.length - 1));
+  return RTR_STAGES[Math.min(Math.max(stage, 0), RTR_STAGES.length - 1)];
+}
+
+function buildReturnWorkout(
+  dayOfWeek: number,
+  date: Date,
+  stage: { run: number; walk: number; reps: number },
+  paces: PaceZones,
+  sortOrder: number
+): GeneratedWorkout {
+  const { run, walk, reps } = stage;
+  const runMin = run * reps;
+  const totalMin = (run + walk) * reps;
+  const easyPace = paces.E.targetPaceSecKm;
+  // Distance counts running time only (walking barely moves the needle).
+  const km = Math.round(((runMin * 60) / easyPace) * 10) / 10;
+  const continuous = walk === 0;
+  const title = continuous ? `Easy Run ${run} min` : `Run/Walk ${run}/${walk} × ${reps}`;
+  const description = continuous
+    ? `Continuous easy run — ${run} min at a relaxed, conversational pace. Stop and walk if anything hurts.`
+    : `${reps} × (${run} min easy run, ${walk} min walk). Keep the runs relaxed — stop and walk if you feel pain. No single session is worth a setback.`;
+  return {
+    dayOfWeek,
+    date,
+    type: "easy",
+    title,
+    description,
+    targetKm: km,
+    targetDurationMinutes: totalMin,
+    sortOrder,
+    blocks: [
+      {
+        sortOrder: 0,
+        type: "work",
+        durationMinutes: totalMin,
+        targetPaceSecKm: easyPace,
+        minPaceSecKm: paces.E.minPaceSecKm,
+        maxPaceSecKm: paces.E.maxPaceSecKm,
+      },
+    ],
+  };
+}
+
+export function generateReturnPlan(config: PlanConfig): GeneratedPlan {
+  if (config.daysPerWeek < 2 || config.daysPerWeek > 6) {
+    throw new Error("daysPerWeek must be between 2 and 6");
+  }
+  const weeks = config.planLengthWeeks ?? 8;
+  if (weeks < 4 || weeks > 16) {
+    throw new Error("planLengthWeeks must be between 4 and 16 for a return plan");
+  }
+
+  const startDow = config.startDate.getDay();
+  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
+  const planStartMonday = addDays(config.startDate, mondayOffset);
+  const planEnd = addDays(planStartMonday, weeks * 7 - 1);
+
+  const vdot = vdotForRunnerLevel(config.runnerLevel);
+  const paces = getPaceZones(vdot);
+  const explicitDays = normalizeAvailableDays(config.availableDays);
+  // Return training is never daily — cap at 4 sessions/week.
+  const sessionsPerWeek = Math.min(config.daysPerWeek, 4);
+
+  const weeksOut: GeneratedWeek[] = [];
+  for (let i = 0; i < weeks; i++) {
+    const stage = rtrStageForWeek(i, weeks);
+    const weekStartDate = addDays(planStartMonday, i * 7);
+    const longRunDay =
+      explicitDays && !explicitDays.includes(config.preferredLongRunDay)
+        ? explicitDays[explicitDays.length - 1]
+        : config.preferredLongRunDay;
+    const trainingDays = explicitDays
+      ? selectTrainingSubset(explicitDays, sessionsPerWeek, longRunDay)
+      : pickTrainingDays(sessionsPerWeek, config.preferredLongRunDay);
+    const skipBeforeDate = i === 0 ? config.startDate : undefined;
+
+    const workouts: GeneratedWorkout[] = [];
+    let sortOrder = 0;
+    for (const dow of [1, 2, 3, 4, 5, 6, 0]) {
+      const dayOffset = dow === 0 ? 6 : dow - 1;
+      const date = addDays(weekStartDate, dayOffset);
+      if (skipBeforeDate && date < skipBeforeDate) continue;
+      if (trainingDays.includes(dow)) {
+        workouts.push(buildReturnWorkout(dow, date, stage, paces, sortOrder++));
+      } else {
+        workouts.push(buildRestWorkout(dow, date, sortOrder++));
+      }
+    }
+
+    const targetKm = Math.round(workouts.reduce((s, w) => s + (w.targetKm ?? 0), 0));
+    weeksOut.push({
+      weekNumber: i + 1,
+      phase: "base",
+      type: isRtrHoldWeek(i, weeks) ? "deload" : "normal",
+      targetKm,
+      workouts,
+    });
+  }
+
+  const goalTimeSeconds = Math.round(predictRaceTime(vdot, RACE_DISTANCES_M["10k"]));
+
+  return {
+    name: `Return to Running — ${weeks} weeks`,
+    intent: "return",
+    raceDistance: "10k",
+    goalTimeSeconds,
+    vdot: Math.round(vdot * 10) / 10,
+    startDate: config.startDate,
+    raceDate: planEnd,
+    planLengthWeeks: weeks,
+    daysPerWeek: sessionsPerWeek,
+    preferredLongRunDay: config.preferredLongRunDay,
+    currentWeeklyKm: config.currentWeeklyKm,
+    trainingVolume: config.trainingVolume,
+    trainingDifficulty: config.trainingDifficulty,
+    longRunCapKm: config.longRunCapKm,
+    easyRunMinKm: config.easyRunMinKm ?? 0,
+    hillyArea: config.hillyArea,
+    availableDays: normalizeAvailableDays(config.availableDays),
+    runnerLevel: config.runnerLevel ?? null,
+    weeks: weeksOut,
+  };
+}
+
 /** Dispatch to the right generator based on intent (defaults to race). */
 export function generatePlanForConfig(config: PlanConfig): GeneratedPlan {
-  return config.intent && config.intent !== "race"
-    ? generateSteadyPlan(config)
-    : generatePlan(config);
+  if (config.intent === "return") return generateReturnPlan(config);
+  if (config.intent && config.intent !== "race") return generateSteadyPlan(config);
+  return generatePlan(config);
 }
