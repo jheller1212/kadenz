@@ -41,11 +41,20 @@ interface SessionDetail {
   sets: SetRow[];
   plannedExercises: PlannedExercise[];
   linkedActivity?: {
+    id: string;
     stravaId: string | null;
+    garminId: string | null;
     avgHr: number | null;
     maxHr: number | null;
     durationSeconds: number | null;
   } | null;
+}
+
+interface PerformedExercise {
+  category: string | null;
+  name: string | null;
+  sets: number;
+  reps: number[];
 }
 
 interface CatalogRow {
@@ -59,6 +68,17 @@ function muscleFor(slug: string | undefined): string | null {
   return EXERCISES.find((e) => e.slug === slug)?.primaryMuscle ?? null;
 }
 
+// Garmin gives a category code (BENCH_PRESS) and sometimes a specific name.
+// "BARBELL_BENCH_PRESS" → "Barbell bench press"; "BENCH_PRESS" → "Bench press".
+function prettyExercise(p: PerformedExercise): string {
+  const raw = p.name || p.category || "Exercise";
+  if (raw === "UNKNOWN") return "Exercise";
+  return raw
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
 export default function StrengthSessionPage({
   params,
 }: {
@@ -70,6 +90,7 @@ export default function StrengthSessionPage({
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [catalog, setCatalog] = useState<Record<string, CatalogRow>>({});
   const [loading, setLoading] = useState(true);
+  const [performed, setPerformed] = useState<PerformedExercise[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -87,6 +108,21 @@ export default function StrengthSessionPage({
       alive = false;
     };
   }, [id]);
+
+  // If this session is linked to a Garmin activity, pull the exercises as they
+  // were actually performed on the watch (real order), shown as its own section.
+  useEffect(() => {
+    const act = session?.linkedActivity;
+    if (!act?.garminId || !act.id) return;
+    let alive = true;
+    apiFetch(`/api/activities/${act.id}/exercise-order`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d && Array.isArray(d.exercises)) setPerformed(d.exercises);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [session?.linkedActivity?.id, session?.linkedActivity?.garminId]);
 
   const back = (
     <TransitionLink
@@ -268,8 +304,37 @@ export default function StrengthSessionPage({
           </section>
         )}
 
+        {performed.length > 0 && (
+          <section className="k-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+                As performed on watch
+              </p>
+              <span className="text-[11px] text-text-3">Garmin</span>
+            </div>
+            <ol className="flex flex-col gap-2.5">
+              {performed.map((p, i) => {
+                const uniform = p.reps.length > 0 && p.reps.every((r) => r === p.reps[0]);
+                const repText =
+                  p.reps.length === 0
+                    ? ""
+                    : uniform
+                      ? ` · ${p.sets} × ${p.reps[0]}`
+                      : ` · ${p.reps.join(", ")} reps`;
+                return (
+                  <li key={i} className="flex items-baseline gap-3">
+                    <span className="w-5 shrink-0 text-[13px] font-bold tabular-nums text-text-3">{i + 1}</span>
+                    <span className="text-[15px] font-semibold text-text-1">{prettyExercise(p)}</span>
+                    <span className="ml-auto text-[13px] tabular-nums text-text-2">{repText.replace(/^ · /, "")}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        )}
+
         <h2 className="text-[17px] font-bold text-text-1">
-          {hasLoggedSets ? "Logged sets" : "Exercises"}
+          {hasLoggedSets ? "Logged sets" : performed.length > 0 ? "Planned exercises" : "Exercises"}
         </h2>
 
         {hasLoggedSets ? (

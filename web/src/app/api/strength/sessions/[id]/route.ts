@@ -78,6 +78,7 @@ export async function GET(
       .select({
         id: activities.id,
         stravaId: activities.stravaId,
+        garminId: activities.garminId,
         avgHr: activities.avgHr,
         maxHr: activities.maxHr,
         durationSeconds: activities.durationSeconds,
