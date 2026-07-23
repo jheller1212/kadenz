@@ -9,21 +9,23 @@ import {
   CalendarClock,
   Check,
   LayoutList,
+  LayoutGrid,
   SlidersHorizontal,
   TrendingUp,
+  ChevronRight,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { KadenzMark } from "@/components/ui/KadenzMark";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
+import { workoutColor, STRENGTH_COLOR } from "@/lib/workout-colors";
 import { WeeklyStrengthPlan } from "@/components/strength/WeeklyStrengthPlan";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import {
-  WORKOUT_BAR_COLOR,
-  STRENGTH_BLUE,
   type ApiPlanRow,
   type ApiWeekRow,
   type ApiWorkoutRow,
@@ -54,16 +56,16 @@ function DayChip({ items }: { items: DayItem[] }) {
   const strength = items.find((i) => i.kind === "strength");
 
   let style: React.CSSProperties;
-  if (run && strength) {
-    const runColor = WORKOUT_BAR_COLOR[run.kind === "run" ? run.workout.type : "easy"];
-    // Two-tone split: left half strength blue, right half the run color.
+  if (run && strength && run.kind === "run") {
+    // Two-tone split: left half strength, right half the run color.
+    const runSolid = workoutColor(run.workout.type).solid;
     style = {
-      background: `linear-gradient(90deg, ${STRENGTH_BLUE} 50%, ${runColor} 50%)`,
+      background: `linear-gradient(135deg, ${STRENGTH_COLOR.solid} 0%, ${STRENGTH_COLOR.solid} 50%, ${runSolid} 50%, ${runSolid} 100%)`,
     };
   } else if (run && run.kind === "run") {
-    style = { backgroundColor: WORKOUT_BAR_COLOR[run.workout.type] };
+    style = { background: workoutColor(run.workout.type).grad };
   } else {
-    style = { backgroundColor: STRENGTH_BLUE };
+    style = { background: STRENGTH_COLOR.grad };
   }
 
   return (
@@ -225,8 +227,8 @@ function HubEmptyState() {
 
 const QUICK_ACTIONS = [
   { href: "/plan/overview", label: "Plan Overview", Icon: LayoutList },
-  { href: "/plan/rearrange", label: "Training Calendar", Icon: CalendarClock },
-  { href: "/pace-insights", label: "Pace Insights", Icon: TrendingUp },
+  { href: "/plan/rearrange", label: "Rearrange Workouts", Icon: CalendarClock },
+  { href: "/settings/apps", label: "Connected Apps", Icon: LayoutGrid },
   { href: "/plan/manage", label: "Manage Plan", Icon: SlidersHorizontal },
 ];
 
@@ -291,7 +293,16 @@ export default function PlanHubPage() {
         return m !== null && m <= now && now < addDays(m, 7);
       })?.weekNumber ?? null;
     const totalKm = plan.weeks.reduce((sum, w) => sum + (w.targetKm ?? 0), 0);
-    return { completedWeeks, currentWeekNumber, totalKm };
+    // Distance done so far: target km of the runs already ticked complete.
+    const completedKm = plan.weeks.reduce(
+      (sum, w) =>
+        sum +
+        w.workouts
+          .filter((x) => x.status === "completed" && x.type !== "rest")
+          .reduce((s, x) => s + (x.targetKm ?? 0), 0),
+      0
+    );
+    return { completedWeeks, currentWeekNumber, totalKm, completedKm };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan]);
 
@@ -323,10 +334,19 @@ export default function PlanHubPage() {
       <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-tabbar pt-2">
         {/* Hero card */}
         <section className="k-card p-5">
-          <h1 className="text-[22px] font-bold leading-tight tracking-tight text-text-1">
-            {plan.name}
-          </h1>
-          <p className="mt-1 text-[13px] text-text-2">Your race: {raceDateLabel}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-[22px] font-bold leading-tight tracking-tight text-text-1">
+                {plan.name}
+              </h1>
+              <p className="mt-1 text-[13px] text-text-2">
+                {plan.intent && plan.intent !== "race" ? "Ends" : "Your race"}: {raceDateLabel}
+              </p>
+            </div>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-on-accent" style={{ background: "var(--k-signature-grad)" }}>
+              <KadenzMark className="h-6 w-6" />
+            </div>
+          </div>
 
           {/* Dashed week-progress row */}
           <div className="mt-4 flex h-1.5 gap-1">
@@ -342,19 +362,19 @@ export default function PlanHubPage() {
             ))}
           </div>
 
-          <div className="mt-2.5 flex items-center justify-between text-[12px] text-text-2">
-            <span>
-              Total Weeks{" "}
-              <span className="font-bold text-text-1 tabular-nums">
+          <div className="mt-3 flex items-end justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-text-3">Weeks completed</p>
+              <p className="text-[18px] font-extrabold tabular-nums text-text-1">
                 {derived.completedWeeks}/{plan.weeks.length}
-              </span>
-            </span>
-            <span>
-              Total Distance{" "}
-              <span className="font-bold text-text-1 tabular-nums">
-                {displayDistance(derived.totalKm, 0)} {distanceUnitLabel()}
-              </span>
-            </span>
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] uppercase tracking-wide text-text-3">Distance</p>
+              <p className="text-[18px] font-extrabold tabular-nums text-text-1">
+                {displayDistance(derived.completedKm, 0)}/{displayDistance(derived.totalKm, 0)} {distanceUnitLabel()}
+              </p>
+            </div>
           </div>
         </section>
 
@@ -375,6 +395,20 @@ export default function PlanHubPage() {
             </TransitionLink>
           ))}
         </div>
+
+        {/* Pace insights */}
+        <TransitionLink href="/pace-insights" className="press block">
+          <section className="k-card flex items-center gap-3 p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-elevated">
+              <TrendingUp className="h-5 w-5 text-accent-fg" strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-text-3">Pace insights</p>
+              <p className="text-[15px] font-bold text-text-1">See how your pace is tracking</p>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={2} />
+          </section>
+        </TransitionLink>
 
         {/* Strength plan config lives in Manage Plan (the Strength tab), parallel
             to the running plan — no duplicate setup card here. The scheduled
