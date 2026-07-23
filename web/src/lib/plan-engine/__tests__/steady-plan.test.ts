@@ -114,6 +114,27 @@ describe("generateReturnPlan", () => {
   });
 });
 
+describe("steady variants produce genuinely different plans", () => {
+  const qualityCount = (p: { weeks: { workouts: { type: string }[] }[] }) =>
+    p.weeks.flatMap((w) => w.workouts).filter((x) => x.type === "tempo" || x.type === "interval").length;
+  const peakKm = (p: { weeks: { targetKm: number }[] }) => Math.max(...p.weeks.map((w) => w.targetKm));
+  const normalKm = (p: { weeks: { type: string; targetKm: number }[] }) =>
+    p.weeks.find((w) => w.type === "normal")!.targetKm;
+
+  it("get_fit: Easy base (easy/low) vs Fitness push (hard/high) differ in quality + volume", () => {
+    const easy = generateSteadyPlan({ ...base, intent: "get_fit", planLengthWeeks: 8, trainingDifficulty: "easy", trainingVolume: "low" });
+    const push = generateSteadyPlan({ ...base, intent: "get_fit", planLengthWeeks: 8, trainingDifficulty: "hard", trainingVolume: "high" });
+    expect(qualityCount(push)).toBeGreaterThan(qualityCount(easy));
+    expect(peakKm(push)).toBeGreaterThan(peakKm(easy));
+  });
+
+  it("maintain: Low vs High weekly-volume preference changes the mileage", () => {
+    const low = generateSteadyPlan({ ...base, intent: "maintain", planLengthWeeks: 8, trainingVolume: "low" });
+    const high = generateSteadyPlan({ ...base, intent: "maintain", planLengthWeeks: 8, trainingVolume: "high" });
+    expect(normalKm(high)).toBeGreaterThan(normalKm(low));
+  });
+});
+
 describe("generatePlanForConfig dispatch", () => {
   it("routes race intent to the race generator (has a race day)", () => {
     const plan = generatePlanForConfig({

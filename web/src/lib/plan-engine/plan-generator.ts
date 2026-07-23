@@ -1235,15 +1235,23 @@ function steadyWeekType(weekIndex: number): WeekType {
   return (weekIndex + 1) % 4 === 0 ? "deload" : "normal";
 }
 
-/** Flat volume for maintain; a gentle ≤10%/week ramp to +30% for get-fit. */
+/**
+ * Flat volume for maintain; a gentle ≤10%/week ramp for get-fit. The weekly-
+ * volume preference scales it (VOLUME_FACTOR): maintain holds near current×factor,
+ * get-fit ramps from current up to +30%×factor — so Low/Normal/High actually
+ * change the mileage instead of being inert.
+ */
 function steadyVolume(config: PlanConfig, weeks: number, intent: PlanIntent): number[] {
-  const start = Math.max(config.currentWeeklyKm || 0, 10);
-  const cap = intent === "maintain" ? start : start * 1.3;
+  const base = Math.max(config.currentWeeklyKm || 0, 10);
+  const factor = VOLUME_FACTOR[config.trainingVolume] ?? 1.0;
+  const level = Math.max(5, Math.round(base * factor)); // maintain flat level
+  const start = intent === "maintain" ? level : base;
+  const cap = intent === "maintain" ? level : Math.round(base * 1.3 * factor);
   const volumes: number[] = [];
   let lastNormal = start;
   for (let i = 0; i < weeks; i++) {
     const deload = steadyWeekType(i) === "deload";
-    const target = intent === "maintain" ? start : Math.min(lastNormal * 1.1, cap);
+    const target = intent === "maintain" ? level : Math.min(lastNormal * 1.1, cap);
     if (deload) {
       volumes.push(Math.round(target * 0.7));
     } else {

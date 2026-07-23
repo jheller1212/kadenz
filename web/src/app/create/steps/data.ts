@@ -2,7 +2,7 @@ import type { PlanIntent, RaceDistance, RunnerLevel, TrainingDifficulty, Trainin
 
 // ── Plan variants (a curated style per intent) ────────────────────────────────
 // Each variant pre-sets a few knobs (difficulty / volume / days) that the later
-// steps still show and can override — a friendly front door, not a new input.
+// steps still show and can override, a friendly front door, not a new input.
 
 export interface PlanVariant {
   key: string;
@@ -16,21 +16,24 @@ export interface PlanVariant {
 }
 
 export const VARIANTS: Record<PlanIntent, PlanVariant[]> = {
+  // Each pair is deliberately distinct in what the engine actually produces:
+  // race + get_fit differ by quality-session count (moderate = 1, hard = 2, and
+  // hard unlocks intervals); maintain + get_fit also differ by weekly volume.
   race: [
-    { key: "balanced", label: "Balanced", sub: "A bit of everything — the classic build", apply: { trainingDifficulty: "moderate" } },
-    { key: "speed", label: "Speed-focused", sub: "More quality sessions, sharper legs", apply: { trainingDifficulty: "hard" } },
+    { key: "balanced", label: "Balanced", sub: "One quality session a week: a weekly tempo on a solid easy base", apply: { trainingDifficulty: "moderate" } },
+    { key: "speed", label: "Speed-focused", sub: "Two quality sessions most weeks: tempo plus intervals", apply: { trainingDifficulty: "hard" } },
   ],
   get_fit: [
-    { key: "easy", label: "Easy miles", sub: "Almost all relaxed running", apply: { trainingDifficulty: "easy" } },
-    { key: "mixed", label: "Easy + a little speed", sub: "Mostly easy with some faster work", apply: { trainingDifficulty: "moderate" } },
+    { key: "easy", label: "Easy base", sub: "Gentle mileage, mostly relaxed running", apply: { trainingDifficulty: "easy", trainingVolume: "low" } },
+    { key: "push", label: "Fitness push", sub: "More miles and two faster sessions a week", apply: { trainingDifficulty: "hard", trainingVolume: "high" } },
   ],
   maintain: [
-    { key: "steady", label: "Just ticking over", sub: "Keep the habit, low effort", apply: { trainingDifficulty: "easy", trainingVolume: "low" } },
-    { key: "sharp", label: "Keep some sharpness", sub: "Hold fitness with a weekly quality run", apply: { trainingDifficulty: "moderate" } },
+    { key: "minimal", label: "Just ticking over", sub: "Hold fitness on low, easy miles", apply: { trainingVolume: "low" } },
+    { key: "fuller", label: "Keep it up", sub: "Hold fitness with more weekly volume", apply: { trainingVolume: "high" } },
   ],
   return: [
-    { key: "cautious", label: "Extra cautious", sub: "Fewer sessions, gentler ramp", apply: { daysPerWeek: 3 } },
-    { key: "standard", label: "Standard", sub: "The usual return-to-running progression", apply: { daysPerWeek: 4 } },
+    { key: "cautious", label: "Extra cautious", sub: "Three sessions a week, a gentler ramp", apply: { daysPerWeek: 3 } },
+    { key: "standard", label: "Standard", sub: "Four sessions a week, the usual progression", apply: { daysPerWeek: 4 } },
   ],
 };
 
@@ -165,7 +168,7 @@ export const DAY_OPTIONS = [
   { name: "Sun", value: 0 },
 ];
 
-/** Suggested availability per days/week — evenly spaced with recovery between. */
+/** Suggested availability per days/week, evenly spaced with recovery between. */
 export const SUGGESTED_DAYS: Record<number, number[]> = {
   2: [3, 6],
   3: [1, 3, 6],
