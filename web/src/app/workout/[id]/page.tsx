@@ -25,7 +25,9 @@ import {
 } from "@/lib/run-snapshot";
 import { openSpotify } from "@/lib/spotify";
 import { fuelingAdvice, shouldShowFueling } from "@/lib/fueling";
-import { Droplet, Zap } from "lucide-react";
+import { Droplet, Zap, Sparkles } from "lucide-react";
+import { WarmupPlayer } from "@/components/WarmupPlayer";
+import { routineById } from "@/lib/warmup";
 
 // RPE mapping per workout zone
 const ZONE_RPE: Record<string, string> = {
@@ -485,6 +487,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [menuOpen, setMenuOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [guiding, setGuiding] = useState(false);
+  const [showWarmup, setShowWarmup] = useState(false);
   // A parked/reloaded run for THIS workout, offered as "Resume". `resuming`
   // distinguishes reopening it (restore state) from a fresh Start.
   const [resumeSnap, setResumeSnap] = useState<RunSnapshot | null>(null);
@@ -791,6 +794,19 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           <FuelingCard type={workout.type} durationMinutes={workout.targetDurationMinutes ?? null} />
         )}
 
+        {!isCompleted && (
+          <button
+            onClick={() => {
+              haptic("medium");
+              setShowWarmup(true);
+            }}
+            className="press flex w-full items-center justify-center gap-2 rounded-[var(--radius-card)] bg-surface py-3.5 text-[14px] font-semibold text-text-1"
+          >
+            <Sparkles className="h-4 w-4 text-accent-fg" strokeWidth={2.2} />
+            Warm-up first (~5 min)
+          </button>
+        )}
+
         {actionError && (
           <div className="rounded-[var(--radius-card)] bg-danger/10 p-4 text-[13px] text-danger">
             {actionError}
@@ -1010,6 +1026,16 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           )}
         </div>
       </div>
+
+      {/* Warm-up overlay */}
+      <AnimatePresence>
+        {showWarmup && routineById("dynamic-warmup") && (
+          <WarmupPlayer
+            routine={routineById("dynamic-warmup")!}
+            onClose={() => setShowWarmup(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Guided run overlay */}
       <AnimatePresence>
