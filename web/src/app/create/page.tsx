@@ -48,9 +48,9 @@ const INTENT_OPTIONS: {
   Icon: typeof Trophy;
 }[] = [
   { key: "race", label: "Train for a race", sub: "Goal time, peak & taper to race day", Icon: Trophy },
-  { key: "get_fit", label: "Get fitter", sub: "Build fitness — no race, no goal time", Icon: TrendingUp },
+  { key: "get_fit", label: "Get fitter", sub: "Build fitness, no race, no goal time", Icon: TrendingUp },
   { key: "maintain", label: "Maintain", sub: "Hold your fitness at low time cost", Icon: Activity },
-  { key: "return", label: "Return to running", sub: "Back from injury or illness — run/walk, eased in", Icon: HeartPulse },
+  { key: "return", label: "Return to running", sub: "Back from injury or illness, run/walk, eased in", Icon: HeartPulse },
 ];
 
 function IntentSelector({
@@ -159,9 +159,9 @@ export default function CreatePlanPage() {
   function handleIntent(i: PlanIntent) {
     haptic("light");
     setIntent(i);
-    // Variants are per-intent — clear the previous pick.
+    // Variants are per-intent, clear the previous pick.
     setVariantKey(null);
-    // Non-race plans have no race/goal — drop any locked race selection.
+    // Non-race plans have no race/goal, drop any locked race selection.
     if (i !== "race") setSelectedRaceId(null);
   }
 
@@ -276,7 +276,7 @@ export default function CreatePlanPage() {
       setStepIdx((i) => i + 1);
       return;
     }
-    // Final step — generate on the server.
+    // Final step, generate on the server.
     setSaving(true);
     haptic("medium");
     const minDelay = new Promise((resolve) => setTimeout(resolve, 2600));
@@ -343,11 +343,11 @@ export default function CreatePlanPage() {
     },
     level: {
       title: "How would you describe yourself as a runner?",
-      sub: "This tunes your starting volume and intensity — you can adjust everything later.",
+      sub: "This tunes your starting volume and intensity, you can adjust everything later.",
     },
     variant: {
       title: "Pick a style",
-      sub: "Choose the flavour of your plan — swipe to compare. You can fine-tune it later.",
+      sub: "Choose the flavour of your plan, swipe to compare. You can fine-tune it later.",
     },
     days: {
       title: "How many days per week do you want to run?",
@@ -366,7 +366,7 @@ export default function CreatePlanPage() {
     },
     preferences: {
       title: "Fine-tune your training",
-      sub: "Sensible defaults are already set from your level — tweak only if you want to.",
+      sub: "Sensible defaults are already set from your level, tweak only if you want to.",
     },
   };
 
@@ -416,10 +416,10 @@ export default function CreatePlanPage() {
                     ) : (
                       <p className="mt-5 rounded-[var(--radius-input)] bg-elevated px-4 py-3 text-[13px] leading-snug text-text-2">
                         {intent === "maintain"
-                          ? "We'll build a steady plan that holds your fitness — mostly easy running, no race, no goal time. Set how many weeks next."
+                          ? "We'll build a steady plan that holds your fitness, mostly easy running, no race, no goal time. Set how many weeks next."
                           : intent === "return"
-                          ? "We'll ease you back with a run/walk plan that grows to continuous running — capped and gentle, with a consolidation week built in. Always stop and walk if anything hurts. Set how many weeks next."
-                          : "We'll build a plan to get you fitter — easy running with a little variety, ramping gently. No race or goal time needed. Set how many weeks next."}
+                          ? "We'll ease you back with a run/walk plan that grows to continuous running, capped and gentle, with a consolidation week built in. Always stop and walk if anything hurts. Set how many weeks next."
+                          : "We'll build a plan to get you fitter, easy running with a little variety, ramping gently. No race or goal time needed. Set how many weeks next."}
                       </p>
                     )}
                   </>

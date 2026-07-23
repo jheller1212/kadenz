@@ -108,7 +108,7 @@ export function StepTimeline({
           {buildWeeks > 0 && buildWeeks < 4 && (
             <div className="flex items-start gap-2 rounded-[var(--radius-input)] bg-warn/10 px-4 py-3 text-xs leading-relaxed text-warn">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
-              <span>Very short training window — expect a sharpening block rather than a full build.</span>
+              <span>Very short training window, expect a sharpening block rather than a full build.</span>
             </div>
           )}
         </div>

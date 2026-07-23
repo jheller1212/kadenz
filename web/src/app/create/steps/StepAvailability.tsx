@@ -55,15 +55,15 @@ export function StepAvailability({
         <p className="text-[13px] text-text-3" aria-live="polite">
           {remaining > 0
             ? `Pick ${remaining} more ${remaining === 1 ? "day" : "days"}`
-            : "All set — workouts will only land on these days."}
+            : "All set, workouts will only land on these days."}
         </p>
         <p className="text-[12px] leading-relaxed text-text-3">
-          Pick at least {daysPerWeek} — extra days give your plan room to breathe and space for
+          Pick at least {daysPerWeek}, extra days give your plan room to breathe and space for
           strength work.
         </p>
       </div>
 
-      {/* Long run day — only among the chosen days */}
+      {/* Long run day, only among the chosen days */}
       {availableDays.length > 0 && (
         <div className="flex flex-col gap-2.5">
           <span className="text-xs font-semibold uppercase tracking-widest text-text-3">Long run day</span>

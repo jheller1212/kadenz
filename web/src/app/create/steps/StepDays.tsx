@@ -48,7 +48,7 @@ export function StepDays({
       {levelOption && maxDays < 6 && (
         <p className="text-[13px] leading-relaxed text-text-3">
           As a{runnerLevel === "intermediate" || runnerLevel === "advanced" || runnerLevel === "elite" ? "n" : ""}{" "}
-          {levelOption.title.toLowerCase()} runner we cap your plan at {maxDays} running days per week — consistency
+          {levelOption.title.toLowerCase()} runner we cap your plan at {maxDays} running days per week, consistency
           beats volume while your body adapts.
         </p>
       )}

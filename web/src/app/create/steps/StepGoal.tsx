@@ -28,7 +28,7 @@ export function getGoalTimeWarning(raceDistance: RaceDistance | null, totalSecon
     return `That's faster than the world record for ${label}. Please enter a realistic goal time.`;
   }
   if (totalSeconds < range.elite) {
-    return "That's an elite-level time. This app is designed for recreational runners — pacing may not suit sub-elite athletes.";
+    return "That's an elite-level time. This app is designed for recreational runners, pacing may not suit sub-elite athletes.";
   }
   if (totalSeconds > range.slow) {
     return `That's quite slow for a ${label}. Consider walking intervals or a run/walk plan instead.`;
@@ -229,7 +229,7 @@ export function StepGoal({
         <div className="flex items-start gap-2 rounded-[var(--radius-input)] bg-warn/10 px-4 py-3 text-xs leading-relaxed text-warn">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
           <span>
-            Very short training window — {selectedRace.name} is less than 4 weeks away. The plan will focus on
+            Very short training window, {selectedRace.name} is less than 4 weeks away. The plan will focus on
             sharpening, not building fitness.
           </span>
         </div>

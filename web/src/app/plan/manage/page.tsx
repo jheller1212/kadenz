@@ -273,8 +273,11 @@ export default function ManagePlanPage() {
                 <InfoCard label="Long run day" value={DOW[plan.preferredLongRunDay ?? 6]} />
               </div>
 
+              <TransitionLink href="/create" className="block">
+                <Button full>Start a new plan</Button>
+              </TransitionLink>
               <TransitionLink href="/plan/edit" className="block">
-                <Button full variant="secondary">Edit run plan</Button>
+                <Button full variant="secondary">Edit this plan</Button>
               </TransitionLink>
               <Button
                 full

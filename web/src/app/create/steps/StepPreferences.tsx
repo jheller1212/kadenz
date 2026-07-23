@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "motion/react";
 import type { TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
 import { Segmented } from "@/components/ui/Segmented";
 import { Switch } from "@/components/ui/8bit-switch";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { haptic } from "@/lib/haptics";
 
 export function StepPreferences({
@@ -46,7 +47,13 @@ export function StepPreferences({
     <div className="flex flex-col gap-6">
       {/* Volume */}
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold uppercase tracking-widest text-text-3">Weekly volume</span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-text-3">
+          Weekly volume
+          <InfoTooltip
+            label="weekly volume"
+            text="How much you run each week. Low: a gentler mileage ramp, good alongside a busy life. Normal: the standard build for your distance. High: more km for a bigger aerobic engine."
+          />
+        </span>
         <Segmented
           options={[
             { value: "low", label: "Low" },
@@ -65,7 +72,13 @@ export function StepPreferences({
 
       {/* Difficulty */}
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold uppercase tracking-widest text-text-3">Workout intensity</span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-text-3">
+          Workout intensity
+          <InfoTooltip
+            label="workout intensity"
+            text="How hard your weekly quality sessions are. Low and Normal give one quality run a week (Normal adds more variety). High gives two quality sessions a week: tempo plus intervals."
+          />
+        </span>
         <Segmented
           options={[
             { value: "easy", label: "Low" },
@@ -78,7 +91,7 @@ export function StepPreferences({
         <p className="text-xs text-text-3">
           {trainingDifficulty === "easy" && "1 quality session/week. More easy miles."}
           {trainingDifficulty === "moderate" && "1 quality session/week with variety."}
-          {trainingDifficulty === "hard" && "2 quality sessions/week. Tempo + intervals."}
+          {trainingDifficulty === "hard" && "2 quality sessions/week. Tempo plus intervals."}
         </p>
       </div>
 
@@ -123,7 +136,13 @@ export function StepPreferences({
                 {/* Current weekly km */}
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-semibold text-text-2">Current weekly km</span>
+                    <span className="flex items-center gap-1.5 text-[13px] font-semibold text-text-2">
+                      Current weekly km
+                      <InfoTooltip
+                        label="current weekly km"
+                        text="Roughly how far you run per week right now. This is your starting point; the plan ramps up gradually from here, so be honest rather than aspirational."
+                      />
+                    </span>
                     <span className="text-sm font-bold tabular-nums text-accent-fg">{currentWeeklyKm} km</span>
                   </div>
                   <WheelPicker
@@ -136,7 +155,7 @@ export function StepPreferences({
                   />
                   {currentWeeklyKm === 0 && (
                     <p className="text-xs leading-relaxed text-text-3">
-                      No worries — we&apos;ll start you at ~10 km/week and build up slowly.
+                      No worries, we&apos;ll start you at ~10 km/week and build up slowly.
                     </p>
                   )}
                 </div>
@@ -144,7 +163,13 @@ export function StepPreferences({
                 {/* Long run cap */}
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-semibold text-text-2">Long run cap</span>
+                    <span className="flex items-center gap-1.5 text-[13px] font-semibold text-text-2">
+                      Long run cap
+                      <InfoTooltip
+                        label="long run cap"
+                        text="The longest a single run will get. Set a limit if long runs aggravate an injury or don't fit your schedule. Zero means no cap: long runs grow with the plan."
+                      />
+                    </span>
                     <span className="text-sm font-bold tabular-nums text-accent-fg">
                       {longRunCapKm === 0 ? "No cap" : `${longRunCapKm} km`}
                     </span>
@@ -162,7 +187,13 @@ export function StepPreferences({
                 {/* Easy run minimum */}
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-semibold text-text-2">Easy run minimum</span>
+                    <span className="flex items-center gap-1.5 text-[13px] font-semibold text-text-2">
+                      Easy run minimum
+                      <InfoTooltip
+                        label="easy run minimum"
+                        text="The shortest an easy run will be. Raise it if very short runs aren't worth the effort of getting out the door. Zero means no minimum."
+                      />
+                    </span>
                     <span className="text-sm font-bold tabular-nums text-accent-fg">
                       {easyRunMinKm === 0 ? "No min" : `${easyRunMinKm} km`}
                     </span>
