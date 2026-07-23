@@ -690,6 +690,47 @@ def get_activity(garmin_id: int, _auth: Auth):
     }
 
 
+@app.get("/activities/{garmin_id}/exercise-sets")
+def get_exercise_sets(garmin_id: int, _auth: Auth):
+    """Ordered exercises the athlete actually performed, from Garmin's on-watch
+    rep tracking — so the app can show a strength session in the order it was
+    done rather than the plan order. Returns [] if the watch recorded no
+    per-exercise data (many strength activities are logged generically)."""
+    try:
+        data = _garmin_call(f"/activity-service/activity/{garmin_id}/exerciseSets")
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.warning("Exercise sets unavailable for %s: %s", garmin_id, exc)
+        return {"exercises": []}
+
+    raw = (data or {}).get("exerciseSets") if isinstance(data, dict) else None
+    out: list[dict[str, Any]] = []
+    for s in raw or []:
+        if not isinstance(s, dict) or s.get("setType") != "ACTIVE":
+            continue
+        exs = s.get("exercises") or []
+        first = exs[0] if exs and isinstance(exs[0], dict) else {}
+        category = first.get("category")
+        name = first.get("name")
+        if not category and not name:
+            continue
+        reps = s.get("repetitionCount")
+        # Collapse consecutive sets of the same exercise into one entry.
+        if out and out[-1]["category"] == category and out[-1]["name"] == name:
+            out[-1]["sets"] += 1
+            if reps:
+                out[-1]["reps"].append(reps)
+        else:
+            out.append({
+                "category": category,
+                "name": name,
+                "sets": 1,
+                "reps": [reps] if reps else [],
+            })
+    return {"exercises": out}
+
+
 # ── Strength workout route ───────────────────────────────────────────────────
 
 
