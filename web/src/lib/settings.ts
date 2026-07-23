@@ -57,6 +57,12 @@ export interface UserSettings {
   runSplitCues: boolean;
   /** Keep the screen awake during a guided run (Wake Lock) */
   runKeepAwake: boolean;
+  /** Count down (3-2-1-Go) before the run clock starts */
+  runCountdown: boolean;
+  /** Auto-pause the clock when GPS shows you've stopped moving, auto-resume when you go again */
+  runAutoPause: boolean;
+  /** Start the run automatically on first detected motion instead of on tap */
+  runStartOnMotion: boolean;
 
   // ── Garmin ───────────────────────────────────────────────────────────────
   /** Local mirror of the server-side "send workouts to watch" toggle
@@ -92,6 +98,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   runGps: true,
   runSplitCues: true,
   runKeepAwake: true,
+  runCountdown: true,
+  runAutoPause: false,
+  runStartOnMotion: false,
   garminSyncWorkouts: false,
 };
 

@@ -169,6 +169,14 @@ export function GuidedRun({
   const [steps] = useState<Step[]>(() => buildSteps(blocks));
   const [stepIdx, setStepIdx] = useState(0);
   const [paused, setPaused] = useState(false);
+  // "started" gates the clock: while false we're in the pre-run phase
+  // (numeric countdown, or waiting for motion). The elapsed clock, step audio
+  // and auto-advance only begin once the run actually starts.
+  const [started, setStarted] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [awaitingMotion, setAwaitingMotion] = useState(false);
+  const autoPausedRef = useRef(false); // paused by auto-pause, not by the user
+  const lastMoveAtRef = useRef<number>(0); // ms of the last detected movement
   // All render-facing derived values live in state, updated by the ticker —
   // render never reads mutable refs directly (React purity rules).
   const [view, setView] = useState<{
@@ -194,6 +202,7 @@ export function GuidedRun({
   const distanceMRef = useRef(0); // total metres
   const stepStartDistRef = useRef(0);
   const livePaceRef = useRef<number | null>(null);
+  const lastTickDistRef = useRef(0); // metres seen at the previous auto-pause check
   const splitUnitM = useMiles ? 1609.344 : 1000;
   const nextSplitRef = useRef(1); // next split index to announce
   const splitStartTimeRef = useRef(0);
@@ -255,6 +264,23 @@ export function GuidedRun({
     return (now - startRef.current) / 1000;
   }, []);
 
+  // Freeze/unfreeze the clock. Shared by the manual pause button and auto-pause
+  // so the timestamp-shift on resume happens in exactly one place.
+  const doPause = useCallback(() => {
+    if (pausedAtRef.current != null) return;
+    pausedAtRef.current = Date.now();
+    setPaused(true);
+  }, []);
+  const doResume = useCallback(() => {
+    if (pausedAtRef.current != null && startRef.current != null) {
+      const delta = Date.now() - pausedAtRef.current;
+      startRef.current += delta;
+      if (restEndRef.current != null) restEndRef.current += delta;
+    }
+    pausedAtRef.current = null;
+    setPaused(false);
+  }, []);
+
   // ── Start / step transitions ───────────────────────────────────────────────
   const enterStep = useCallback(
     (idx: number) => {
@@ -303,15 +329,38 @@ export function GuidedRun({
     goToStep(stepIdx + 1);
   }, [stepIdx, steps.length, finish, goToStep]);
 
+  // Leave the pre-run phase and start the clock. Idempotent — countdown tick,
+  // motion detection and a tap-to-skip can all race to call it.
+  const beginRun = useCallback(() => {
+    if (startRef.current != null) return;
+    startRef.current = Date.now();
+    splitStartTimeRef.current = 0;
+    stepStartRef.current = 0;
+    stepStartDistRef.current = distanceMRef.current;
+    lastMoveAtRef.current = Date.now();
+    setCountdown(null);
+    setAwaitingMotion(false);
+    setStarted(true);
+    haptic("success");
+    beep(880, 140);
+    speak(steps[0]?.speech ?? "Start your run.");
+  }, [beep, speak, steps]);
+
   // ── Mount: start clock, wake lock; unmount: cleanup ─────────────────────────
   useEffect(() => {
     prefsRef.current = loadSettings();
-    startRef.current = Date.now();
-    splitStartTimeRef.current = 0;
-    // Prime audio within the launching gesture chain.
+    const p = prefsRef.current;
+    // Prime the audio graph within the launching gesture chain — a later beep
+    // from a timer callback can't unlock it on iOS. The clock does NOT start
+    // here: the pre-run phase (countdown / wait-for-motion) starts it.
     beep(700, 60);
-    speak(steps[0]?.speech ?? "Start your run.");
-    stepStartRef.current = 0;
+    if (p.runStartOnMotion && p.runGps && "geolocation" in navigator) {
+      setAwaitingMotion(true);
+    } else if (p.runCountdown) {
+      setCountdown(3);
+    } else {
+      beginRun();
+    }
 
     if (prefsRef.current.runKeepAwake) {
       const nav = navigator as unknown as {
@@ -373,10 +422,53 @@ export function GuidedRun({
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  // ── Pre-run countdown (3-2-1-Go) ────────────────────────────────────────────
+  useEffect(() => {
+    if (countdown == null) return;
+    if (countdown <= 0) {
+      beginRun();
+      return;
+    }
+    beep(countdown === 1 ? 900 : 620, countdown === 1 ? 160 : 90);
+    haptic("light");
+    const id = setTimeout(
+      () => setCountdown((c) => (c == null ? null : c - 1)),
+      1000
+    );
+    return () => clearTimeout(id);
+  }, [countdown, beep, beginRun]);
+
+  // ── Start-on-motion: begin once GPS shows real movement ─────────────────────
+  useEffect(() => {
+    if (!awaitingMotion) return;
+    const startDist = distanceMRef.current;
+    const id = setInterval(() => {
+      if (distanceMRef.current - startDist > 5) beginRun();
+    }, 400);
+    return () => clearInterval(id);
+  }, [awaitingMotion, beginRun]);
+
   // ── Ticker: drives clocks, rest countdown, auto-advance, split cues ─────────
   useEffect(() => {
     const id = setInterval(() => {
-      if (paused) return;
+      // Auto-pause runs even while paused so resumed motion can un-pause.
+      if (started && gpsOn && prefsRef.current.runAutoPause) {
+        const moved = distanceMRef.current - lastTickDistRef.current > 1.5;
+        lastTickDistRef.current = distanceMRef.current;
+        const now = Date.now();
+        if (moved) {
+          lastMoveAtRef.current = now;
+          if (autoPausedRef.current) {
+            autoPausedRef.current = false;
+            doResume();
+          }
+        } else if (!paused && now - lastMoveAtRef.current > 6000) {
+          autoPausedRef.current = true;
+          doPause();
+        }
+      }
+
+      if (paused || !started) return;
       const step = steps[stepIdx];
       if (!step) return;
 
@@ -456,24 +548,39 @@ export function GuidedRun({
       });
     }, 500);
     return () => clearInterval(id);
-  }, [paused, stepIdx, steps, gpsOn, elapsed, beep, nextStep, speak, splitUnitM, useMiles]);
+  }, [paused, started, stepIdx, steps, gpsOn, elapsed, beep, nextStep, speak, splitUnitM, useMiles, doPause, doResume]);
 
   function togglePause() {
     haptic("light");
-    if (paused) {
-      // Resume: shift start + rest-end forward by the paused duration.
-      if (pausedAtRef.current != null && startRef.current != null) {
-        const delta = Date.now() - pausedAtRef.current;
-        startRef.current += delta;
-        if (restEndRef.current != null) restEndRef.current += delta;
-      }
-      pausedAtRef.current = null;
-      setPaused(false);
-    } else {
-      pausedAtRef.current = Date.now();
-      setPaused(true);
-    }
+    autoPausedRef.current = false; // a manual tap owns the pause state
+    if (paused) doResume();
+    else doPause();
   }
+
+  // ── Hold-to-finish (shown while paused) ─────────────────────────────────────
+  // A deliberate press-and-hold ends the run early — no accidental finish from a
+  // stray tap while paused mid-run.
+  const HOLD_MS = 900;
+  const [holding, setHolding] = useState(false);
+  const holdTimerRef = useRef<number | null>(null);
+  const startHold = useCallback(() => {
+    haptic("light");
+    setHolding(true);
+    holdTimerRef.current = window.setTimeout(() => {
+      setHolding(false);
+      finish();
+    }, HOLD_MS);
+  }, [finish]);
+  const cancelHold = useCallback(() => {
+    if (holdTimerRef.current != null) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setHolding(false);
+  }, []);
+  useEffect(() => () => {
+    if (holdTimerRef.current != null) clearTimeout(holdTimerRef.current);
+  }, []);
 
   const step = steps[stepIdx];
   const totalElapsed = view.elapsed;
@@ -629,35 +736,105 @@ export function GuidedRun({
         className="flex items-center gap-3 px-4 pb-6"
         style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
       >
-        <button
-          onClick={togglePause}
-          className="press flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-elevated"
-          aria-label={paused ? "Resume" : "Pause"}
-        >
-          {paused ? (
-            <Play className="h-6 w-6 text-text-1" strokeWidth={2} fill="currentColor" />
-          ) : (
-            <Pause className="h-6 w-6 text-text-1" strokeWidth={2} fill="currentColor" />
-          )}
-        </button>
-        <button
-          onClick={() => {
-            haptic("medium");
-            nextStep();
-          }}
-          className="press flex h-14 flex-1 items-center justify-center gap-2 rounded-full bg-accent text-[16px] font-bold text-on-accent"
-        >
-          {stepIdx >= steps.length - 1 ? (
-            <>
-              <Check className="h-5 w-5" strokeWidth={2.4} /> Finish
-            </>
-          ) : (
-            <>
-              Next step <ChevronRight className="h-5 w-5" strokeWidth={2.4} />
-            </>
-          )}
-        </button>
+        {paused ? (
+          <>
+            {/* Hold-to-finish: a fill sweeps left→right over HOLD_MS, then ends. */}
+            <button
+              onPointerDown={startHold}
+              onPointerUp={cancelHold}
+              onPointerLeave={cancelHold}
+              onPointerCancel={cancelHold}
+              className="press relative flex h-14 flex-1 items-center justify-center gap-2 overflow-hidden rounded-full bg-elevated text-[15px] font-bold text-text-1 select-none"
+              aria-label="Hold to finish"
+            >
+              <span
+                className="pointer-events-none absolute inset-y-0 left-0 bg-accent"
+                style={{
+                  width: holding ? "100%" : "0%",
+                  transition: `width ${holding ? HOLD_MS : 150}ms linear`,
+                }}
+              />
+              <span className="relative z-10 flex items-center gap-2">
+                <Check className="h-5 w-5" strokeWidth={2.4} /> Hold to finish
+              </span>
+            </button>
+            <button
+              onClick={togglePause}
+              className="press flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-accent text-on-accent"
+              aria-label="Resume"
+            >
+              <Play className="h-6 w-6" strokeWidth={2} fill="currentColor" />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={togglePause}
+              className="press flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-elevated"
+              aria-label="Pause"
+            >
+              <Pause className="h-6 w-6 text-text-1" strokeWidth={2} fill="currentColor" />
+            </button>
+            <button
+              onClick={() => {
+                haptic("medium");
+                nextStep();
+              }}
+              className="press flex h-14 flex-1 items-center justify-center gap-2 rounded-full bg-accent text-[16px] font-bold text-on-accent"
+            >
+              {stepIdx >= steps.length - 1 ? (
+                <>
+                  <Check className="h-5 w-5" strokeWidth={2.4} /> Finish
+                </>
+              ) : (
+                <>
+                  Next step <ChevronRight className="h-5 w-5" strokeWidth={2.4} />
+                </>
+              )}
+            </button>
+          </>
+        )}
       </div>
+
+      {/* Pre-run overlay: countdown or wait-for-motion, tap to start now */}
+      <AnimatePresence>
+        {!started && (
+          <motion.button
+            type="button"
+            onClick={beginRun}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-bg/95 backdrop-blur-sm"
+            aria-label={awaitingMotion ? "Start now" : "Skip countdown"}
+          >
+            {awaitingMotion ? (
+              <>
+                <p className="text-[13px] font-semibold uppercase tracking-wider text-text-3">
+                  Waiting for motion
+                </p>
+                <p className="text-[40px] font-extrabold tracking-tight text-text-1">
+                  Start moving
+                </p>
+                <p className="mt-2 text-[13px] text-text-3">Tap anywhere to start now</p>
+              </>
+            ) : (
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={countdown ?? "go"}
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.6 }}
+                  transition={{ duration: 0.25 }}
+                  className="font-display text-[120px] leading-none tabular-nums text-accent-fg"
+                >
+                  {countdown != null && countdown > 0 ? countdown : "GO"}
+                </motion.p>
+              </AnimatePresence>
+            )}
+          </motion.button>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

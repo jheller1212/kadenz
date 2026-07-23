@@ -86,6 +86,46 @@ export default function RecordingSettingsPage() {
                 />
               }
             />
+            <div className={settings.runGps ? "" : "pointer-events-none opacity-40"}>
+              <Row
+                title="Auto-pause"
+                subtitle="Pause the clock when you stop, resume when you move again"
+                accessory={
+                  <Switch
+                    checked={settings.runAutoPause}
+                    onChange={(v) => update({ runAutoPause: v })}
+                    aria-label="Auto-pause"
+                  />
+                }
+              />
+            </div>
+          </ListGroup>
+
+          <ListGroup header="Starting">
+            <Row
+              title="Countdown"
+              subtitle="A 3-2-1 countdown before the clock starts"
+              accessory={
+                <Switch
+                  checked={settings.runCountdown}
+                  onChange={(v) => update({ runCountdown: v })}
+                  aria-label="Countdown"
+                />
+              }
+            />
+            <div className={settings.runGps ? "" : "pointer-events-none opacity-40"}>
+              <Row
+                title="Start on motion"
+                subtitle="Begin automatically when you start moving instead of tapping Start"
+                accessory={
+                  <Switch
+                    checked={settings.runStartOnMotion}
+                    onChange={(v) => update({ runStartOnMotion: v })}
+                    aria-label="Start on motion"
+                  />
+                }
+              />
+            </div>
           </ListGroup>
         </>
       )}
