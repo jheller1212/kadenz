@@ -58,7 +58,7 @@ function BackButton() {
         haptic("light");
         router.back();
       }}
-      className="press flex h-11 items-center gap-0.5 text-accent"
+      className="press flex h-11 items-center gap-0.5 text-accent-fg"
       aria-label="Back"
     >
       <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
@@ -170,7 +170,7 @@ export default function InsightsPage() {
           <div className="k-card p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10">
-                <CheckCircle2 className="h-5 w-5 text-accent" strokeWidth={1.9} />
+                <CheckCircle2 className="h-5 w-5 text-accent-fg" strokeWidth={1.9} />
               </div>
               <div>
                 <p className="text-[15px] font-bold text-text-1">

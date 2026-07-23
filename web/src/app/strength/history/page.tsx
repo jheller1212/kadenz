@@ -87,7 +87,7 @@ export default function StrengthHistoryPage() {
         title="History"
         large={false}
         left={
-          <TransitionLink href="/strength" className="flex items-center gap-0.5 text-[17px] text-accent">
+          <TransitionLink href="/strength" className="flex items-center gap-0.5 text-[17px] text-accent-fg">
             <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
             Kraft
           </TransitionLink>

@@ -105,7 +105,7 @@ export function StepGoal({
                     : "[box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
                 }`}
               >
-                <span className={`text-2xl font-extrabold tracking-tight ${selected ? "text-accent" : "text-text-1"}`}>
+                <span className={`text-2xl font-extrabold tracking-tight ${selected ? "text-accent-fg" : "text-text-1"}`}>
                   {label}
                 </span>
                 <span className="mt-0.5 text-xs text-text-3">{sublabel}</span>
@@ -159,7 +159,7 @@ export function StepGoal({
                     </span>
                   </span>
                   <span className="shrink-0 text-right">
-                    <span className={`block text-[13px] font-semibold tabular-nums ${selected ? "text-accent" : "text-text-2"}`}>
+                    <span className={`block text-[13px] font-semibold tabular-nums ${selected ? "text-accent-fg" : "text-text-2"}`}>
                       {formatRaceDate(race.date)}
                     </span>
                   </span>

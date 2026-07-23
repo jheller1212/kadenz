@@ -28,7 +28,7 @@ export default function RPEPage() {
         left={
           <TransitionLink
             href="/settings"
-            className="press flex items-center gap-0.5 text-[17px] font-medium text-accent"
+            className="press flex items-center gap-0.5 text-[17px] font-medium text-accent-fg"
           >
             <ChevronLeft className="h-6 w-6" strokeWidth={2} />
             Me

@@ -49,7 +49,7 @@ export default function HouseholdPage() {
     }
   }
 
-  const check = <Check className="h-4 w-4 text-accent" strokeWidth={2.5} />;
+  const check = <Check className="h-4 w-4 text-accent-fg" strokeWidth={2.5} />;
 
   return (
     <SettingsSubpage title="Household">
@@ -75,7 +75,7 @@ export default function HouseholdPage() {
         ))}
         <Row
           title={adding ? "Adding…" : "Add person"}
-          icon={<Plus className="h-4 w-4 text-accent" strokeWidth={2.5} />}
+          icon={<Plus className="h-4 w-4 text-accent-fg" strokeWidth={2.5} />}
           onClick={addProfile}
         />
       </ListGroup>

@@ -855,7 +855,7 @@ export default function StrengthPage() {
 
           <TransitionLink
             href="/strength/history"
-            className="mt-5 block text-center text-[15px] font-semibold text-accent"
+            className="mt-5 block text-center text-[15px] font-semibold text-accent-fg"
           >
             View history →
           </TransitionLink>
@@ -1122,7 +1122,7 @@ export default function StrengthPage() {
                       </span>
                     )}
                     {ex.progression.action === "increase" && (
-                      <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[11px] font-bold text-accent">
+                      <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[11px] font-bold text-accent-fg">
                         ↑ Level up
                       </span>
                     )}
@@ -1148,7 +1148,7 @@ export default function StrengthPage() {
               whileTap={{ scale: 0.97 }}
               transition={{ type: "spring", stiffness: 500, damping: 32 }}
               style={{ touchAction: "manipulation" }}
-              className="flex items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-hairline bg-transparent p-3.5 text-[15px] font-semibold text-accent"
+              className="flex items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-hairline bg-transparent p-3.5 text-[15px] font-semibold text-accent-fg"
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} />
               Add exercise

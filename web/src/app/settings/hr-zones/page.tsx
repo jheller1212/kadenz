@@ -134,7 +134,7 @@ export default function HrZonesPage() {
           type="button"
           disabled={!dirty}
           onClick={save}
-          className="press text-[15px] font-bold text-accent disabled:opacity-40"
+          className="press text-[15px] font-bold text-accent-fg disabled:opacity-40"
         >
           Save
         </button>
@@ -236,7 +236,7 @@ export default function HrZonesPage() {
             <button
               type="button"
               onClick={applyDraft}
-              className="press text-[15px] font-bold text-accent"
+              className="press text-[15px] font-bold text-accent-fg"
             >
               Done
             </button>

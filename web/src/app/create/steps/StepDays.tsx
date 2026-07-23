@@ -34,7 +34,7 @@ export function StepDays({
               }}
               className={`press flex aspect-square items-center justify-center rounded-2xl text-2xl font-extrabold tabular-nums transition-shadow ${
                 selected
-                  ? "bg-surface text-accent [box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
+                  ? "bg-surface text-accent-fg [box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
                   : disabled
                   ? "bg-elevated text-text-3/50"
                   : "bg-surface text-text-1 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"

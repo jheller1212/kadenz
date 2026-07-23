@@ -577,7 +577,7 @@ export default function StatsPage() {
               </p>
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[34px] font-extrabold tabular-nums leading-none text-accent">
+                  <p className="text-[34px] font-extrabold tabular-nums leading-none text-accent-fg">
                     {displayDistance(perf.totals.totalKm, 0)}
                     <span className="text-[15px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                   </p>
@@ -629,7 +629,7 @@ export default function StatsPage() {
                   {distanceUnitLabel()} this month
                 </span>
                 {perf.totals.streakWeeks > 1 && (
-                  <span className="ml-auto flex items-center gap-1 text-accent">
+                  <span className="ml-auto flex items-center gap-1 text-accent-fg">
                     <Flame className="h-3.5 w-3.5" strokeWidth={2.2} />
                     <span className="font-bold tabular-nums">{perf.totals.streakWeeks}</span>
                     <span className="text-text-3">wk</span>
@@ -699,7 +699,7 @@ export default function StatsPage() {
             {perf.badges && perf.badges.length > 0 && (
               <section className="k-card p-4">
                 <div className="flex items-center gap-2 mb-4">
-                  <Trophy className="h-4 w-4 text-accent" strokeWidth={2} />
+                  <Trophy className="h-4 w-4 text-accent-fg" strokeWidth={2} />
                   <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
                     Achievements
                   </p>
@@ -713,7 +713,7 @@ export default function StatsPage() {
                       key={`${b.category}-${i}`}
                       className={`rounded-full px-3 py-1.5 text-[12px] font-semibold ${
                         b.earned
-                          ? "bg-accent/15 text-accent"
+                          ? "bg-accent/15 text-accent-fg"
                           : "bg-elevated text-text-3"
                       }`}
                     >
@@ -740,7 +740,7 @@ export default function StatsPage() {
                   <p className="text-[10px] uppercase tracking-wider text-text-3">
                     Week
                   </p>
-                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-accent">
+                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-accent-fg">
                     {planStats.currentWeekIdx + 1}
                     <span className="text-text-3 text-xs font-semibold">
                       /{plan.planLengthWeeks}

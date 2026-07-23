@@ -36,7 +36,7 @@ function ago(iso: string | null): string {
 function StatusPill({ tone, children }: { tone: "ok" | "warn" | "off"; children: React.ReactNode }) {
   const cls =
     tone === "ok"
-      ? "bg-accent/10 text-accent"
+      ? "bg-accent/10 text-accent-fg"
       : tone === "warn"
       ? "bg-danger/10 text-danger"
       : "bg-elevated text-text-3";

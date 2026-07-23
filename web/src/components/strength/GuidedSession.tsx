@@ -705,7 +705,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       {timerElsewhere && (
         <button
           onClick={() => goTo(exercises.findIndex((e) => e.slug === timerElsewhere.slug))}
-          className="mx-4 mt-2 flex items-center justify-center gap-2 rounded-full bg-accent/15 px-3 py-1.5 text-[12px] font-semibold text-accent"
+          className="mx-4 mt-2 flex items-center justify-center gap-2 rounded-full bg-accent/15 px-3 py-1.5 text-[12px] font-semibold text-accent-fg"
         >
           {timerElsewhere.kind === "set" ? `Set running · ${fmt(setRunSec)}` : `Resting ${fmt(restRemain)}`} · {bgExName} →
         </button>
@@ -726,7 +726,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
           {allLogged ? "All sets done" : `Set ${nextSi + 1} of ${ex.sets}`} · target {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps{ex.perSide ? " / side" : ""}
         </p>
         {ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0 && (
-          <p className="mt-1 text-[13px] font-semibold text-accent">
+          <p className="mt-1 text-[13px] font-semibold text-accent-fg">
             {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}
           </p>
         )}
@@ -738,7 +738,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
               type="button"
               onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
               style={{ touchAction: "manipulation" }}
-              className="press rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-accent"
+              className="press rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-accent-fg"
             >
               ▶ Watch demo
             </button>
@@ -781,12 +781,12 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
           {timerHere?.kind === "getready" ? (
             <div className="flex flex-col items-center">
               <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">Get ready</p>
-              <div className="mt-1 text-[64px] font-extrabold leading-none tabular-nums text-accent">{restRemain}</div>
+              <div className="mt-1 text-[64px] font-extrabold leading-none tabular-nums text-accent-fg">{restRemain}</div>
               <p className="mt-1 text-[13px] text-text-3">Set {timerHere.setIndex + 1} starting…</p>
             </div>
           ) : timerHere?.kind === "rest" ? (
             <div className="flex flex-col items-center">
-              <div className="text-[44px] font-extrabold tabular-nums text-accent">{fmt(restRemain)}</div>
+              <div className="text-[44px] font-extrabold tabular-nums text-accent-fg">{fmt(restRemain)}</div>
               <p className="mt-1 text-[13px] text-text-3">Rest — log your set below</p>
               <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-elevated">
                 <div className="h-full rounded-full bg-accent" style={{ width: `${restPct}%` }} />
