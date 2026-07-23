@@ -239,7 +239,6 @@ export function GuidedRun({
   const distanceMRef = useRef(0); // total metres
   const trackRef = useRef<LatLng[]>([]); // accepted GPS fixes, for the route
   const splitsRef = useRef<{ distance: number; moving_time: number; elapsed_time: number }[]>([]);
-  const lastSplitElapsedRef = useRef(0); // elapsed sec when the last split closed
   const stepStartDistRef = useRef(0);
   const livePaceRef = useRef<number | null>(null);
   const lastTickDistRef = useRef(0); // metres seen at the previous auto-pause check
@@ -607,7 +606,6 @@ export function GuidedRun({
             moving_time: Math.max(1, Math.round(splitSecs)),
             elapsed_time: Math.max(1, Math.round(splitSecs)),
           });
-          lastSplitElapsedRef.current = now;
           if (prefsRef.current.runSplitCues) {
             const m = Math.floor(splitSecs / 60);
             const s = Math.round(splitSecs % 60);

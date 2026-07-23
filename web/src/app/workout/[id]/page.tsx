@@ -487,7 +487,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [menuOpen, setMenuOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [guiding, setGuiding] = useState(false);
-  const [showWarmup, setShowWarmup] = useState(false);
+  const [warmupRoutine, setWarmupRoutine] = useState<string | null>(null);
   // A parked/reloaded run for THIS workout, offered as "Resume". `resuming`
   // distinguishes reopening it (restore state) from a fresh Start.
   const [resumeSnap, setResumeSnap] = useState<RunSnapshot | null>(null);
@@ -821,18 +821,16 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           <FuelingCard type={workout.type} durationMinutes={workout.targetDurationMinutes ?? null} />
         )}
 
-        {!isCompleted && (
-          <button
-            onClick={() => {
-              haptic("medium");
-              setShowWarmup(true);
-            }}
-            className="press flex w-full items-center justify-center gap-2 rounded-[var(--radius-card)] bg-surface py-3.5 text-[14px] font-semibold text-text-1"
-          >
-            <Sparkles className="h-4 w-4 text-accent-fg" strokeWidth={2.2} />
-            Warm-up first (~5 min)
-          </button>
-        )}
+        <button
+          onClick={() => {
+            haptic("medium");
+            setWarmupRoutine(isCompleted ? "post-run-mobility" : "dynamic-warmup");
+          }}
+          className="press flex w-full items-center justify-center gap-2 rounded-[var(--radius-card)] bg-surface py-3.5 text-[14px] font-semibold text-text-1"
+        >
+          <Sparkles className="h-4 w-4 text-accent-fg" strokeWidth={2.2} />
+          {isCompleted ? "Post-run mobility (~4 min)" : "Warm-up first (~5 min)"}
+        </button>
 
         {actionError && (
           <div className="rounded-[var(--radius-card)] bg-danger/10 p-4 text-[13px] text-danger">
@@ -1054,12 +1052,12 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      {/* Warm-up overlay */}
+      {/* Warm-up / mobility overlay */}
       <AnimatePresence>
-        {showWarmup && routineById("dynamic-warmup") && (
+        {warmupRoutine && routineById(warmupRoutine) && (
           <WarmupPlayer
-            routine={routineById("dynamic-warmup")!}
-            onClose={() => setShowWarmup(false)}
+            routine={routineById(warmupRoutine)!}
+            onClose={() => setWarmupRoutine(null)}
           />
         )}
       </AnimatePresence>
