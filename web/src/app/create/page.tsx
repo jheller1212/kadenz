@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { AlertCircle } from "lucide-react";
-import type { RaceDistance, RunnerLevel, TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
+import { AlertCircle, Trophy, TrendingUp, Activity } from "lucide-react";
+import type { PlanIntent, RaceDistance, RunnerLevel, TrainingDifficulty, TrainingVolume } from "@/lib/plan-engine/types";
 import { Button } from "@/components/ui/Button";
 import { WizardHeader, WizardTitle } from "@/components/ui/wizard";
 import { apiFetch } from "@/lib/api";
@@ -38,12 +38,61 @@ function addWeeksIso(startIso: string, weeks: number): string {
   return d.toISOString().split("T")[0];
 }
 
+const INTENT_OPTIONS: {
+  key: PlanIntent;
+  label: string;
+  sub: string;
+  Icon: typeof Trophy;
+}[] = [
+  { key: "race", label: "Train for a race", sub: "Goal time, peak & taper to race day", Icon: Trophy },
+  { key: "get_fit", label: "Get fitter", sub: "Build fitness — no race, no goal time", Icon: TrendingUp },
+  { key: "maintain", label: "Maintain", sub: "Hold your fitness at low time cost", Icon: Activity },
+];
+
+function IntentSelector({
+  value,
+  onChange,
+}: {
+  value: PlanIntent;
+  onChange: (i: PlanIntent) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      {INTENT_OPTIONS.map(({ key, label, sub, Icon }) => {
+        const active = value === key;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            className={`press flex items-center gap-3 rounded-[var(--radius-card)] border p-4 text-left ${
+              active ? "border-accent bg-accent/10" : "border-hairline bg-elevated"
+            }`}
+          >
+            <span
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                active ? "bg-accent text-on-accent" : "bg-bg text-text-2"
+              }`}
+            >
+              <Icon className="h-5 w-5" strokeWidth={2} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[15px] font-bold text-text-1">{label}</span>
+              <span className="block text-[13px] text-text-3">{sub}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function CreatePlanPage() {
   const router = useRouter();
   const [stepIdx, setStepIdx] = useState(0);
   const step: Step = STEPS[stepIdx];
 
   // ── Step 1: Goal ──────────────────────────────────────────────────────────
+  const [intent, setIntent] = useState<PlanIntent>("race");
   const [goalTab, setGoalTab] = useState<GoalTab>("distances");
   const [raceDistance, setRaceDistance] = useState<RaceDistance | null>(null);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
@@ -97,6 +146,13 @@ export default function CreatePlanPage() {
     setHours(Math.floor(s / 3600));
     setMinutes(Math.floor((s % 3600) / 60));
     setSeconds(s % 60);
+  }
+
+  function handleIntent(i: PlanIntent) {
+    haptic("light");
+    setIntent(i);
+    // Non-race plans have no race/goal — drop any locked race selection.
+    if (i !== "race") setSelectedRaceId(null);
   }
 
   function handleDistance(d: RaceDistance) {
@@ -153,6 +209,7 @@ export default function CreatePlanPage() {
   function canContinue(): boolean {
     switch (step) {
       case "goal":
+        if (intent !== "race") return true; // non-race needs no distance/goal time
         return (
           raceDistance !== null &&
           goalTimeSeconds > 0 &&
@@ -202,11 +259,9 @@ export default function CreatePlanPage() {
     haptic("medium");
     const minDelay = new Promise((resolve) => setTimeout(resolve, 2600));
     try {
-      const body = {
-        raceDistance,
-        goalTimeSeconds,
+      const common = {
+        intent,
         startDate: new Date(startDate).toISOString(),
-        raceDate: new Date(raceDate).toISOString(),
         daysPerWeek,
         trainingVolume,
         trainingDifficulty,
@@ -219,6 +274,15 @@ export default function CreatePlanPage() {
         runnerLevel,
         availableDays,
       };
+      const body =
+        intent === "race"
+          ? {
+              ...common,
+              raceDistance,
+              goalTimeSeconds,
+              raceDate: new Date(raceDate).toISOString(),
+            }
+          : { ...common, planLengthWeeks: blockWeeks };
       const res = await apiFetch("/api/plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -246,8 +310,11 @@ export default function CreatePlanPage() {
   // ── Titles ────────────────────────────────────────────────────────────────
   const TITLES: Record<Step, { title: string; sub: string }> = {
     goal: {
-      title: "What are you training for?",
-      sub: "Pick a distance, or find your race and we'll lock in the date.",
+      title: "What's this plan for?",
+      sub:
+        intent === "race"
+          ? "Pick a distance, or find your race and we'll lock in the date."
+          : "No race in mind? Build fitness or just keep it ticking over.",
     },
     level: {
       title: "How would you describe yourself as a runner?",
@@ -296,20 +363,33 @@ export default function CreatePlanPage() {
 
               <div className="mt-6">
                 {step === "goal" && (
-                  <StepGoal
-                    tab={goalTab}
-                    onTab={setGoalTab}
-                    raceDistance={raceDistance}
-                    onDistance={handleDistance}
-                    selectedRaceId={selectedRaceId}
-                    onRace={handleRace}
-                    hours={hours}
-                    minutes={minutes}
-                    seconds={seconds}
-                    onHours={touchTime(setHours)}
-                    onMinutes={touchTime(setMinutes)}
-                    onSeconds={touchTime(setSeconds)}
-                  />
+                  <>
+                    <IntentSelector value={intent} onChange={handleIntent} />
+                    {intent === "race" ? (
+                      <div className="mt-5">
+                        <StepGoal
+                          tab={goalTab}
+                          onTab={setGoalTab}
+                          raceDistance={raceDistance}
+                          onDistance={handleDistance}
+                          selectedRaceId={selectedRaceId}
+                          onRace={handleRace}
+                          hours={hours}
+                          minutes={minutes}
+                          seconds={seconds}
+                          onHours={touchTime(setHours)}
+                          onMinutes={touchTime(setMinutes)}
+                          onSeconds={touchTime(setSeconds)}
+                        />
+                      </div>
+                    ) : (
+                      <p className="mt-5 rounded-[var(--radius-input)] bg-elevated px-4 py-3 text-[13px] leading-snug text-text-2">
+                        {intent === "maintain"
+                          ? "We'll build a steady plan that holds your fitness — mostly easy running, no race, no goal time. Set how many weeks next."
+                          : "We'll build a plan to get you fitter — easy running with a little variety, ramping gently. No race or goal time needed. Set how many weeks next."}
+                      </p>
+                    )}
+                  </>
                 )}
                 {step === "level" && <StepLevel value={runnerLevel} onChange={handleLevel} />}
                 {step === "days" && (
