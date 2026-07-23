@@ -648,10 +648,14 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
 
   const now = new Date();
   const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
+  // Days since Monday: Mon=0 … Sun=6. Using getDay() directly would make Sunday
+  // (getDay()===0) jump to NEXT Monday, emptying the whole "Week" range every
+  // Sunday. ((getDay()+6)%7) anchors Sunday to the current week's Monday.
+  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
   weekStart.setHours(0, 0, 0, 0);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999); // through end of Sunday, not its midnight
 
   // Range start/end + label for the selected timeframe.
   let rangeStart: Date;

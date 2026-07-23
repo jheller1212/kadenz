@@ -443,7 +443,10 @@ export default function StatsPage() {
         let from: Date;
         if (zoneRange === "week") {
           from = new Date(now);
-          from.setDate(now.getDate() - now.getDay() + 1);
+          // Anchor to this week's Monday. Sunday is getDay()===0, so
+          // ((getDay()+6)%7) keeps it in the current week instead of jumping
+          // forward (which would make from > now and return no HR data).
+          from.setDate(now.getDate() - ((now.getDay() + 6) % 7));
           from.setHours(0, 0, 0, 0);
         } else if (zoneRange === "month") {
           from = new Date(now.getFullYear(), now.getMonth(), 1);
