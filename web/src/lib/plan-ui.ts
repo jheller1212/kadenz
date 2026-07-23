@@ -54,6 +54,7 @@ export interface ApiWeekRow {
 export interface ApiPlanRow {
   id: string;
   name: string;
+  intent?: "race" | "get_fit" | "maintain";
   raceDistance: "5k" | "10k" | "half" | "marathon";
   goalTimeSeconds: number;
   vdot: number | null;

@@ -196,8 +196,9 @@ export default function ManagePlanPage() {
   }
 
   // Estimated race time: VDOT prediction when available, else the goal time.
+  // Only meaningful for race plans — non-race intents have no goal/race.
   const raceTime = (() => {
-    if (!plan) return null;
+    if (!plan || (plan.intent && plan.intent !== "race")) return null;
     const distanceM = RACE_DISTANCES_M[plan.raceDistance];
     if (plan.vdot && distanceM) {
       const predicted = predictRaceTime(plan.vdot, distanceM);

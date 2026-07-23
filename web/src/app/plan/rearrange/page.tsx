@@ -483,6 +483,7 @@ function formatRaceTime(sec: number): string {
 function EstimatedRaceTime({ plan }: { plan: GeneratedPlan }) {
   // Computed once at mount — weeks-left doesn't need to tick live.
   const [now] = useState(() => Date.now());
+  if (plan.intent !== "race") return null; // no race = no predicted race time
   if (!plan.vdot) return null;
   const distanceM = RACE_DISTANCES_M[plan.raceDistance];
   if (!distanceM) return null;
@@ -526,11 +527,17 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
             {plan.name}
           </h1>
           <p className="mt-1 text-[13px] text-text-2">
-            Race: {formatFullDate(plan.raceDate)}
+            {plan.intent === "race"
+              ? `Race: ${formatFullDate(plan.raceDate)}`
+              : `Ends: ${formatFullDate(plan.raceDate)}`}
           </p>
         </div>
         <div className="shrink-0 w-14 h-14 rounded-2xl bg-accent flex items-center justify-center text-center text-xs font-black text-on-accent leading-tight px-1">
-          {RACE_SHORT[plan.raceDistance]}
+          {plan.intent === "race"
+            ? RACE_SHORT[plan.raceDistance]
+            : plan.intent === "maintain"
+            ? "HOLD"
+            : "FIT"}
         </div>
       </div>
 
