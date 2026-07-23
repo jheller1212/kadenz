@@ -11,7 +11,8 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
-import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration } from "@/lib/hr-zone-time";
+import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration, zonesArePersonalized } from "@/lib/hr-zone-time";
+import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from "@/lib/settings";
 import {
   collapseToThreeZones,
   bandPercents,
@@ -267,14 +268,72 @@ const ZONE_RANGE_OPTIONS = [
   { value: "year", label: "1 Year" },
 ];
 
+// Shown until the athlete's zones are personalized. Captures age (→ birth year)
+// so max HR and every zone come from their data, not the age-35 estimate.
+function ZonePersonalizePrompt() {
+  const [age, setAge] = useState("");
+  const [err, setErr] = useState(false);
+
+  function save() {
+    const n = Math.round(Number(age));
+    if (!Number.isFinite(n) || n < 10 || n > 100) {
+      setErr(true);
+      return;
+    }
+    // saveSettings fires SETTINGS_CHANGED_EVENT → the card re-fetches with the
+    // real bounds and this prompt disappears (personalized becomes true).
+    saveSettings({ ...loadSettings(), birthYear: new Date().getFullYear() - n });
+  }
+
+  return (
+    <div className="mb-4 rounded-[var(--radius-input)] border border-warn/40 bg-warn/10 p-3">
+      <p className="text-[13px] font-semibold text-text-1">Personalize your zones</p>
+      <p className="mt-0.5 text-[12px] leading-snug text-text-2">
+        These zones use an estimated max heart rate. Add your age so the split and
+        distribution are computed from your own data.
+      </p>
+      <div className="mt-2.5 flex items-center gap-2">
+        <input
+          inputMode="numeric"
+          value={age}
+          onChange={(e) => {
+            setAge(e.target.value.replace(/[^0-9]/g, "").slice(0, 3));
+            setErr(false);
+          }}
+          placeholder="Age"
+          aria-label="Your age"
+          className="h-10 w-20 rounded-[var(--radius-input)] bg-elevated px-3 text-center text-[15px] font-semibold tabular-nums text-text-1 outline-none"
+        />
+        <button
+          onClick={save}
+          className="press h-10 rounded-[var(--radius-input)] bg-accent px-4 text-[14px] font-bold text-on-accent"
+        >
+          Save
+        </button>
+        <TransitionLink
+          href="/settings/hr-zones"
+          className="ml-auto text-[13px] font-semibold text-accent-fg"
+        >
+          Set max HR
+        </TransitionLink>
+      </div>
+      {err && (
+        <p className="mt-1.5 text-[12px] text-danger">Enter an age between 10 and 100.</p>
+      )}
+    </div>
+  );
+}
+
 function TimeInZonesCard({
   zones,
   range,
   onRange,
+  personalized,
 }: {
   zones: ZoneTimes | null;
   range: ZoneRange;
   onRange: (r: ZoneRange) => void;
+  personalized: boolean;
 }) {
   return (
     <section className="k-card p-4">
@@ -284,6 +343,8 @@ function TimeInZonesCard({
         </p>
         <Segmented options={ZONE_RANGE_OPTIONS} value={range} onChange={(v) => onRange(v as ZoneRange)} />
       </div>
+
+      {!personalized && <ZonePersonalizePrompt />}
 
       {!zones ? (
         <p className="py-6 text-center text-[13px] text-text-3">
@@ -507,6 +568,19 @@ export default function StatsPage() {
   const [hadHrData, setHadHrData] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumps whenever settings change (e.g. the athlete sets their age), so the
+  // zone breakdown re-fetches with their real bounds instead of the estimate.
+  const [settingsTick, setSettingsTick] = useState(0);
+  const [personalized, setPersonalized] = useState(true);
+  useEffect(() => {
+    const sync = () => {
+      setSettingsTick((n) => n + 1);
+      setPersonalized(zonesArePersonalized());
+    };
+    sync();
+    window.addEventListener(SETTINGS_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, sync);
+  }, []);
 
   // Time in zones for the displayed (current) month. Zone bounds live in
   // client settings, so we pass them to the API. Fails silently — the card
@@ -550,7 +624,7 @@ export default function StatsPage() {
       }
     })();
     return () => { alive = false; };
-  }, [zoneRange]);
+  }, [zoneRange, settingsTick]);
 
   useEffect(() => {
     async function load() {
@@ -733,7 +807,7 @@ export default function StatsPage() {
 
             {/* Time in HR zones (current month) */}
             {hadHrData && (
-              <TimeInZonesCard zones={zoneTimes} range={zoneRange} onRange={setZoneRange} />
+              <TimeInZonesCard zones={zoneTimes} range={zoneRange} onRange={setZoneRange} personalized={personalized} />
             )}
 
             {/* Personal records */}

@@ -3,7 +3,7 @@
 // them to whatever computes seconds — locally for one activity, or as query
 // params to /api/stats/hr-zones for monthly aggregates.
 
-import { loadSettings } from "@/lib/settings";
+import { loadSettings, type UserSettings } from "@/lib/settings";
 import { estimateMaxHr, getHrZones } from "@/lib/plan-engine/hr-zones";
 
 /** Zone display metadata — mirrors the Customise HR Zones settings page. */
@@ -57,6 +57,20 @@ export function getUserZoneBounds(): ZoneBounds {
     bounds = DEFAULT_ZONE_PCTS.map((p) => Math.round(max * p)) as [number, number, number, number];
   }
   return { bounds, max };
+}
+
+/**
+ * Whether the athlete's HR zones are derived from THEIR data rather than the
+ * age-35 fallback. True once they've given an age (birth year), a measured max
+ * HR, or custom zone bounds. Resting HR alone is not enough — max HR still falls
+ * back to the age estimate — so it doesn't count here.
+ */
+export function zonesArePersonalized(s: UserSettings = loadSettings()): boolean {
+  return (
+    s.maxHrOverride != null ||
+    s.birthYear != null ||
+    (Array.isArray(s.hrZoneBounds) && s.hrZoneBounds.length === 4)
+  );
 }
 
 /** Index (0-4) of the zone a heart-rate sample falls into. */
