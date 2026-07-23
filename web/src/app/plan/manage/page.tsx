@@ -1,15 +1,16 @@
 "use client";
 
-// Manage Plan: Running (read-only plan facts + edit/remove) and Strength
-// (wizard settings, tappable rows re-open /strength/setup, pause/resume).
+// Manage Plan: a tabbed page (Running, Strength functional; Yoga / Pilates /
+// Stretch & Stability as coming-soon setup shells). Card-row selectors re-open
+// the relevant editor; Running has Start-new / Edit / Remove.
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { NavBar } from "@/components/ui/NavBar";
+import { ChevronLeft, ChevronRight, Share2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { TransitionLink } from "@/components/ui/TransitionLink";
+import { KadenzMark } from "@/components/ui/KadenzMark";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { predictRaceTime, RACE_DISTANCES_M } from "@/lib/plan-engine/vdot";
@@ -20,17 +21,27 @@ import type { ApiPlanRow } from "@/lib/plan-ui";
 
 const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
+const RACE_LABEL: Record<string, string> = {
+  "5k": "5K", "10k": "10K", half: "Half Marathon", marathon: "Marathon", ultra: "Ultra (50K)", custom: "Custom",
+};
 const GOAL_LABEL: Record<string, string> = {
   running_focus: "Running Focus",
   all_round: "All Round Strength",
 };
-
 const ABILITY_LABEL: Record<string, string> = {
   beginner: "Beginner",
   intermediate: "Intermediate",
   advanced: "Advanced",
 };
+
+type Tab = "running" | "strength" | "yoga" | "pilates" | "stretch";
+const TABS: { key: Tab; label: string }[] = [
+  { key: "running", label: "Running" },
+  { key: "strength", label: "Strength" },
+  { key: "yoga", label: "Yoga" },
+  { key: "pilates", label: "Pilates" },
+  { key: "stretch", label: "Stretch & Stability" },
+];
 
 interface StrengthSettings {
   goal: "running_focus" | "all_round";
@@ -44,18 +55,15 @@ interface StrengthSettings {
 
 function equipmentLabels(keys: string[]): string {
   if (keys.length === 0) return "Bodyweight only";
-  return keys
-    .map((k) => EQUIPMENT_OPTIONS.find((o) => o.key === k)?.label ?? k)
-    .join(", ");
+  return keys.map((k) => EQUIPMENT_OPTIONS.find((o) => o.key === k)?.label ?? k).join(", ");
+}
+
+function daysLabel(days: number[]): string {
+  return [1, 2, 3, 4, 5, 6, 0].filter((d) => days.includes(d)).map((d) => DOW_SHORT[d]).join(", ");
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function formatRaceTime(sec: number): string {
@@ -69,27 +77,34 @@ function formatRaceTime(sec: number): string {
 
 // ── Row primitives ────────────────────────────────────────────────────────────
 
-function InfoCard({ label, value }: { label: string; value: string }) {
+const ROW_CLS =
+  "press flex items-center justify-between rounded-2xl bg-surface px-4 py-3.5 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]";
+
+function SelectRow({ label, value, href }: { label: string; value: string; href: string }) {
   return (
-    <div className="rounded-[var(--radius-input)] bg-elevated px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">{label}</p>
-      <p className="mt-0.5 text-[15px] font-bold text-text-1">{value}</p>
-    </div>
+    <TransitionLink href={href} className={ROW_CLS}>
+      <div className="min-w-0">
+        <p className="text-[13px] text-text-3">{label}</p>
+        <p className="mt-0.5 truncate text-[16px] font-semibold text-text-1">{value}</p>
+      </div>
+      <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={2} />
+    </TransitionLink>
   );
 }
 
-function SettingRow({ label, value }: { label: string; value: string }) {
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return <h2 className="mt-3 text-[18px] font-extrabold tracking-tight text-text-1">{children}</h2>;
+}
+
+function SetupShell({ title, blurb }: { title: string; blurb: string }) {
   return (
-    <TransitionLink
-      href="/strength/setup"
-      className="press flex items-center justify-between rounded-[var(--radius-input)] bg-elevated px-4 py-3"
-    >
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-3">{label}</p>
-        <p className="mt-0.5 truncate text-[15px] font-bold text-text-1">{value}</p>
-      </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
-    </TransitionLink>
+    <div className="rounded-2xl bg-elevated p-4">
+      <p className="text-[16px] font-bold text-text-1">Set up {title}</p>
+      <p className="mt-1 text-[13px] leading-snug text-text-2">{blurb}</p>
+      <span className="mt-3 inline-flex items-center rounded-full bg-surface px-3 py-1.5 text-[12px] font-semibold text-text-3">
+        Coming soon
+      </span>
+    </div>
   );
 }
 
@@ -97,7 +112,7 @@ function SettingRow({ label, value }: { label: string; value: string }) {
 
 export default function ManagePlanPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<"running" | "strength">("running");
+  const [tab, setTab] = useState<Tab>("running");
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState<ApiPlanRow | null>(null);
   const [settings, setSettings] = useState<StrengthSettings | null>(null);
@@ -122,9 +137,7 @@ export default function ManagePlanPage() {
           const today = await todayRes.json();
           if (today.activePlan && !cancelled) {
             const planRes = await apiFetch(`/api/plans/${today.planId}`);
-            if (planRes.ok && !cancelled) {
-              setPlan((await planRes.json()) as ApiPlanRow);
-            }
+            if (planRes.ok && !cancelled) setPlan((await planRes.json()) as ApiPlanRow);
           }
         }
       } catch {
@@ -154,7 +167,7 @@ export default function ManagePlanPage() {
       }
     } catch {
       haptic("warning");
-      setError("Network error — couldn't remove the plan.");
+      setError("Network error, couldn't remove the plan.");
       setRemoveOpen(false);
     } finally {
       setRemoving(false);
@@ -189,14 +202,21 @@ export default function ManagePlanPage() {
       }
     } catch {
       haptic("warning");
-      setError("Network error — couldn't update the strength plan.");
+      setError("Network error, couldn't update the strength plan.");
     } finally {
       setPausing(false);
     }
   }
 
-  // Estimated race time: VDOT prediction when available, else the goal time.
-  // Only meaningful for race plans — non-race intents have no goal/race.
+  function sharePlan() {
+    if (!plan) return;
+    const text = `${plan.name} — ends ${formatDate(plan.raceDate)}`;
+    const nav = navigator as unknown as { share?: (d: { title: string; text: string }) => Promise<void> };
+    if (nav.share) nav.share({ title: plan.name, text }).catch(() => {});
+    else haptic("light");
+  }
+
+  // Estimated race time (race intents only).
   const raceTime = (() => {
     if (!plan || (plan.intent && plan.intent !== "race")) return null;
     const distanceM = RACE_DISTANCES_M[plan.raceDistance];
@@ -207,42 +227,67 @@ export default function ManagePlanPage() {
     return formatRaceTime(plan.goalTimeSeconds);
   })();
 
-  const backButton = (
-    <button
-      onClick={() => router.back()}
-      aria-label="Back"
-      className="press flex h-11 w-11 items-center justify-center rounded-lg active:bg-elevated"
-    >
-      <ChevronLeft className="h-5 w-5 text-text-1" strokeWidth={2.5} />
-    </button>
-  );
-
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Manage Plan" large={false} centerAlways left={backButton} />
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-3 pb-1"
+        style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+      >
+        <button
+          onClick={() => router.back()}
+          aria-label="Back"
+          className="press flex h-11 w-11 items-center justify-center rounded-lg active:bg-elevated"
+        >
+          <ChevronLeft className="h-5 w-5 text-text-1" strokeWidth={2.5} />
+        </button>
+        <button
+          onClick={sharePlan}
+          aria-label="Share plan"
+          className="press flex h-11 w-11 items-center justify-center rounded-lg active:bg-elevated"
+        >
+          <Share2 className="h-5 w-5 text-text-1" strokeWidth={2} />
+        </button>
+      </div>
 
-      <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-8 pt-2">
-        {/* Tab control — underline style */}
-        <div className="relative -mx-4 flex border-b border-hairline">
-          {([["running", "Running"], ["strength", "Strength"]] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => { haptic("light"); setTab(value); }}
-              className={`press relative flex-1 pb-3 pt-1 text-center text-[16px] font-bold transition-colors ${
-                tab === value ? "text-text-1" : "text-text-2"
-              }`}
-            >
-              {label}
-              {tab === value && (
-                <span className="absolute inset-x-6 bottom-[-1px] h-[3px] rounded-full bg-text-1" />
-              )}
-            </button>
-          ))}
+      <div className="mx-auto flex w-full max-w-md flex-col px-4 pb-10">
+        {/* Hero */}
+        <div className="flex items-center gap-3 pb-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-on-accent" style={{ background: "var(--k-signature-grad)" }}>
+            <KadenzMark className="h-7 w-7" />
+          </div>
+          <div className="min-w-0">
+            <TransitionLink href="/plan/edit" className="press flex items-center gap-2">
+              <h1 className="truncate text-[22px] font-extrabold tracking-tight text-text-1">
+                {plan?.name ?? "Your Plan"}
+              </h1>
+              <Pencil className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
+            </TransitionLink>
+            {plan && <p className="mt-0.5 text-[13px] text-text-2">End date: {formatDate(plan.raceDate)}</p>}
+          </div>
+        </div>
+
+        {/* Tabs (scrollable, underline) */}
+        <div className="-mx-4 mb-4 overflow-x-auto border-b border-hairline px-4">
+          <div className="flex min-w-max gap-6">
+            {TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => { haptic("light"); setTab(key); }}
+                className={`press relative shrink-0 whitespace-nowrap pb-3 pt-1 text-[16px] font-bold transition-colors ${
+                  tab === key ? "text-text-1" : "text-text-2"
+                }`}
+              >
+                {label}
+                {tab === key && <span className="absolute inset-x-0 bottom-[-1px] h-[3px] rounded-full bg-text-1" />}
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (
-          <p className="rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
+          <p className="mb-3 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
             {error}
           </p>
         )}
@@ -250,83 +295,70 @@ export default function ManagePlanPage() {
         {loading ? (
           <div className="flex flex-col gap-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-16 rounded-[var(--radius-card)] bg-elevated animate-shimmer" />
+              <div key={i} className="h-16 rounded-2xl bg-elevated animate-shimmer" />
             ))}
           </div>
         ) : tab === "running" ? (
           !plan ? (
-            <p className="pt-2 text-[15px] text-text-2">No active plan.</p>
+            <div className="flex flex-col gap-3">
+              <p className="pt-2 text-[15px] text-text-2">No active running plan yet.</p>
+              <TransitionLink href="/create" className="block"><Button full>Start a new plan</Button></TransitionLink>
+            </div>
           ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <InfoCard label="Start date" value={formatDate(plan.startDate)} />
-                <InfoCard label="End date" value={formatDate(plan.raceDate)} />
-              </div>
-              <InfoCard label="Length" value={`${plan.planLengthWeeks} weeks`} />
-              {raceTime && <InfoCard label="Estimated race time" value={raceTime} />}
+            <div className="flex flex-col gap-2.5">
+              {raceTime && <SelectRow label="Estimated race time" value={`${raceTime} · ${RACE_LABEL[plan.raceDistance] ?? plan.raceDistance}`} href="/plan/edit" />}
+              <SectionHeader>Running schedule</SectionHeader>
+              <SelectRow label="Runs per week" value={String(plan.daysPerWeek)} href="/plan/edit" />
+              <SelectRow label="Available" value={daysLabel(plan.availableDays ?? []) || "Flexible"} href="/plan/edit" />
+              <SelectRow label="Long run day" value={DOW[plan.preferredLongRunDay ?? 6]} href="/plan/edit" />
+              <SelectRow label="Units of measure" value="Set in Settings" href="/settings/units" />
 
-              <p className="mt-2 text-[11px] font-semibold uppercase tracking-widest text-text-3">
-                Running schedule
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <InfoCard label="Runs per week" value={String(plan.daysPerWeek)} />
-                <InfoCard label="Long run day" value={DOW[plan.preferredLongRunDay ?? 6]} />
+              <div className="mt-4 flex flex-col gap-2.5">
+                <TransitionLink href="/create" className="block"><Button full>Start a new plan</Button></TransitionLink>
+                <TransitionLink href="/plan/edit" className="block"><Button full variant="secondary">Edit this plan</Button></TransitionLink>
+                <Button full variant="danger" onClick={() => setRemoveOpen(true)}>Remove plan</Button>
               </div>
-
-              <TransitionLink href="/create" className="block">
-                <Button full>Start a new plan</Button>
-              </TransitionLink>
-              <TransitionLink href="/plan/edit" className="block">
-                <Button full variant="secondary">Edit this plan</Button>
-              </TransitionLink>
-              <Button
-                full
-                variant="danger"
-                onClick={() => setRemoveOpen(true)}
-              >
-                Remove plan
-              </Button>
-            </>
+            </div>
           )
-        ) : !settings ? (
-          <div className="flex flex-col gap-3">
-            <p className="pt-2 text-[15px] text-text-2">
-              No strength plan yet — set one up and sessions will be scheduled
-              around your runs.
-            </p>
-            <TransitionLink href="/strength/setup" className="block">
-              <Button full>Set up strength plan</Button>
-            </TransitionLink>
-          </div>
-        ) : (
-          <>
-            {!settings.active && (
-              <p className="rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
-                Your strength plan is paused — no new sessions are scheduled.
-              </p>
-            )}
-            <SettingRow label="Ability" value={ABILITY_LABEL[settings.ability] ?? settings.ability} />
-            <SettingRow label="Goal" value={GOAL_LABEL[settings.goal] ?? settings.goal} />
-            <SettingRow label="Equipment" value={equipmentLabels(settings.equipment)} />
-            <SettingRow label="Sessions per week" value={String(settings.sessionsPerWeek)} />
-            <SettingRow
-              label="Available days"
-              value={[1, 2, 3, 4, 5, 6, 0]
-                .filter((d) => settings.availableDays.includes(d))
-                .map((d) => DOW_SHORT[d])
-                .join(", ")}
-            />
-            <SettingRow label="Session length" value={`${settings.durationMinutes} minutes`} />
+        ) : tab === "strength" ? (
+          !settings ? (
+            <div className="flex flex-col gap-3">
+              <SetupShell title="strength" blurb="Add guided strength sessions, scheduled around your runs." />
+              <TransitionLink href="/strength/setup" className="block"><Button full>Set up strength plan</Button></TransitionLink>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {!settings.active && (
+                <p className="rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
+                  Your strength plan is paused, no new sessions are scheduled.
+                </p>
+              )}
+              <SelectRow label="Strength ability" value={ABILITY_LABEL[settings.ability] ?? settings.ability} href="/strength/setup" />
+              <SelectRow label="Strength goal" value={GOAL_LABEL[settings.goal] ?? settings.goal} href="/strength/setup" />
+              <SelectRow label="Equipment" value={equipmentLabels(settings.equipment)} href="/strength/setup" />
+              <SectionHeader>Strength schedule</SectionHeader>
+              <SelectRow label="Sessions per week" value={String(settings.sessionsPerWeek)} href="/strength/setup" />
+              <SelectRow label="Available" value={daysLabel(settings.availableDays)} href="/strength/setup" />
+              <SelectRow label="Session length" value={`${settings.durationMinutes} minutes`} href="/settings/kraft" />
 
-            <Button
-              full
-              variant={settings.active ? "danger" : "primary"}
-              busy={pausing}
-              onClick={toggleStrengthActive}
-            >
-              {settings.active ? "Pause strength plan" : "Resume strength plan"}
-            </Button>
-          </>
+              <div className="mt-4">
+                <Button full variant={settings.active ? "danger" : "primary"} busy={pausing} onClick={toggleStrengthActive}>
+                  {settings.active ? "Pause strength plan" : "Resume strength plan"}
+                </Button>
+              </div>
+            </div>
+          )
+        ) : (
+          <SetupShell
+            title={tab === "yoga" ? "yoga" : tab === "pilates" ? "Pilates" : "stretch & stability"}
+            blurb={
+              tab === "yoga"
+                ? "Add guided yoga to build mobility and recovery alongside your running."
+                : tab === "pilates"
+                ? "Improve balance and core stability with guided Pilates tailored to runners."
+                : "Add short stretch & stability routines to keep you resilient between sessions."
+            }
+          />
         )}
       </div>
 
@@ -335,8 +367,7 @@ export default function ManagePlanPage() {
         <div className="flex flex-col gap-4 px-1 pb-2">
           <p className="text-[14px] leading-relaxed text-text-2">
             Your plan will be archived and removed from Today, Plan and Stats.
-            Completed runs stay in your history. You can create a new plan any
-            time.
+            Completed runs stay in your history. You can start a new plan any time.
           </p>
           <Button full variant="danger" busy={removing} onClick={removePlan}>
             Remove plan

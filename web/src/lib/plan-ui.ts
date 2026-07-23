@@ -63,6 +63,7 @@ export interface ApiPlanRow {
   planLengthWeeks: number;
   daysPerWeek: number;
   preferredLongRunDay: number | null;
+  availableDays?: number[] | null;
   weeks: ApiWeekRow[];
 }
 
