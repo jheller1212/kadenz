@@ -69,18 +69,25 @@ export function WarmupPlayer({ routine, onClose }: { routine: Routine; onClose: 
     beep(700, 60);
   }, [beep]);
 
-  // 1-second countdown ticker; beeps the last 3s, auto-advances at 0.
+  // Mirror `remaining` into a ref so the ticker can read it without putting
+  // side effects (beep/advance) inside a setState updater — those must stay pure
+  // (React StrictMode double-invokes updaters, which would double-beep).
+  const remainingRef = useRef(remaining);
+  useEffect(() => {
+    remainingRef.current = remaining;
+  }, [remaining]);
+
+  // 1-second countdown ticker; beeps the last few seconds, auto-advances at 0.
   useEffect(() => {
     if (paused || done) return;
     const id = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
-          advance();
-          return 0;
-        }
+      const r = remainingRef.current;
+      if (r <= 1) {
+        advance();
+      } else {
         if (r <= 4) beep(600, 70);
-        return r - 1;
-      });
+        setRemaining(r - 1);
+      }
     }, 1000);
     return () => clearInterval(id);
   }, [paused, done, advance, beep]);
