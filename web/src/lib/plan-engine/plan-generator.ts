@@ -494,7 +494,7 @@ function buildEasyWorkout(
     date,
     type: "easy",
     title: `Easy Run ${distanceKm}km`,
-    description: "Conversational pace. Should feel easy throughout.",
+    description: "Easy, conversational pace — you should be able to chat the whole way.",
     targetKm: distanceKm,
     targetDurationMinutes: estimateDuration(distanceKm, paces.E.targetPaceSecKm),
     sortOrder,
@@ -540,7 +540,7 @@ function buildTempoWorkout(
     date,
     type: "tempo",
     title: `Tempo Run ${workKm}km`,
-    description: `Warmup 1.5km easy, then ${workKm}km at threshold pace (comfortably hard), cooldown 1km easy.`,
+    description: `Warm up 1.5 km easy, then ${workKm} km comfortably hard — the fastest pace you could hold for about an hour — then 1 km easy to finish.`,
     targetKm: totalKm,
     targetDurationMinutes:
       estimateDuration(1.5, paces.E.targetPaceSecKm) +
@@ -568,7 +568,7 @@ function buildIntervalWorkout(
     date,
     type: "interval",
     title: `Intervals ${reps}x${repKm * 1000}m`,
-    description: `Warmup 1.5km, then ${reps}x${repKm * 1000}m at VO2max pace with 90s rest, cooldown 1km.`,
+    description: `Warm up 1.5 km, then ${reps} × ${repKm * 1000} m hard but controlled (about 5K race effort) with a 90s easy jog between each, then 1 km easy.`,
     targetKm: totalKm,
     targetDurationMinutes:
       estimateDuration(1.5, paces.E.targetPaceSecKm) +
