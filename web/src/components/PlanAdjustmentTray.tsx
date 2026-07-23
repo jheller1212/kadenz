@@ -26,6 +26,19 @@ interface Adjustments {
   canRedistribute: boolean;
 }
 
+// The athlete's LOCAL start-of-today and end-of-this-week (Sunday), in epoch ms.
+function localBounds(): { todayStart: number; weekEnd: number } {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun
+  const toSunday = dow === 0 ? 0 : 7 - dow;
+  const weekEnd = new Date(now);
+  weekEnd.setDate(now.getDate() + toSunday);
+  weekEnd.setHours(23, 59, 59, 999);
+  return { todayStart: todayStart.getTime(), weekEnd: weekEnd.getTime() };
+}
+
 export function PlanAdjustmentTray({
   onApplied,
 }: {
@@ -38,10 +51,18 @@ export function PlanAdjustmentTray({
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch("/api/plan/adjustments");
+      // Send the LOCAL day/week boundaries — the server clock is UTC and would
+      // otherwise treat the current local day's run (stored at local midnight)
+      // as already missed. See parseMs in the API route.
+      const b = localBounds();
+      const res = await apiFetch(
+        `/api/plan/adjustments?todayStart=${b.todayStart}&weekEnd=${b.weekEnd}`
+      );
       if (!res.ok) return;
       const json: Adjustments = await res.json();
-      if (json.hasMissed) setAdj(json);
+      // Always sync — clear the banner when nothing is missed anymore (e.g. the
+      // athlete just logged the run), not only set it when something is.
+      setAdj(json.hasMissed ? json : null);
     } catch {
       /* silent — the tray is non-critical */
     }
@@ -51,6 +72,17 @@ export function PlanAdjustmentTray({
     // setAdj runs only after the awaited fetch resolves — not a sync cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
+    // Re-check when a workout is logged/unlogged, and on return to the tab, so
+    // ticking off the run makes the banner disappear without a manual reload.
+    const onChanged = () => load();
+    window.addEventListener("kadenz:workouts-changed", onChanged);
+    window.addEventListener("focus", onChanged);
+    document.addEventListener("visibilitychange", onChanged);
+    return () => {
+      window.removeEventListener("kadenz:workouts-changed", onChanged);
+      window.removeEventListener("focus", onChanged);
+      document.removeEventListener("visibilitychange", onChanged);
+    };
   }, [load]);
 
   async function apply(action: "skip" | "redistribute") {
@@ -64,6 +96,7 @@ export function PlanAdjustmentTray({
         body: JSON.stringify({
           action,
           workoutIds: adj.missed.map((m) => m.id),
+          ...localBounds(),
         }),
       });
       if (res.ok) {

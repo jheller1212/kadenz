@@ -1427,6 +1427,9 @@ export default function Home() {
       };
     });
     loadData({ silent: true });
+    // Let the plan-adjustment tray re-check missed sessions immediately, so
+    // logging a run clears its "missed" banner without waiting for a reload.
+    window.dispatchEvent(new Event("kadenz:workouts-changed"));
   }, [loadData]);
 
   const applyStrengthStatus = useCallback((id: string, status: string) => {

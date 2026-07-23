@@ -20,6 +20,20 @@ function startOfToday(): Date {
   return d;
 }
 
+// Parse a client-supplied epoch-ms boundary. The client sends its LOCAL
+// start-of-today / end-of-week because "missed" is a calendar-day judgement:
+// the server clock is UTC on Vercel, and workout dates are stored at the
+// athlete's local midnight (e.g. 22:00Z the day before for UTC+2), so a
+// UTC-midnight cutoff would flag the current local day's run as missed hours
+// before that day is actually over. Fall back to the server clock when absent.
+function parseMs(v: string | null): Date | null {
+  if (!v) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const d = new Date(n);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function thisWeekEnd(): Date {
   const now = new Date();
   const dow = now.getDay(); // 0=Sun
@@ -41,12 +55,14 @@ async function activePlanId(): Promise<string | null> {
 
 // ── GET — surface missed sessions + redistribution context ────────────────────
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const planId = await activePlanId();
     if (!planId) return Response.json({ hasMissed: false, missed: [] });
 
-    const today = startOfToday();
+    const url = new URL(request.url);
+    const today = parseMs(url.searchParams.get("todayStart")) ?? startOfToday();
+    const weekEnd = parseMs(url.searchParams.get("weekEnd")) ?? thisWeekEnd();
     const from = new Date(today);
     from.setDate(from.getDate() - LOOKBACK_DAYS);
 
@@ -80,7 +96,7 @@ export async function GET() {
           eq(workouts.status, "planned"),
           ne(workouts.type, "rest"),
           gte(workouts.date, today),
-          lte(workouts.date, thisWeekEnd())
+          lte(workouts.date, weekEnd)
         )
       );
 
@@ -105,6 +121,9 @@ const ApplySchema = z
   .object({
     action: z.enum(["skip", "redistribute"]),
     workoutIds: z.array(z.string().uuid()).min(1).max(50),
+    // Client's local start-of-today / end-of-week (epoch ms) — see parseMs.
+    todayStart: z.number().int().positive().optional(),
+    weekEnd: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -123,6 +142,8 @@ export async function POST(request: NextRequest) {
     );
   }
   const { action, workoutIds } = parsed.data;
+  const today = parsed.data.todayStart ? new Date(parsed.data.todayStart) : startOfToday();
+  const weekEnd = parsed.data.weekEnd ? new Date(parsed.data.weekEnd) : thisWeekEnd();
 
   try {
     const planId = await activePlanId();
@@ -136,7 +157,7 @@ export async function POST(request: NextRequest) {
         and(
           eq(workouts.planId, planId),
           eq(workouts.status, "planned"),
-          lt(workouts.date, startOfToday()),
+          lt(workouts.date, today),
           inArray(workouts.id, workoutIds)
         )
       );
@@ -165,8 +186,8 @@ export async function POST(request: NextRequest) {
             eq(workouts.planId, planId),
             eq(workouts.status, "planned"),
             ne(workouts.type, "rest"),
-            gte(workouts.date, startOfToday()),
-            lte(workouts.date, thisWeekEnd())
+            gte(workouts.date, today),
+            lte(workouts.date, weekEnd)
           )
         );
 
