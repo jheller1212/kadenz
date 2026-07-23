@@ -730,7 +730,7 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
       <div className="k-card p-4">
         <div className="mb-4 flex items-center justify-between">
           <p className="text-[13px] font-semibold uppercase tracking-wider text-text-3">Personal Records</p>
-          <TransitionLink href="/settings" className="text-[12px] font-semibold text-accent">Edit</TransitionLink>
+          <TransitionLink href="/settings" className="text-[12px] font-semibold text-accent-fg">Edit</TransitionLink>
         </div>
 
         {prsLoading ? (
@@ -751,7 +751,7 @@ function PerformanceTab({ workouts }: { workouts: ActivityWorkout[] }) {
         ) : prs.length === 0 ? (
           <p className="py-4 text-center text-[14px] text-text-3">
             No personal records yet.{" "}
-            <TransitionLink href="/settings" className="font-semibold text-accent">Add one</TransitionLink>
+            <TransitionLink href="/settings" className="font-semibold text-accent-fg">Add one</TransitionLink>
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-4">
@@ -948,7 +948,7 @@ export default function ActivitiesPage() {
             <button
               type="button"
               onClick={undoDelete}
-              className="press text-[13px] font-semibold text-accent"
+              className="press text-[13px] font-semibold text-accent-fg"
             >
               Undo
             </button>

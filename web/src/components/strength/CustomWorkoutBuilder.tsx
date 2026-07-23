@@ -434,7 +434,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
           <button
             type="button"
             onClick={() => { haptic("light"); setEquipmentStep(true); }}
-            className="press text-center text-[13px] font-semibold text-accent"
+            className="press text-center text-[13px] font-semibold text-accent-fg"
           >
             Equipment: {equipment.length ? EQUIPMENT_OPTIONS.filter((o) => equipment.includes(o.key)).map((o) => o.label).join(", ") : "bodyweight only"} — change
           </button>
@@ -498,7 +498,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                         type="button"
                         aria-label={`Watch ${ex.name} demo`}
                         onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
-                        className="press px-3 py-2.5 text-[13px] font-bold text-accent"
+                        className="press px-3 py-2.5 text-[13px] font-bold text-accent-fg"
                       >
                         ▶
                       </button>

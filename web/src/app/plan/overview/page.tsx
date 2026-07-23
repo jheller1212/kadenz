@@ -364,7 +364,7 @@ export default function PlanOverviewPage() {
                   selected ? "bg-accent/10" : "active:bg-elevated"
                 }`}
               >
-                <span className={`text-[15px] font-bold ${selected ? "text-accent" : "text-text-1"}`}>
+                <span className={`text-[15px] font-bold ${selected ? "text-accent-fg" : "text-text-1"}`}>
                   Week {week.weekNumber}
                 </span>
                 <span className="text-[11px] text-text-3 tabular-nums">

@@ -55,7 +55,7 @@ export function ConnectScreen() {
 function Feature({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-accent">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-accent-fg">
         {icon}
       </span>
       <span className="text-[14px] font-medium text-text-1">{text}</span>

@@ -353,7 +353,7 @@ function BackButton() {
         haptic("light");
         router.back();
       }}
-      className="press flex h-11 items-center gap-0.5 text-accent"
+      className="press flex h-11 items-center gap-0.5 text-accent-fg"
       aria-label="Back"
     >
       <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
@@ -775,7 +775,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         {/* Coaching tip */}
         <section className="k-card p-4 flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/20 mt-0.5">
-            <HeartPulse className="h-5 w-5 text-accent" strokeWidth={1.75} />
+            <HeartPulse className="h-5 w-5 text-accent-fg" strokeWidth={1.75} />
           </div>
           <div>
             <p className="text-[15px] font-bold text-text-1">Coach tip</p>
@@ -790,7 +790,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           {isCompleted ? (
             <>
             <div className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-input)] bg-elevated py-4 text-center text-[15px] font-bold text-text-2">
-              <CheckCircle2 className="h-4 w-4 text-accent" strokeWidth={2.5} />
+              <CheckCircle2 className="h-4 w-4 text-accent-fg" strokeWidth={2.5} />
               Completed
             </div>
             <div className="k-card p-4">

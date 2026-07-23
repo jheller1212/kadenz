@@ -92,7 +92,7 @@ export default function StrengthSessionPage({
     <TransitionLink
       href="/activities"
       aria-label="Back"
-      className="press flex h-11 items-center gap-0.5 text-accent"
+      className="press flex h-11 items-center gap-0.5 text-accent-fg"
     >
       <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
       <span className="text-[17px]">Back</span>
@@ -357,7 +357,7 @@ export default function StrengthSessionPage({
         <div className="flex flex-col gap-2.5 pt-1">
           {isCompleted ? (
             <div className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-input)] bg-elevated py-4 text-center text-[15px] font-bold text-text-2">
-              <CheckCircle2 className="h-4 w-4 text-accent" strokeWidth={2.5} />
+              <CheckCircle2 className="h-4 w-4 text-accent-fg" strokeWidth={2.5} />
               Completed
             </div>
           ) : !isSkipped ? (

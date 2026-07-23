@@ -48,13 +48,13 @@ export function BottomNav({ active }: Props) {
               <motion.span
                 animate={{ scale: isActive ? 1 : 0.92, y: isActive ? -1 : 0 }}
                 transition={{ type: "spring", stiffness: 500, damping: 28 }}
-                className={isActive ? "text-accent" : "text-text-3"}
+                className={isActive ? "text-accent-fg" : "text-text-3"}
               >
                 <Icon className="h-6 w-6" strokeWidth={isActive ? 2.4 : 1.9} />
               </motion.span>
               <span
                 className={`text-[10px] font-semibold tracking-tight ${
-                  isActive ? "text-accent" : "text-text-3"
+                  isActive ? "text-accent-fg" : "text-text-3"
                 }`}
               >
                 {label}

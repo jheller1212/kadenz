@@ -27,7 +27,7 @@ const VARIANTS: Record<Variant, string> = {
     "text-on-accent [background:var(--k-accent-grad)] [background-color:var(--k-accent)] [box-shadow:var(--k-shadow-card)]",
   secondary:
     "text-text-1 [background:var(--k-surface-grad)] [background-color:var(--k-surface)] [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]",
-  ghost: "bg-transparent text-accent",
+  ghost: "bg-transparent text-accent-fg",
   danger: "bg-danger/10 text-danger",
   signature:
     "[background:var(--k-signature-grad)] text-[var(--k-signature-ink)] [box-shadow:var(--k-shadow-card)]",

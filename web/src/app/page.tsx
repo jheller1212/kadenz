@@ -941,7 +941,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Strength</span>
                     <span className="text-[11px] font-bold tabular-nums text-text-1">
                       {Math.min(strengthDone, weekStrength.length - strengthExtra)}/{weekStrength.length - strengthExtra}
-                      {strengthExtra > 0 && <span className="text-accent"> +{strengthExtra}</span>}
+                      {strengthExtra > 0 && <span className="text-accent-fg"> +{strengthExtra}</span>}
                     </span>
                   </div>
                   <div className="flex h-1.5 gap-1">
@@ -1127,8 +1127,8 @@ function WeekSheet({
               onClick={() => { onSelectWeek(w); onClose(); }}
               className={`press flex w-full items-center justify-between rounded-[var(--radius-input)] px-4 py-3 text-left ${isSelected ? "bg-accent/10" : ""}`}
             >
-              <span className={`text-sm font-bold ${isSelected ? "text-accent" : "text-text-1"}`}>Week {w}</span>
-              {isSelected && <Check className="h-4 w-4 text-accent" strokeWidth={2.5} />}
+              <span className={`text-sm font-bold ${isSelected ? "text-accent-fg" : "text-text-1"}`}>Week {w}</span>
+              {isSelected && <Check className="h-4 w-4 text-accent-fg" strokeWidth={2.5} />}
             </button>
           );
         })}
@@ -1588,8 +1588,8 @@ export default function Home() {
                 aria-label="Back to today"
                 className="press flex h-9 w-9 flex-col items-center justify-center rounded-lg bg-elevated"
               >
-                <CalendarDays className="mt-0.5 h-4 w-4 text-accent" strokeWidth={1.9} />
-                <span className="mt-[1px] text-[9px] font-extrabold leading-none text-accent">{new Date().getDate()}</span>
+                <CalendarDays className="mt-0.5 h-4 w-4 text-accent-fg" strokeWidth={1.9} />
+                <span className="mt-[1px] text-[9px] font-extrabold leading-none text-accent-fg">{new Date().getDate()}</span>
               </button>
             )}
             <TransitionLink

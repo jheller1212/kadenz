@@ -25,6 +25,9 @@
   --color-text-2: var(--k-text-2);
   --color-text-3: var(--k-text-3);
   --color-accent: var(--k-accent);
+  /* Foreground/text accent — legible on the page background (volt on ink,
+     deep green on paper); distinct from the volt FILL used by bg-accent. */
+  --color-accent-fg: var(--k-accent-fg);
   --color-on-accent: var(--k-on-accent);
   --color-warn: var(--k-warn);
   --color-danger: var(--k-danger);
@@ -55,6 +58,7 @@
 
   /* Accent — Volt green, ink text on top */
   --k-accent: #C8FF3D;
+  --k-accent-fg: #C8FF3D; /* volt is legible on the ink canvas */
   --k-accent-grad: linear-gradient(180deg, #D6FF5E 0%, #B7F52A 100%);
   --k-on-accent: #0B0B0F;
 
@@ -134,6 +138,7 @@ html.light {
 
   /* Volt green accent, ink text on top */
   --k-accent: #C8FF3D;
+  --k-accent-fg: #3F7000; /* deep green — volt text is illegible on paper */
   --k-accent-grad: linear-gradient(180deg, #D6FF5E 0%, #B7F52A 100%);
   --k-on-accent: #0B0B0F;
 

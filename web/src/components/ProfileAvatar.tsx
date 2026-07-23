@@ -45,11 +45,11 @@ export function ProfileAvatar() {
         // eslint-disable-next-line @next/next/no-img-element -- local data-URL avatar
         <img src={photo} alt="" className="h-full w-full object-cover" />
       ) : initial ? (
-        <span className="text-[15px] font-bold leading-none text-accent">
+        <span className="text-[15px] font-bold leading-none text-accent-fg">
           {initial}
         </span>
       ) : (
-        <User className="h-[18px] w-[18px] text-accent" strokeWidth={2} />
+        <User className="h-[18px] w-[18px] text-accent-fg" strokeWidth={2} />
       )}
     </TransitionLink>
   );

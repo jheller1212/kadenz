@@ -49,7 +49,7 @@ export function StepTimeline({
                 aria-pressed={selected}
                 className={`press rounded-2xl bg-surface px-4 py-3.5 text-[14px] font-bold transition-shadow ${
                   selected
-                    ? "text-accent [box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
+                    ? "text-accent-fg [box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
                     : "text-text-1 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
                 }`}
               >
@@ -73,7 +73,7 @@ export function StepTimeline({
           <span className="text-xs font-semibold uppercase tracking-widest text-text-3">Race date</span>
           {raceLocked ? (
             <div className="flex items-center gap-3 rounded-2xl bg-surface p-4 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]">
-              <CalendarDays className="h-5 w-5 shrink-0 text-accent" strokeWidth={2} />
+              <CalendarDays className="h-5 w-5 shrink-0 text-accent-fg" strokeWidth={2} />
               <div>
                 <p className="text-[15px] font-bold text-text-1">{formatRaceDate(raceDate)}</p>
                 <p className="text-[12px] text-text-3">Locked to your race</p>
@@ -92,7 +92,7 @@ export function StepTimeline({
 
           {buildWeeks > 0 ? (
             <div className="rounded-2xl bg-accent/10 px-4 py-3.5">
-              <p className="text-[15px] font-bold text-accent">
+              <p className="text-[15px] font-bold text-accent-fg">
                 You have a {buildWeeks}-week build
               </p>
               <p className="mt-0.5 text-[12px] leading-relaxed text-text-2">
@@ -133,7 +133,7 @@ export function StepTimeline({
                       : "[box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
                   }`}
                 >
-                  <span className={`text-2xl font-extrabold tabular-nums ${selected ? "text-accent" : "text-text-1"}`}>
+                  <span className={`text-2xl font-extrabold tabular-nums ${selected ? "text-accent-fg" : "text-text-1"}`}>
                     {w}
                   </span>
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-text-3">weeks</span>

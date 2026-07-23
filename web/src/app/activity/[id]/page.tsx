@@ -491,7 +491,7 @@ function InsightsCard({
       <div className="relative">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-accent" strokeWidth={2} />
+            <Sparkles className="h-4 w-4 text-accent-fg" strokeWidth={2} />
             <h2 className="text-[15px] font-bold text-text-1">Workout Insights</h2>
           </div>
           {insight && (
@@ -640,7 +640,7 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
                       {BLOCK_LABELS[block.type] ?? block.type}
                     </p>
                     {isRepSet && (
-                      <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-bold text-accent">
+                      <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-bold text-accent-fg">
                         ×{block.reps}
                       </span>
                     )}
@@ -667,7 +667,7 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
               haptic("light");
               setShowAll(!showAll);
             }}
-            className="press w-full border-t border-hairline py-3 text-center text-[13px] font-semibold text-accent"
+            className="press w-full border-t border-hairline py-3 text-center text-[13px] font-semibold text-accent-fg"
           >
             {showAll ? "Show less" : `Show ${blocks.length - 3} more`}
           </button>
@@ -1169,7 +1169,7 @@ function LoadingSkeleton() {
         title="Activity"
         large={false}
         left={
-          <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent">
+          <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent-fg">
             <ChevronLeft className="h-6 w-6" strokeWidth={2} />
             Activities
           </TransitionLink>
@@ -1235,7 +1235,7 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
           title="Activity"
           large={false}
           left={
-            <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent">
+            <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent-fg">
               <ChevronLeft className="h-6 w-6" strokeWidth={2} />
               Activities
             </TransitionLink>
@@ -1280,7 +1280,7 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
         title={activity.name}
         large={false}
         left={
-          <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent">
+          <TransitionLink href="/activities" className="press flex items-center gap-0.5 text-[17px] font-medium text-accent-fg">
             <ChevronLeft className="h-6 w-6" strokeWidth={2} />
             Activities
           </TransitionLink>

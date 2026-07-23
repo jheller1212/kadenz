@@ -122,7 +122,7 @@ function StravaConnection() {
         </div>
 
         {status === "connected" ? (
-          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent-fg">
             Connected
           </span>
         ) : status === "disconnected" ? (
@@ -155,7 +155,7 @@ function StravaConnection() {
           type="button"
           disabled={syncing}
           onClick={() => runSync({ full: true })}
-          className="press mt-2 text-left text-[13px] font-semibold text-accent disabled:opacity-50"
+          className="press mt-2 text-left text-[13px] font-semibold text-accent-fg disabled:opacity-50"
         >
           Sync entire history
         </button>
@@ -219,7 +219,7 @@ function GCalConnection() {
         </div>
 
         {status === "connected" ? (
-          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent-fg">
             Connected
           </span>
         ) : status === "disconnected" ? (
@@ -357,7 +357,7 @@ function GarminConnection() {
         </div>
 
         {status === "healthy" ? (
-          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent">
+          <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent-fg">
             Connected
           </span>
         ) : status === "auth_dead" ? (

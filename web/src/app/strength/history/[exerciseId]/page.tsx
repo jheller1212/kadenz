@@ -164,7 +164,7 @@ function BackButton() {
         haptic("light");
         router.back();
       }}
-      className="press flex h-11 items-center gap-0.5 text-accent"
+      className="press flex h-11 items-center gap-0.5 text-accent-fg"
       aria-label="Back"
     >
       <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
@@ -238,7 +238,7 @@ export default function ExerciseHistoryPage({
             {/* Header: muscle tag + equipment */}
             <div className="flex flex-wrap items-center gap-2">
               {meta?.primaryMuscle && (
-                <span className="rounded-full bg-elevated px-2.5 py-1 text-[12px] font-bold text-accent">
+                <span className="rounded-full bg-elevated px-2.5 py-1 text-[12px] font-bold text-accent-fg">
                   {meta.primaryMuscle}
                 </span>
               )}
@@ -282,7 +282,7 @@ export default function ExerciseHistoryPage({
                 }}
                 className="press k-card mt-3 flex w-full items-center gap-3 p-3.5"
               >
-                <PlayCircle className="h-5 w-5 shrink-0 text-accent" strokeWidth={2} />
+                <PlayCircle className="h-5 w-5 shrink-0 text-accent-fg" strokeWidth={2} />
                 <span className="text-[15px] font-bold text-text-1">Watch demo</span>
                 <span className="ml-auto text-[13px] text-text-3">Form video</span>
               </button>

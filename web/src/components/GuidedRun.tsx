@@ -514,7 +514,7 @@ export function GuidedRun({
             <MapPinOff className="h-5 w-5 text-text-3" strokeWidth={2} />
           ) : (
             <MapPin
-              className={`h-5 w-5 ${gpsOn ? "text-accent" : "text-text-3"}`}
+              className={`h-5 w-5 ${gpsOn ? "text-accent-fg" : "text-text-3"}`}
               strokeWidth={2}
             />
           )}
@@ -575,7 +575,7 @@ export function GuidedRun({
             transition={{ duration: 0.2 }}
             className="w-full max-w-sm k-card p-6 text-center"
           >
-            <p className="text-[13px] font-semibold uppercase tracking-wider text-accent">
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-accent-fg">
               Step {stepIdx + 1} of {steps.length}
             </p>
             <h2 className="mt-2 text-[28px] font-extrabold tracking-tight text-text-1">

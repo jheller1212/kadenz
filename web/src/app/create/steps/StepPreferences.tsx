@@ -124,7 +124,7 @@ export function StepPreferences({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[13px] font-semibold text-text-2">Current weekly km</span>
-                    <span className="text-sm font-bold tabular-nums text-accent">{currentWeeklyKm} km</span>
+                    <span className="text-sm font-bold tabular-nums text-accent-fg">{currentWeeklyKm} km</span>
                   </div>
                   <WheelPicker
                     min={0}
@@ -145,7 +145,7 @@ export function StepPreferences({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[13px] font-semibold text-text-2">Long run cap</span>
-                    <span className="text-sm font-bold tabular-nums text-accent">
+                    <span className="text-sm font-bold tabular-nums text-accent-fg">
                       {longRunCapKm === 0 ? "No cap" : `${longRunCapKm} km`}
                     </span>
                   </div>
@@ -163,7 +163,7 @@ export function StepPreferences({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[13px] font-semibold text-text-2">Easy run minimum</span>
-                    <span className="text-sm font-bold tabular-nums text-accent">
+                    <span className="text-sm font-bold tabular-nums text-accent-fg">
                       {easyRunMinKm === 0 ? "No min" : `${easyRunMinKm} km`}
                     </span>
                   </div>

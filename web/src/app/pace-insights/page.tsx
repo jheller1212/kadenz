@@ -105,7 +105,7 @@ function BackButton() {
         haptic("light");
         router.back();
       }}
-      className="press flex h-11 items-center gap-0.5 text-accent"
+      className="press flex h-11 items-center gap-0.5 text-accent-fg"
       aria-label="Back"
     >
       <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
@@ -688,7 +688,7 @@ export default function PaceInsightsPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-[22px] font-bold tracking-tight text-text-1">Pace Insights</h1>
           <div className="flex items-center gap-1.5 text-[11px] text-text-3">
-            <CheckCircle2 className="h-3.5 w-3.5 text-accent" strokeWidth={2.5} />
+            <CheckCircle2 className="h-3.5 w-3.5 text-accent-fg" strokeWidth={2.5} />
             <span>Updated: {formatUpdatedDate(data.updatedDate)}</span>
           </div>
         </div>
