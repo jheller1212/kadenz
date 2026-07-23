@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthPlanSettings, strengthSessions, weeks, workouts } from "@/db";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
-import { queueGarminStrengthDelete } from "@/lib/sync/garmin-sync";
+import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
@@ -286,6 +286,15 @@ export async function ensureStrengthSchedule(profileId: string | null) {
         .update(strengthSessions)
         .set({ targetDurationMinutes: est })
         .where(eq(strengthSessions.id, s.id));
+      // The estimate drives the pushed prescriptions too — the watch label
+      // ("… · 30 min") and the calendar event. Re-queue them so a rest/setting
+      // change reaches Garmin and Google Calendar, not just the in-app view.
+      // Both queues self-gate on being configured/connected, so this is a
+      // no-op when an integration is off.
+      queueGarminStrengthMove(s.id).catch(() => {});
+      if (gcal) {
+        queueStrengthSessionSync(s.id, "update", "gcal").catch(() => {});
+      }
     }
   }
 
