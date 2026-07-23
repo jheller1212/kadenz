@@ -116,6 +116,23 @@ function raceDistanceMeters(d: string): number {
   return RACE_DISTANCES_M[d as keyof typeof RACE_DISTANCES_M] ?? 0;
 }
 
+/** The plan's race distance in metres, honouring a "custom" km value. */
+function planDistanceMeters(config: PlanConfig): number {
+  if (config.raceDistance === "custom") {
+    return Math.max(0, (config.customDistanceKm ?? 0) * 1000);
+  }
+  return raceDistanceMeters(config.raceDistance);
+}
+
+/** Display label for a plan's distance, honouring "custom". */
+function planDistanceLabel(config: PlanConfig): string {
+  if (config.raceDistance === "custom") {
+    const km = Math.round((config.customDistanceKm ?? 0) * 10) / 10;
+    return `${km} km`;
+  }
+  return raceLabel(config.raceDistance);
+}
+
 /** Race distance in km */
 function raceDistanceKm(d: string): number {
   return raceDistanceMeters(d) / 1000;
@@ -586,12 +603,12 @@ function buildRaceWorkout(
   paces: PaceZones,
   sortOrder: number
 ): GeneratedWorkout {
-  const distKm = raceDistanceKm(config.raceDistance);
+  const distKm = planDistanceMeters(config) / 1000;
   return {
     dayOfWeek,
     date,
     type: "race",
-    title: `Race Day — ${raceLabel(config.raceDistance)}`,
+    title: `Race Day — ${planDistanceLabel(config)}`,
     description: `Goal time: ${formatTime(config.goalTimeSeconds)}. Trust your training.`,
     targetKm: distKm,
     targetDurationMinutes: Math.round(config.goalTimeSeconds / 60),
@@ -1112,7 +1129,10 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   const planStartMonday = addDays(config.startDate, mondayOffset);
 
   // Calculate VDOT
-  const distM = raceDistanceMeters(config.raceDistance);
+  const distM = planDistanceMeters(config);
+  if (distM <= 0) {
+    throw new Error("A custom race plan needs a positive distance");
+  }
   const { vdot } = calculateVdot(distM, config.goalTimeSeconds);
 
   // Derive pace zones
@@ -1153,12 +1173,13 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   }
 
   // Plan name
-  const name = `${raceLabel(config.raceDistance)} — ${formatTime(config.goalTimeSeconds)} Goal`;
+  const name = `${planDistanceLabel(config)} — ${formatTime(config.goalTimeSeconds)} Goal`;
 
   return {
     name,
     intent: "race",
     raceDistance: config.raceDistance,
+    customDistanceKm: config.customDistanceKm ?? null,
     goalTimeSeconds: config.goalTimeSeconds,
     vdot: Math.round(vdot * 10) / 10,
     startDate: config.startDate,

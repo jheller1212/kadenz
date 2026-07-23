@@ -16,6 +16,7 @@ export const DISTANCE_LABEL: Record<RaceDistance, string> = {
   half: "Half Marathon",
   marathon: "Marathon",
   ultra: "Ultra (50K)",
+  custom: "Custom",
 };
 
 /** Sensible goal-time prefill per distance (seconds). */
@@ -25,6 +26,7 @@ export const DEFAULT_GOAL_SECONDS: Record<RaceDistance, number> = {
   half: 2 * 3600,
   marathon: 4 * 3600,
   ultra: 5 * 3600 + 30 * 60,
+  custom: 30 * 60,
 };
 
 // Realistic goal time ranges per distance (seconds) [world record … slow recreational]
@@ -34,6 +36,8 @@ export const GOAL_TIME_RANGES: Record<RaceDistance, { wr: number; elite: number;
   half: { wr: 3456, elite: 4200, slow: 12600 },
   marathon: { wr: 7260, elite: 8700, slow: 25200 },
   ultra: { wr: 9720, elite: 12600, slow: 32400 },
+  // Custom distance has no fixed record; validation only requires a positive time.
+  custom: { wr: 60, elite: 300, slow: 999999 },
 };
 
 // ── Popular races ────────────────────────────────────────────────────────────

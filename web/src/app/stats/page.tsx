@@ -35,6 +35,7 @@ function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
     name: raw.name as string,
     intent: (raw.intent as GeneratedPlan["intent"]) ?? "race",
     raceDistance: raw.raceDistance as GeneratedPlan["raceDistance"],
+    customDistanceKm: (raw.customDistanceKm as number | null) ?? null,
     goalTimeSeconds: raw.goalTimeSeconds as number,
     vdot: raw.vdot as number,
     startDate: new Date(raw.startDate as string),

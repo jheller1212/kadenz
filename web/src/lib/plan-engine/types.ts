@@ -1,4 +1,4 @@
-export type RaceDistance = "5k" | "10k" | "half" | "marathon" | "ultra";
+export type RaceDistance = "5k" | "10k" | "half" | "marathon" | "ultra" | "custom";
 
 /**
  * What a plan is for. "race" is the classic goal-time plan (peaks + tapers to a
@@ -75,6 +75,8 @@ export interface PlanConfig {
   intent?: PlanIntent;
   /** Race distance (the reference distance for non-race intents). */
   raceDistance: RaceDistance;
+  /** Distance in km when raceDistance is "custom". */
+  customDistanceKm?: number | null;
   /** Goal finish time in seconds (race intent only; synthesized otherwise). */
   goalTimeSeconds: number;
   /** Plan start date (Monday of week 1) */
@@ -155,6 +157,8 @@ export interface GeneratedPlan {
   /** What the plan is for (defaults to "race"). */
   intent: PlanIntent;
   raceDistance: RaceDistance;
+  /** Distance in km when raceDistance is "custom". */
+  customDistanceKm?: number | null;
   goalTimeSeconds: number;
   vdot: number;
   startDate: Date;

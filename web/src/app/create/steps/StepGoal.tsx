@@ -49,6 +49,8 @@ export function StepGoal({
   onHours,
   onMinutes,
   onSeconds,
+  customDistanceKm,
+  onCustomDistanceKm,
 }: {
   tab: GoalTab;
   onTab: (t: GoalTab) => void;
@@ -62,6 +64,8 @@ export function StepGoal({
   onHours: (v: number) => void;
   onMinutes: (v: number) => void;
   onSeconds: (v: number) => void;
+  customDistanceKm: number | null;
+  onCustomDistanceKm: (v: number | null) => void;
 }) {
   const [query, setQuery] = useState("");
   const totalSeconds = hours * 3600 + minutes * 60 + seconds;
@@ -117,7 +121,50 @@ export function StepGoal({
               </button>
             );
           })}
+          {/* Custom distance */}
+          <button
+            role="radio"
+            aria-checked={selectedRaceId === null && raceDistance === "custom"}
+            onClick={() => {
+              haptic("light");
+              onDistance("custom");
+            }}
+            className={`press flex flex-col items-start rounded-2xl bg-surface p-4 text-left transition-shadow focus:outline-none focus:ring-2 focus:ring-accent ${
+              selectedRaceId === null && raceDistance === "custom"
+                ? "[box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
+                : "[box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
+            }`}
+          >
+            <span
+              className={`text-2xl font-extrabold tracking-tight ${
+                selectedRaceId === null && raceDistance === "custom" ? "text-accent-fg" : "text-text-1"
+              }`}
+            >
+              Custom
+            </span>
+            <span className="mt-0.5 text-xs text-text-3">Any distance</span>
+          </button>
         </div>
+      )}
+
+      {tab === "distances" && raceDistance === "custom" && (
+        <label className="flex items-center justify-between gap-3 rounded-2xl bg-surface p-4 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]">
+          <span className="text-[15px] font-semibold text-text-1">Distance</span>
+          <span className="flex items-baseline gap-1.5">
+            <input
+              inputMode="decimal"
+              value={customDistanceKm ?? ""}
+              onChange={(e) => {
+                const n = parseFloat(e.target.value);
+                onCustomDistanceKm(Number.isFinite(n) && n > 0 ? n : null);
+              }}
+              placeholder="15"
+              aria-label="Custom distance in km"
+              className="w-20 rounded-[var(--radius-input)] bg-elevated px-3 py-2 text-right text-[17px] font-bold tabular-nums text-text-1 focus:outline-none"
+            />
+            <span className="text-[14px] font-semibold text-text-3">km</span>
+          </span>
+        </label>
       )}
 
       {tab === "races" && (

@@ -96,6 +96,7 @@ export default function CreatePlanPage() {
   const [intent, setIntent] = useState<PlanIntent>("race");
   const [goalTab, setGoalTab] = useState<GoalTab>("distances");
   const [raceDistance, setRaceDistance] = useState<RaceDistance | null>(null);
+  const [customDistanceKm, setCustomDistanceKm] = useState<number | null>(15);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(0);
@@ -211,6 +212,9 @@ export default function CreatePlanPage() {
     switch (step) {
       case "goal":
         if (intent !== "race") return true; // non-race needs no distance/goal time
+        if (raceDistance === "custom" && !(customDistanceKm && customDistanceKm > 0)) {
+          return false;
+        }
         return (
           raceDistance !== null &&
           goalTimeSeconds > 0 &&
@@ -282,6 +286,9 @@ export default function CreatePlanPage() {
               raceDistance,
               goalTimeSeconds,
               raceDate: new Date(raceDate).toISOString(),
+              ...(raceDistance === "custom" && customDistanceKm
+                ? { customDistanceKm }
+                : {}),
             }
           : { ...common, planLengthWeeks: blockWeeks };
       const res = await apiFetch("/api/plans", {
@@ -381,6 +388,8 @@ export default function CreatePlanPage() {
                           onHours={touchTime(setHours)}
                           onMinutes={touchTime(setMinutes)}
                           onSeconds={touchTime(setSeconds)}
+                          customDistanceKm={customDistanceKm}
+                          onCustomDistanceKm={setCustomDistanceKm}
                         />
                       </div>
                     ) : (

@@ -60,6 +60,7 @@ function adaptApiPlan(raw: Record<string, unknown>): GeneratedPlan {
     name: raw.name as string,
     intent: (raw.intent as GeneratedPlan["intent"]) ?? "race",
     raceDistance: raw.raceDistance as GeneratedPlan["raceDistance"],
+    customDistanceKm: (raw.customDistanceKm as number | null) ?? null,
     goalTimeSeconds: raw.goalTimeSeconds as number,
     vdot: raw.vdot as number,
     startDate: new Date(raw.startDate as string),
@@ -466,6 +467,7 @@ function DayRow({
 
 const RACE_SHORT: Record<GeneratedPlan["raceDistance"], string> = {
   ultra: "50K",
+  custom: "KM",
   "5k": "5K",
   "10k": "10K",
   half: "Half",
@@ -486,7 +488,10 @@ function EstimatedRaceTime({ plan }: { plan: GeneratedPlan }) {
   const [now] = useState(() => Date.now());
   if (plan.intent !== "race") return null; // no race = no predicted race time
   if (!plan.vdot) return null;
-  const distanceM = RACE_DISTANCES_M[plan.raceDistance];
+  const distanceM =
+    plan.raceDistance === "custom"
+      ? (plan.customDistanceKm ?? 0) * 1000
+      : RACE_DISTANCES_M[plan.raceDistance];
   if (!distanceM) return null;
   const predicted = predictRaceTime(plan.vdot, distanceM);
   const fast = predicted * 0.98;
@@ -535,7 +540,9 @@ function PlanHeader({ plan }: { plan: GeneratedPlan }) {
         </div>
         <div className="shrink-0 w-14 h-14 rounded-2xl bg-accent flex items-center justify-center text-center text-xs font-black text-on-accent leading-tight px-1">
           {plan.intent === "race"
-            ? RACE_SHORT[plan.raceDistance]
+            ? plan.raceDistance === "custom"
+              ? `${Math.round(plan.customDistanceKm ?? 0)}K`
+              : RACE_SHORT[plan.raceDistance]
             : plan.intent === "maintain"
             ? "HOLD"
             : plan.intent === "return"

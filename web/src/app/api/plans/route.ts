@@ -16,7 +16,8 @@ const PlanConfigSchema = z.object({
   // "race" is the default so existing clients keep working unchanged.
   intent: z.enum(["race", "get_fit", "maintain", "return"]).default("race"),
   // Optional for non-race intents (defaults to the 10k reference then).
-  raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra"]).optional(),
+  raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra", "custom"]).optional(),
+  customDistanceKm: z.number().positive().max(500).optional(),
   // Required for race; synthesized for non-race.
   goalTimeSeconds: z.number().int().positive().optional(),
   startDate: z.string().datetime(),
@@ -61,6 +62,12 @@ export async function POST(request: NextRequest) {
   if (isRace && (data.goalTimeSeconds == null || !data.raceDate)) {
     return Response.json(
       { error: "Race plans require goalTimeSeconds and raceDate" },
+      { status: 422 }
+    );
+  }
+  if (isRace && data.raceDistance === "custom" && !data.customDistanceKm) {
+    return Response.json(
+      { error: "A custom race plan requires customDistanceKm" },
       { status: 422 }
     );
   }
@@ -111,6 +118,7 @@ export async function POST(request: NextRequest) {
         name: generatedPlan.name,
         intent: generatedPlan.intent,
         raceDistance: generatedPlan.raceDistance,
+        customDistanceKm: generatedPlan.customDistanceKm ?? null,
         goalTimeSeconds: generatedPlan.goalTimeSeconds,
         vdot: generatedPlan.vdot,
         startDate: generatedPlan.startDate,

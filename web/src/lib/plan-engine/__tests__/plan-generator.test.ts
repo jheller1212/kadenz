@@ -850,3 +850,40 @@ describe("generatePlan — ultra", () => {
     expect(ultraPeak).toBeGreaterThanOrEqual(marathonPeak);
   });
 });
+
+// ── Custom distance ──────────────────────────────────────────────────────────
+
+describe("generatePlan — custom distance", () => {
+  const customConfig: PlanConfig = {
+    raceDistance: "custom",
+    customDistanceKm: 15,
+    goalTimeSeconds: 75 * 60,
+    startDate: makeDate(0),
+    raceDate: makeDate(10),
+    daysPerWeek: 4,
+    trainingVolume: "medium",
+    trainingDifficulty: "moderate",
+    preferredLongRunDay: 6,
+    hillyArea: false,
+    currentWeeklyKm: 30,
+    longRunCapKm: 0,
+    raceElevation: "flat",
+    easyRunMinKm: 0,
+  };
+
+  it("builds a plan whose race day is the custom distance", () => {
+    const plan = generatePlan(customConfig);
+    expect(plan.raceDistance).toBe("custom");
+    expect(plan.customDistanceKm).toBe(15);
+    const raceWo = plan.weeks.flatMap((w) => w.workouts).find((w) => w.type === "race");
+    expect(raceWo?.targetKm).toBe(15);
+    expect(raceWo?.title).toContain("15 km");
+    expect(plan.name).toContain("15 km");
+    expect(plan.vdot).toBeGreaterThan(0);
+  });
+
+  it("throws when a custom plan has no distance", () => {
+    expect(() => generatePlan({ ...customConfig, customDistanceKm: 0 })).toThrow();
+    expect(() => generatePlan({ ...customConfig, customDistanceKm: null })).toThrow();
+  });
+});

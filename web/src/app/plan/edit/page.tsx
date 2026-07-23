@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 
-type RaceDistance = "5k" | "10k" | "half" | "marathon" | "ultra";
+type RaceDistance = "5k" | "10k" | "half" | "marathon" | "ultra" | "custom";
 type Volume = "beginner" | "low" | "medium" | "high" | "elite";
 type Difficulty = "easy" | "moderate" | "hard";
 

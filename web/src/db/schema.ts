@@ -21,6 +21,7 @@ export const raceDistanceEnum = pgEnum("race_distance", [
   "half",
   "marathon",
   "ultra",
+  "custom",
 ]);
 
 export const planStatusEnum = pgEnum("plan_status", [
@@ -159,6 +160,8 @@ export const plans = pgTable(
     // race_distance/goal_time/race_date carry synthetic reference values for them.
     intent: text("intent").notNull().default("race"),
     raceDistance: raceDistanceEnum("race_distance").notNull(),
+    // Set only when raceDistance is "custom".
+    customDistanceKm: real("custom_distance_km"),
     goalTimeSeconds: integer("goal_time_seconds").notNull(),
     vdot: real("vdot").notNull(),
     startDate: timestamp("start_date", { withTimezone: true }).notNull(),
