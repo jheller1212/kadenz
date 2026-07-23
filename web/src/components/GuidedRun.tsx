@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, ChevronRight, ChevronDown, Play, Pause, Check, MapPin, MapPinOff } from "lucide-react";
+import { X, ChevronRight, ChevronDown, Play, Pause, Check, MapPin, MapPinOff, Music } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { CUE_VOLUME_GAIN, loadSettings, type UserSettings } from "@/lib/settings";
 import { haptic } from "@/lib/haptics";
+import { openSpotify } from "@/lib/spotify";
 import {
   clearRunSnapshot,
   saveRunSnapshot,
@@ -210,6 +211,11 @@ export function GuidedRun({
   const stepStartRef = useRef<number>(0); // elapsed seconds at current step start
   const restEndRef = useRef<number | null>(null);
   const lastRestBeepRef = useRef<number>(-1);
+  // Pause-warning + pace-alert bookkeeping.
+  const pauseDistRef = useRef(0); // metres at the moment of a manual pause
+  const pauseWarnedRef = useRef(false); // warned once per manual pause
+  const paceOutSinceRef = useRef<number | null>(null); // elapsed sec pace went off-target
+  const lastPaceAlertRef = useRef<number>(-999); // elapsed sec of last pace alert
 
   // GPS state.
   const [gpsOn, setGpsOn] = useState(false);
@@ -268,6 +274,13 @@ export function GuidedRun({
         window.speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         u.volume = vol;
+        // Use the athlete's chosen voice when it's available on this device.
+        if (p.runVoiceName) {
+          const voice = window.speechSynthesis
+            .getVoices()
+            .find((v) => v.name === p.runVoiceName);
+          if (voice) u.voice = voice;
+        }
         window.speechSynthesis.speak(u);
       }
     } catch {
@@ -286,6 +299,8 @@ export function GuidedRun({
   const doPause = useCallback(() => {
     if (pausedAtRef.current != null) return;
     pausedAtRef.current = Date.now();
+    pauseDistRef.current = distanceMRef.current;
+    pauseWarnedRef.current = false;
     setPaused(true);
   }, []);
   const doResume = useCallback(() => {
@@ -386,8 +401,8 @@ export function GuidedRun({
       // stepIdx + started were seeded from resumeFrom at first render.
     } else if (p.runStartOnMotion && p.runGps && "geolocation" in navigator) {
       setAwaitingMotion(true);
-    } else if (p.runCountdown) {
-      setCountdown(3);
+    } else if (p.runCountdownSeconds > 0) {
+      setCountdown(p.runCountdownSeconds);
     } else {
       beginRun();
     }
@@ -498,6 +513,22 @@ export function GuidedRun({
         }
       }
 
+      // Pause warning: you paused by hand, then started moving without resuming.
+      // (Auto-paused runs resume themselves, so this only covers manual pauses.)
+      if (
+        started &&
+        paused &&
+        !autoPausedRef.current &&
+        gpsOn &&
+        prefsRef.current.runPauseWarning &&
+        !pauseWarnedRef.current &&
+        distanceMRef.current - pauseDistRef.current > 8
+      ) {
+        pauseWarnedRef.current = true;
+        speak("You're still paused. Resume when you're ready.");
+        beep(620, 120);
+      }
+
       if (paused || !started) return;
       const step = steps[stepIdx];
       if (!step) return;
@@ -565,6 +596,27 @@ export function GuidedRun({
         pace != null && step.minPaceSecKm != null && step.maxPaceSecKm != null
           ? pace >= step.minPaceSecKm && pace <= step.maxPaceSecKm
           : null;
+
+      // Pace alerts: nudge when off-target for a sustained stretch (throttled).
+      if (gpsOn && prefsRef.current.runPaceAlerts && paceInRange != null && pace != null) {
+        if (paceInRange) {
+          paceOutSinceRef.current = null;
+        } else {
+          if (paceOutSinceRef.current == null) paceOutSinceRef.current = totalElapsed;
+          const outFor = totalElapsed - paceOutSinceRef.current;
+          const sinceAlert = totalElapsed - lastPaceAlertRef.current;
+          if (outFor > 12 && sinceAlert > 30) {
+            lastPaceAlertRef.current = totalElapsed;
+            // pace is sec/km: bigger = slower. Above max → too slow; below min → too fast.
+            speak(
+              pace > (step.maxPaceSecKm ?? 0)
+                ? "A little quicker — you're behind pace."
+                : "Ease back — you're ahead of pace."
+            );
+            beep(600, 90);
+          }
+        }
+      }
       const restRem =
         step.kind === "rest" && restEndRef.current != null
           ? Math.max(0, Math.ceil((restEndRef.current - Date.now()) / 1000))
@@ -874,7 +926,7 @@ export function GuidedRun({
                 </>
               ) : (
                 <>
-                  Next step <ChevronRight className="h-5 w-5" strokeWidth={2.4} />
+                  Next lap <ChevronRight className="h-5 w-5" strokeWidth={2.4} />
                 </>
               )}
             </button>
@@ -885,40 +937,59 @@ export function GuidedRun({
       {/* Pre-run overlay: countdown or wait-for-motion, tap to start now */}
       <AnimatePresence>
         {!started && (
-          <motion.button
-            type="button"
-            onClick={beginRun}
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-bg/95 backdrop-blur-sm"
-            aria-label={awaitingMotion ? "Start now" : "Skip countdown"}
           >
-            {awaitingMotion ? (
-              <>
-                <p className="text-[13px] font-semibold uppercase tracking-wider text-text-3">
-                  Waiting for motion
-                </p>
-                <p className="text-[40px] font-extrabold tracking-tight text-text-1">
-                  Start moving
-                </p>
-                <p className="mt-2 text-[13px] text-text-3">Tap anywhere to start now</p>
-              </>
-            ) : (
-              <AnimatePresence mode="wait">
-                <motion.p
-                  key={countdown ?? "go"}
-                  initial={{ opacity: 0, scale: 0.6 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 1.6 }}
-                  transition={{ duration: 0.25 }}
-                  className="font-display text-[120px] leading-none tabular-nums text-accent-fg"
-                >
-                  {countdown != null && countdown > 0 ? countdown : "GO"}
-                </motion.p>
-              </AnimatePresence>
-            )}
-          </motion.button>
+            {/* Full-area tap target — tap anywhere to start now / skip the count. */}
+            <button
+              type="button"
+              onClick={beginRun}
+              className="absolute inset-0"
+              aria-label={awaitingMotion ? "Start now" : "Skip countdown"}
+            />
+            <div className="pointer-events-none relative z-10 flex flex-col items-center gap-3">
+              {awaitingMotion ? (
+                <>
+                  <p className="text-[13px] font-semibold uppercase tracking-wider text-text-3">
+                    Waiting for motion
+                  </p>
+                  <p className="text-[40px] font-extrabold tracking-tight text-text-1">
+                    Start moving
+                  </p>
+                  <p className="mt-2 text-[13px] text-text-3">Tap anywhere to start now</p>
+                </>
+              ) : (
+                <AnimatePresence mode="wait">
+                  <motion.p
+                    key={countdown ?? "go"}
+                    initial={{ opacity: 0, scale: 0.6 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.6 }}
+                    transition={{ duration: 0.25 }}
+                    className="font-display text-[120px] leading-none tabular-nums text-accent-fg"
+                  >
+                    {countdown != null && countdown > 0 ? countdown : "GO"}
+                  </motion.p>
+                </AnimatePresence>
+              )}
+            </div>
+            {/* Music pill — line up a soundtrack before you head out. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                haptic("light");
+                openSpotify();
+              }}
+              className="press absolute z-10 flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-[14px] font-semibold text-text-1"
+              style={{ bottom: "max(2rem, env(safe-area-inset-bottom))" }}
+            >
+              <Music className="h-4 w-4 text-accent-fg" strokeWidth={2.2} /> Music
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
