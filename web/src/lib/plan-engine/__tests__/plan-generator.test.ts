@@ -880,6 +880,11 @@ describe("generatePlan — custom distance", () => {
     expect(raceWo?.title).toContain("15 km");
     expect(plan.name).toContain("15 km");
     expect(plan.vdot).toBeGreaterThan(0);
+    // Race-day block must have a finite pace (custom isn't in RACE_DISTANCES_M —
+    // a 0-km lookup would give an Infinity pace that fails the integer DB column).
+    const workBlock = raceWo?.blocks.find((b) => b.type === "work");
+    expect(workBlock?.distanceKm).toBe(15);
+    expect(Number.isFinite(workBlock?.targetPaceSecKm ?? Infinity)).toBe(true);
   });
 
   it("throws when a custom plan has no distance", () => {

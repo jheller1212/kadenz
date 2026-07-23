@@ -456,7 +456,10 @@ function raceBlocks(
   config: PlanConfig,
   paces: PaceZones
 ): GeneratedBlock[] {
-  const distKm = raceDistanceKm(config.raceDistance);
+  // Resolve the real distance (custom distances aren't in RACE_DISTANCES_M —
+  // using the enum lookup would give 0 km → an Infinity pace that fails the
+  // integer DB column and 500s the whole plan save).
+  const distKm = planDistanceMeters(config) / 1000;
   return [
     {
       sortOrder: 0,
@@ -468,7 +471,7 @@ function raceBlocks(
       sortOrder: 1,
       type: "work",
       distanceKm: distKm,
-      targetPaceSecKm: Math.round(config.goalTimeSeconds / distKm),
+      targetPaceSecKm: distKm > 0 ? Math.round(config.goalTimeSeconds / distKm) : paces.M.targetPaceSecKm,
     },
   ];
 }
