@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { AnimatePresence } from "motion/react";
 import { UNAUTHORIZED_EVENT } from "@/lib/api";
 import { ConnectScreen } from "@/components/ConnectScreen";
+import { BootSplash } from "@/components/BootSplash";
 
 type State = "checking" | "authed" | "guest";
 
@@ -11,6 +13,10 @@ type State = "checking" | "authed" | "guest";
 // stale/expired session never leaves the user staring at a silently-broken UI).
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>("checking");
+  // Kept separate from `state` so the splash stays mounted across the
+  // checking → resolved swap and can cross-fade out over the first painted
+  // frame instead of cutting.
+  const [splashGone, setSplashGone] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -41,10 +47,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  if (state === "checking") {
-    // Brief splash — matches the app background so there's no white flash.
-    return <div className="min-h-dvh bg-bg" />;
-  }
-  if (state === "guest") return <ConnectScreen />;
-  return <>{children}</>;
+  // Let the resolved screen paint one frame underneath, then fade the splash.
+  // rAF is throttled to zero in a background tab, so a timer backs it up —
+  // otherwise booting in an unfocused tab would strand the user behind the
+  // splash until they focused it.
+  useEffect(() => {
+    if (state === "checking") return;
+    const raf = requestAnimationFrame(() => setSplashGone(true));
+    const timer = window.setTimeout(() => setSplashGone(true), 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [state]);
+
+  return (
+    <>
+      {state === "guest" ? <ConnectScreen /> : state === "authed" ? children : null}
+      <AnimatePresence>{!splashGone && <BootSplash />}</AnimatePresence>
+    </>
+  );
 }

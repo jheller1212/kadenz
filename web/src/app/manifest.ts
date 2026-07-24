@@ -9,8 +9,11 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    // Default theme is light; runtime theme-color is managed by ThemeProvider
-    background_color: "#EEF0F4",
+    // The launch screen is an always-dark brand moment (see BootSplash), so
+    // background_color matches SPLASH_BG. theme_color stays on the light
+    // default — it tints the Android app title bar, not the splash, and the
+    // runtime theme-color is managed by ThemeProvider.
+    background_color: "#0A0A0B",
     theme_color: "#EEF0F4",
     icons: [
       {
