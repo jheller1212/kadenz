@@ -19,6 +19,10 @@ import { StepTimeline } from "./steps/StepTimeline";
 import { StepPreferences } from "./steps/StepPreferences";
 import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
 import {
+  PlanReadyScreen,
+  type PlanReadySummary,
+} from "@/components/PlanReadyScreen";
+import {
   DEFAULT_GOAL_SECONDS,
   GOAL_TIME_RANGES,
   POPULAR_RACES,
@@ -142,6 +146,10 @@ export default function CreatePlanPage() {
   // then calls back to navigate, so the bar never claims completion early.
   const [built, setBuilt] = useState(false);
   const builtPlanId = useRef<string | null>(null);
+  // Set once the loader's bar has landed: the loader hands off to the reveal,
+  // which hands off to the plan itself on the athlete's tap.
+  const [readyPlan, setReadyPlan] = useState<PlanReadySummary | null>(null);
+  const builtPlan = useRef<PlanReadySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -327,6 +335,7 @@ export default function CreatePlanPage() {
       const savedPlan = await res.json();
       haptic("success");
       builtPlanId.current = savedPlan.id;
+      builtPlan.current = savedPlan as PlanReadySummary;
       setBuilt(true);
     } catch (e) {
       haptic("warning");
@@ -507,10 +516,21 @@ export default function CreatePlanPage() {
       </div>
 
       <AnimatePresence>
-        {saving && (
+        {saving && !readyPlan && (
           <PlanBuildingLoader
             complete={built}
-            onSettled={() => router.push(`/plan?id=${builtPlanId.current}`)}
+            onSettled={() => {
+              // Never strand the athlete on a finished bar: if the response
+              // wasn't usable, skip the reveal and go straight to the plan.
+              if (builtPlan.current) setReadyPlan(builtPlan.current);
+              else router.push(`/plan?id=${builtPlanId.current}`);
+            }}
+          />
+        )}
+        {readyPlan && (
+          <PlanReadyScreen
+            plan={readyPlan}
+            onContinue={() => router.push(`/plan?id=${builtPlanId.current}`)}
           />
         )}
       </AnimatePresence>

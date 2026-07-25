@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { db, plans, weeks, workouts, blocks } from "@/db";
+import { isNull } from "drizzle-orm";
+import { db, plans, weeks, workouts, blocks, strengthPlanSettings } from "@/db";
 import { generatePlanForConfig } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
 import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
@@ -224,8 +225,27 @@ export async function POST(request: NextRequest) {
     // Rebuild the auto strength schedule around the new plan's run days.
     // Strength sessions have no plan FK — without this, the old plan's future
     // auto-scheduled sessions linger and the top-up stacks new ones on top.
+    // Reported back to the client so the plan-ready screen can tell the athlete
+    // their strength plan survived and was re-fitted, rather than leaving them
+    // to guess. Null when strength was never set up.
+    let strength: {
+      active: boolean;
+      sessionsPerWeek: number;
+      rescheduled: number;
+    } | null = null;
     try {
-      await reconcileStrengthSchedule(null);
+      const { created } = await reconcileStrengthSchedule(null);
+      const [settings] = await db
+        .select()
+        .from(strengthPlanSettings)
+        .where(isNull(strengthPlanSettings.profileId));
+      if (settings) {
+        strength = {
+          active: settings.active,
+          sessionsPerWeek: settings.sessionsPerWeek,
+          rescheduled: created,
+        };
+      }
     } catch (err) {
       console.error("Failed to reconcile strength schedule:", err);
     }
@@ -246,7 +266,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return Response.json(fullPlan, { status: 201 });
+    // `strength` is additive — existing clients that only read plan fields are
+    // unaffected.
+    return Response.json({ ...fullPlan, strength }, { status: 201 });
   } catch (err) {
     console.error("DB error creating plan:", err);
     return Response.json({ error: "Failed to save plan" }, { status: 500 });
