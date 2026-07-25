@@ -91,3 +91,4 @@ Movement usually pairs with `haptic()` from `lib/haptics`: `light` for
 selection, `medium` for commit/advance, `success` on completion, `warning` on
 failure. Don't fire haptics on ambient motion or auto-dismissals — only on
 something the athlete did.
+
