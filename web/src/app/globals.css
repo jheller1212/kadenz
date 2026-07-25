@@ -84,16 +84,16 @@
   --k-type-easy-grad: linear-gradient(135deg, #63E88F 0%, #34C46B 100%);
   --k-type-recovery: #4ADE80;
   --k-type-recovery-grad: linear-gradient(135deg, #63E88F 0%, #34C46B 100%);
-  --k-type-tempo: #FFB547;
-  --k-type-tempo-grad: linear-gradient(135deg, #FFC46B 0%, #F59E1F 100%);
-  --k-type-interval: #C084FC;
-  --k-type-interval-grad: linear-gradient(135deg, #CE9CFD 0%, #A855F7 100%);
-  --k-type-long: #60A5FA;
-  --k-type-long-grad: linear-gradient(135deg, #7FB8FB 0%, #3B82F6 100%);
+  --k-type-tempo: #FFE14D;
+  --k-type-tempo-grad: linear-gradient(135deg, #FFEB7A 0%, #F5CE12 100%);
+  --k-type-interval: #FF4D4D;
+  --k-type-interval-grad: linear-gradient(135deg, #FF6E6E 0%, #E02424 100%);
+  --k-type-long: #C084FC;
+  --k-type-long-grad: linear-gradient(135deg, #CE9CFD 0%, #A855F7 100%);
   --k-type-race: #FF5A3C;
   --k-type-race-grad: linear-gradient(135deg, #FF7A60 0%, #E5401F 100%);
-  --k-type-strength: #7C5CFF;
-  --k-type-strength-grad: linear-gradient(135deg, #9A80FF 0%, #6A45F5 100%);
+  --k-type-strength: #60A5FA;
+  --k-type-strength-grad: linear-gradient(135deg, #7FB8FB 0%, #3B82F6 100%);
 
   /* Elevation — dark uses lighter surfaces; shadows collapse to a 0.5px ring */
   --k-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
@@ -144,6 +144,13 @@ html.light {
 
   --k-progress: #16B8A6;
   --k-progress-2: #7C5CFF;
+
+  /* Type colours are tuned for the ink canvas. On paper the bright ones fall
+     apart as text (tempo yellow is ~1.2:1 against #F4F4EE), so the two worst
+     offenders get a deepened twin. Fills/spines keep the brand hue via the
+     -grad twins; only the flat colour is darkened. */
+  --k-type-tempo: #8A6D00;
+  --k-type-easy: #2E9E58;
 
   --k-warn: #E8850A;
   --k-danger: #E03A3A;
