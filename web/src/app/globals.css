@@ -406,6 +406,23 @@ html.light .press:active {
   animation: k-shine 2.2s var(--ease-ios) infinite;
 }
 
+/* Celebration ring leaving the badge on completion. */
+@keyframes k-burst {
+  0% {
+    transform: scale(0.62);
+    opacity: 0.55;
+    box-shadow: 0 0 0 2px rgba(200, 255, 60, 0.55);
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+    box-shadow: 0 0 0 2px rgba(200, 255, 60, 0);
+  }
+}
+.animate-k-burst {
+  animation: k-burst 1.4s var(--ease-ios) infinite;
+}
+
 @keyframes k-dot {
   0%, 100% { opacity: 0.28; }
   50% { opacity: 1; }
