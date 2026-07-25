@@ -17,7 +17,7 @@ import { StepDays } from "./steps/StepDays";
 import { StepAvailability } from "./steps/StepAvailability";
 import { StepTimeline } from "./steps/StepTimeline";
 import { StepPreferences } from "./steps/StepPreferences";
-import { GeneratingOverlay } from "./steps/GeneratingOverlay";
+import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
 import {
   DEFAULT_GOAL_SECONDS,
   GOAL_TIME_RANGES,
@@ -138,6 +138,10 @@ export default function CreatePlanPage() {
   }, []);
 
   const [saving, setSaving] = useState(false);
+  // Flips once the plan really exists; the loader lands its bar on 100% and
+  // then calls back to navigate, so the bar never claims completion early.
+  const [built, setBuilt] = useState(false);
+  const builtPlanId = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -279,7 +283,6 @@ export default function CreatePlanPage() {
     // Final step, generate on the server.
     setSaving(true);
     haptic("medium");
-    const minDelay = new Promise((resolve) => setTimeout(resolve, 2600));
     try {
       const common = {
         intent,
@@ -322,13 +325,14 @@ export default function CreatePlanPage() {
         throw new Error(message);
       }
       const savedPlan = await res.json();
-      await minDelay;
       haptic("success");
-      router.push(`/plan?id=${savedPlan.id}`);
+      builtPlanId.current = savedPlan.id;
+      setBuilt(true);
     } catch (e) {
       haptic("warning");
       setError(e instanceof Error ? e.message : "Failed to create plan");
       setSaving(false);
+      setBuilt(false);
     }
   }
 
@@ -502,7 +506,14 @@ export default function CreatePlanPage() {
         </div>
       </div>
 
-      <AnimatePresence>{saving && <GeneratingOverlay />}</AnimatePresence>
+      <AnimatePresence>
+        {saving && (
+          <PlanBuildingLoader
+            complete={built}
+            onSettled={() => router.push(`/plan?id=${builtPlanId.current}`)}
+          />
+        )}
+      </AnimatePresence>
     </main>
   );
 }

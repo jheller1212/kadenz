@@ -341,6 +341,79 @@ html.light .press:active {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
+/* ── Boot splash + plan-building loader ──────────────────────────────────── */
+
+/* The splash and the plan loader are always-dark branded moments (volt mark on
+   near-black) regardless of the user's theme. Dark is the `:root` default and
+   light is an `html.light` override, so a subtree can opt back into dark by
+   re-declaring just the tokens these two screens use — custom properties are
+   inherited, so declaring them on the element wins for its whole subtree. */
+.k-dark-surface {
+  /* Read directly by inline styles on these two screens, so a plain override
+     works: the var is substituted on the element that uses it. */
+  --k-bg-grad: linear-gradient(180deg, #0f0f14 0%, #08080b 100%);
+
+  /* Utility-facing colours must be overridden at the --color-* level, not
+     --k-*. Tailwind's @theme declares --color-x: var(--k-x) on :root, and a
+     custom property is substituted where it is *declared* — so --color-x has
+     already resolved against html.light's --k-x before it inherits down here.
+     Re-declaring --k-x on a descendant would change nothing. */
+  --color-bg: #0b0b0f;
+  --color-elevated: #1e1e26;
+  --color-text-1: #f4f4ee;
+  --color-text-3: #83838f;
+}
+
+/* Volt progress fill — a warmer, angled twin of --k-accent-grad, used only by
+   the plan loader's bar. */
+:root {
+  --k-volt-grad: linear-gradient(140deg, #dbff66 0%, #c8ff3c 54%, #a6e52e 100%);
+}
+
+/* Shared by BootSplash and PlanBuildingLoader. Kept as CSS keyframes (not
+   motion) so the reduced-motion rule at the bottom of this file collapses them
+   all for free — the progress fill is driven by inline width, so it survives. */
+
+@keyframes k-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+.animate-k-breathe {
+  animation: k-breathe 2.8s var(--ease-ios) infinite;
+}
+
+@keyframes k-glow {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.96); }
+  50% { opacity: 0.92; transform: translate(-50%, -50%) scale(1.06); }
+}
+.animate-k-glow {
+  animation: k-glow 4.4s ease-in-out infinite;
+}
+
+@keyframes k-spin {
+  to { transform: rotate(360deg); }
+}
+.animate-k-spin {
+  animation: k-spin 5.5s linear infinite;
+}
+
+/* Holds off-screen from 60% so the sweep reads as a periodic glint, not a loop. */
+@keyframes k-shine {
+  0% { transform: translateX(-120%); }
+  60%, 100% { transform: translateX(360%); }
+}
+.animate-k-shine {
+  animation: k-shine 2.2s var(--ease-ios) infinite;
+}
+
+@keyframes k-dot {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 1; }
+}
+.animate-k-dot {
+  animation: k-dot 1.3s ease-in-out infinite;
+}
+
 /* Hide scrollbar for scroll pickers / carousels */
 .scrollbar-none::-webkit-scrollbar {
   display: none;
