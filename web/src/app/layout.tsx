@@ -22,6 +22,7 @@ import splashImages from "../../public/splash/index.json";
 import { ServiceWorkerRegistration } from "./sw-register";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SessionProvider } from "@/components/SessionProvider";
+import { OfflineBanner } from "@/components/ui/feedback";
 
 export const metadata: Metadata = {
   title: "Kadenz",
@@ -82,6 +83,7 @@ export default function RootLayout({
         <ThemeProvider />
         <ServiceWorkerRegistration />
         <div className="app-frame">
+          <OfflineBanner />
           <SessionProvider>{children}</SessionProvider>
         </div>
       </body>

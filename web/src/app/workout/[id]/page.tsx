@@ -17,6 +17,7 @@ import { useSwipeBack } from "@/lib/useSwipeBack";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel } from "@/lib/units";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
+import { WorkoutCelebration } from "@/components/WorkoutCelebration";
 import { Radio, Play, Music } from "lucide-react";
 import {
   clearRunSnapshot,
@@ -536,6 +537,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       if (res.ok) {
         haptic("success");
         setWorkout((prev) => prev ? { ...prev, status: "completed" } : prev);
+        setCelebrating(true);
       } else {
         setActionError("Couldn't save your workout. Please try again.");
       }
@@ -545,6 +547,10 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       setCompleting(false);
     }
   }
+
+  // Fires on a fresh completion only, so revisiting a done workout is quiet.
+  const [celebrating, setCelebrating] = useState(false);
+  const [celebrationDetail, setCelebrationDetail] = useState<string | null>(null);
 
   const [rpeSaving, setRpeSaving] = useState(false);
   async function handleRpe(rpe: number) {
@@ -570,6 +576,16 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   }
 
   function markCompletedLocally(summary: GuidedRunFinish) {
+    const km = summary.distanceKm;
+    const mins = Math.round(summary.elapsedSeconds / 60);
+    setCelebrationDetail(
+      km != null && km > 0
+        ? `${km.toFixed(2)} km in ${mins} min`
+        : mins > 0
+          ? `${mins} min`
+          : null
+    );
+    setCelebrating(true);
     setWorkout((prev) =>
       prev
         ? {
@@ -1051,6 +1067,15 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {celebrating && (
+          <WorkoutCelebration
+            detail={celebrationDetail}
+            onDone={() => setCelebrating(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Warm-up / mobility overlay */}
       <AnimatePresence>

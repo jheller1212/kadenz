@@ -19,7 +19,7 @@ import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { KadenzMark } from "@/components/ui/KadenzMark";
 import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/feedback";
+import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { workoutColor, STRENGTH_COLOR } from "@/lib/workout-colors";
 import { WeeklyStrengthPlan } from "@/components/strength/WeeklyStrengthPlan";
@@ -236,18 +236,29 @@ export default function PlanHubPage() {
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState<ApiPlanRow | null>(null);
   const [sessions, setSessions] = useState<StrengthSessionRow[]>([]);
+  // Distinct from "no plan": a failed load must not render as an empty state,
+  // which would tell the athlete their plan is gone.
+  const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const todayRes = await apiFetch("/api/today");
-        if (!todayRes.ok) return;
+        if (!todayRes.ok) {
+          if (!cancelled) setFailed(true);
+          return;
+        }
         const today = await todayRes.json();
         if (!today.activePlan || cancelled) return;
 
         const planRes = await apiFetch(`/api/plans/${today.planId}`);
-        if (!planRes.ok || cancelled) return;
+        if (!planRes.ok) {
+          if (!cancelled) setFailed(true);
+          return;
+        }
+        if (cancelled) return;
         const p = (await planRes.json()) as ApiPlanRow;
         setPlan(p);
 
@@ -266,7 +277,7 @@ export default function PlanHubPage() {
           }
         }
       } catch {
-        /* silent — empty state below */
+        if (!cancelled) setFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -274,7 +285,13 @@ export default function PlanHubPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
+
+  const retry = () => {
+    setFailed(false);
+    setLoading(true);
+    setReloadKey((k) => k + 1);
+  };
 
   const now = new Date();
 
@@ -307,6 +324,7 @@ export default function PlanHubPage() {
   }, [plan]);
 
   if (loading) return <HubSkeleton />;
+  if (failed) return <ErrorState onRetry={retry} />;
   if (!plan || !derived) return <HubEmptyState />;
 
   const raceDateLabel = new Date(plan.raceDate).toLocaleDateString("en-US", {
