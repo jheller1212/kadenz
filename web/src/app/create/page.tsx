@@ -18,6 +18,7 @@ import { StepAvailability } from "./steps/StepAvailability";
 import { StepTimeline } from "./steps/StepTimeline";
 import { StepPreferences } from "./steps/StepPreferences";
 import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
+import { PlanErrorScreen } from "@/components/PlanErrorScreen";
 import {
   PlanReadyScreen,
   type PlanReadySummary,
@@ -145,6 +146,8 @@ export default function CreatePlanPage() {
   // Flips once the plan really exists; the loader lands its bar on 100% and
   // then calls back to navigate, so the bar never claims completion early.
   const [built, setBuilt] = useState(false);
+  // Generation failed: the overlay stays up and shows the error screen.
+  const [failed, setFailed] = useState(false);
   const builtPlanId = useRef<string | null>(null);
   // Set once the loader's bar has landed: the loader hands off to the reveal,
   // which hands off to the plan itself on the athlete's tap.
@@ -288,7 +291,14 @@ export default function CreatePlanPage() {
       setStepIdx((i) => i + 1);
       return;
     }
-    // Final step, generate on the server.
+    await submitPlan();
+  }
+
+  // Split out of next() so the error screen's Try again can re-submit the same
+  // answers without the athlete re-walking the wizard.
+  async function submitPlan() {
+    setError(null);
+    setFailed(false);
     setSaving(true);
     haptic("medium");
     try {
@@ -340,7 +350,9 @@ export default function CreatePlanPage() {
     } catch (e) {
       haptic("warning");
       setError(e instanceof Error ? e.message : "Failed to create plan");
-      setSaving(false);
+      // `saving` stays true so the overlay holds; the error screen replaces the
+      // loader rather than dumping the athlete back onto the wizard.
+      setFailed(true);
       setBuilt(false);
     }
   }
@@ -516,7 +528,18 @@ export default function CreatePlanPage() {
       </div>
 
       <AnimatePresence>
-        {saving && !readyPlan && (
+        {saving && failed && (
+          <PlanErrorScreen
+            message={error}
+            onRetry={submitPlan}
+            onBack={() => {
+              setSaving(false);
+              setFailed(false);
+              setError(null);
+            }}
+          />
+        )}
+        {saving && !failed && !readyPlan && (
           <PlanBuildingLoader
             complete={built}
             onSettled={() => {

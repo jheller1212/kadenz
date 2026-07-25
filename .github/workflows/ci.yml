@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded runs are wasted minutes: pushing twice to a PR previously ran CI
+# to completion twice. Never cancel on main - those runs are the post-merge
+# record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   web:
     name: Web (Next.js)
@@ -25,6 +32,17 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Reuse the previous build's compiler cache. next build dominates this
+      # job's runtime, and a warm .next/cache cuts most of the recompilation.
+      - name: Cache Next build
+        uses: actions/cache@v4
+        with:
+          path: web/.next/cache
+          key: next-${{ hashFiles('web/package-lock.json') }}-${{ hashFiles('web/src/**') }}
+          restore-keys: |
+            next-${{ hashFiles('web/package-lock.json') }}-
+            next-
 
       # Blocking: the lint-error debt (React 19 / eslint-config-next 16 hook
       # rules) is cleared. `eslint` exits non-zero on errors only — remaining
