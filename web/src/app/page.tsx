@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   ChevronDown,
   ChevronRight,
@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Zap,
   Dumbbell,
+  MapPin,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -29,11 +30,14 @@ import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor, workoutInk } from "@/lib/workout-colors";
 import { displayTemp, displayDistance, distanceUnitLabel } from "@/lib/units";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
-import { loadSettings } from "@/lib/settings";
+import { loadSettings, saveSettings } from "@/lib/settings";
+import { requestLocationPermission, declineLocationPrimer } from "@/lib/permissions";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
+import { PermissionPrimer } from "@/components/PermissionPrimer";
+import { FirstRunWalkthrough } from "@/components/FirstRunWalkthrough";
 import { haptic } from "@/lib/haptics";
 import { readCache, writeCache } from "@/lib/client-cache";
 import { mutateWithQueue, installQueueFlush } from "@/lib/offline-queue";
@@ -120,9 +124,22 @@ function localDateKey(d: Date): string {
   return d.toLocaleDateString("en-CA");
 }
 
-function useWeather(selectedDate: Date | null) {
+// Location priming is opportunistic: the first time weather actually needs a
+// precise fix and the athlete has never answered the primer, useWeather asks
+// the caller to show it (via onNeedsLocationPrimer) instead of calling
+// getCurrentPosition itself — IP-based location covers the gap in the
+// meantime, so the forecast never just hangs waiting on a decision.
+function useWeather(selectedDate: Date | null, onNeedsLocationPrimer?: () => void) {
   const [cache, setCache] = useState<WeatherCache>({ daily: {}, coords: null, location: "" });
   const dateKey = localDateKey(selectedDate ?? new Date());
+  const primerCbRef = useRef(onNeedsLocationPrimer);
+  useEffect(() => {
+    primerCbRef.current = onNeedsLocationPrimer;
+  });
+  // Set inside the effect below (where resolveLocation is in scope) so the
+  // primer's "Allow" tap can trigger the real fix immediately instead of
+  // waiting for an unrelated re-render to pick up the new permission.
+  const allowRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     function fetchForecast(lat: number, lon: number, loc: string) {
@@ -235,9 +252,9 @@ function useWeather(selectedDate: Date | null) {
       return null;
     }
 
-    // Fresh GPS fix without any prompt — only runs when permission is already
-    // granted, so the position is always current (permission persists; calling
-    // getCurrentPosition again never re-prompts once granted).
+    // Fresh GPS fix without any prompt — only ever called once
+    // settings.locationPermission is "allowed" (see gate below), so this
+    // never surprises anyone with an OS dialog.
     function refreshFromGps() {
       navigator.geolocation.getCurrentPosition(
         (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude, true),
@@ -246,37 +263,44 @@ function useWeather(selectedDate: Date | null) {
       );
     }
 
+    // The one gate every precise-location path funnels through: only call
+    // the real geolocation API once the athlete has answered the primer.
+    // "unset" surfaces the primer (once) instead of prompting cold.
+    const locationPermission = loadSettings().locationPermission;
+
+    // Wired to the primer's "Allow" button — the one call in this hook that
+    // may trigger a real OS prompt.
+    allowRef.current = () => {
+      requestLocationPermission(
+        (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude, true),
+        () => { /* denied at the OS level — settings already reflects that */ },
+      );
+    };
+
     if (cached) {
       // Show the cached fix immediately, then correct it.
       resolveLocation(cached.lat, cached.lon, false);
-      if (navigator.geolocation && "permissions" in navigator) {
-        navigator.permissions
-          .query({ name: "geolocation" })
-          .then((perm) => {
-            if (perm.state === "granted") {
-              refreshFromGps();
-            } else if (perm.state === "prompt") {
-              // Never actually asked (an early IP fix suppressed the one-time
-              // prompt): ask now — a precise fix beats any cached guess.
-              refreshFromGps();
-            } else if (Date.now() - (cached!.ts ?? 0) > LOCATION_REFRESH_MS) {
-              // Permission not granted: fall back to a periodic IP refresh.
-              ipLocate().then((loc) => {
-                if (!loc) return;
-                try {
-                  localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ ...loc, ts: Date.now() }));
-                } catch { /* ignore */ }
-                resolveLocation(loc.lat, loc.lon, false);
-              });
-            }
-          })
-          .catch(() => { /* Permissions API unavailable — keep cached fix */ });
+      if (locationPermission === "allowed" && navigator.geolocation) {
+        refreshFromGps();
+      } else if (locationPermission === "unset") {
+        primerCbRef.current?.();
+      } else if (Date.now() - (cached!.ts ?? 0) > LOCATION_REFRESH_MS) {
+        // Declined: fall back to a periodic IP refresh instead.
+        ipLocate().then((loc) => {
+          if (!loc) return;
+          try {
+            localStorage.setItem(LOCATION_CACHE_KEY, JSON.stringify({ ...loc, ts: Date.now() }));
+          } catch { /* ignore */ }
+          resolveLocation(loc.lat, loc.lon, false);
+        });
       }
       return;
     }
 
-    // First ever use: one precise-location prompt, then IP fallbacks.
-    if (navigator.geolocation) {
+    // First ever use, no cache yet. Only ask GPS directly if already
+    // allowed; otherwise surface the primer and cover the gap with IP
+    // location so the forecast still loads while the athlete decides.
+    if (locationPermission === "allowed" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => resolveLocation(pos.coords.latitude, pos.coords.longitude, true),
         async () => {
@@ -291,11 +315,12 @@ function useWeather(selectedDate: Date | null) {
         { timeout: 5000 }
       );
     } else {
+      if (locationPermission === "unset") primerCbRef.current?.();
       ipLocate().then((loc) => { if (loc) resolveLocation(loc.lat, loc.lon, false); });
     }
   }, [cache.coords]);
 
-  return cache.daily[dateKey] ?? null;
+  return [cache.daily[dateKey] ?? null, () => allowRef.current()] as const;
 }
 
 function WeatherIcon({ code, className }: { code: number; className?: string }) {
@@ -1371,7 +1396,20 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedWorkout, setSelectedWorkout] = useState<TodayApiWorkout | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const weather = useWeather(selectedDate);
+  const [showLocationPrimer, setShowLocationPrimer] = useState(false);
+  const [weather, allowWeatherLocation] = useWeather(selectedDate, () => setShowLocationPrimer(true));
+
+  // First-run walkthrough: shown once, right after sign-in lands here.
+  // Deferred to an effect (not render) since settings only exist client-side.
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time client-only read from localStorage
+    if (!loadSettings().onboardingSeen) setShowWalkthrough(true);
+  }, []);
+  function finishWalkthrough() {
+    saveSettings({ ...loadSettings(), onboardingSeen: true });
+    setShowWalkthrough(false);
+  }
 
   const applyToday = useCallback((json: TodayApiResponse, opts?: { keepSelection?: boolean }) => {
     // Skip the whole cascade when a heartbeat returns identical data — setData
@@ -1618,8 +1656,23 @@ export default function Home() {
     }
   }
 
-  if (loading) return <TodaySkeleton />;
-  if (!data?.activePlan) return <NoPlanCTA error={loadError} onRetry={loadData} />;
+  // The walkthrough can land on either the skeleton or the no-plan empty
+  // state (a first sign-in has no plan yet), so it rides along with both
+  // early returns rather than only the fully-loaded Today below.
+  const onboardingOverlay = showWalkthrough && (
+    <AnimatePresence>
+      <FirstRunWalkthrough onDone={finishWalkthrough} />
+    </AnimatePresence>
+  );
+
+  if (loading) return <>{<TodaySkeleton />}{onboardingOverlay}</>;
+  if (!data?.activePlan)
+    return (
+      <>
+        <NoPlanCTA error={loadError} onRetry={loadData} />
+        {onboardingOverlay}
+      </>
+    );
 
   const currentWeek = data.currentWeek ?? 1;
   const totalWeeks = data.totalWeeks ?? 1;
@@ -1804,6 +1857,32 @@ export default function Home() {
       />
 
       <BottomNav active="today" />
+
+      {onboardingOverlay}
+
+      <AnimatePresence>
+        {/* Never stack this on the walkthrough — one overlay asking something
+            of the athlete at a time. It reappears the moment the walkthrough
+            clears, since showLocationPrimer itself doesn't change. */}
+        {showLocationPrimer && !showWalkthrough && (
+          <PermissionPrimer
+            icon={MapPin}
+            title="Weather where you run"
+            body="Your location lets us show the conditions for today's session, and warn you when heat or wind should change your target pace."
+            allowLabel="Allow location"
+            onAllow={() => {
+              // Fires the real OS prompt — the one place in the app that's
+              // allowed to.
+              allowWeatherLocation();
+              setShowLocationPrimer(false);
+            }}
+            onDismiss={() => {
+              declineLocationPrimer();
+              setShowLocationPrimer(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </main>
   );
 }

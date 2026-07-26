@@ -31,6 +31,7 @@ import {
   Camera,
   LogOut,
   Download,
+  ShieldCheck,
 } from "lucide-react";
 import pkg from "../../../package.json";
 
@@ -165,6 +166,7 @@ const PREFERENCE_ROWS = [
   { href: "/settings/sync", label: "Sync", icon: RefreshCw },
   { href: "/settings/household", label: "Household", icon: Users },
   { href: "/settings/export", label: "Export data", icon: Download },
+  { href: "/settings/permissions", label: "Permissions", icon: ShieldCheck },
 ] as const;
 
 export default function SettingsPage() {

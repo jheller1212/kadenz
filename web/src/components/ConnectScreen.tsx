@@ -21,13 +21,13 @@ export function ConnectScreen() {
         </motion.div>
         <h1 className="font-display text-[38px] uppercase tracking-[0.04em] text-text-1">Kadenz</h1>
         <p className="mt-2 max-w-[280px] text-[15px] leading-relaxed text-text-2">
-          Structured running plans that adapt to the runs you actually do.
+          A running plan and a real strength programme, both built around the training you actually do.
         </p>
 
         <div className="mt-9 flex w-full max-w-[300px] flex-col gap-3 text-left">
-          <Feature icon={<CalendarDays className="h-5 w-5" />} text="Adaptive weekly training plans" />
-          <Feature icon={<Activity className="h-5 w-5" />} text="Auto-sync your Strava activities" />
-          <Feature icon={<Dumbbell className="h-5 w-5" />} text="Kraft strength & Achilles rehab" />
+          <Feature icon={<CalendarDays className="h-5 w-5" />} text="Weekly plans that adapt to your real runs" />
+          <Feature icon={<Dumbbell className="h-5 w-5" />} text="Kraft strength, coupled to your running phase" />
+          <Feature icon={<Activity className="h-5 w-5" />} text="Auto-synced from Strava, no manual logging" />
         </div>
       </div>
 

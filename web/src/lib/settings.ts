@@ -75,6 +75,20 @@ export interface UserSettings {
    * (authoritative copy lives in the DB via /api/garmin/config so the cron
    * can read it — this mirror just makes the settings UI instant). */
   garminSyncWorkouts: boolean;
+
+  // ── Onboarding & permissions ─────────────────────────────────────────────
+  /** Has the once-only first-run walkthrough (Today, post sign-in) been shown. */
+  onboardingSeen: boolean;
+  /**
+   * Our record of the geolocation permission decision. "unset" means the
+   * priming sheet hasn't been answered yet — nothing may call the real
+   * geolocation API while it's "unset". Reconciled toward the live
+   * Permissions API result wherever that's resolved (see lib/permissions.ts),
+   * so this stays honest even if the OS-level choice changed outside the app.
+   */
+  locationPermission: "unset" | "allowed" | "declined";
+  /** Same contract as locationPermission, for the Notification API. */
+  notificationsPermission: "unset" | "allowed" | "declined";
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -111,6 +125,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   runPaceAlerts: true,
   runPauseWarning: true,
   garminSyncWorkouts: false,
+  onboardingSeen: false,
+  locationPermission: "unset",
+  notificationsPermission: "unset",
 };
 
 /** Peak WebAudio gain (and speech volume) per cue-volume level. */
