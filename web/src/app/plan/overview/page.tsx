@@ -6,10 +6,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Moon,
+  SlidersHorizontal,
 } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Sheet } from "@/components/ui/Sheet";
@@ -20,13 +22,24 @@ import { haptic } from "@/lib/haptics";
 import {
   runSpine,
   STRENGTH_SPINE,
+  STRENGTH_BLUE,
   type ApiPlanRow,
   type ApiWorkoutRow,
   type StrengthSessionRow,
   mondayOf,
   addDays,
+  sameDay,
   durationWindow,
 } from "@/lib/plan-ui";
+
+const RACE_LABEL: Record<string, string> = {
+  "5k": "5K",
+  "10k": "10K",
+  half: "Half marathon",
+  marathon: "Marathon",
+  ultra: "Ultra",
+  custom: "Custom distance",
+};
 
 type Item =
   | { kind: "run"; id: string; workout: ApiWorkoutRow }
@@ -44,71 +57,119 @@ function dateLabel(d: Date): string {
   return d.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" });
 }
 
-// ── Workout card (Today-card style: gradient spine + checkbox) ────────────────
+const DAY_LETTERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
-function OverviewCard({
+// ── Day row: fixed date column + colored spine pill + title/subtitle ──────────
+// Matches the Volt "Plan · week" day-row shape. Rest days render inline too
+// (no spine, muted) so the week reads as a full 7-day schedule, not just the
+// days with something scheduled.
+
+function DayRow({
+  date,
   item,
+  isToday,
   onToggle,
   busy,
 }: {
-  item: Item;
+  date: Date;
+  item: Item | null;
+  isToday: boolean;
   onToggle: (item: Item) => void;
   busy: boolean;
 }) {
-  const completed = itemStatus(item) === "completed";
-  const spine = item.kind === "run" ? runSpine(item.workout.type) : STRENGTH_SPINE;
-  const title = item.kind === "run" ? item.workout.title : item.session.title;
-  const typeLabel =
-    item.kind === "run"
-      ? item.workout.type.charAt(0).toUpperCase() + item.workout.type.slice(1)
-      : "Strength";
-  const spec =
-    item.kind === "run"
-      ? item.workout.targetKm != null
-        ? `${displayDistance(item.workout.targetKm)}${distanceUnitLabel()}`
-        : item.workout.targetDurationMinutes != null
-        ? `${item.workout.targetDurationMinutes}m`
-        : null
-      : item.session.targetDurationMinutes != null
-      ? durationWindow(item.session.targetDurationMinutes)
-      : null;
-  const href =
-    item.kind === "run" ? `/workout/${item.id}` : `/strength/session/${item.id}`;
+  const completed = item ? itemStatus(item) === "completed" : false;
+  const spine = !item
+    ? "var(--k-hairline)"
+    : item.kind === "run"
+    ? runSpine(item.workout.type)
+    : STRENGTH_SPINE;
+  const spineIsGradient = spine.startsWith("linear-gradient");
+  const title = item ? (item.kind === "run" ? item.workout.title : item.session.title) : "Rest";
+  const spec = !item
+    ? "Recovery is part of the plan."
+    : item.kind === "run"
+    ? item.workout.targetKm != null
+      ? `${displayDistance(item.workout.targetKm)}${distanceUnitLabel()}`
+      : item.workout.targetDurationMinutes != null
+      ? `${item.workout.targetDurationMinutes}m`
+      : dateLabel(itemDate(item))
+    : item.session.targetDurationMinutes != null
+    ? durationWindow(item.session.targetDurationMinutes)
+    : dateLabel(itemDate(item));
+  const href = item
+    ? item.kind === "run"
+      ? `/workout/${item.id}`
+      : `/strength/session/${item.id}`
+    : null;
+  const stateColor = item
+    ? item.kind === "run"
+      ? runSpine(item.workout.type)
+      : STRENGTH_BLUE
+    : undefined;
+
+  const rowClass = `flex items-center gap-3 rounded-2xl px-[15px] py-[13px] ${
+    isToday
+      ? "bg-accent/10 [box-shadow:inset_0_0_0_1.5px_rgba(200,255,61,0.5)]"
+      : "k-card"
+  } ${!item ? "opacity-75" : ""}`;
+
+  const dateCol = (
+    <div className="w-9 shrink-0 text-center">
+      <p className={`text-[9px] font-bold ${isToday ? "text-accent-fg" : "text-text-3"}`}>
+        {DAY_LETTERS[(date.getDay() + 6) % 7]}
+      </p>
+      <p className={`font-display text-[17px] leading-none ${isToday ? "text-accent-fg" : "text-text-1"}`}>
+        {date.getDate()}
+      </p>
+    </div>
+  );
+
+  const spinePill = (
+    <div
+      className="h-9 w-1 shrink-0 rounded-full"
+      style={spineIsGradient ? { backgroundImage: spine } : { backgroundColor: spine }}
+    />
+  );
+
+  const textCol = (
+    <div className="min-w-0 flex-1">
+      <p className="truncate text-[15px] font-bold text-text-1">{title}</p>
+      <p className="truncate text-xs text-text-3">{spec}</p>
+    </div>
+  );
+
+  // Not a link when there's nothing to open (rest day).
+  if (!href || !item) {
+    return (
+      <div className={rowClass}>
+        {dateCol}
+        {spinePill}
+        {textCol}
+        <Moon className="h-[18px] w-[18px] shrink-0 text-text-3" strokeWidth={1.5} />
+      </div>
+    );
+  }
 
   return (
-    <div className="k-card relative flex items-stretch overflow-hidden">
-      <div className="w-1.5 shrink-0" style={{ backgroundImage: spine }} />
-
-      <TransitionLink href={href} className="press min-w-0 flex-1 px-4 py-3.5">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-text-3">
-          {typeLabel}
-        </p>
-        <p className="mt-0.5 text-[15px] font-bold leading-tight text-text-1 truncate">
-          {title}
-        </p>
-        <p className="mt-0.5 text-[12.5px] text-text-3">
-          {dateLabel(itemDate(item))}
-          {spec && ` · ${spec}`}
-        </p>
+    <div className={rowClass}>
+      <TransitionLink href={href} className="press flex min-w-0 flex-1 items-center gap-3">
+        {dateCol}
+        {spinePill}
+        {textCol}
       </TransitionLink>
-
-      {/* Tickable rounded-square checkbox */}
       <button
         type="button"
         disabled={busy}
         onClick={() => onToggle(item)}
         aria-label={completed ? "Mark as planned" : "Mark as completed"}
-        className="press flex items-start px-3.5 pt-3.5 disabled:opacity-40"
+        className="press shrink-0 disabled:opacity-40"
       >
-        <span
-          className={`flex h-7 w-7 items-center justify-center rounded-lg border-2 transition-colors ${
-            completed
-              ? "border-text-1 bg-text-1 text-bg"
-              : "border-hairline bg-transparent text-transparent"
-          }`}
-        >
-          <Check className="h-4 w-4" strokeWidth={3} />
-        </span>
+        <CheckCircle2
+          className="h-[19px] w-[19px]"
+          strokeWidth={2}
+          style={{ color: completed ? stateColor : "var(--k-text-3)" }}
+          fill={completed ? "currentColor" : "none"}
+        />
       </button>
     </div>
   );
@@ -187,6 +248,44 @@ export default function PlanOverviewPage() {
       (a, b) => itemDate(a).getTime() - itemDate(b).getTime()
     );
   }, [plan, sessions, weekNum]);
+
+  // One row per calendar day (Mon-Sun), the run taking priority over a
+  // same-day strength session when both exist — mirrors Today's day cell.
+  // Strength gets its own row only when there's no run that day.
+  const dayRows = useMemo(() => {
+    if (!plan) return [];
+    const week = plan.weeks.find((w) => w.weekNumber === weekNum);
+    const first = week?.workouts[0]?.date;
+    if (!week || !first) return [];
+    const monday = mondayOf(new Date(first));
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = addDays(monday, i);
+      const run = items.find((it) => it.kind === "run" && sameDay(itemDate(it), date));
+      const strength = items.find((it) => it.kind === "strength" && sameDay(itemDate(it), date));
+      return { date, item: run ?? strength ?? null };
+    });
+  }, [plan, weekNum, items]);
+
+  const weekKm = useMemo(() => {
+    const week = plan?.weeks.find((w) => w.weekNumber === weekNum);
+    return week?.targetKm ?? 0;
+  }, [plan, weekNum]);
+
+  const raceDateObj = plan ? new Date(plan.raceDate) : null;
+  const now = new Date();
+  const daysToRace = raceDateObj
+    ? Math.max(0, Math.round((raceDateObj.getTime() - now.getTime()) / 86_400_000))
+    : null;
+  const phaseLine =
+    plan?.intent && plan.intent !== "race"
+      ? totalWeeks - weekNum > 0
+        ? `${totalWeeks - weekNum} week${totalWeeks - weekNum === 1 ? "" : "s"} left`
+        : "Final week"
+      : daysToRace != null
+      ? daysToRace > 0
+        ? `${daysToRace} day${daysToRace === 1 ? "" : "s"} to ${RACE_LABEL[plan!.raceDistance] ?? "race day"}`
+        : "Race week"
+      : null;
 
   // ── Complete / untick ───────────────────────────────────────────────────────
 
@@ -289,7 +388,21 @@ export default function PlanOverviewPage() {
 
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title="Plan Overview" large={false} centerAlways left={backButton} />
+      <NavBar
+        title="Plan overview"
+        large={false}
+        centerAlways
+        left={backButton}
+        right={
+          <TransitionLink
+            href="/plan/manage"
+            aria-label="Manage plan"
+            className="press flex h-9 w-9 items-center justify-center rounded-xl bg-elevated"
+          >
+            <SlidersHorizontal className="h-[18px] w-[18px] text-text-1" strokeWidth={2} />
+          </TransitionLink>
+        }
+      />
 
       <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-8 pt-2">
         {/* Week switcher */}
@@ -311,10 +424,17 @@ export default function PlanOverviewPage() {
               haptic("light");
               setWeekSheetOpen(true);
             }}
-            className="press flex items-center gap-1.5"
+            className="press flex flex-col items-center gap-0.5"
           >
-            <span className="text-[17px] font-bold text-text-1">Week {weekNum}</span>
-            <ChevronDown className="h-3.5 w-3.5 text-text-3" strokeWidth={2.5} />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-text-3">
+              {plan.intent && plan.intent !== "race"
+                ? plan.name
+                : `${RACE_LABEL[plan.raceDistance] ?? plan.name} · ${totalWeeks} weeks`}
+            </span>
+            <span className="flex items-center gap-1.5 text-[17px] font-bold text-text-1">
+              Week {weekNum}
+              <ChevronDown className="h-3.5 w-3.5 text-text-3" strokeWidth={2.5} />
+            </span>
           </button>
 
           <button
@@ -330,20 +450,62 @@ export default function PlanOverviewPage() {
           </button>
         </header>
 
-        {/* Workout cards in date order */}
-        {items.length === 0 ? (
+        {/* Aurora hero: km planned this week, day-progress pips, phase line */}
+        <section
+          className="rounded-[24px] px-[22px] py-5 text-on-accent"
+          style={{ background: "var(--k-sig-aurora)" }}
+        >
+          <p className="text-[10px] font-extrabold uppercase tracking-widest opacity-70">
+            {plan.intent && plan.intent !== "race" ? plan.intent.replace("_", " ") : "Training week"}
+          </p>
+          <p className="mt-1 font-display text-[38px] leading-[0.9]">
+            {displayDistance(weekKm, 0)}
+            <span className="ml-1 text-[17px] font-display">
+              {distanceUnitLabel().toUpperCase()} PLANNED
+            </span>
+          </p>
+          {dayRows.length > 0 && (
+            <div className="mt-3.5 flex gap-1">
+              {dayRows.map((d, i) => (
+                <div
+                  key={i}
+                  className="h-1.5 flex-1 rounded-full"
+                  style={{
+                    background: !d.item
+                      ? "rgba(11,11,15,0.13)"
+                      : d.item && itemStatus(d.item) === "completed"
+                      ? "#0B0B0F"
+                      : "rgba(11,11,15,0.33)",
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          {phaseLine && <p className="mt-2 text-xs font-bold">{phaseLine}</p>}
+        </section>
+
+        <p className="mx-0.5 -mb-1 text-[11px] font-extrabold uppercase tracking-widest text-text-3">
+          This week
+        </p>
+
+        {/* Day rows, Monday through Sunday */}
+        {dayRows.length === 0 ? (
           <p className="pt-4 text-center text-[13px] text-text-3">
             No workouts scheduled this week.
           </p>
         ) : (
-          items.map((item) => (
-            <OverviewCard
-              key={`${item.kind}:${item.id}`}
-              item={item}
-              onToggle={toggle}
-              busy={busyId === item.id}
-            />
-          ))
+          <div className="flex flex-col gap-[9px]">
+            {dayRows.map((d, i) => (
+              <DayRow
+                key={i}
+                date={d.date}
+                item={d.item}
+                isToday={sameDay(d.date, now)}
+                onToggle={toggle}
+                busy={!!d.item && busyId === d.item.id}
+              />
+            ))}
+          </div>
         )}
       </div>
 
