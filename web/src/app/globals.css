@@ -368,7 +368,17 @@ html.light .press:active {
   --color-bg: #0b0b0f;
   --color-elevated: #1e1e26;
   --color-text-1: #f4f4ee;
+  --color-text-2: #a0a0ac;
   --color-text-3: #83838f;
+  /* Volt is legible on ink, so the accent FOREGROUND must go back to volt here.
+     Without this, text-accent-fg on a dark surface inherits the light theme's
+     deep green (or worse, resolves to text-1) and the inverted "today" cell
+     rendered near-white instead of volt. */
+  --color-accent-fg: #c8ff3d;
+  --color-accent: #c8ff3d;
+  --color-on-accent: #0b0b0f;
+  --color-surface: #141419;
+  --color-hairline: #26262f;
 }
 
 /* Volt progress fill — a warmer, angled twin of --k-accent-grad, used only by
