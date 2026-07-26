@@ -70,6 +70,65 @@ describe("estimateCurrentFitness", () => {
   });
 });
 
+describe("estimateCurrentFitness with a race result", () => {
+  it("prefers a recent race result over a faster training run", () => {
+    const runs: RunSample[] = [
+      // A much faster training 10k that would otherwise win on VDOT alone.
+      { distanceKm: 10, durationSeconds: 38 * 60, date: daysAgo(10) },
+    ];
+    const raceResult: RunSample = {
+      distanceKm: 21.1,
+      durationSeconds: 95 * 60,
+      date: daysAgo(3),
+    };
+    const estimate = estimateCurrentFitness(runs, NOW, FITNESS_WINDOW_DAYS, raceResult);
+    expect(estimate).not.toBeNull();
+    expect(estimate!.source.isRaceResult).toBe(true);
+    expect(estimate!.source.distanceKey).toBe("race");
+    const expected = calculateVdot(21.1 * 1000, 95 * 60).vdot;
+    expect(estimate!.vdot).toBeCloseTo(expected, 5);
+  });
+
+  it("uses the race result even when it implies a lower VDOT than a training run", () => {
+    const runs: RunSample[] = [
+      { distanceKm: 5, durationSeconds: 18 * 60, date: daysAgo(5) }, // very fast 5k
+    ];
+    const raceResult: RunSample = {
+      distanceKm: 42.2,
+      durationSeconds: 4 * 60 * 60,
+      date: daysAgo(2),
+    };
+    const trainingOnly = estimateCurrentFitness(runs, NOW);
+    const withRace = estimateCurrentFitness(runs, NOW, FITNESS_WINDOW_DAYS, raceResult);
+    expect(withRace!.source.isRaceResult).toBe(true);
+    // The race's implied VDOT is lower than the training 5k's, but it still wins.
+    expect(withRace!.vdot).toBeLessThan(trainingOnly!.vdot);
+  });
+
+  it("falls back to training runs when the race result is outside the recency window", () => {
+    const runs: RunSample[] = [
+      { distanceKm: 10, durationSeconds: 45 * 60, date: daysAgo(10) },
+    ];
+    const staleRace: RunSample = {
+      distanceKm: 21.1,
+      durationSeconds: 95 * 60,
+      date: daysAgo(FITNESS_WINDOW_DAYS + 5),
+    };
+    const estimate = estimateCurrentFitness(runs, NOW, FITNESS_WINDOW_DAYS, staleRace);
+    expect(estimate!.source.isRaceResult).toBe(false);
+    expect(estimate!.source.distanceKey).toBe("10k");
+  });
+
+  it("ignores a null race result and behaves like the plain estimator", () => {
+    const runs: RunSample[] = [
+      { distanceKm: 10, durationSeconds: 45 * 60, date: daysAgo(10) },
+    ];
+    const withNull = estimateCurrentFitness(runs, NOW, FITNESS_WINDOW_DAYS, null);
+    const plain = estimateCurrentFitness(runs, NOW);
+    expect(withNull!.vdot).toBeCloseTo(plain!.vdot, 10);
+  });
+});
+
 describe("blendGoalWithCurrentFitness", () => {
   it("returns the goal VDOT unchanged when there's no current-fitness estimate", () => {
     expect(blendGoalWithCurrentFitness(50, null)).toBe(50);

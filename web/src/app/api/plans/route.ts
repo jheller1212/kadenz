@@ -343,12 +343,25 @@ export async function GET() {
         id: plans.id,
         name: plans.name,
         status: plans.status,
+        intent: plans.intent,
         raceDistance: plans.raceDistance,
         raceDate: plans.raceDate,
       })
       .from(plans);
 
-    return Response.json(rows);
+    const now = new Date();
+    // A race plan only ever leaves "active" via a logged result (see
+    // /api/workouts/[id]/race-result) or an explicit archive — so still
+    // "active" past race day means nobody logged what happened. Surfaced
+    // here rather than resolved silently: the plan-lifecycle UI decides what
+    // to do with it, this just makes sure it can't go unnoticed.
+    const withLifecycle = rows.map((p) => ({
+      ...p,
+      pastRaceDayUnlogged:
+        p.intent === "race" && p.status === "active" && p.raceDate < now,
+    }));
+
+    return Response.json(withLifecycle);
   } catch (err) {
     console.error("DB error listing plans:", err);
     return Response.json({ error: "Failed to fetch plans" }, { status: 500 });

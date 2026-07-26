@@ -1,5 +1,5 @@
-import { and, isNotNull, gte } from "drizzle-orm";
-import { db, activities } from "@/db";
+import { and, desc, eq, isNotNull, gte } from "drizzle-orm";
+import { db, activities, workouts } from "@/db";
 import {
   estimateCurrentFitness,
   FITNESS_WINDOW_DAYS,
@@ -16,11 +16,37 @@ function isRun(a: { distanceKm: number | null; strengthSessionId: string | null 
  * current-fitness VDOT. Single DB-touching entry point so plan creation, the
  * fitness-estimate API, and plan recalibration all read the same data the
  * same way.
+ *
+ * Also reads the most recent logged race result (if any) within the same
+ * window and hands it to the estimator, which gives it precedence over every
+ * training run — see estimateCurrentFitness for why.
  */
 export async function getCurrentFitnessEstimate(
   now: Date = new Date()
 ): Promise<CurrentFitnessEstimate | null> {
   const cutoff = new Date(now.getTime() - FITNESS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const [raceRow] = await db
+    .select({
+      distanceKm: workouts.targetKm,
+      durationSeconds: workouts.raceFinishSeconds,
+      date: workouts.date,
+    })
+    .from(workouts)
+    .where(
+      and(
+        eq(workouts.type, "race"),
+        isNotNull(workouts.raceFinishSeconds),
+        gte(workouts.date, cutoff)
+      )
+    )
+    .orderBy(desc(workouts.date))
+    .limit(1);
+
+  const raceResult: RunSample | null =
+    raceRow && raceRow.distanceKm != null && raceRow.durationSeconds != null
+      ? { distanceKm: raceRow.distanceKm, durationSeconds: raceRow.durationSeconds, date: raceRow.date }
+      : null;
 
   const rows = await db
     .select({
@@ -41,5 +67,5 @@ export async function getCurrentFitnessEstimate(
       date: r.startDate!,
     }));
 
-  return estimateCurrentFitness(runs, now);
+  return estimateCurrentFitness(runs, now, FITNESS_WINDOW_DAYS, raceResult);
 }

@@ -30,6 +30,7 @@ import {
   Users,
   Camera,
   LogOut,
+  Download,
 } from "lucide-react";
 import pkg from "../../../package.json";
 
@@ -163,6 +164,7 @@ const PREFERENCE_ROWS = [
   { href: "/settings/apps", label: "Connected Apps", icon: Link2 },
   { href: "/settings/sync", label: "Sync", icon: RefreshCw },
   { href: "/settings/household", label: "Household", icon: Users },
+  { href: "/settings/export", label: "Export data", icon: Download },
 ] as const;
 
 export default function SettingsPage() {

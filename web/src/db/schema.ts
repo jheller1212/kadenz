@@ -243,6 +243,17 @@ export const workouts = pgTable(
     garminWorkoutId: text("garmin_workout_id"),
     stravaActivityId: text("strava_activity_id"),
     sortOrder: integer("sort_order").notNull().default(0),
+    // Explicit race-result capture (type "race" workouts only). Kept separate
+    // from actualDurationSeconds/actualKm (which any completed workout may
+    // carry from a guided run or a synced activity) so the fitness estimator
+    // and plan-lifecycle logic can tell a deliberately logged race result
+    // apart from an ordinary run, and so undoing a normal completion never
+    // accidentally erases a race result.
+    raceFinishSeconds: integer("race_finish_seconds"),
+    // Free-text, athlete's own words on how it went — cheap to capture,
+    // shown back on the post-race screen and worth more than nothing.
+    raceFeel: text("race_feel"),
+    raceResultLoggedAt: timestamp("race_result_logged_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

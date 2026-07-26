@@ -74,10 +74,14 @@ interface WorkoutDetail {
   edited?: boolean;
   actualKm?: number | null;
   actualDurationSeconds?: number | null;
+  raceFinishSeconds?: number | null;
+  raceFeel?: string | null;
   date: string;
   dayOfWeek: number;
   blocks: WorkoutBlock[];
 }
+
+const RACE_FEEL_OPTIONS = ["Great", "Solid", "Tough", "Struggled"] as const;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -375,6 +379,187 @@ function BackButton() {
   );
 }
 
+// ── Race result capture ──────────────────────────────────────────────────────
+// Distance is already known from the plan — the only essential input is the
+// finish time. Feel is a one-tap extra, cheap to skip.
+
+function RaceResultSheet({
+  open,
+  onClose,
+  initialSeconds,
+  onSubmit,
+  saving,
+  error,
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialSeconds: number | null;
+  onSubmit: (finishSeconds: number, feel: string | null) => void;
+  saving: boolean;
+  error: string | null;
+}) {
+  const [h, setH] = useState(0);
+  const [m, setM] = useState(0);
+  const [s, setS] = useState(0);
+  const [feel, setFeel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      const total = Math.max(0, Math.round(initialSeconds ?? 0));
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed form fields when sheet opens
+      setH(Math.floor(total / 3600));
+      setM(Math.floor((total % 3600) / 60));
+      setS(total % 60);
+      setFeel(null);
+    }
+  }, [open, initialSeconds]);
+
+  const totalSeconds = h * 3600 + m * 60 + s;
+  const valid = totalSeconds > 0;
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Log race result">
+      <div className="flex flex-col gap-5 px-4 pb-6">
+        <p className="text-[13px] text-text-3">
+          Distance comes from the plan. Just the finish time.
+        </p>
+
+        <div className="flex items-center justify-center gap-2">
+          {[
+            { label: "hrs", value: h, set: setH, max: 47 },
+            { label: "min", value: m, set: setM, max: 59 },
+            { label: "sec", value: s, set: setS, max: 59 },
+          ].map(({ label, value, set, max }) => (
+            <div key={label} className="flex flex-col items-center gap-1">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={max}
+                value={value}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(max, Math.floor(Number(e.target.value) || 0)));
+                  set(n);
+                }}
+                className="w-[72px] rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center text-[24px] font-extrabold tabular-nums text-text-1"
+              />
+              <span className="text-[11px] uppercase tracking-wide text-text-3">{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <p className="mb-2 text-[13px] font-semibold text-text-2">How did it feel?</p>
+          <div className="flex flex-wrap gap-2">
+            {RACE_FEEL_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  haptic("light");
+                  setFeel((prev) => (prev === option ? null : option));
+                }}
+                className={`press rounded-full px-3.5 py-2 text-[13px] font-semibold ${
+                  feel === option ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <p className="rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
+            {error}
+          </p>
+        )}
+
+        <Button full busy={saving} disabled={!valid} onClick={() => onSubmit(totalSeconds, feel)}>
+          Save result
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Post-race screen ─────────────────────────────────────────────────────────
+// Shown once, right after a result is logged — a result card plus what-now
+// options, so there's no gap the morning after race day.
+
+function PostRaceScreen({
+  title,
+  finishSeconds,
+  distanceKm,
+  feel,
+  units,
+  planClosed,
+  onClose,
+}: {
+  title: string;
+  finishSeconds: number;
+  distanceKm: number | null;
+  feel: string | null;
+  units: "km" | "miles";
+  planClosed: boolean;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-bg px-5 pb-tabbar pt-10">
+      <div className="flex flex-1 flex-col items-center overflow-y-auto text-center">
+        <div className="w-full rounded-[var(--radius-card)] bg-accent p-6 text-on-accent">
+          <p className="text-[12px] font-bold uppercase tracking-wide opacity-80">
+            {title} · done
+          </p>
+          <p className="mt-1 text-[40px] font-extrabold tabular-nums">
+            {fmtDurationShort(finishSeconds)}
+          </p>
+          <p className="mt-1 text-[12px] opacity-80">
+            {distanceKm != null ? `${displayDistance(distanceKm, 1, units)}${distanceUnitLabel(units)}` : ""}
+            {feel ? `${distanceKm != null ? " · " : ""}Felt: ${feel}` : ""}
+          </p>
+        </div>
+
+        {planClosed && (
+          <p className="mt-4 text-[13px] leading-relaxed text-text-3">
+            This plan has nothing left to give you — it stays in your history exactly as it ran.
+          </p>
+        )}
+
+        <p className="mt-6 self-start text-[13px] font-bold uppercase tracking-wide text-text-3">
+          What now
+        </p>
+        <div className="mt-2 flex w-full flex-col gap-2.5">
+          <button
+            onClick={() => {
+              haptic("light");
+              router.push("/create");
+            }}
+            className="press flex w-full flex-col items-start rounded-[var(--radius-card)] bg-surface px-4 py-3.5 text-left"
+          >
+            <span className="text-[14.5px] font-bold text-text-1">Plan the next race</span>
+            <span className="mt-0.5 text-[12px] text-text-3">Recovery week first, then a fresh build</span>
+          </button>
+          <button
+            onClick={() => {
+              haptic("light");
+              router.push("/");
+            }}
+            className="press flex w-full flex-col items-start rounded-[var(--radius-card)] bg-surface px-4 py-3.5 text-left"
+          >
+            <span className="text-[14.5px] font-bold text-text-1">Run without a plan for now</span>
+            <span className="mt-0.5 text-[12px] text-text-3">Log what you do, no structure until you&apos;re ready</span>
+          </button>
+        </div>
+      </div>
+      <Button variant="secondary" full onClick={onClose}>
+        Decide later
+      </Button>
+    </div>
+  );
+}
+
 // ── Main Workout Detail Page ────────────────────────────────────────────────
 
 /**
@@ -494,6 +679,19 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [resumeSnap, setResumeSnap] = useState<RunSnapshot | null>(null);
   const [resuming, setResuming] = useState(false);
 
+  // Race-day result capture: the sheet, its prefill (from a guided run, if
+  // one was used), and the post-race screen shown once a result is saved.
+  const [raceResultOpen, setRaceResultOpen] = useState(false);
+  const [raceResultPrefillSeconds, setRaceResultPrefillSeconds] = useState<number | null>(null);
+  const [raceResultSaving, setRaceResultSaving] = useState(false);
+  const [raceResultError, setRaceResultError] = useState<string | null>(null);
+  const [postRace, setPostRace] = useState<{
+    finishSeconds: number;
+    distanceKm: number | null;
+    feel: string | null;
+    planClosed: boolean;
+  } | null>(null);
+
   useEffect(() => {
     const snap = loadRunSnapshot();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
@@ -545,6 +743,48 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       setActionError("Couldn't save your workout. Please try again.");
     } finally {
       setCompleting(false);
+    }
+  }
+
+  async function submitRaceResult(finishSeconds: number, feel: string | null) {
+    if (!workout || raceResultSaving) return;
+    setRaceResultSaving(true);
+    setRaceResultError(null);
+    try {
+      const res = await apiFetch(`/api/workouts/${workout.id}/race-result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ finishSeconds, feel: feel ?? undefined }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        haptic("success");
+        setWorkout((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "completed",
+                actualDurationSeconds: finishSeconds,
+                raceFinishSeconds: finishSeconds,
+                raceFeel: feel,
+              }
+            : prev
+        );
+        setRaceResultOpen(false);
+        setPostRace({
+          finishSeconds,
+          distanceKm: workout.targetKm ?? null,
+          feel,
+          planClosed: data.planStatus === "completed",
+        });
+      } else {
+        const data = await res.json().catch(() => null);
+        setRaceResultError(data?.error ?? "Couldn't save your result. Try again.");
+      }
+    } catch {
+      setRaceResultError("Couldn't save your result. Try again.");
+    } finally {
+      setRaceResultSaving(false);
     }
   }
 
@@ -605,6 +845,9 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     setResumeSnap(null);
     if (!workout) return;
     setActionError(null);
+
+    const isRaceWorkout = workout.type === "race";
+
     try {
       // With GPS: save the whole run as an activity (route + splits) linked to
       // the workout, so it lands in the Activities feed with a map.
@@ -622,10 +865,25 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         });
         if (res.ok) {
           haptic("success");
-          markCompletedLocally(summary);
+          // A race workout still needs the deliberate result-logging step —
+          // the recorded activity is evidence (map, splits), not the result
+          // itself, and GPS elapsed time can differ from an official gun/chip
+          // time the athlete may want to enter instead.
+          if (isRaceWorkout) {
+            setRaceResultPrefillSeconds(summary.elapsedSeconds > 0 ? summary.elapsedSeconds : null);
+            setRaceResultOpen(true);
+          } else {
+            markCompletedLocally(summary);
+          }
           return;
         }
         // Fall through to a plain completion if recording failed.
+      }
+
+      if (isRaceWorkout) {
+        setRaceResultPrefillSeconds(summary.elapsedSeconds > 0 ? summary.elapsedSeconds : null);
+        setRaceResultOpen(true);
+        return;
       }
 
       // No GPS distance (or record failed): just mark the workout complete.
@@ -720,6 +978,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const maxPace = easyBlock?.minPaceSecKm ?? workout.blocks[0]?.minPaceSecKm;
 
   return (
+    <>
     <main className="min-h-dvh bg-bg">
       <NavBar
         title={workout.title}
@@ -1059,9 +1318,23 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   Start guided run
                 </span>
               </Button>
-              <Button variant="secondary" full busy={completing} onClick={handleComplete}>
-                {completing ? "Saving..." : "Mark complete"}
-              </Button>
+              {workout.type === "race" ? (
+                <Button
+                  variant="secondary"
+                  full
+                  onClick={() => {
+                    haptic("medium");
+                    setRaceResultPrefillSeconds(null);
+                    setRaceResultOpen(true);
+                  }}
+                >
+                  Log race result
+                </Button>
+              ) : (
+                <Button variant="secondary" full busy={completing} onClick={handleComplete}>
+                  {completing ? "Saving..." : "Mark complete"}
+                </Button>
+              )}
               <MusicButton />
             </>
           )}
@@ -1129,6 +1402,27 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           loadWorkout();
         }}
       />
+      <RaceResultSheet
+        open={raceResultOpen}
+        onClose={() => setRaceResultOpen(false)}
+        initialSeconds={raceResultPrefillSeconds}
+        onSubmit={submitRaceResult}
+        saving={raceResultSaving}
+        error={raceResultError}
+      />
     </main>
+
+    {postRace && (
+      <PostRaceScreen
+        title={workout.title}
+        finishSeconds={postRace.finishSeconds}
+        distanceKm={postRace.distanceKm}
+        feel={postRace.feel}
+        units={settings.units}
+        planClosed={postRace.planClosed}
+        onClose={() => setPostRace(null)}
+      />
+    )}
+    </>
   );
 }

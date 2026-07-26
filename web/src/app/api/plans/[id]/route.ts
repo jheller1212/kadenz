@@ -58,7 +58,12 @@ export async function GET(
       return Response.json({ error: "Plan not found" }, { status: 404 });
     }
 
-    return Response.json(plan);
+    // See /api/plans (list) for why "still active past race day" implies
+    // unlogged rather than needing a separate lookup.
+    const pastRaceDayUnlogged =
+      plan.intent === "race" && plan.status === "active" && plan.raceDate < new Date();
+
+    return Response.json({ ...plan, pastRaceDayUnlogged });
   } catch (err) {
     console.error("DB error fetching plan:", err);
     return Response.json({ error: "Failed to fetch plan" }, { status: 500 });
