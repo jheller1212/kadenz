@@ -16,6 +16,7 @@ import {
 } from "@/lib/strength/guided-snapshot";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { AdjustLoadSheet } from "@/components/strength/AdjustLoadSheet";
+import { PrMoment, type PrMomentEvent } from "@/components/strength/PrMoment";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
@@ -194,6 +195,9 @@ export default function GuidedSession({
   const [pendingWrites, setPendingWrites] = useState(0);
   // "Adjust load" sheet — which set (by index into the current exercise) it's open for.
   const [adjustOpen, setAdjustOpen] = useState<number | null>(null);
+  // Live "new PR" banner (see PrMoment) — set by postSet when the server
+  // flags a just-saved set as a new weight or e1rm record.
+  const [prMoment, setPrMoment] = useState<PrMomentEvent | null>(null);
 
   const sessionStartRef = useRef<number>(resume?.startedAt ?? Date.now());
   const prefsRef = useRef(prefs);
@@ -481,11 +485,28 @@ export default function GuidedSession({
         feel: set.feel ?? null,
       }),
     })
-      .then((r) => {
+      .then(async (r) => {
         setPendingWrites(queuedCountFor(session.id));
         // Neither sent nor parked — the server refused it outright. Say so;
         // silence here is what lost sets in the first place.
         if (!r.ok && !r.offline) setError("Couldn't save that set — check your connection.");
+        // PR moment: only for a live, online save — a queued write hasn't
+        // been compared against history yet (that happens on the server),
+        // so there is nothing to celebrate until it actually lands.
+        if (r.ok && !r.offline && r.res) {
+          try {
+            const body = (await r.res.clone().json()) as { pr?: { weight?: boolean; e1rm?: boolean } };
+            if (body.pr?.weight || body.pr?.e1rm) {
+              const label = body.pr.weight
+                ? `New best: ${displayWeight(set.kg ?? 0)} ${weightUnitLabel()}`
+                : `New best set: ${set.reps} reps`;
+              haptic("success");
+              setPrMoment({ label });
+            }
+          } catch {
+            /* response wasn't JSON (e.g. queue shim) — no PR moment, not fatal */
+          }
+        }
       })
       .catch(() => setPendingWrites(queuedCountFor(session.id)));
   }
@@ -879,6 +900,7 @@ export default function GuidedSession({
           Order locked: explosive work first, slow heavy HSR calf work last.
         </div>
       )}
+      <PrMoment event={prMoment} onDone={() => setPrMoment(null)} />
       {error && (
         <div className="mx-4 mt-2 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2 text-center text-[13px] font-medium text-danger">{error}</div>
       )}

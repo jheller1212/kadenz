@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ArrowUp, ArrowDown, LineChart, PlayCircle } from "lucide-react";
+import { ChevronLeft, ArrowUp, ArrowDown, LineChart, PlayCircle, Trophy } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { VideoSheet } from "@/components/strength/VideoSheet";
@@ -29,17 +29,34 @@ interface SetRow {
   weightKg: number | null;
   reps: number | null;
 }
+interface PrFlags {
+  weight: boolean;
+  e1rm: boolean;
+  volume: boolean;
+}
 interface Session {
   sessionId: string;
   date: string;
   type: string;
   title: string;
   sets: SetRow[];
+  pr: PrFlags;
+}
+interface Records {
+  topWeightKg: number;
+  topWeightReps: number;
+  topWeightDate: string | null;
+  bestE1rm: number;
+  bestE1rmDate: string | null;
+  bestVolume: number;
+  bestVolumeDate: string | null;
 }
 interface HistoryResp {
   exercise: Exercise;
+  bodyweight: boolean;
   points: Array<{ date: string; topWeightKg: number; bestE1rm: number }>;
   sessions: Session[];
+  records: Records;
   pain: Array<{ date: string; score: number }>;
 }
 
@@ -47,10 +64,6 @@ interface HistoryResp {
 
 function topWeight(s: Session): number {
   return Math.max(0, ...s.sets.map((x) => x.weightKg ?? 0));
-}
-
-function volume(s: Session): number {
-  return s.sets.reduce((sum, x) => sum + (x.weightKg ?? 0) * (x.reps ?? 0), 0);
 }
 
 function formatSessionDate(date: string): string {
@@ -209,8 +222,8 @@ export default function ExerciseHistoryPage({
     .map((k) => EQUIPMENT_OPTIONS.find((o) => o.key === k)?.label ?? k)
     .join(" · ");
 
-  const prKg = sessions.length ? Math.max(...sessions.map(topWeight)) : 0;
-  const bestVolumeKg = sessions.length ? Math.max(...sessions.map(volume)) : 0;
+  const records = data?.records;
+  const bodyweight = data?.bodyweight ?? false;
   const lastDate = sessions.at(-1)?.date;
   const videoId = data ? getVideoId(data.exercise.slug) : null;
 
@@ -247,13 +260,28 @@ export default function ExerciseHistoryPage({
               )}
             </div>
 
-            {/* Summary stats */}
+            {/* Summary stats. Bodyweight exercises have no external load, so
+                "Best" and "Best vol." read in reps instead of kg (see
+                lib/strength/pr.ts). */}
             <div className="mt-3 grid grid-cols-4 gap-2">
               {[
-                { label: "Best", value: formatWeightKg(prKg > 0 ? prKg : null, unit) },
+                {
+                  label: "Best",
+                  value: bodyweight
+                    ? records && records.topWeightReps > 0
+                      ? `${records.topWeightReps} reps`
+                      : "—"
+                    : formatWeightKg(records && records.topWeightKg > 0 ? records.topWeightKg : null, unit),
+                },
                 {
                   label: "Best vol.",
-                  value: bestVolumeKg > 0 ? formatWeightKg(Math.round(bestVolumeKg), unit) : "—",
+                  value: bodyweight
+                    ? records && records.bestVolume > 0
+                      ? `${records.bestVolume} reps`
+                      : "—"
+                    : records && records.bestVolume > 0
+                      ? formatWeightKg(Math.round(records.bestVolume), unit)
+                      : "—",
                 },
                 { label: "Sessions", value: String(sessions.length) },
                 { label: "Last", value: lastDate ? formatRecency(lastDate) : "—" },
@@ -299,13 +327,25 @@ export default function ExerciseHistoryPage({
                   ? Math.round((topWeight(s) - topWeight(prev)) * 10) / 10
                   : 0;
                 const lines = groupSets(s.sets, unit);
+                const isPr = s.pr.weight || s.pr.e1rm || s.pr.volume;
                 return (
                   <div key={s.sessionId} className="k-card p-3.5">
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[14px] font-bold text-text-1">
-                          {formatSessionDate(s.date)}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[14px] font-bold text-text-1">
+                            {formatSessionDate(s.date)}
+                          </p>
+                          {isPr && (
+                            <span
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-elevated px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-accent-fg"
+                              title="Personal record"
+                            >
+                              <Trophy className="h-3 w-3" strokeWidth={2.4} />
+                              PR
+                            </span>
+                          )}
+                        </div>
                         {s.title && (
                           <p className="mt-0.5 truncate text-[12px] text-text-3">{s.title}</p>
                         )}
