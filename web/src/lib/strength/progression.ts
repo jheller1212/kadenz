@@ -23,9 +23,22 @@ export interface ProgressionSuggestion {
   atCeiling: boolean;
 }
 
+/**
+ * The sets the progression signal is allowed to read.
+ *
+ * This used to filter on `reps != null` alone, so warm-ups counted as working
+ * sets despite the name. That inverted the whole model: allSetsAtTop requires
+ * EVERY set to reach the top of the rep range, so a single light ramp set made
+ * an increase impossible, and anySetBelowFloor fires on any set under the
+ * floor, so warming up across two sessions suggested a DECREASE. Warming up
+ * properly made the app take weight off the bar.
+ *
+ * `kind` is null on every row logged before it existed, and null reads as
+ * working, so historical sessions keep the meaning they already had.
+ */
 function workingSets(session: ExerciseSessionHistory | undefined): LoggedSet[] {
   if (!session) return [];
-  return session.sets.filter((s) => s.reps != null);
+  return session.sets.filter((s) => s.reps != null && s.kind !== "warmup");
 }
 
 /** True when every working set met or exceeded the top of the rep range. */

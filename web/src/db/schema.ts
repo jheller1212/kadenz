@@ -497,6 +497,11 @@ export const strengthSets = pgTable(
     // pain-log endpoint (see GuidedSession.tsx), which feeds the existing
     // Achilles/HSR pain gate (lib/strength/progression.ts evaluatePainGate).
     feel: text("feel"),
+    // "warmup" | "working". Null means working, so every row logged before this
+    // column existed keeps its current meaning. Warm-ups are excluded from the
+    // progression signal: counting them made a light ramp set look like a
+    // failed working set and pushed the suggested load DOWN.
+    kind: text("kind"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
