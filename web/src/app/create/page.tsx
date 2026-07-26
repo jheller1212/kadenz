@@ -17,6 +17,7 @@ import { StepDays } from "./steps/StepDays";
 import { StepAvailability } from "./steps/StepAvailability";
 import { StepTimeline } from "./steps/StepTimeline";
 import { StepPreferences } from "./steps/StepPreferences";
+import { StrengthModeChoice, type StrengthMode } from "./steps/StrengthModeChoice";
 import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
 import { PlanErrorScreen } from "@/components/PlanErrorScreen";
 import {
@@ -140,6 +141,25 @@ export default function CreatePlanPage() {
     const s = loadSettings();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
     setPaceLongRuns(s.paceTargetsLongRuns);
+  }, []);
+
+  // Only asked when a strength plan is actually active, so athletes without one
+  // never see the choice.
+  const [strengthSessions, setStrengthSessions] = useState<number | null>(null);
+  const [strengthMode, setStrengthMode] = useState<StrengthMode>("adapt");
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/api/strength/plan-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive) return;
+        if (d?.active) setStrengthSessions(d.sessionsPerWeek ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const [saving, setSaving] = useState(false);
@@ -316,6 +336,7 @@ export default function CreatePlanPage() {
         easyRunMinKm,
         runnerLevel,
         availableDays,
+        ...(strengthSessions !== null ? { strengthMode } : {}),
       };
       const body =
         intent === "race"
@@ -498,6 +519,15 @@ export default function CreatePlanPage() {
                     hillyArea={hillyArea}
                     onHillyArea={setHillyArea}
                   />
+                )}
+                {step === "preferences" && strengthSessions !== null && (
+                  <div className="mt-6">
+                    <StrengthModeChoice
+                      sessionsPerWeek={strengthSessions}
+                      value={strengthMode}
+                      onChange={setStrengthMode}
+                    />
+                  </div>
                 )}
               </div>
 
