@@ -1110,6 +1110,43 @@ function buildWeek(
  * @param config - Plan configuration
  * @returns GeneratedPlan ready for DB insertion
  */
+
+/** Date-only comparison, so a midnight-anchored day still counts as "today". */
+function sameOrAfterDay(a: Date, b: Date): boolean {
+  const da = Date.UTC(a.getUTCFullYear(), a.getUTCMonth(), a.getUTCDate());
+  const db = Date.UTC(b.getUTCFullYear(), b.getUTCMonth(), b.getUTCDate());
+  return da >= db;
+}
+
+/**
+ * Decides where week 1 sits, and whether it is a partial week.
+ *
+ * Starting mid-week gives a partial first week: only the selected run days that
+ * still lie ahead, so the week carries less mileage than planned. That is
+ * intended. What is not intended is a first week with NO runs left in it — that
+ * renders as an empty training week, gets backfilled by the strength schedule
+ * alone, and makes an N-week plan effectively N-1. When no selected run day
+ * remains, week 1 starts on the following Monday as a full week instead.
+ */
+function resolveWeekOneAnchor(
+  startDate: Date,
+  availableDays: number[] | null | undefined
+): { planStartMonday: Date; skipBeforeDate: Date | undefined } {
+  const startDow = startDate.getDay(); // 0=Sun
+  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
+  const weekMonday = addDays(startDate, mondayOffset);
+
+  const runDays = normalizeAvailableDays(availableDays) ?? [];
+  const anyRunDayLeft = runDays.some((dow) => {
+    const offset = dow === 0 ? 6 : dow - 1;
+    return sameOrAfterDay(addDays(weekMonday, offset), startDate);
+  });
+
+  return anyRunDayLeft
+    ? { planStartMonday: weekMonday, skipBeforeDate: startDate }
+    : { planStartMonday: addDays(weekMonday, 7), skipBeforeDate: undefined };
+}
+
 export function generatePlan(config: PlanConfig): GeneratedPlan {
   // Validate inputs
   if (config.daysPerWeek < 2 || config.daysPerWeek > 6) {
@@ -1126,10 +1163,11 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     throw new Error("raceDate must be after startDate");
   }
 
-  // Calculate the Monday of the start week (for calendar alignment)
-  const startDow = config.startDate.getDay(); // 0=Sun
-  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
-  const planStartMonday = addDays(config.startDate, mondayOffset);
+  // Monday of week 1 — pushed to next Monday when no run day is left this week.
+  const { planStartMonday, skipBeforeDate: weekOneSkip } = resolveWeekOneAnchor(
+    config.startDate,
+    config.availableDays
+  );
 
   // Calculate VDOT
   const distM = planDistanceMeters(config);
@@ -1168,7 +1206,7 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
     const weekStartDate = addDays(planStartMonday, i * 7);
 
     // For week 1, skip days before the actual start date (partial week)
-    const skipBeforeDate = i === 0 ? config.startDate : undefined;
+    const skipBeforeDate = i === 0 ? weekOneSkip : undefined;
 
     weeks.push(
       buildWeek(weekNumber, weekStartDate, phase, type, targetKm, config, paces, skipBeforeDate)
@@ -1272,9 +1310,10 @@ export function generateSteadyPlan(config: PlanConfig): GeneratedPlan {
     throw new Error("planLengthWeeks must be between 4 and 26");
   }
 
-  const startDow = config.startDate.getDay();
-  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
-  const planStartMonday = addDays(config.startDate, mondayOffset);
+  const { planStartMonday, skipBeforeDate: weekOneSkip } = resolveWeekOneAnchor(
+    config.startDate,
+    config.availableDays
+  );
   const planEnd = addDays(planStartMonday, weeks * 7 - 1); // last Sunday
 
   const vdot = vdotForRunnerLevel(config.runnerLevel);
@@ -1291,7 +1330,7 @@ export function generateSteadyPlan(config: PlanConfig): GeneratedPlan {
   const weeksOut: GeneratedWeek[] = [];
   for (let i = 0; i < weeks; i++) {
     const weekStartDate = addDays(planStartMonday, i * 7);
-    const skipBeforeDate = i === 0 ? config.startDate : undefined;
+    const skipBeforeDate = i === 0 ? weekOneSkip : undefined;
     weeksOut.push(
       buildWeek(i + 1, weekStartDate, phases[i], steadyWeekType(i), volumes[i], refConfig, paces, skipBeforeDate)
     );
@@ -1405,9 +1444,10 @@ export function generateReturnPlan(config: PlanConfig): GeneratedPlan {
     throw new Error("planLengthWeeks must be between 4 and 16 for a return plan");
   }
 
-  const startDow = config.startDate.getDay();
-  const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
-  const planStartMonday = addDays(config.startDate, mondayOffset);
+  const { planStartMonday, skipBeforeDate: weekOneSkip } = resolveWeekOneAnchor(
+    config.startDate,
+    config.availableDays
+  );
   const planEnd = addDays(planStartMonday, weeks * 7 - 1);
 
   const vdot = vdotForRunnerLevel(config.runnerLevel);
@@ -1427,7 +1467,7 @@ export function generateReturnPlan(config: PlanConfig): GeneratedPlan {
     const trainingDays = explicitDays
       ? selectTrainingSubset(explicitDays, sessionsPerWeek, longRunDay)
       : pickTrainingDays(sessionsPerWeek, config.preferredLongRunDay);
-    const skipBeforeDate = i === 0 ? config.startDate : undefined;
+    const skipBeforeDate = i === 0 ? weekOneSkip : undefined;
 
     const workouts: GeneratedWorkout[] = [];
     let sortOrder = 0;

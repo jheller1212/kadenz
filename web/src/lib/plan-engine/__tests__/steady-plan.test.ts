@@ -176,3 +176,46 @@ describe("vdotForRunnerLevel", () => {
     expect(vdotForRunnerLevel(null)).toBeGreaterThan(0);
   });
 });
+
+describe("week one anchoring when starting mid-week", () => {
+  // 2025-01-06 is a Monday, so 2025-01-11 is the Saturday of that week.
+  const saturday = new Date("2025-01-11T00:00:00.000Z");
+  const runTypes = (w: { workouts: { type: string }[] }) =>
+    w.workouts.filter((x) => x.type !== "rest");
+
+  it("keeps a partial first week when a selected run day still remains", () => {
+    // Sunday (0) is still ahead of Saturday, so week 1 survives as a short week.
+    const plan = generateSteadyPlan({
+      ...base,
+      intent: "get_fit",
+      planLengthWeeks: 8,
+      startDate: saturday,
+      availableDays: [1, 3, 5, 0],
+      daysPerWeek: 4,
+    });
+    const first = plan.weeks[0];
+    expect(runTypes(first).length).toBeGreaterThan(0);
+    // Nothing before the start date leaks in.
+    for (const wo of first.workouts) {
+      expect(wo.date.getTime()).toBeGreaterThanOrEqual(Date.UTC(2025, 0, 11));
+    }
+    // A partial week carries fewer runs than a later full week.
+    expect(runTypes(first).length).toBeLessThan(runTypes(plan.weeks[2]).length);
+  });
+
+  it("starts week one next Monday when no selected run day is left this week", () => {
+    // Mon/Tue/Wed only — all already past by Saturday, so a partial week 1
+    // would hold nothing but rest. Week 1 must move to the following Monday.
+    const plan = generateSteadyPlan({
+      ...base,
+      intent: "get_fit",
+      planLengthWeeks: 8,
+      startDate: saturday,
+      availableDays: [1, 2, 3],
+      daysPerWeek: 3,
+    });
+    const first = plan.weeks[0];
+    expect(runTypes(first).length).toBeGreaterThan(0);
+    expect(first.workouts[0].date.getTime()).toBe(Date.UTC(2025, 0, 13));
+  });
+});
