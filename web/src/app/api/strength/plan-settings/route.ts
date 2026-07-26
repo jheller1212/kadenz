@@ -168,3 +168,34 @@ export async function PATCH(request: NextRequest) {
     return Response.json({ error: "Failed to update rest preference" }, { status: 500 });
   }
 }
+
+// ── DELETE /api/strength/plan-settings ────────────────────────────────────────
+// Removes the strength plan, for parity with running (which has DELETE on
+// /api/plans/[id]). Strength previously offered only Pause, so a plan could be
+// silenced but never actually removed or started fresh.
+//
+// Logged history is deliberately kept: pruneAutoSchedule only takes future,
+// still-planned, auto-scheduled sessions, so completed and hand-edited sessions
+// survive — they are training data, and load progression is derived from them.
+// It also cleans up the calendar events and watch workouts those rows created.
+export async function DELETE(request: NextRequest) {
+  const profileId = getActiveProfileId(request);
+
+  try {
+    const { removed } = await pruneAutoSchedule(profileId);
+
+    const deleted = await db
+      .delete(strengthPlanSettings)
+      .where(profCond(profileId))
+      .returning({ id: strengthPlanSettings.id });
+
+    if (deleted.length === 0) {
+      return Response.json({ error: "No strength plan to remove" }, { status: 404 });
+    }
+
+    return Response.json({ ok: true, removedSessions: removed });
+  } catch (err) {
+    console.error("[plan-settings] delete failed", err);
+    return Response.json({ error: "Failed to remove strength plan" }, { status: 500 });
+  }
+}

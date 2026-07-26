@@ -117,6 +117,8 @@ export default function ManagePlanPage() {
   const [plan, setPlan] = useState<ApiPlanRow | null>(null);
   const [settings, setSettings] = useState<StrengthSettings | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [removeStrengthOpen, setRemoveStrengthOpen] = useState(false);
+  const [removingStrength, setRemovingStrength] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -171,6 +173,28 @@ export default function ManagePlanPage() {
       setRemoveOpen(false);
     } finally {
       setRemoving(false);
+    }
+  }
+
+  async function removeStrengthPlan() {
+    setRemovingStrength(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/strength/plan-settings", { method: "DELETE" });
+      if (res.ok) {
+        haptic("success");
+        router.push("/plan");
+      } else {
+        haptic("warning");
+        setError("Couldn't remove the strength plan. Try again.");
+        setRemoveStrengthOpen(false);
+      }
+    } catch {
+      haptic("warning");
+      setError("Network error, couldn't remove the strength plan.");
+      setRemoveStrengthOpen(false);
+    } finally {
+      setRemovingStrength(false);
     }
   }
 
@@ -341,9 +365,15 @@ export default function ManagePlanPage() {
               <SelectRow label="Available" value={daysLabel(settings.availableDays)} href="/strength/setup" />
               <SelectRow label="Session length" value={`${settings.durationMinutes} minutes`} href="/settings/kraft" />
 
-              <div className="mt-4">
-                <Button full variant={settings.active ? "danger" : "primary"} busy={pausing} onClick={toggleStrengthActive}>
+              <div className="mt-4 flex flex-col gap-2.5">
+                <TransitionLink href="/strength/setup" className="block">
+                  <Button full variant="secondary">Start new strength plan</Button>
+                </TransitionLink>
+                <Button full variant="secondary" busy={pausing} onClick={toggleStrengthActive}>
                   {settings.active ? "Pause strength plan" : "Resume strength plan"}
+                </Button>
+                <Button full variant="danger" onClick={() => setRemoveStrengthOpen(true)}>
+                  Remove strength plan
                 </Button>
               </div>
             </div>
@@ -374,6 +404,30 @@ export default function ManagePlanPage() {
           </Button>
           <button
             onClick={() => setRemoveOpen(false)}
+            className="press mx-auto text-[13px] font-medium text-text-3"
+          >
+            Cancel
+          </button>
+        </div>
+      </Sheet>
+
+      {/* Remove-strength-plan confirmation */}
+      <Sheet
+        open={removeStrengthOpen}
+        onClose={() => setRemoveStrengthOpen(false)}
+        title="Remove strength plan?"
+      >
+        <div className="flex flex-col gap-4 px-1 pb-2">
+          <p className="text-[14px] leading-relaxed text-text-2">
+            Upcoming strength sessions will be removed, along with their calendar
+            events and watch workouts. Sessions you have already completed stay in
+            your history, so your logged weights and progression are kept.
+          </p>
+          <Button full variant="danger" busy={removingStrength} onClick={removeStrengthPlan}>
+            Remove strength plan
+          </Button>
+          <button
+            onClick={() => setRemoveStrengthOpen(false)}
             className="press mx-auto text-[13px] font-medium text-text-3"
           >
             Cancel
