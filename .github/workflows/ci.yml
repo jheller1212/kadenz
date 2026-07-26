@@ -26,7 +26,11 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Match the runtime the app is actually deployed on. On Node 20 the
+          # bundled npm read this lockfile differently and npm ci failed with a
+          # phantom "Missing: esbuild@0.28.1 from lock file", while npm ci on
+          # the deploy runtime resolves it cleanly.
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
