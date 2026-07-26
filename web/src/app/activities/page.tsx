@@ -12,7 +12,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
-import { STRENGTH_COLOR } from "@/lib/workout-colors";
+import { STRENGTH_COLOR, workoutColor } from "@/lib/workout-colors";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
@@ -49,6 +49,8 @@ interface ActivityWorkout {
   distanceKm?: number | null;
   durationSeconds?: number | null;
   avgPaceSecKm?: number | null;
+  avgHr?: number | null;
+  elevationGain?: number | null;
   status: string;
   date: string;
   dayOfWeek?: number;
@@ -125,16 +127,14 @@ function formatPaceSeconds(totalSeconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-const WORKOUT_COLORS: Record<string, string> = {
-  easy: "#7BC232",
-  recovery: "#7BC232",
-  tempo: "#F2A113",
-  interval: "#E0402E",
-  long: "#8655F0",
-  race: "#FF4D4D",
-  run: "#60A5FA",
-  strength: STRENGTH_COLOR.solid,
-};
+// Single source of truth for these hexes is lib/workout-colors.ts (kept in
+// sync with the CSS --k-type-* twins) — no local hex duplicates here, that's
+// exactly how the JS/CSS palettes drifted before.
+function activityTypeColor(type: string): string {
+  if (type === "strength") return STRENGTH_COLOR.solid;
+  if (type === "run") return "#60A5FA";
+  return workoutColor(type).solid;
+}
 
 // ── Group workouts by month ───────────────────────────────────────────────────
 
@@ -278,7 +278,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
   const isRecorded = !!workout.stravaId || !!workout.activity;
   const isLinked = !!workout.workoutId || !!workout.strengthSessionId;
   const canLink = isRecorded && !isLinked;
-  const barColor = WORKOUT_COLORS[workout.type] ?? "#999";
+  const barColor = activityTypeColor(workout.type);
   const date = new Date(workout.date);
   const dateStr = date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
   const timeStr = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -300,82 +300,70 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
     ? (hasActivity ? formatSeconds(durationSec) : formatDuration(Math.round(durationSec / 60)))
     : null;
 
+  const avgHr = workout.activity?.avgHr ?? workout.avgHr ?? null;
+  const elevation = workout.elevationGain;
+
   const cardInner = (
     <div className="flex">
-      {/* Colored left strip */}
-      <div className="w-2.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
+      {/* Colored left strip — 5px, matches the Volt feed card */}
+      <div className="w-[5px] shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundColor: barColor }} />
 
       <div className="flex-1 p-4">
-        {/* Top row */}
-        <div className="flex items-start gap-3">
-          {/* Running icon */}
-          <div
-            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-            style={{ backgroundColor: `${barColor}22` }}
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke={barColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="5" r="1.5" />
-              <path d="M6 9l3 1.5 1.5 3.5L9 18" />
-              <path d="M14.5 9.5L12 11l1 3 3.5 2" />
-              <path d="M10 12l1.5 1 2-1" />
-            </svg>
+        {/* Top row: title + day-of-week */}
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="truncate text-[16px] font-extrabold text-text-1">{workout.title}</p>
+          <div className="flex shrink-0 items-center gap-2">
+            <p className="text-[11px] font-bold uppercase text-text-3">
+              {date.toLocaleDateString("en-US", { weekday: "short" })}
+            </p>
+            {editMode && (hasActivity || workout.strengthSessionId) && (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(workout); }}
+                aria-label={`Delete ${workout.title}`}
+                className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-danger/10"
+              >
+                <Trash2 className="h-4 w-4 text-danger" strokeWidth={2} />
+              </button>
+            )}
+            {!editMode && canLink && (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); haptic("light"); requestLink(workout); }}
+                className="press flex shrink-0 items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[12px] font-semibold text-text-2"
+              >
+                <Link2 className="h-3.5 w-3.5" strokeWidth={2} />
+                Link
+              </button>
+            )}
+            {!editMode && hasActivity && !canLink && <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
           </div>
+        </div>
+        <p className="mt-0.5 text-[12px] text-text-3">{dateStr} · {timeStr}</p>
 
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-semibold text-text-1">{workout.title}</p>
-            <p className="mt-0.5 text-[13px] text-text-3">{dateStr} · {timeStr}</p>
+        {/* Headline Anton value: distance · duration (runs), duration alone (strength) */}
+        {(distKm != null || durationDisplay != null) && (
+          <p className="mt-1.5 font-display text-[28px] leading-none text-text-1">
+            {distKm != null ? (
+              <>
+                {displayDistance(distKm, 2).toFixed(2)}
+                <span className="text-[13px] font-sans font-semibold text-text-3"> {distanceUnitLabel()}</span>
+                {durationDisplay != null && <span className="text-[16px] font-sans font-bold text-text-2"> · {durationDisplay}</span>}
+              </>
+            ) : (
+              durationDisplay
+            )}
+          </p>
+        )}
+
+        {/* Small metrics row: pace, HR, elevation */}
+        {(avgPaceSecKm != null || avgHr != null || elevation != null) && (
+          <div className="mt-2 flex items-center gap-3.5 text-[12px] font-semibold text-text-3">
+            {avgPaceSecKm != null && <span className="tabular-nums">{formatPace(displayPace(avgPaceSecKm))} {paceUnitLabel()}</span>}
+            {avgHr != null && <span className="tabular-nums">{avgHr} bpm</span>}
+            {elevation != null && <span className="tabular-nums">+{Math.round(elevation)} m</span>}
           </div>
-
-          {editMode && (hasActivity || workout.strengthSessionId) && (
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(workout); }}
-              aria-label={`Delete ${workout.title}`}
-              className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-danger/10"
-            >
-              <Trash2 className="h-4 w-4 text-danger" strokeWidth={2} />
-            </button>
-          )}
-          {!editMode && canLink && (
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); haptic("light"); requestLink(workout); }}
-              className="press flex shrink-0 items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[12px] font-semibold text-text-2"
-            >
-              <Link2 className="h-3.5 w-3.5" strokeWidth={2} />
-              Link
-            </button>
-          )}
-          {!editMode && hasActivity && !canLink && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />}
-        </div>
-
-        {/* Stats row */}
-        <div className="mt-3 flex items-center gap-4">
-          {distKm != null && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-text-3">Distance</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{displayDistance(distKm, 2).toFixed(2)} {distanceUnitLabel()}</p>
-            </div>
-          )}
-          {durationDisplay != null && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-text-3">Time</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{durationDisplay}</p>
-            </div>
-          )}
-          {avgPaceSecKm != null && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-text-3">Avg pace</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{formatPace(displayPace(avgPaceSecKm))} {paceUnitLabel()}</p>
-            </div>
-          )}
-          {workout.activity?.avgHr != null && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-text-3">Avg HR</p>
-              <p className="text-[15px] font-bold tabular-nums text-text-1">{workout.activity.avgHr} bpm</p>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
@@ -411,7 +399,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
 // ── MonthSection ──────────────────────────────────────────────────────────────
 
 function MonthSection({ group }: { group: MonthGroup }) {
-  const totalSec = group.totalDurationMinutes * 60;
+  const totalSec = Math.round(group.totalDurationMinutes * 60);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
@@ -424,8 +412,8 @@ function MonthSection({ group }: { group: MonthGroup }) {
       {/* Month header */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[17px] font-bold text-text-1">{group.label}</p>
-          <p className="mt-0.5 text-[13px] text-text-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-text-3">{group.label}</p>
+          <p className="mt-1 text-[13px] text-text-3">
             {group.activityCount} {group.activityCount === 1 ? "activity" : "activities"} · {durationStr}
           </p>
         </div>
@@ -482,21 +470,19 @@ function WorkoutsTab({
     <div className="flex flex-col gap-5">
       {/* Filters */}
       <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1">
-        {/* Workout type */}
-        <div className="relative shrink-0">
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="press appearance-none rounded-full bg-elevated py-1.5 pl-3 pr-7 text-[13px] font-semibold text-text-1 focus:outline-none"
+        {/* Workout type — pill chips, Volt filter-row pattern */}
+        {FILTER_TYPES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => { haptic("light"); setTypeFilter(t); }}
+            className={`press shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+              typeFilter === t ? "bg-accent text-on-accent" : "bg-elevated text-text-1"
+            }`}
           >
-            {FILTER_TYPES.map((t) => (
-              <option key={t} value={t}>{t === "All" ? "Workout Type" : t}</option>
-            ))}
-          </select>
-          <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
+            {t}
+          </button>
+        ))}
 
         {/* Year */}
         <div className="relative shrink-0">
@@ -1200,7 +1186,7 @@ function LinkActivitySheet({
                       onClick={() => link({ workoutId: w.id })}
                       className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-surface px-3 py-2.5 text-left disabled:opacity-50"
                     >
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: WORKOUT_COLORS[w.type] ?? "#60A5FA" }} />
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: activityTypeColor(w.type) }} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[14px] font-semibold text-text-1">{w.title}</span>
                         <span className="block text-[12px] text-text-3">{fmtDay(w.date)}{w.targetKm ? ` · ${displayDistance(w.targetKm)} ${distanceUnitLabel()}` : ""}</span>
