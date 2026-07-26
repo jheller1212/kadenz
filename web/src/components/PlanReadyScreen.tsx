@@ -15,6 +15,7 @@ export interface PlanReadySummary {
   strength?: {
     active: boolean;
     sessionsPerWeek: number;
+    mode?: "adapt" | "keep" | "new";
   } | null;
 }
 
@@ -128,9 +129,15 @@ export function PlanReadyScreen({
             className="mt-4 w-full text-center text-[13px] leading-relaxed"
             style={{ color: "#A6E52E" }}
           >
-            Your strength plan is kept. Still {strength.sessionsPerWeek}
-            {strength.sessionsPerWeek === 1 ? " session" : " sessions"} a week,
-            re-fitted around your new run days.
+            {strength.mode === "keep"
+              ? `Your strength plan is unchanged. Still ${strength.sessionsPerWeek} ${
+                  strength.sessionsPerWeek === 1 ? "session" : "sessions"
+                } a week, on the same days.`
+              : strength.mode === "new"
+                ? "Your old strength schedule is cleared. Set up a new one from Manage Plan when you're ready."
+                : `Your strength plan is kept. Still ${strength.sessionsPerWeek} ${
+                    strength.sessionsPerWeek === 1 ? "session" : "sessions"
+                  } a week, re-fitted around your new run days.`}
           </motion.p>
         ) : null}
 

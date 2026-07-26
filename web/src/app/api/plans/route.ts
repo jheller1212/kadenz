@@ -9,7 +9,7 @@ import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
-import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
+import { pruneAutoSchedule, reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { timer } from "@/lib/timing";
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
@@ -37,6 +37,9 @@ const PlanConfigSchema = z.object({
   easyRunMinKm: z.number().nonnegative().default(0),
   runnerLevel: z.enum(["beginner", "intermediate", "advanced", "elite"]).nullish(),
   availableDays: z.array(z.number().int().min(0).max(6)).min(2).max(7).nullish(),
+  // What to do with an existing active strength plan. Absent = adapt, which is
+  // the long-standing behaviour and what athletes without a strength plan get.
+  strengthMode: z.enum(["adapt", "keep", "new"]).default("adapt"),
 });
 
 // ── POST /api/plans ───────────────────────────────────────────────────────────
@@ -239,15 +242,28 @@ export async function POST(request: NextRequest) {
     let strength: {
       active: boolean;
       sessionsPerWeek: number;
+      mode: "adapt" | "keep" | "new";
     } | null = null;
     // The reconcile itself is fire-and-forget: it prunes and re-creates strength
     // sessions across the whole plan, and awaiting it put all of that on the
     // critical path of the request the athlete is staring at a progress bar for.
     // Nothing in the response depends on its result — the reveal copy only needs
     // sessionsPerWeek — so the plan returns as soon as it exists.
-    reconcileStrengthSchedule(null).catch((err) =>
-      console.error("Failed to reconcile strength schedule:", err)
-    );
+    // "keep" leaves the existing schedule untouched; "new" leaves it alone here
+    // because the athlete is about to replace it from strength setup. Only
+    // "adapt" re-fits the sessions around the new run days.
+    if (data.strengthMode === "adapt") {
+      reconcileStrengthSchedule(null).catch((err) =>
+        console.error("Failed to reconcile strength schedule:", err)
+      );
+    } else if (data.strengthMode === "new") {
+      // The athlete is replacing the schedule from strength setup, so the old
+      // auto-scheduled sessions must go — otherwise they linger against a plan
+      // that no longer exists. Completed sessions are never touched.
+      pruneAutoSchedule(null).catch((err) =>
+        console.error("Failed to prune strength schedule:", err)
+      );
+    }
     try {
       const [settings] = await db
         .select()
@@ -257,6 +273,7 @@ export async function POST(request: NextRequest) {
         strength = {
           active: settings.active,
           sessionsPerWeek: settings.sessionsPerWeek,
+          mode: data.strengthMode,
         };
       }
     } catch (err) {
