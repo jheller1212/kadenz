@@ -122,9 +122,16 @@ function WeekCard({
       <p className="text-[10px] font-bold uppercase tracking-widest text-text-3">
         {weekRangeLabel(monday)}
       </p>
-      <h2 className="mt-0.5 text-[17px] font-bold text-text-1">
-        Week {week.weekNumber}
-      </h2>
+      <div className="mt-0.5 flex items-center gap-2">
+        <h2 className="text-[17px] font-bold text-text-1">
+          Week {week.weekNumber}
+        </h2>
+        {week.skippedAt && (
+          <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-text-3">
+            Skipped
+          </span>
+        )}
+      </div>
 
       {/* Dashed workout-progress segments */}
       {allItems.length > 0 && (
