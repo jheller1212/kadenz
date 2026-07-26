@@ -8,11 +8,15 @@ import type {
 // (or page reload) never loses a workout: the strength page offers to resume
 // from the last saved position. Cleared on completion; kept on "Leave".
 
+export type LoadFeel = "too_heavy" | "easy" | "niggle";
+
 export interface GuidedWorkSet {
   kg: number;
   reps: number;
   logged: boolean;
   durationSec: number;
+  /** Reason chip from the "Adjust load" sheet, if the athlete gave one. */
+  feel?: LoadFeel | null;
 }
 
 export interface GuidedSnapshot {
