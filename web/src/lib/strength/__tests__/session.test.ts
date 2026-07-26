@@ -102,6 +102,90 @@ describe("rest preference override", () => {
   });
 });
 
+describe("running-plan phase backoff", () => {
+  function totalSets(type: Parameters<typeof buildSessionPlan>[0], weekInfo: { phase: string; type: string } | null) {
+    return buildSessionPlan(type, { weekInfo }).reduce((sum, ex) => sum + ex.sets, 0);
+  }
+
+  it("no running plan (standalone block) leaves the template's sets untouched", () => {
+    const plan = buildSessionPlan("lower");
+    const squat = plan.find((p) => p.slug === "db_squat")!;
+    expect(squat.sets).toBe(3); // template default, no weekInfo passed at all
+  });
+
+  it("a peak week produces less strength volume than a build week", () => {
+    const build = totalSets("lower", { phase: "build", type: "normal" });
+    const peak = totalSets("lower", { phase: "peak", type: "normal" });
+    expect(peak).toBeLessThan(build);
+  });
+
+  it("base and build carry the same, full load", () => {
+    expect(totalSets("lower", { phase: "base", type: "normal" })).toBe(
+      totalSets("lower", { phase: "build", type: "normal" })
+    );
+  });
+
+  it("taper is maintenance only — less volume than a peak week", () => {
+    const peak = totalSets("lower", { phase: "peak", type: "normal" });
+    const taper = totalSets("lower", { phase: "taper", type: "normal" });
+    expect(taper).toBeLessThan(peak);
+  });
+
+  it("a deload week deloads strength even inside the build phase", () => {
+    const build = totalSets("lower", { phase: "build", type: "normal" });
+    const deload = totalSets("lower", { phase: "build", type: "deload" });
+    expect(deload).toBeLessThan(build);
+  });
+
+  it("race week is minimal — every flexible exercise floors at the phase-backoff minimum", () => {
+    const plan = buildSessionPlan("lower", { weekInfo: { phase: "taper", type: "race" } });
+    for (const ex of plan) {
+      expect(ex.sets).toBe(1);
+    }
+  });
+
+  it("never drops a lift below the 1-set phase-backoff floor", () => {
+    const plan = buildSessionPlan("full_body", {
+      ability: "beginner", // already reduced by ability scaling before phase applies
+      weekInfo: { phase: "taper", type: "race" }, // the most aggressive backoff there is
+    });
+    for (const ex of plan) {
+      expect(ex.sets).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("Achilles-role work survives every phase unchanged by the backoff", () => {
+    for (const weekInfo of [
+      { phase: "base", type: "normal" },
+      { phase: "peak", type: "normal" },
+      { phase: "taper", type: "normal" },
+      { phase: "taper", type: "race" },
+    ] as const) {
+      const plan = buildSessionPlan("lower_achilles", { weekInfo, programWeek: 1 });
+      const explosive = plan.find((p) => p.slug === "explosive_box_step_up")!;
+      const toeWalk = plan.find((p) => p.slug === "loaded_toe_walk")!;
+      const hsr = plan.find((p) => p.slug === "straight_knee_calf_raise")!;
+      expect(explosive.sets).toBe(3); // untouched by phase
+      expect(toeWalk.sets).toBe(3); // untouched by phase
+      expect(hsr.sets).toBe(3); // week-based HSR scheme, not phase
+    }
+  });
+
+  it("composes with the pain gate: both apply, and neither cancels the other's caution", () => {
+    const gated = buildSessionPlan("lower_achilles", {
+      weekInfo: { phase: "peak", type: "normal" },
+      programWeek: 1,
+      painGate: { triggered: true, reason: "pain 6/10" },
+    });
+    const calf = gated.find((p) => p.slug === "bent_knee_calf_raise")!;
+    const squat = gated.find((p) => p.slug === "db_squat")!;
+    // Pain gate still caps the calf-work suggestion...
+    expect(calf.painGated).toBe(true);
+    // ...and the peak-week backoff still reduces ordinary lower-body volume.
+    expect(squat.sets).toBe(2); // 3 (template) - 1 (peak)
+  });
+});
+
 describe("validateAchillesOrdering", () => {
   it("accepts explosive-before-slow-heavy", () => {
     const r = validateAchillesOrdering([

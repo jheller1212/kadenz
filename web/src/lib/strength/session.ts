@@ -14,6 +14,7 @@ import {
 } from "./progression";
 import { estimateWorkoutDuration } from "./estimate";
 import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
+import { PHASE_MIN_SETS, setsDeltaFor, type WeekInfo } from "./phase-policy";
 import type {
   Complaint,
   Equipment,
@@ -107,6 +108,13 @@ export interface BuildSessionOptions {
    * base exercise, unfiltered (matches pre-equipment-aware behaviour).
    */
   equipment?: Equipment[] | null;
+  /**
+   * The running plan's phase/type for the week this session falls in
+   * (base/build/peak/taper, normal/deload/race) — drives the set-count
+   * backoff in phase-policy.ts. Null/absent = no active running plan (a
+   * standalone strength block), which leaves set counts untouched.
+   */
+  weekInfo?: WeekInfo | null;
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -155,6 +163,14 @@ export function buildSessionPlan(
       if (opts.restSecondsOverride != null) {
         restSeconds = opts.restSecondsOverride;
       }
+    }
+
+    // Running-plan phase backoff (see phase-policy.ts) — never touches HSR
+    // rehab sets (own scheme, applied below) or any Achilles-role exercise
+    // (explosive step-up, toe walk): that work is load-bearing rehab, not a
+    // training-load knob the running plan gets to turn down.
+    if (!isHsrExercise(slot.exerciseSlug) && !ex.achillesRole) {
+      sets = Math.max(PHASE_MIN_SETS, sets + setsDeltaFor(opts.weekInfo));
     }
     let prescription = repRangeLabel(sets, repLow, repHigh);
 
