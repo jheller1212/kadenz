@@ -1,8 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, strengthExercises } from "@/db";
 import { snapToLevel } from "@/lib/strength/weights";
+import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
+import { isNewSingleSetRecord, type PrSet } from "@/lib/strength/pr";
+import { getActiveProfileId } from "@/lib/profiles";
 
 const SetSchema = z.object({
   exerciseId: z.string().uuid().optional(),
@@ -106,7 +109,61 @@ export async function POST(
       })
       .returning();
 
-    return Response.json(row, { status: 201 });
+    // PR check: compare this set against every other completed session that
+    // logged the same exercise (the current, in-progress session is excluded
+    // by the status filter, so it can never be its own prior best). See
+    // lib/strength/pr.ts for the record definitions — this only decides the
+    // per-set "new PR" moment; volume PRs are whole-session and surface on
+    // the exercise history page instead.
+    let pr = { weight: false, e1rm: false };
+    try {
+      const [exerciseRow] = await db
+        .select({ slug: strengthExercises.slug, startWeightKg: strengthExercises.startWeightKg })
+        .from(strengthExercises)
+        .where(eq(strengthExercises.id, exerciseId!));
+      if (exerciseRow) {
+        const profileId = getActiveProfileId(request);
+        const priorRows = await db
+          .select({
+            weightKg: strengthSets.weightKg,
+            reps: strengthSets.reps,
+            kind: strengthSets.kind,
+          })
+          .from(strengthSets)
+          .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
+          .where(
+            and(
+              eq(strengthSets.exerciseId, exerciseId!),
+              eq(strengthSessions.status, "completed"),
+              profileId
+                ? eq(strengthSessions.profileId, profileId)
+                : isNull(strengthSessions.profileId)
+            )
+          );
+        // kind feeds setType so a warm-up can never take a record.
+        const priorSets: PrSet[] = priorRows.map((r) => ({
+          weightKg: r.weightKg,
+          reps: r.reps,
+          setType: r.kind === "warmup" ? "warmup" : null,
+        }));
+        const catalogueEntry = EXERCISE_BY_SLUG[exerciseRow.slug];
+        pr = isNewSingleSetRecord(
+          {
+            weightKg: row.weightKg,
+            reps: row.reps,
+            setType: row.kind === "warmup" ? "warmup" : null,
+          },
+          priorSets,
+          { bodyweight: exerciseRow.startWeightKg == null, dumbbells: catalogueEntry?.dumbbells }
+        );
+      }
+    } catch (err) {
+      // PR detection is a nice-to-have on top of a set that already saved
+      // successfully — never fail the save because of it.
+      console.error("PR check failed:", err);
+    }
+
+    return Response.json({ ...row, pr }, { status: 201 });
   } catch (err) {
     console.error("DB error logging set:", err);
     return Response.json({ error: "Failed to log set" }, { status: 500 });
