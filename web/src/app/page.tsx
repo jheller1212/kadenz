@@ -16,6 +16,7 @@ import {
   Sunset,
   RefreshCw,
   Zap,
+  Dumbbell,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -24,10 +25,11 @@ import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
-import { PaceBadge } from "@/components/PaceChart";
 import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
 import { displayTemp, displayDistance, distanceUnitLabel } from "@/lib/units";
+import { formatPace } from "@/lib/plan-engine/pace-zones";
+import { loadSettings } from "@/lib/settings";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
@@ -491,7 +493,11 @@ function CalendarStrip({
   }
 
   return (
-    <div className="flex justify-between px-5" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <div
+      className="mx-5 flex justify-between rounded-2xl bg-surface px-2 py-2 [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {days.map((day, i) => {
         const hasWorkout = day.workout && day.workout.type !== "rest";
         const strengthStatus = strengthDays[day.date.toDateString()];
@@ -502,25 +508,46 @@ function CalendarStrip({
         dayEnd.setHours(23, 59, 59, 999);
         const missed = !!hasWorkout && !completed && dayEnd.getTime() < now && !day.isToday;
 
+        // Today is always the inverted "ink + volt" cell, whether or not it's
+        // the one currently selected — it's a calendar landmark, not a
+        // selection state. Any other explicitly selected day gets the
+        // existing inverted-neutral treatment; a completed past day's
+        // number reads cyan so a glance up the strip shows what's done.
+        const numberClass = day.isToday
+          ? "text-accent-fg"
+          : isSelected
+          ? "text-bg"
+          : completed
+          ? "text-[var(--k-progress)]"
+          : missed
+          ? "text-danger"
+          : "text-text-2";
+
         return (
           <button key={i} onClick={() => onSelectDate(day)} className="press flex w-11 flex-col items-center gap-1 py-1">
-            <span className={`text-[10px] font-semibold tracking-wide ${day.isToday ? "text-text-1" : "text-text-3"}`}>
+            <span className={`text-[10px] font-bold tracking-wide ${day.isToday ? "text-text-1" : "text-text-3"}`}>
               {DAY_LABELS[i]}
             </span>
-            <div className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-colors ${
-              isSelected || (!selectedDate && day.isToday)
-                ? "bg-text-1 text-bg [box-shadow:var(--k-shadow-card)]"
-                : day.isToday
-                  ? "bg-elevated text-text-1"
-                  : missed ? "text-danger" : "text-text-2"
-            }`}>
+            <div
+              className={`flex h-9 w-9 items-center justify-center rounded-full font-display text-[15px] transition-colors ${numberClass} ${
+                day.isToday ? "bg-bg" : isSelected ? "bg-text-1" : ""
+              }`}
+              style={
+                day.isToday
+                  ? { boxShadow: "0 8px 18px -8px rgba(200,255,61,0.4)" }
+                  : isSelected
+                  ? { boxShadow: "var(--k-shadow-card)" }
+                  : undefined
+              }
+            >
               {day.dayNum}
             </div>
-            <div className="flex h-2 items-center gap-[3px]">
+            {/* Fixed 6px height regardless of dot count so rest days keep alignment. */}
+            <div className="flex h-[6px] items-center gap-[3px]">
               {/* Strength dot first (left), uniform blue gradient */}
               {strengthStatus && (
                 <div
-                  className="h-[7px] w-[7px] rounded-[2px]"
+                  className="h-[5px] w-[5px] rounded-[1.5px]"
                   style={{
                     backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)",
                     opacity: strengthStatus === "completed" ? 1 : 0.85,
@@ -538,7 +565,7 @@ function CalendarStrip({
                   return (
                     <div
                       key={wo.id}
-                      className="h-[7px] w-[7px] rounded-[2px]"
+                      className="h-[5px] w-[5px] rounded-[1.5px]"
                       style={{
                         backgroundImage: woMissed ? "none" : workoutColor(wo.type).grad,
                         backgroundColor: woMissed ? "var(--k-text-3)" : (workoutDotColor[wo.type] ?? "var(--k-text-3)"),
@@ -616,9 +643,25 @@ function WorkoutCard({ workout, planId, onStatusChange, onOpen }: { workout: Tod
   }
   const barColor = workoutBarColor[workout.type] ?? "#999";
   const dateStr = new Date(workout.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
-  const durationRange = workout.targetDurationMinutes
-    ? `${Math.floor(Math.max(0, workout.targetDurationMinutes - 5) / 60) > 0 ? `${Math.floor(Math.max(0, workout.targetDurationMinutes - 5) / 60)}h` : ""}${Math.max(0, workout.targetDurationMinutes - 5) % 60}m - ${Math.floor((workout.targetDurationMinutes + 5) / 60) > 0 ? `${Math.floor((workout.targetDurationMinutes + 5) / 60)}h` : ""}${(workout.targetDurationMinutes + 5) % 60}m`
-    : "";
+
+  // Three stat columns: distance, pace, duration — whichever the workout
+  // actually carries. A workout with only a duration target (no distance
+  // plan) simply shows two columns rather than a fabricated third.
+  const workBlock = workout.blocks.find((b) => b.type === "work") ?? workout.blocks[0];
+  const useMiles = loadSettings().units === "miles";
+  const paceValue = workBlock?.targetPaceSecKm
+    ? formatPace(workBlock.targetPaceSecKm, useMiles)
+    : null;
+  const stats: { value: string; unit: string; label: string }[] = [];
+  if (workout.targetKm != null) {
+    stats.push({ value: `${displayDistance(workout.targetKm)}`, unit: distanceUnitLabel(), label: "Distance" });
+  }
+  if (paceValue) {
+    stats.push({ value: paceValue, unit: useMiles ? "/mi" : "/km", label: "Pace" });
+  }
+  if (workout.targetDurationMinutes != null) {
+    stats.push({ value: String(workout.targetDurationMinutes), unit: "min", label: "Duration" });
+  }
 
   return (
     <motion.button
@@ -628,44 +671,57 @@ function WorkoutCard({ workout, planId, onStatusChange, onOpen }: { workout: Tod
       className="w-full overflow-hidden k-card text-left"
     >
       <div className="flex">
-        {/* Colored left strip */}
-        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundImage: workoutColor(workout.type).grad, backgroundColor: barColor }} />
+        {/* Colored left spine */}
+        <div className="w-[5px] shrink-0" style={{ backgroundImage: workoutColor(workout.type).grad, backgroundColor: barColor }} />
 
-        <div className="flex-1 p-4">
-          {/* Title row */}
+        <div className="min-w-0 flex-1 p-4">
+          {/* Type label + title */}
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-base font-bold text-text-1">{workout.title}</p>
-              <p className="mt-0.5 text-xs text-text-3">{dateStr}{durationRange ? ` · ${durationRange}` : ""}</p>
+              <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: barColor }}>
+                {typeLabel[workout.type] ?? workout.type}
+              </p>
+              <p className="mt-0.5 truncate text-[20px] font-extrabold leading-tight text-text-1">{workout.title}</p>
+              <p className="mt-0.5 text-xs text-text-3">{dateStr}</p>
             </div>
-            {/* Complete toggle */}
+
+            {/* Volt play button — opens the same detail as tapping the card */}
             <span
               role="button"
               tabIndex={0}
-              aria-label={isCompleted ? "Completed" : "Mark run complete"}
-              onClick={toggleComplete}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleComplete(e as unknown as React.MouseEvent); }}
-              className={`press flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 ${isCompleted ? "border-text-1 bg-text-1" : "border-hairline"} ${completing ? "opacity-50" : ""}`}
+              aria-label="Open workout"
+              className="press flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent"
             >
-              {isCompleted && <Check className="h-4 w-4 text-bg" strokeWidth={3} />}
+              <Play className="ml-0.5 h-4 w-4 text-on-accent" fill="currentColor" strokeWidth={0} />
             </span>
           </div>
 
-          {/* Type + distance row */}
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-text-2">
-            <span className="font-semibold">{typeLabel[workout.type] ?? workout.type}</span>
-            {workout.targetKm != null && (
-              <>
-                <span>·</span>
-                <span className="font-semibold">{displayDistance(workout.targetKm)}{distanceUnitLabel()}</span>
-              </>
-            )}
-          </div>
+          {/* Stat columns */}
+          {stats.length > 0 && (
+            <div className="mt-3 flex items-end gap-5">
+              {stats.map((s) => (
+                <div key={s.label}>
+                  <p className="flex items-baseline gap-0.5">
+                    <span className="font-display text-[26px] leading-none text-text-1">{s.value}</span>
+                    <span className="text-[11px] font-bold text-text-3">{s.unit}</span>
+                  </p>
+                  <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-text-3">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
-          {/* Pace badge */}
-          <div className="mt-1.5">
-            <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={barColor} />
-          </div>
+          {/* Complete toggle */}
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={isCompleted ? "Completed" : "Mark run complete"}
+            onClick={toggleComplete}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleComplete(e as unknown as React.MouseEvent); }}
+            className={`press mt-3 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 ${isCompleted ? "border-text-1 bg-text-1" : "border-hairline"} ${completing ? "opacity-50" : ""}`}
+          >
+            {isCompleted && <Check className="h-4 w-4 text-bg" strokeWidth={3} />}
+          </span>
         </div>
       </div>
     </motion.button>
@@ -891,7 +947,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
               <div className="mt-2 flex items-center gap-2">
                 {weather && <WeatherIcon code={weather.code} className="h-7 w-7 text-white/90" />}
-                <p className="text-3xl font-extrabold text-white">{weather ? `${displayTemp(weather.temp)}°` : "—"}</p>
+                <p className="font-display text-3xl leading-none text-white">{weather ? `${displayTemp(weather.temp)}°` : "—"}</p>
               </div>
               <div className="mt-1">
                 <p className="text-[10px] font-medium text-white/75">{weather?.location ?? "Your location"}</p>
@@ -902,7 +958,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
             <div className="flex min-h-[130px] flex-col justify-between k-card p-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-text-3">Week {currentWeek}/{totalWeeks}</p>
-                <p className="mt-1 text-3xl font-extrabold text-text-1">
+                <p className="mt-1 font-display text-3xl leading-none text-text-1">
                   {completedWorkouts.length + weekStrength.filter((x) => x.status === "completed").length}/
                   {workoutDays.length + weekStrength.length}
                 </p>
@@ -978,7 +1034,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               <circle cx="50" cy="50" r="40" fill="none" stroke={arcColor} strokeWidth="8"
                 strokeDasharray={`${circPct * 251} 251`} strokeLinecap="round"
                 transform="rotate(-90 50 50)" />
-              <text x="50" y="47" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-1)" fontSize="16" fontWeight="800">
+              <text x="50" y="47" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-1)" fontSize="16" fontFamily="var(--font-display)">
                 {displayDistance(stats.completedKm)}/{displayDistance(stats.plannedKm)}
               </text>
               <text x="50" y="62" textAnchor="middle" dominantBaseline="middle" fill="var(--k-text-3)" fontSize="10">
@@ -1061,17 +1117,23 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
       className="w-full overflow-hidden k-card text-left"
     >
       <div className="flex">
-        <div className="w-1.5 shrink-0 rounded-l-[var(--radius-card)]" style={{ backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)", backgroundColor: color }} />
+        <div className="w-[5px] shrink-0" style={{ backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)", backgroundColor: color }} />
         <div className="flex flex-1 items-center gap-3 p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-elevated">
+            <Dumbbell className="h-4 w-4 text-text-1" strokeWidth={2} />
+          </span>
           <div className="min-w-0 flex-1">
-            <p className="text-base font-bold text-text-1">{session.title}</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color }}>Strength</p>
+            <p className="mt-0.5 truncate text-base font-bold text-text-1">{session.title}</p>
             <p className="mt-0.5 text-xs text-text-3">
               {new Date(session.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
-              {session.targetDurationMinutes
-                ? ` · ~${session.targetDurationMinutes} min`
-                : ""}
+              {session.targetDurationMinutes != null && (
+                <>
+                  {" · "}
+                  <span className="font-display text-[13px] text-text-2">{session.targetDurationMinutes}</span> min
+                </>
+              )}
             </p>
-            <p className="mt-1.5 text-sm font-semibold text-text-2">Strength</p>
           </div>
           <span
             role="button"
@@ -1576,11 +1638,23 @@ export default function Home() {
         large={false}
         centerAlways
         title={
-          <WeekRingSelector
-            currentWeek={displayedWeek}
-            totalWeeks={totalWeeks}
-            onWeekDropdown={() => setDropdownOpen(true)}
-          />
+          viewingToday ? (
+            // Matches the Volt nav spec (date micro-label over "Today") for
+            // the common case; tapping still opens the week picker so the
+            // ring-selector's browse-other-weeks behaviour isn't lost.
+            <button onClick={() => setDropdownOpen(true)} className="press flex flex-col items-center">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-text-3">
+                {new Date().toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "short" })}
+              </span>
+              <span className="text-[17px] font-bold leading-tight text-text-1">Today</span>
+            </button>
+          ) : (
+            <WeekRingSelector
+              currentWeek={displayedWeek}
+              totalWeeks={totalWeeks}
+              onWeekDropdown={() => setDropdownOpen(true)}
+            />
+          )
         }
         left={<ProfileAvatar />}
         right={
@@ -1589,7 +1663,7 @@ export default function Home() {
               <button
                 onClick={handleBackToToday}
                 aria-label="Back to today"
-                className="press flex h-9 w-9 flex-col items-center justify-center rounded-lg bg-elevated"
+                className="press flex h-9 w-9 flex-col items-center justify-center rounded-xl bg-elevated"
               >
                 <CalendarDays className="mt-0.5 h-4 w-4 text-accent-fg" strokeWidth={1.9} />
                 <span className="mt-[1px] text-[9px] font-extrabold leading-none text-accent-fg">{new Date().getDate()}</span>
@@ -1598,7 +1672,7 @@ export default function Home() {
             <TransitionLink
               href="/plan/rearrange"
               aria-label="Calendar"
-              className="press flex h-9 w-9 items-center justify-center rounded-lg bg-elevated"
+              className="press flex h-9 w-9 items-center justify-center rounded-xl bg-elevated"
             >
               <CalendarDays className="h-4 w-4 text-text-2" strokeWidth={1.9} />
             </TransitionLink>

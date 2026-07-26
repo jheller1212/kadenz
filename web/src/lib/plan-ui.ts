@@ -1,20 +1,14 @@
 // Shared presentation helpers for the Plan hub pages (/plan, /plan/overview,
-// /plan/manage). Colors mirror the rearrange calendar's type palette; strength
-// is uniformly blue, regardless of session type.
+// /plan/manage). Colors come from the single source of truth in
+// workout-colors.ts (same palette as --k-type-* in globals.css) — this used
+// to keep its own duplicate hex palette that had drifted from the rest of
+// the app (Today's easy runs were bright green, Plan's were olive), so
+// spines and CalendarStrip dots disagreed on what "easy" looks like.
 
 import type { WorkoutType } from "@/lib/plan-engine/types";
+import { WORKOUT_COLORS, STRENGTH_COLOR } from "@/lib/workout-colors";
 
-export const WORKOUT_BAR_COLOR: Record<WorkoutType, string> = {
-  easy:     "#7BC232",
-  recovery: "#7BC232",
-  long:     "#8655F0",
-  tempo:    "#F2A113",
-  interval: "#E0402E",
-  race:     "#FF4D4D",
-  rest:     "#2A2A2E",
-};
-
-export const STRENGTH_BLUE = "#3B82F6";
+export const STRENGTH_BLUE = STRENGTH_COLOR.solid;
 
 /** Darken a #RRGGBB hex color by `amount` (0–1). */
 export function darken(hex: string, amount = 0.2): string {
@@ -25,13 +19,12 @@ export function darken(hex: string, amount = 0.2): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
-/** Vertical gradient spine for run cards (type color → 20% darker). */
+/** Vertical gradient spine for run cards — the canonical type gradient. */
 export function runSpine(type: WorkoutType): string {
-  const c = WORKOUT_BAR_COLOR[type] ?? "#94A3B8";
-  return `linear-gradient(180deg, ${c}, ${darken(c)})`;
+  return WORKOUT_COLORS[type]?.grad ?? "linear-gradient(135deg, #A8B3C1, #7C8794)";
 }
 
-export const STRENGTH_SPINE = "linear-gradient(135deg, #60A5FA 0%, #2563EB 100%)";
+export const STRENGTH_SPINE = STRENGTH_COLOR.grad;
 
 // ── Lean API row types (subset of the DB rows the routes return) ─────────────
 
