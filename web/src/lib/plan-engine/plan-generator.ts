@@ -13,6 +13,7 @@
 
 import { calculateVdot, predictRaceTime, RACE_DISTANCES_M } from "./vdot";
 import { getPaceZones } from "./pace-zones";
+import { blendGoalWithCurrentFitness } from "./fitness-estimate";
 import type {
   PlanConfig,
   PlanIntent,
@@ -117,7 +118,7 @@ function raceDistanceMeters(d: string): number {
 }
 
 /** The plan's race distance in metres, honouring a "custom" km value. */
-function planDistanceMeters(config: PlanConfig): number {
+export function planDistanceMeters(config: PlanConfig): number {
   if (config.raceDistance === "custom") {
     return Math.max(0, (config.customDistanceKm ?? 0) * 1000);
   }
@@ -1195,7 +1196,15 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   if (distM <= 0) {
     throw new Error("A custom race plan needs a positive distance");
   }
-  const { vdot } = calculateVdot(distM, config.goalTimeSeconds);
+  const { vdot: goalVdot } = calculateVdot(distM, config.goalTimeSeconds);
+
+  // Paces come from demonstrated current fitness, biased toward the goal —
+  // NOT the goal alone. A goal-time-only VDOT assumes fitness the athlete
+  // doesn't have yet, which is exactly what makes prescribed paces too
+  // aggressive to hold. goalTimeSeconds itself is untouched everywhere else
+  // (plan length, taper timing, race-day pace target) — only the VDOT that
+  // sets the DAILY training paces below is capped. See blendGoalWithCurrentFitness.
+  const vdot = blendGoalWithCurrentFitness(goalVdot, config.currentFitnessVdot);
 
   // Derive pace zones
   const paces = getPaceZones(vdot);
@@ -1281,6 +1290,17 @@ export function vdotForRunnerLevel(level: RunnerLevel | null | undefined): numbe
   return RUNNER_LEVEL_VDOT[level ?? "beginner"] ?? 40;
 }
 
+/**
+ * Pace source for non-race plans (get_fit / maintain / return): the athlete's
+ * demonstrated current fitness when it's known, otherwise the self-reported
+ * level bucket as a cold-start fallback. Unlike the race generator there's no
+ * goal to bias toward — these intents have no race day, so current fitness is
+ * simply the answer, not one side of a blend.
+ */
+function resolveNonRaceVdot(config: PlanConfig): number {
+  return config.currentFitnessVdot ?? vdotForRunnerLevel(config.runnerLevel);
+}
+
 /** Phase per week for a steady plan: maintain = all base; get-fit ramps base→build
  *  for variety. Never peak/taper (those exist to sharpen for a race day). */
 function steadyPhaseMap(weeks: number, intent: PlanIntent): WeekPhase[] {
@@ -1337,7 +1357,7 @@ export function generateSteadyPlan(config: PlanConfig): GeneratedPlan {
   );
   const planEnd = addDays(planStartMonday, weeks * 7 - 1); // last Sunday
 
-  const vdot = vdotForRunnerLevel(config.runnerLevel);
+  const vdot = resolveNonRaceVdot(config);
   const paces = getPaceZones(vdot);
   const phases = steadyPhaseMap(weeks, intent);
   const volumes = steadyVolume(config, weeks, intent);
@@ -1471,7 +1491,7 @@ export function generateReturnPlan(config: PlanConfig): GeneratedPlan {
   );
   const planEnd = addDays(planStartMonday, weeks * 7 - 1);
 
-  const vdot = vdotForRunnerLevel(config.runnerLevel);
+  const vdot = resolveNonRaceVdot(config);
   const paces = getPaceZones(vdot);
   const explicitDays = normalizeAvailableDays(config.availableDays);
   // Return training is never daily — cap at 4 sessions/week.

@@ -892,3 +892,34 @@ describe("generatePlan — custom distance", () => {
     expect(() => generatePlan({ ...customConfig, customDistanceKm: null })).toThrow();
   });
 });
+
+describe("generatePlan — currentFitnessVdot biases goal-time paces", () => {
+  it("uses the goal-time VDOT unchanged when no current-fitness estimate exists", () => {
+    const withEstimate = generatePlan({ ...fiveKConfig, currentFitnessVdot: null });
+    const withoutField = generatePlan(fiveKConfig);
+    expect(withEstimate.vdot).toBe(withoutField.vdot);
+  });
+
+  it("caps paces near current fitness when the goal is far more ambitious", () => {
+    // Goal: sub-18 5k (very fast) but the athlete's recent runs only support ~35 VDOT.
+    const aggressive: PlanConfig = { ...fiveKConfig, goalTimeSeconds: 17 * 60 };
+    const uncapped = generatePlan(aggressive);
+    const capped = generatePlan({ ...aggressive, currentFitnessVdot: 35 });
+
+    expect(capped.vdot).toBeLessThan(uncapped.vdot);
+    // Capped pace zones must be slower (higher sec/km) than an uncapped goal-only plan.
+    const cappedEasy = capped.weeks[0].workouts.find((w) => w.type === "easy");
+    const uncappedEasy = uncapped.weeks[0].workouts.find((w) => w.type === "easy");
+    const cappedPace = cappedEasy?.blocks.find((b) => b.type === "work")?.targetPaceSecKm ?? 0;
+    const uncappedPace = uncappedEasy?.blocks.find((b) => b.type === "work")?.targetPaceSecKm ?? 0;
+    expect(cappedPace).toBeGreaterThan(uncappedPace);
+  });
+
+  it("keeps a conservative goal (below current fitness) as the pace source", () => {
+    // Goal is easy relative to a strong current-fitness estimate — trust the goal.
+    const easyGoal: PlanConfig = { ...fiveKConfig, goalTimeSeconds: 30 * 60, currentFitnessVdot: 55 };
+    const plan = generatePlan(easyGoal);
+    const goalOnly = generatePlan({ ...fiveKConfig, goalTimeSeconds: 30 * 60 });
+    expect(plan.vdot).toBe(goalOnly.vdot);
+  });
+});
