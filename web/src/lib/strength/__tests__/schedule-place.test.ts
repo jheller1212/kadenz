@@ -51,4 +51,20 @@ describe("placeStrengthWeek", () => {
     const placed = placeStrengthWeek(days, [3], ["upper"]); // only Wed available, taken
     expect(placed).toHaveLength(0);
   });
+
+  it("never places any session type on race day or the day before it", () => {
+    // Sat (d5) is race day. Even a light "upper" session must avoid Fri (d4)
+    // and Sat (d5) — this is a hard veto, not just a heavy-legs preference.
+    const days = week({ 5: "race" });
+    const placed = placeStrengthWeek(days, ALL_DAYS, ["upper"]);
+    for (const p of placed) {
+      expect(["d4", "d5"]).not.toContain(p.key);
+    }
+  });
+
+  it("skips the slot entirely rather than place it near race day when nothing else is available", () => {
+    const days = week({ 3: "race" }); // Thu (d3, dow 4) is race day
+    const placed = placeStrengthWeek(days, [3, 4], ["upper"]); // only Wed (d2) and Thu (d3) available
+    expect(placed).toHaveLength(0);
+  });
 });
