@@ -94,6 +94,7 @@ export async function getExerciseHistoryBySlug(
       weightKg: strengthSets.weightKg,
       reps: strengthSets.reps,
       rpe: strengthSets.rpe,
+      kind: strengthSets.kind,
     })
     .from(strengthSets)
     .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
@@ -124,6 +125,9 @@ export async function getExerciseHistoryBySlug(
       weightKg: r.weightKg,
       reps: r.reps,
       rpe: r.rpe,
+      // Carried through so progression can exclude warm-ups. Null reads as
+      // working, which is what every pre-existing row is.
+      kind: r.kind === "warmup" ? "warmup" : null,
     };
     sess.sets.push(set);
   }

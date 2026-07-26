@@ -14,6 +14,10 @@ const SetSchema = z.object({
   durationSeconds: z.number().int().nonnegative().nullable().optional(),
   // Reason chip from the "Adjust load" sheet — see schema.ts strengthSets.feel.
   feel: z.enum(["too_heavy", "easy", "niggle"]).nullable().optional(),
+  // Warm-up ramp vs real working set. Absent reads as working, so older
+  // clients keep behaving exactly as before. Warm-ups are excluded from the
+  // progression signal (lib/strength/progression.ts workingSets).
+  kind: z.enum(["warmup", "working"]).nullable().optional(),
 });
 
 // ── POST /api/strength/sessions/[id]/sets ─────────────────────────────────────
@@ -87,6 +91,7 @@ export async function POST(
         rpe: data.rpe ?? null,
         durationSeconds: data.durationSeconds ?? null,
         feel: data.feel ?? null,
+        kind: data.kind ?? null,
       })
       .onConflictDoUpdate({
         target: [strengthSets.sessionId, strengthSets.exerciseId, strengthSets.setNumber],
@@ -96,6 +101,7 @@ export async function POST(
           rpe: data.rpe ?? null,
           durationSeconds: data.durationSeconds ?? null,
           feel: data.feel ?? null,
+          kind: data.kind ?? null,
         },
       })
       .returning();

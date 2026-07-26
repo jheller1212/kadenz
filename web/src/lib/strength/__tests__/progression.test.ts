@@ -117,3 +117,63 @@ describe("pain gate", () => {
     expect(gated.suggestedWeightKg).toBe(15.5); // -0.5 kg from 16
   });
 });
+
+describe("warm-up sets are excluded from the progression signal", () => {
+  /** A session whose first set is a light warm-up ramp, then working sets. */
+  function withWarmup(
+    date: string,
+    warmup: { reps: number; weightKg: number },
+    working: number[],
+    weightKg: number
+  ): ExerciseSessionHistory {
+    return {
+      sessionId: date,
+      date: new Date(date),
+      sets: [
+        { setNumber: 1, reps: warmup.reps, weightKg: warmup.weightKg, kind: "warmup" },
+        ...working.map((r, i) => ({ setNumber: i + 2, reps: r, weightKg })),
+      ],
+    };
+  }
+
+  it("still increases when every WORKING set hits the top of the range", () => {
+    // Before the fix the 5-rep warm-up made allSetsAtTop false, so an athlete
+    // who warmed up could never earn an increase.
+    const s = suggestProgression(squat, [
+      withWarmup("2026-06-10", { reps: 5, weightKg: 6 }, [12, 12, 12], 12),
+    ]);
+    expect(s.action).toBe("increase");
+  });
+
+  it("does not suggest a decrease off the back of warm-ups alone", () => {
+    // Two sessions of mid-range working sets, each preceded by a light ramp.
+    // Before the fix the ramp counted as a set below the rep floor in both
+    // sessions, which is exactly the decrease condition.
+    const s = suggestProgression(squat, [
+      withWarmup("2026-06-17", { reps: 5, weightKg: 6 }, [10, 10, 9], 12),
+      withWarmup("2026-06-10", { reps: 5, weightKg: 6 }, [10, 9, 9], 12),
+    ]);
+    expect(s.action).not.toBe("decrease");
+  });
+
+  it("still decreases when the WORKING sets genuinely fall short", () => {
+    const s = suggestProgression(squat, [
+      withWarmup("2026-06-17", { reps: 5, weightKg: 6 }, [6, 5, 5], 12),
+      withWarmup("2026-06-10", { reps: 5, weightKg: 6 }, [7, 6, 5], 12),
+    ]);
+    expect(s.action).toBe("decrease");
+  });
+
+  it("treats a set with no kind as working, so historical rows are unchanged", () => {
+    const s = suggestProgression(squat, [session("2026-06-10", [12, 12, 12], 12)]);
+    expect(s.action).toBe("increase");
+  });
+
+  it("ignores a warm-up when reading the top weight lifted", () => {
+    // A heavy-looking warm-up must not be mistaken for the working load.
+    const s = suggestProgression(squat, [
+      withWarmup("2026-06-10", { reps: 5, weightKg: 20 }, [12, 12, 12], 12),
+    ]);
+    expect(s.suggestedWeightKg).toBe(12.5);
+  });
+});

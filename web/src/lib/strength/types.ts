@@ -160,6 +160,9 @@ export interface SessionTemplate {
 }
 
 /** A logged set as returned to progression/history logic. */
+/** A warm-up ramp set, or a real working set. Absent means working. */
+export type SetKind = "warmup" | "working";
+
 export interface LoggedSet {
   exerciseId?: string;
   exerciseSlug?: string;
@@ -167,6 +170,8 @@ export interface LoggedSet {
   weightKg: number | null;
   reps: number | null;
   rpe?: number | null;
+  /** Undefined/null reads as "working", so pre-existing rows are unaffected. */
+  kind?: SetKind | null;
 }
 
 /** A prior session's sets for one exercise, newest-first by session date. */

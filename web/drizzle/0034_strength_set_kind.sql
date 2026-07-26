@@ -1,0 +1,12 @@
+-- Distinguishes a warm-up from a working set.
+--
+-- progression.ts derives its next-load suggestion from logged sets, and its
+-- workingSets() helper filtered only on `reps != null`, so a warm-up counted as
+-- a working set. allSetsAtTop requires EVERY set to reach the top of the rep
+-- range, so one light warm-up blocked any increase; anySetBelowFloor fires on
+-- any set under the floor, so warm-ups across two sessions triggered a
+-- decrease. Warming up therefore made the app reduce the athlete's load.
+--
+-- Null is read as a working set, which keeps every historical row behaving
+-- exactly as it does today.
+ALTER TABLE "strength_sets" ADD COLUMN IF NOT EXISTS "kind" text;
