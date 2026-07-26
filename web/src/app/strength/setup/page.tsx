@@ -14,6 +14,8 @@ import {
   WizardTitle,
 } from "@/components/ui/wizard";
 import { apiFetch } from "@/lib/api";
+import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
+import { StrengthReadyScreen } from "@/components/StrengthReadyScreen";
 import { haptic } from "@/lib/haptics";
 import type { Complaint, Equipment } from "@/lib/strength/types";
 import { COMPLAINT_LABELS, STRENGTH_COMPLAINTS } from "@/lib/strength/types";
@@ -187,6 +189,12 @@ export default function StrengthSetupPage() {
     else setStepIdx((i) => i - 1);
   }
 
+  // Mirrors the running plan: the loader holds until the schedule really
+  // exists, then hands off to the reveal instead of dropping onto the hub.
+  const [built, setBuilt] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [scheduledCount, setScheduledCount] = useState<number | null>(null);
+
   async function next() {
     haptic("medium");
     setError(null);
@@ -217,15 +225,17 @@ export default function StrengthSetupPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setError(data?.error ?? "Couldn't save — try again.");
+        setError(data?.error ?? "Couldn't save, try again.");
+        setSaving(false);
         return;
       }
       haptic("success");
       saveEquipment(equipment); // the custom builder shares this choice
-      router.push("/strength");
+      const data = await res.json().catch(() => null);
+      setScheduledCount(typeof data?.created === "number" ? data.created : null);
+      setBuilt(true);
     } catch {
-      setError("Network error — couldn't save.");
-    } finally {
+      setError("Network error, couldn't save.");
       setSaving(false);
     }
   }
@@ -478,6 +488,30 @@ export default function StrengthSetupPage() {
           </Button>
         </div>
       </div>
+      {saving && !ready && (
+        <PlanBuildingLoader
+          complete={built}
+          onSettled={() => setReady(true)}
+          phrases={[
+            "Building your strength plan",
+            "Choosing your lifts",
+            "Fitting sessions around your runs",
+            "Setting starting loads",
+          ]}
+        />
+      )}
+
+      {ready && (
+        <StrengthReadyScreen
+          sessionsPerWeek={frequency}
+          durationMinutes={duration}
+          availableDays={days}
+          scheduled={scheduledCount}
+          followsRunningPlan={hasRunningPlan === true}
+          onContinue={() => router.push("/strength")}
+        />
+      )}
+
     </main>
   );
 }

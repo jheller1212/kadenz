@@ -5,7 +5,7 @@ import { usePlanBuildProgress } from "@/lib/usePlanBuildProgress";
 
 // The app has no i18n layer yet. Keeping the strings in this shape means
 // adding German is a second key plus a lookup, not a rewrite.
-const PHRASES = [
+const RUN_PHRASES = [
   "Building your plan",
   "Optimizing your workouts",
   "Tailoring the plan to you",
@@ -18,7 +18,7 @@ const SWAP_MS = 0.17;
 const EASE_IOS = [0.32, 0.72, 0, 1] as const;
 
 // Fixed height so swapping a longer line never nudges the bar below it.
-function StatusPhrase({ index }: { index: number }) {
+function StatusPhrase({ index, phrases }: { index: number; phrases: string[] }) {
   return (
     <div className="mt-3 h-[26px] text-[20px] font-bold tracking-[-0.4px] text-text-1">
       <AnimatePresence mode="wait" initial={false}>
@@ -29,7 +29,7 @@ function StatusPhrase({ index }: { index: number }) {
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: SWAP_MS, ease: EASE_IOS }}
         >
-          {PHRASES[index]}
+          {phrases[index]}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -45,14 +45,17 @@ function StatusPhrase({ index }: { index: number }) {
 export function PlanBuildingLoader({
   complete,
   onSettled,
+  phrases = RUN_PHRASES,
 }: {
   complete: boolean;
   onSettled: () => void;
+  /** Overridden when something other than a running plan is being built. */
+  phrases?: string[];
 }) {
   const progress = usePlanBuildProgress(complete, onSettled);
   const phraseIdx = Math.min(
-    PHRASES.length - 1,
-    Math.floor(progress / (100 / PHRASES.length)),
+    phrases.length - 1,
+    Math.floor(progress / (100 / phrases.length)),
   );
 
   return (
@@ -116,7 +119,7 @@ export function PlanBuildingLoader({
           Kadenz
         </div>
 
-        <StatusPhrase index={phraseIdx} />
+        <StatusPhrase index={phraseIdx} phrases={phrases} />
 
         <div
           className="relative mt-[26px] h-[7px] w-[224px] overflow-hidden rounded-full bg-elevated"
