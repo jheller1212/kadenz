@@ -7,6 +7,7 @@ import {
   strengthSessions,
   strengthSets,
   painLogs,
+  weeks,
 } from "@/db";
 import {
   buildSessionPlan,
@@ -28,6 +29,16 @@ import { STRENGTH_COMPLAINTS } from "./types";
 
 // ── Server-side helpers shared by the strength API routes ─────────────────────
 
+/** 1-based week number for a date, counting from a plan's start date. */
+function weekNumberFor(date: Date, startDate: Date): number {
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const diffDays = Math.floor((d.getTime() - start.getTime()) / 86_400_000);
+  return Math.max(1, Math.floor(diffDays / 7) + 1);
+}
+
 /** 1-based program week for a date, from the active plan's start date. */
 export async function getProgramWeek(date: Date): Promise<number> {
   const [plan] = await db
@@ -36,12 +47,32 @@ export async function getProgramWeek(date: Date): Promise<number> {
     .where(eq(plans.status, "active"))
     .limit(1);
   if (!plan) return 1;
-  const start = new Date(plan.startDate);
-  start.setHours(0, 0, 0, 0);
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const diffDays = Math.floor((d.getTime() - start.getTime()) / 86_400_000);
-  return Math.max(1, Math.floor(diffDays / 7) + 1);
+  return weekNumberFor(date, plan.startDate);
+}
+
+/**
+ * The active running plan's phase/type (base/build/peak/taper,
+ * normal/deload/race) for the week containing `date` — drives the strength
+ * set-count backoff in phase-policy.ts. Null with no active plan: a
+ * standalone strength block has no phase concept and its sessions are left
+ * exactly as their template/ability prescribes (see schedule.ts's `block`
+ * branch, which never touches this).
+ */
+export async function getWeekPhaseInfo(
+  date: Date
+): Promise<{ phase: string; type: string } | null> {
+  const [plan] = await db
+    .select({ id: plans.id, startDate: plans.startDate })
+    .from(plans)
+    .where(eq(plans.status, "active"))
+    .limit(1);
+  if (!plan) return null;
+  const weekNumber = weekNumberFor(date, plan.startDate);
+  const [week] = await db
+    .select({ phase: weeks.phase, type: weeks.type })
+    .from(weeks)
+    .where(and(eq(weeks.planId, plan.id), eq(weeks.weekNumber, weekNumber)));
+  return week ?? null;
 }
 
 /**
@@ -143,11 +174,12 @@ export async function buildPlannedSession(
   targetDurationMinutes?: number,
   exerciseOverrides: ExerciseOverride[] = []
 ): Promise<PlannedSessionResult> {
-  const [programWeek, historyBySlug, painGate, planSettings] = await Promise.all([
+  const [programWeek, historyBySlug, painGate, planSettings, weekInfo] = await Promise.all([
     getProgramWeek(date),
     getExerciseHistoryBySlug(date, profileId),
     getPainGate(date),
     getPlanSettingsForLoads(profileId),
+    getWeekPhaseInfo(date),
   ]);
   const plan = buildSessionPlan(type, {
     programWeek,
@@ -158,6 +190,7 @@ export async function buildPlannedSession(
     complaints: planSettings.complaints,
     targetDurationMinutes,
     restSecondsOverride: planSettings.restSeconds,
+    weekInfo,
   });
   // Hand edits (Exchange / Remove) layered on last — see session.ts for why
   // these can't be baked into the template-derived plan itself.

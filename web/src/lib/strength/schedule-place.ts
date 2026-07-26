@@ -63,6 +63,13 @@ export function scorePlacement(
   // A true rest day is the best home for strength.
   if (day.runType == null) score += 15;
 
+  // Race day and the day before it are off-limits for every session type, not
+  // just heavy legs — this is a hard veto, not a preference (in practice the
+  // whole race week already carries zero strength sessions, see
+  // reconcile.weekBudgetFor; this guards the edge case where race day falls
+  // on a Monday and "the day before" sits in the previous calendar week).
+  if (day.runType === "race" || day.nextDayRunType === "race") score -= 1000;
+
   // Avoid back-to-back strength days.
   const idx = allDays.findIndex((d) => d.key === day.key);
   const prev = allDays[idx - 1];
