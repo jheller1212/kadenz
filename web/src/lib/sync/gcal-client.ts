@@ -109,6 +109,10 @@ export interface WorkoutEventInput {
   date: Date;
   targetKm?: number | null;
   targetDurationMinutes?: number | null;
+  // "HH:mm" 24h local, or null/undefined for "no specific time" — in which
+  // case the event still gets a time (the 7 AM default below), it's just not
+  // one the athlete chose.
+  timeOfDay?: string | null;
   type: string;
   blocks?: Array<{
     type: string;
@@ -164,10 +168,16 @@ function buildEventDescription(workout: WorkoutEventInput): string {
   return lines.join("\n");
 }
 
-function buildEventTimes(date: Date, durationMinutes?: number | null) {
-  // Default to 7:00 AM start, 1 hour if no duration
+function buildEventTimes(date: Date, durationMinutes?: number | null, timeOfDay?: string | null) {
+  // Default to 7:00 AM start, 1 hour if no duration. An explicit timeOfDay
+  // ("HH:mm") overrides the default hour/minute.
   const start = new Date(date);
-  start.setHours(7, 0, 0, 0);
+  const match = timeOfDay?.match(/^(\d{2}):(\d{2})$/);
+  if (match) {
+    start.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  } else {
+    start.setHours(7, 0, 0, 0);
+  }
 
   const end = new Date(start);
   end.setMinutes(end.getMinutes() + (durationMinutes ?? 60));
@@ -185,7 +195,7 @@ export async function createEvent(workout: WorkoutEventInput): Promise<string> {
   if (!auth) throw new Error("Google Calendar not connected");
 
   const cal = google.calendar({ version: "v3", auth });
-  const times = buildEventTimes(workout.date, workout.targetDurationMinutes);
+  const times = buildEventTimes(workout.date, workout.targetDurationMinutes, workout.timeOfDay);
 
   const res = await cal.events.insert({
     calendarId: process.env.GOOGLE_CALENDAR_ID ?? "primary",
@@ -221,7 +231,7 @@ export async function patchEvent(
   if (workout.date) {
     Object.assign(
       body,
-      buildEventTimes(workout.date, workout.targetDurationMinutes)
+      buildEventTimes(workout.date, workout.targetDurationMinutes, workout.timeOfDay)
     );
   }
 
