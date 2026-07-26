@@ -20,6 +20,8 @@ interface Props {
   weightKg: number;
   /** Reference weight to show as "was X kg" — null hides the reference line. */
   previousWeightKg: number | null;
+  /** Dumbbells the lift uses — adds "each" to both weight readouts. */
+  dumbbells?: 1 | 2;
   /** Reason already stored on this set, if any — pre-selects that chip. */
   selected: LoadFeel | null;
   onSave: (feel: LoadFeel) => void;
@@ -30,20 +32,28 @@ interface Props {
 // session's suggestion via the logged set); "Niggle" is a pain signal, not a
 // load signal, and additionally reports to the Achilles/HSR pain gate — see
 // GuidedSession.tsx's onSave handler.
-export function AdjustLoadSheet({ open, onClose, weightKg, previousWeightKg, selected, onSave }: Props) {
+export function AdjustLoadSheet({ open, onClose, weightKg, previousWeightKg, dumbbells, selected, onSave }: Props) {
   const [choice, setChoice] = useState<LoadFeel | null>(selected);
+  const each = dumbbells ? " each" : "";
 
   return (
     <Sheet open={open} onClose={onClose} title="Adjust load">
       <div className="flex flex-col items-center gap-4 pb-6">
+        <p className="px-2 text-center text-[13.5px] leading-snug text-text-2">
+          Changing this updates the rest of today&apos;s sets and feeds the next progression step.
+        </p>
         <div className="text-center">
           <span className="font-display text-[56px] leading-none text-text-1">
             {displayWeight(weightKg)}
           </span>
-          <span className="ml-1 text-[15px] font-semibold text-text-3">{weightUnitLabel()}</span>
+          <span className="ml-1 text-[15px] font-semibold text-text-3">
+            {weightUnitLabel()}
+            {each}
+          </span>
           {previousWeightKg != null && previousWeightKg !== weightKg && (
             <p className="mt-1 text-[13px] font-medium text-text-3">
               was {displayWeight(previousWeightKg)} {weightUnitLabel()}
+              {each}
             </p>
           )}
         </div>

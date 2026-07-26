@@ -101,7 +101,7 @@ export function formatLoad(
     return perSide ? "Bodyweight · each side" : "Bodyweight";
   }
   const count = dumbbells === 1 ? "× 1" : "× 2";
-  const hold = holdNote ?? (dumbbells === 1 ? "single dumbbell" : "one per hand");
+  const hold = holdNote ?? (dumbbells === 1 ? "1 dumbbell" : "one per hand");
   const side = perSide ? " · each side" : "";
   const { value, label } = displayLoad(weightKg);
   return `${value} ${label} ${count} · ${hold}${side}`;

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Repeat } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -31,6 +31,7 @@ import type {
   PlannedExercise,
   SessionType,
 } from "@/components/strength/GuidedSession";
+import type { ExerciseOverride } from "@/lib/strength/session";
 // Heavy, full-screen surfaces only reached deep in the flow — load them on
 // demand so the strength landing bundle stays small.
 const GuidedSession = dynamic(() => import("@/components/strength/GuidedSession"), {
@@ -45,6 +46,8 @@ const CustomWorkoutBuilder = dynamic(
 );
 import { SortableItem } from "@/components/strength/SortableItem";
 import { SortChips } from "@/components/strength/SortChips";
+import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
+import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import { sortExerciseList, type ExerciseSortMode } from "@/lib/strength/sort";
 import {
   useCustomWorkouts,
@@ -72,6 +75,7 @@ interface SessionDetail {
   status: string;
   targetDurationMinutes: number | null;
   plannedExercises: PlannedExercise[];
+  exerciseOverrides?: ExerciseOverride[];
 }
 
 interface ExerciseCatalogRow {
@@ -144,6 +148,9 @@ export default function StrengthPage() {
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [catalog, setCatalog] = useState<ExerciseCatalogRow[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  // Exchange/Remove sheet — which exercise (by slug) it's currently open for.
+  const [actionsSlug, setActionsSlug] = useState<string | null>(null);
+  const equipment = useStrengthEquipment();
 
   const [summary, setSummary] = useState<GuidedFinishSummary | null>(null);
   const [painLogged, setPainLogged] = useState(false);
@@ -545,8 +552,15 @@ export default function StrengthPage() {
   }
 
   function removeExercise(slug: string) {
+    if (exercises.length <= 1) {
+      haptic("warning");
+      setError("Add another exercise before removing this one.");
+      return;
+    }
     haptic("light");
+    setError(null);
     setExercises((exs) => exs.filter((e) => e.slug !== slug));
+    setActionsSlug(null);
   }
 
   function handleDragEnd(e: DragEndEvent) {
@@ -589,8 +603,7 @@ export default function StrengthPage() {
     );
   }
 
-  async function openAddSheet() {
-    setAddOpen(true);
+  async function ensureCatalog() {
     if (catalog.length > 0 || catalogLoading) return;
     setCatalogLoading(true);
     try {
@@ -605,6 +618,49 @@ export default function StrengthPage() {
     } finally {
       setCatalogLoading(false);
     }
+  }
+
+  async function openAddSheet() {
+    setAddOpen(true);
+    await ensureCatalog();
+  }
+
+  async function openActionsFor(slug: string) {
+    haptic("light");
+    setActionsSlug(slug);
+    await ensureCatalog();
+  }
+
+  // Exchange: keep the slot's sets/reps/rest (same training stimulus), swap
+  // the exercise identity and its load prefill. Not yet started, so this is
+  // as ephemeral as add/remove/reorder here — nothing is sent to the server
+  // until Start (see handleStart), same as the rest of this overview.
+  function exchangeExercise(originalSlug: string, replacementSlug: string) {
+    haptic("light");
+    const cat = EXERCISES.find((e) => e.slug === replacementSlug);
+    const row = catalog.find((r) => r.slug === replacementSlug);
+    if (!cat) return;
+    setExercises((exs) =>
+      exs.map((e) => {
+        if (e.slug !== originalSlug) return e;
+        return {
+          ...e,
+          slug: cat.slug,
+          name: cat.name,
+          category: cat.category,
+          equipmentNote: cat.equipmentNote,
+          tempoNote: cat.tempoNote,
+          flatGroundOnly: cat.flatGroundOnly ?? false,
+          dumbbells: cat.dumbbells,
+          holdNote: cat.holdNote,
+          suggestedWeightKg: row?.lastWeightKg ?? cat.startWeightKg ?? null,
+          lastWeightKg: null,
+          painGated: false,
+          progression: { action: "same", reason: "Exchanged" },
+        };
+      })
+    );
+    setActionsSlug(null);
   }
 
   function addExercise(row: ExerciseCatalogRow) {
@@ -968,6 +1024,7 @@ export default function StrengthPage() {
           targetDurationMinutes: session.targetDurationMinutes,
         }}
         exercises={exercises}
+        exerciseOverrides={session.exerciseOverrides ?? []}
         resume={resume}
         onExit={handleExitGuided}
         onDiscard={handleDiscardGuided}
@@ -1095,6 +1152,14 @@ export default function StrengthPage() {
     // are counted the same way the detail screen and scheduler count them —
     // dropping perSide here is what made this read 37 min for a 44 min session.
     const liveEstimate = estimateWorkoutDuration(exercises);
+    // Prescribed volume (not logged reality — nothing's been done yet): top
+    // of the rep range at the suggested load, summed across working sets.
+    // Bodyweight/unloaded exercises contribute 0, same as the detail screen's
+    // logged-volume tile once the session is actually recorded.
+    const plannedVolumeKg = exercises.reduce(
+      (sum, e) => sum + e.sets * e.repHigh * (e.suggestedWeightKg ?? 0),
+      0
+    );
 
     return (
       <main className="min-h-dvh bg-bg">
@@ -1143,9 +1208,29 @@ export default function StrengthPage() {
         />
         <div className="px-4 pb-tabbar">
           <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
-          <p className="mt-1 text-[13px] text-text-3">
-            {exercises.length} exercises · ~{liveEstimate} min
-          </p>
+
+          <div className="mt-3 flex gap-2.5">
+            <div className="flex-1 k-card p-3.5">
+              <p className="font-display text-[24px] leading-none text-text-1">{exercises.length}</p>
+              <p className="mt-1.5 text-[9.5px] font-bold uppercase tracking-wide text-text-3">Exercises</p>
+            </div>
+            <div className="flex-1 k-card p-3.5">
+              <p className="font-display text-[24px] leading-none text-text-1">
+                {liveEstimate}
+                <span className="text-[12px] font-sans font-semibold text-text-3">min</span>
+              </p>
+              <p className="mt-1.5 text-[9.5px] font-bold uppercase tracking-wide text-text-3">Est.</p>
+            </div>
+            <div className="flex-1 k-card p-3.5">
+              <p className="font-display text-[24px] leading-none text-text-1">
+                {(displayWeight(plannedVolumeKg) / 1000).toFixed(1)}
+                <span className="text-[12px] font-sans font-semibold text-text-3">
+                  {weightUnitLabel() === "kg" ? "t" : "k lbs"}
+                </span>
+              </p>
+              <p className="mt-1.5 text-[9.5px] font-bold uppercase tracking-wide text-text-3">Volume</p>
+            </div>
+          </div>
 
           {session.type === "lower_achilles" && (
             <div className="mt-3 rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
@@ -1159,14 +1244,16 @@ export default function StrengthPage() {
             </div>
           )}
 
+          <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-[0.14em] text-text-3">Order</p>
+
           {exercises.length > 1 && (
-            <div className="mt-4">
+            <div className="mb-2">
               <SortChips mode={sortMode} onSelect={applySort} />
               <p className="mt-1.5 text-[12px] text-text-3">Hold and drag a card to reorder.</p>
             </div>
           )}
 
-          <div className="mt-4 flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             <DndContext
               sensors={dndSensors}
               collisionDetection={closestCenter}
@@ -1174,9 +1261,20 @@ export default function StrengthPage() {
               onDragEnd={handleDragEnd}
             >
               <SortableContext items={exercises.map((x) => x.slug)} strategy={verticalListSortingStrategy}>
-            {exercises.map((ex, ei) => (
-              <SortableItem key={ex.slug} id={ex.slug} className="flex items-start gap-3 k-card p-3.5">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
+            {exercises.map((ex, ei) => {
+              // Achilles rehab work is tinted cyan and never reads as an
+              // ordinary accessory row ("rehab, not filler" — see Volt
+              // session-start spec).
+              const isRehab = Boolean(EXERCISES.find((e) => e.slug === ex.slug)?.achillesRole);
+              return (
+              <SortableItem
+                key={ex.slug}
+                id={ex.slug}
+                className={`flex items-start gap-3 rounded-[var(--radius-card)] p-3.5 ${
+                  isRehab ? "bg-warn/10 ring-1 ring-inset ring-warn/30" : "k-card"
+                }`}
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated font-display text-[13px] text-text-2">
                   {ei + 1}
                 </span>
                 <div
@@ -1212,17 +1310,31 @@ export default function StrengthPage() {
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeExercise(ex.slug)}
-                  aria-label={`Remove ${ex.name}`}
-                  style={{ touchAction: "manipulation" }}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-elevated text-text-3"
-                >
-                  <X className="h-4 w-4" strokeWidth={2.5} />
-                </button>
+                {/* Swap + remove, 44×44 tap targets — sweaty-hands sizing, not a
+                    combined menu (see Volt session-start spec). */}
+                <div className="flex shrink-0 items-start gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openActionsFor(ex.slug)}
+                    aria-label={`Exchange ${ex.name}`}
+                    style={{ touchAction: "manipulation" }}
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3"
+                  >
+                    <Repeat className="h-4 w-4" strokeWidth={2.2} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeExercise(ex.slug)}
+                    aria-label={`Remove ${ex.name}`}
+                    style={{ touchAction: "manipulation" }}
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3"
+                  >
+                    <X className="h-4 w-4" strokeWidth={2.5} />
+                  </button>
+                </div>
               </SortableItem>
-            ))}
+              );
+            })}
               </SortableContext>
             </DndContext>
 
@@ -1300,6 +1412,16 @@ export default function StrengthPage() {
             />
           )}
         </Sheet>
+
+        <ExerciseActionsSheet
+          open={actionsSlug != null}
+          onClose={() => setActionsSlug(null)}
+          exercise={actionsSlug ? exercises.find((e) => e.slug === actionsSlug) ?? null : null}
+          otherSlugsInSession={exercises.filter((e) => e.slug !== actionsSlug).map((e) => e.slug)}
+          equipment={equipment}
+          hasLoggedSets={false}
+          onExchange={(replacementSlug) => actionsSlug && exchangeExercise(actionsSlug, replacementSlug)}
+        />
 
         <BottomNav active="strength" />
       </main>

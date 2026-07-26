@@ -1,14 +1,20 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq, and, gte, lt, isNull } from "drizzle-orm";
-import { db, strengthSessions, strengthSets, painLogs, activities } from "@/db";
+import { db, strengthSessions, strengthSets, painLogs, activities, strengthExercises } from "@/db";
 import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
 import { clearsAutoScheduled } from "@/lib/strength/reconcile";
-import { SESSION_TEMPLATES } from "@/lib/strength/program";
+import { SESSION_TEMPLATES, EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { StrengthSessionType } from "@/lib/strength/types";
+import type { ExerciseOverride } from "@/lib/strength/session";
+
+const ExerciseOverrideSchema = z.discriminatedUnion("action", [
+  z.object({ slug: z.string(), action: z.literal("removed") }),
+  z.object({ slug: z.string(), action: z.literal("swapped"), replacementSlug: z.string() }),
+]);
 
 const PatchSchema = z
   .object({
@@ -17,8 +23,26 @@ const PatchSchema = z
     durationMinutes: z.number().int().positive().optional(),
     notes: z.string().optional(),
     sortOrder: z.number().int().optional(),
+    // Exchange / Remove — full replace of the session's hand-edit layer (see
+    // lib/strength/session.ts applyExerciseOverrides). The caller always
+    // sends the complete array, same pattern as availableDays elsewhere.
+    exerciseOverrides: z.array(ExerciseOverrideSchema).optional(),
   })
   .strict();
+
+// Achilles-role work is rehab, not filler — never let an override touch it,
+// either as the thing being changed or as a swap target.
+function rejectsAchillesWork(overrides: ExerciseOverride[]): boolean {
+  return overrides.some((ov) => {
+    const target = EXERCISE_BY_SLUG[ov.slug];
+    if (target?.achillesRole) return true;
+    if (ov.action === "swapped") {
+      const replacement = EXERCISE_BY_SLUG[ov.replacementSlug];
+      if (!replacement || replacement.achillesRole) return true;
+    }
+    return false;
+  });
+}
 
 // ── GET /api/strength/sessions/[id] ───────────────────────────────────────────
 // Session with logged sets, plus the planned exercises (prescriptions,
@@ -58,7 +82,8 @@ export async function GET(
         type,
         new Date(session.date),
         session.profileId,
-        fitMinutes
+        fitMinutes,
+        (session.exerciseOverrides as ExerciseOverride[] | null) ?? []
       );
 
     // Self-heal: a session's targetDurationMinutes may still hold the
@@ -125,6 +150,31 @@ export async function PATCH(
   const updates = parsed.data;
   if (Object.keys(updates).length === 0) {
     return Response.json({ error: "No fields to update" }, { status: 422 });
+  }
+
+  if (updates.exerciseOverrides && rejectsAchillesWork(updates.exerciseOverrides)) {
+    return Response.json(
+      { error: "Achilles/calf rehab work can't be exchanged or removed." },
+      { status: 422 }
+    );
+  }
+
+  // Never let an override erase or reinterpret sets the athlete already
+  // logged this session — block it outright rather than guess whether to
+  // keep or discard the history.
+  if (updates.exerciseOverrides && updates.exerciseOverrides.length > 0) {
+    const logged = await db
+      .select({ slug: strengthExercises.slug })
+      .from(strengthSets)
+      .innerJoin(strengthExercises, eq(strengthSets.exerciseId, strengthExercises.id))
+      .where(eq(strengthSets.sessionId, id));
+    const loggedSlugs = new Set(logged.map((l) => l.slug));
+    if (updates.exerciseOverrides.some((ov) => loggedSlugs.has(ov.slug))) {
+      return Response.json(
+        { error: "That exercise already has sets logged this session — it can't be exchanged or removed." },
+        { status: 409 }
+      );
+    }
   }
 
   try {

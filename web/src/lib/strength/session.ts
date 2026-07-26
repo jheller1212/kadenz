@@ -212,6 +212,73 @@ export function estimateSessionMinutes(exercises: PlannedExercise[]): number {
   return estimateWorkoutDuration(exercises);
 }
 
+// ── Exercise overrides (Exchange / Remove) ────────────────────────────────────
+//
+// A session's plan is always re-derived from its template at read time (see
+// buildPlannedSession above) — there is no stored per-session exercise list.
+// Overrides are the hand-edit layer on top: persisted on the session row
+// (schema.ts strengthSessions.exerciseOverrides) and re-applied here on every
+// read. "removed" drops the slot; "swapped" keeps the original slot's
+// sets/reps/rest (same training stimulus) but swaps in a different exercise,
+// re-running progression against THAT exercise's own history. Never applies
+// to Achilles-role slots — that work is rehab, not filler, and callers must
+// reject overrides that target or point at one (see the API route).
+
+export type ExerciseOverride =
+  | { /** Slug of the exercise being overridden (as it appears in the template). */ slug: string; action: "removed" }
+  | { slug: string; action: "swapped"; replacementSlug: string };
+
+export function applyExerciseOverrides(
+  plan: PlannedExercise[],
+  overrides: ExerciseOverride[],
+  ctx: {
+    historyBySlug: Record<string, ExerciseSessionHistory[]>;
+    lifterProfile: LifterProfile | null;
+  }
+): PlannedExercise[] {
+  if (!overrides || overrides.length === 0) return plan;
+  let result = plan;
+  for (const ov of overrides) {
+    if (ov.action === "removed") {
+      result = result.filter((e) => e.slug !== ov.slug);
+      continue;
+    }
+    if (ov.action === "swapped" && ov.replacementSlug) {
+      const idx = result.findIndex((e) => e.slug === ov.slug);
+      const ex = EXERCISE_BY_SLUG[ov.replacementSlug];
+      if (idx === -1 || !ex || ex.achillesRole) continue;
+      const original = result[idx];
+      const history = ctx.historyBySlug[ov.replacementSlug] ?? [];
+      const progression = suggestProgression(ex, history, ctx.lifterProfile);
+      const replacement: PlannedExercise = {
+        slug: ex.slug,
+        name: ex.name,
+        category: ex.category,
+        equipmentNote: ex.equipmentNote,
+        tempoNote: ex.tempoNote,
+        flatGroundOnly: ex.flatGroundOnly ?? false,
+        perSide: original.perSide,
+        dumbbells: ex.dumbbells,
+        holdNote: ex.holdNote,
+        sets: original.sets,
+        repLow: original.repLow,
+        repHigh: original.repHigh,
+        restSeconds: original.restSeconds,
+        prescription: repRangeLabel(original.sets, original.repLow, original.repHigh),
+        suggestedWeightKg: progression.suggestedWeightKg,
+        lastWeightKg: progression.currentWeightKg,
+        lastDate: history[0]?.date.toISOString() ?? null,
+        progression,
+        painGated: false,
+        priority: original.priority,
+        setsLocked: false,
+      };
+      result = [...result.slice(0, idx), replacement, ...result.slice(idx + 1)];
+    }
+  }
+  return result;
+}
+
 // ── Achilles ordering rule ────────────────────────────────────────────────────
 //
 // Hard rule: within an Achilles session, explosive work comes before slow heavy

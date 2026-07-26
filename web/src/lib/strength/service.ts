@@ -11,7 +11,9 @@ import {
 import {
   buildSessionPlan,
   estimateSessionMinutes,
+  applyExerciseOverrides,
   type PlannedExercise,
+  type ExerciseOverride,
 } from "./session";
 import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
@@ -138,7 +140,8 @@ export async function buildPlannedSession(
   type: StrengthSessionType,
   date: Date,
   profileId: string | null = null,
-  targetDurationMinutes?: number
+  targetDurationMinutes?: number,
+  exerciseOverrides: ExerciseOverride[] = []
 ): Promise<PlannedSessionResult> {
   const [programWeek, historyBySlug, painGate, planSettings] = await Promise.all([
     getProgramWeek(date),
@@ -146,7 +149,7 @@ export async function buildPlannedSession(
     getPainGate(date),
     getPlanSettingsForLoads(profileId),
   ]);
-  const exercises = buildSessionPlan(type, {
+  const plan = buildSessionPlan(type, {
     programWeek,
     historyBySlug,
     painGate,
@@ -155,6 +158,12 @@ export async function buildPlannedSession(
     complaints: planSettings.complaints,
     targetDurationMinutes,
     restSecondsOverride: planSettings.restSeconds,
+  });
+  // Hand edits (Exchange / Remove) layered on last — see session.ts for why
+  // these can't be baked into the template-derived plan itself.
+  const exercises = applyExerciseOverrides(plan, exerciseOverrides, {
+    historyBySlug,
+    lifterProfile: planSettings.lifterProfile,
   });
   return { exercises, estimatedDurationMinutes: estimateSessionMinutes(exercises) };
 }
@@ -235,3 +244,4 @@ export function templateSlugs(type: StrengthSessionType): string[] {
 }
 
 export { EXERCISES, inArray };
+export type { ExerciseOverride };
