@@ -15,7 +15,6 @@ export interface PlanReadySummary {
   strength?: {
     active: boolean;
     sessionsPerWeek: number;
-    rescheduled: number;
   } | null;
 }
 

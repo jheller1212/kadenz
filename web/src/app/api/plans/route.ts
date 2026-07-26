@@ -231,10 +231,16 @@ export async function POST(request: NextRequest) {
     let strength: {
       active: boolean;
       sessionsPerWeek: number;
-      rescheduled: number;
     } | null = null;
+    // The reconcile itself is fire-and-forget: it prunes and re-creates strength
+    // sessions across the whole plan, and awaiting it put all of that on the
+    // critical path of the request the athlete is staring at a progress bar for.
+    // Nothing in the response depends on its result — the reveal copy only needs
+    // sessionsPerWeek — so the plan returns as soon as it exists.
+    reconcileStrengthSchedule(null).catch((err) =>
+      console.error("Failed to reconcile strength schedule:", err)
+    );
     try {
-      const { created } = await reconcileStrengthSchedule(null);
       const [settings] = await db
         .select()
         .from(strengthPlanSettings)
@@ -243,11 +249,10 @@ export async function POST(request: NextRequest) {
         strength = {
           active: settings.active,
           sessionsPerWeek: settings.sessionsPerWeek,
-          rescheduled: created,
         };
       }
     } catch (err) {
-      console.error("Failed to reconcile strength schedule:", err);
+      console.error("Failed to read strength settings:", err);
     }
 
     // Return the full plan (weeks + workouts + blocks) by fetching from DB
