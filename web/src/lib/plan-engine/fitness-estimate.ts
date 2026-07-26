@@ -27,19 +27,27 @@ const FITNESS_DISTANCES = {
 export type FitnessDistanceKey = keyof typeof FITNESS_DISTANCES;
 
 /** A single logged run — distance/duration/date only. The estimator doesn't
- *  care where it came from (Strava, Garmin, manual entry). */
+ *  care where it came from (Strava, Garmin, manual entry, a logged race
+ *  result). */
 export interface RunSample {
   distanceKm: number;
   durationSeconds: number;
   date: Date;
 }
 
-/** The run that produced the estimate, so the UI can show its reasoning. */
+/** The run that produced the estimate, so the UI can show its reasoning.
+ *  distanceKey is "race" (rather than a standard bucket) when the estimate
+ *  came from a logged race result — races aren't clipped to the 5k/10k/half/
+ *  marathon buckets since a race can be any distance (ultra, custom). */
 export interface FitnessEstimateSource {
-  distanceKey: FitnessDistanceKey;
+  distanceKey: FitnessDistanceKey | "race";
   distanceKm: number;
   durationSeconds: number;
   date: Date;
+  /** True when this estimate came from a logged race result rather than a
+   *  training run — lets the UI say "from your race" instead of "from your
+   *  recent 10k". */
+  isRaceResult: boolean;
 }
 
 export interface CurrentFitnessEstimate {
@@ -60,9 +68,20 @@ const MIN_DISTANCE_FRACTION = 0.95;
 const MAX_DISTANCE_FRACTION = 1.15;
 
 /**
- * Estimate current VDOT from a set of logged runs.
+ * Estimate current VDOT from a set of logged runs, optionally with a logged
+ * race result.
  *
- * For each standard distance, finds the fastest qualifying run within the
+ * A race result, when present and within the recency window, TAKES
+ * PRECEDENCE over every training run — it isn't just one more candidate
+ * competing on VDOT. A race is run at a deliberate, verified effort over a
+ * known distance; a training run is not, even a fast one. Trusting whichever
+ * number is numerically higher would let a hard interval session or a
+ * downhill training long run outrank an honestly-paced race, which is
+ * exactly backwards: the race is strictly better evidence of fitness even
+ * when its implied VDOT is lower.
+ *
+ * Without a qualifying race result, falls back to the bucket search: for
+ * each standard distance, finds the fastest qualifying run within the
  * recency window, converts it to a VDOT via the actual effort (real distance
  * and duration run, not a clipped-to-standard extrapolation). The highest
  * VDOT across buckets is used as the athlete's current fitness — matching how
@@ -70,15 +89,36 @@ const MAX_DISTANCE_FRACTION = 1.15;
  * any distance, since a single race is rarely run at exactly one's peak
  * relative effort for every distance simultaneously.
  *
- * Returns null when there isn't a single qualifying run — the caller falls
- * back to a cold-start value (self-reported level, or the goal itself).
+ * Returns null when there isn't a single qualifying run or race result — the
+ * caller falls back to a cold-start value (self-reported level, or the goal
+ * itself).
  */
 export function estimateCurrentFitness(
   runs: RunSample[],
   now: Date = new Date(),
-  windowDays: number = FITNESS_WINDOW_DAYS
+  windowDays: number = FITNESS_WINDOW_DAYS,
+  raceResult?: RunSample | null
 ): CurrentFitnessEstimate | null {
   const cutoff = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);
+
+  if (
+    raceResult &&
+    raceResult.date >= cutoff &&
+    raceResult.durationSeconds > 0 &&
+    raceResult.distanceKm > 0
+  ) {
+    const { vdot } = calculateVdot(raceResult.distanceKm * 1000, raceResult.durationSeconds);
+    return {
+      vdot,
+      source: {
+        distanceKey: "race",
+        distanceKm: raceResult.distanceKm,
+        durationSeconds: raceResult.durationSeconds,
+        date: raceResult.date,
+        isRaceResult: true,
+      },
+    };
+  }
 
   let best: CurrentFitnessEstimate | null = null;
 
@@ -111,6 +151,7 @@ export function estimateCurrentFitness(
           distanceKm: bucketBest.distanceKm,
           durationSeconds: bucketBest.durationSeconds,
           date: bucketBest.date,
+          isRaceResult: false,
         },
       };
     }
