@@ -264,23 +264,31 @@ export async function POST(request: NextRequest) {
     }
     t.mark("strengthSettings");
 
-    // Return the full plan (weeks + workouts + blocks) by fetching from DB
-    const fullPlan = await db.query.plans.findFirst({
-      where: (p, { eq }) => eq(p.id, planId),
-      with: {
-        weeks: {
-          orderBy: (w, { asc }) => [asc(w.weekNumber)],
-          with: {
-            workouts: {
-              orderBy: (wo, { asc }) => [asc(wo.sortOrder)],
-              with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
-            },
-          },
-        },
-      },
-    });
+    // Assembled from the rows we just inserted rather than read back. The
+    // re-fetch pulled the whole tree (weeks -> workouts -> blocks) straight
+    // after writing it, on the one connection this client allows, purely to
+    // return data already in hand. Blocks are omitted: the only consumer is the
+    // create flow, which reads the plan fields plus weeks[].workouts[].targetKm
+    // for the reveal's peak-week figure.
+    const workoutsByWeek = new Map<string, typeof insertedWorkouts>();
+    for (const wo of insertedWorkouts) {
+      const list = workoutsByWeek.get(wo.weekId);
+      if (list) list.push(wo);
+      else workoutsByWeek.set(wo.weekId, [wo]);
+    }
+    const fullPlan = {
+      ...insertedPlan,
+      weeks: [...insertedWeeks]
+        .sort((a, b) => a.weekNumber - b.weekNumber)
+        .map((w) => ({
+          ...w,
+          workouts: (workoutsByWeek.get(w.id) ?? []).sort(
+            (a, b) => a.sortOrder - b.sortOrder
+          ),
+        })),
+    };
 
-    t.mark("refetchPlan");
+    t.mark("assemblePlan");
     t.done({
       weeks: generatedPlan.weeks.length,
       workouts: workoutValues.length,
