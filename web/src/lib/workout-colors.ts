@@ -10,17 +10,21 @@ export interface TypeColor {
 }
 
 export const WORKOUT_COLORS: Record<string, TypeColor> = {
-  easy: { solid: "#4ADE80", grad: "linear-gradient(135deg, #63E88F 0%, #34C46B 100%)" },
-  recovery: { solid: "#4ADE80", grad: "linear-gradient(135deg, #63E88F 0%, #34C46B 100%)" },
-  tempo: { solid: "#FFE14D", grad: "linear-gradient(135deg, #FFEB7A 0%, #F5CE12 100%)" },
-  interval: { solid: "#FF4D4D", grad: "linear-gradient(135deg, #FF6E6E 0%, #E02424 100%)" },
-  long: { solid: "#C084FC", grad: "linear-gradient(135deg, #CE9CFD 0%, #A855F7 100%)" },
-  race: { solid: "#FF5A3C", grad: "linear-gradient(135deg, #FF7A60 0%, #E5401F 100%)" },
+  easy: { solid: "#4ADE80", grad: "linear-gradient(180deg, #FFE14D 0%, #4ADE80 100%)" },
+  recovery: { solid: "#4ADE80", grad: "linear-gradient(180deg, #4ADE80 0%, #35E4D4 100%)" },
+  tempo: { solid: "#FFE14D", grad: "linear-gradient(180deg, #FF8A3D 0%, #FFE14D 100%)" },
+  interval: { solid: "#FF4D4D", grad: "linear-gradient(180deg, #FF4D4D 0%, #FF8A3D 100%)" },
+  long: { solid: "#C084FC", grad: "linear-gradient(180deg, #9B6BFF 0%, #7C5CFF 100%)" },
+  // Red is reserved for intervals and races, so race shares the interval ramp.
+  race: { solid: "#FF4D4D", grad: "linear-gradient(180deg, #FF4D4D 0%, #FF8A3D 100%)" },
 };
 
+// Lift is the dark-theme value. It is the one type colour that differs per
+// theme (light is #2563EB, which fails AA on a dark card), so anything painting
+// a themed surface should prefer the CSS var --k-type-lift over this constant.
 export const STRENGTH_COLOR: TypeColor = {
-  solid: "#60A5FA",
-  grad: "linear-gradient(135deg, #7FB8FB 0%, #3B82F6 100%)",
+  solid: "#5AA0FF",
+  grad: "linear-gradient(180deg, #5AA0FF 0%, #2563EB 100%)",
 };
 
 export function workoutColor(type: string): TypeColor {

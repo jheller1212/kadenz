@@ -1,66 +1,62 @@
-# Kadenz Design System v2 — "iOS-native depth"
+# Kadenz design system — Volt
 
-Source of truth: the **Kadenz Design System** project on claude.ai/design
-(`b614bb73-3c25-4ebe-9ae1-8bbd4c6f3501`) — tokens, component specs, specimen
-cards, and a rendered Today screen. This file is the in-repo digest; the tokens
-live in `web/src/app/globals.css`.
+Volt is the current identity. It supersedes the v2 "Dawn" system this file used to
+describe, and the coral signature and teal progress colour documented there are gone.
+The authoritative source is `design_handoff_kadenz_volt/TOKENS.md` in the Kadenz Volt
+design project; this file records what the app actually implements.
 
-## Principles
+Architecture is unchanged from v2: `--k-*` naming, three elevation levels, gradient
+twinned surfaces, translucent materials, iOS motion. Only the identity changed.
 
-- The clarity of a best-in-class running app, but *our* identity — cool-neutral palette, depth and light
-  instead of flat fills. Like Apple Fitness / iOS widgets: layered, material.
-- **Gradients are a system, not decoration.** Every surface token has a `-grad`
-  twin (2–4% vertical luminance shift). Gradients never sit under body text —
-  only large display numerals or white ink.
-- **One signature moment per screen.** `--k-signature-grad` (identity: "Dawn",
-  sunrise coral→rose; alternates `--k-sig-kinetic`, `--k-sig-aurora`) appears at
-  most once per screen: active-plan header, week ring hero, completion states.
-- **Three elevation levels.** 0 = canvas (`--k-bg`), 1 = card (`.k-card`:
-  gradient + 0.5px ring + `--k-shadow-card`, borderless), 2 = floating
-  (`.k-float`: `--k-shadow-float`). Dark expresses elevation through *lighter
-  surfaces* (#17181B → #212227 → #26282E), not shadows.
-- The progress teal `#2DD4BF` (kinetic pair → `#38BDF8`) is the only persistent
-  chroma. The workout-type spectrum (`--k-type-*`) carries meaning, never
-  decoration.
+## Identity
 
-## Tokens (all in `globals.css`; dark = `:root` default, light = `html.light`)
-
-| Group | Tokens |
+| | |
 |---|---|
-| Surfaces | `--k-bg(-grad)`, `--k-surface(-grad)`, `--k-elevated`, `--k-float(-grad)`, `--k-hairline` |
-| Text (AA everywhere) | `--k-text-1/2/3` — light text-3 is #646973 (v1 #969BA6 failed AA) |
-| Accent | `--k-accent(-grad)` — near-black lit gradient (light), near-white (dark); `--k-on-accent` |
-| Progress | `--k-progress`, `--k-progress-2` (ring/bar gradients) |
-| Signature | `--k-signature-grad`, `--k-signature-ink`, `--k-sig-dawn/kinetic/aurora` |
-| Semantic | `--k-warn`, `--k-danger`, `--k-success` |
-| Types | `--k-type-easy/recovery/tempo/interval/long/race` |
-| Elevation | `--k-shadow-card`, `--k-shadow-float`, `--k-ring-hairline` |
-| Material | `--k-material`, `--k-material-border`, `--k-scrim` + `.material` blur class |
+| Accent | Volt lime `#C8FF3D`, ink text on top, identical in both themes |
+| Signature | Kinetic aurora `linear-gradient(120deg,#C8FF3D,#35E4D4 46%,#7C5CFF)` |
+| Progress | `--k-progress:#C8FF3D` into `--k-progress-2:#35E4D4` |
+| Display | Anton, uppercase, `letter-spacing:.01em`, every numeral |
+| Interface | Archivo 400 to 900, tabular numerals always |
 
-## Utility classes
+## Workout types
 
-- `.k-card` / `.k-float` — elevation-1/2 surfaces (replace `bg-surface border
-  border-hairline` — v2 cards are borderless).
-- `.k-signature` — the hero gradient surface (`--k-signature-ink` text only).
-- `.press` — scale 0.96 + brightness dip (light) / lift (dark). No hover styling.
-- `.material`, `.hairline-t/b` — translucent blurred bars. Static surfaces
-  ONLY — never on drag targets or animating list items (60fps).
+Red is reserved for intervals and races. Kraft is blue.
 
-## Rules of thumb
+| Type | Flat | Ramp (`--k-grad-*`, 180deg) |
+|---|---|---|
+| Easy | `#4ADE80` | `#FFE14D` to `#4ADE80` |
+| Recovery | `#4ADE80` | `#4ADE80` to `#35E4D4` |
+| Tempo | `#FFE14D` | `#FF8A3D` to `#FFE14D` |
+| Interval | `#FF4D4D` | `#FF4D4D` to `#FF8A3D` |
+| Long | `#C084FC` | `#9B6BFF` to `#7C5CFF` |
+| Race | `#FF4D4D` | `#FF4D4D` to `#FF8A3D` |
+| Lift / Kraft | dark `#5AA0FF`, light `#2563EB` | `#5AA0FF` to `#2563EB` |
 
-- Corners: card 20 / input 14 / sheet 28 / chips full-round. Page padding 20px,
-  card stack gap 16px, max width 430px.
-- Type: system stack (SF Pro), weights do the hierarchy — extrabold 34 large
-  titles, bold 17–20 headings, medium 15 body, semibold 13 controls, 10px
-  uppercase tracked micro-labels. Tabular numerals always.
-- Icons: lucide only, strokeWidth 1.5–2 (2.4 active tab). No emoji in UI.
-- Voice: terse, coach-like, sentence case, numbers first ("12km", "Week 6/12").
-- Motion: `--ease-ios`; springs for tab icons/knobs; sheets 0.34s slide-up;
-  everything collapses under reduced-motion.
+`--k-type-lift` is the only type token that differs per theme, because `WorkoutCard`
+uses one value for both graphics and 12px badge text and the light blue fails AA on a
+dark card.
 
-## Do / don't (gradients)
+## Flats are graphics, `--vi-*` is text
 
-- DO: surface washes on static cards, the accent "lit" treatment on primary
-  buttons, kinetic gradient on progress rings, one signature hero per screen.
-- DON'T: gradients under body text, on drag targets/animating rows, more than
-  one signature moment per screen, blur on anything that moves.
+Ramps and flat type colours are for spines, dots and bars. Type-coloured TEXT reads
+`--vi-*`, which on ink equals the flat and on paper is darkened to clear AA:
+
+```
+light  --vi-volt:#3F6100  --vi-cyan:#0C6A62  --vi-easy:#17803D  --vi-tempo:#755C00
+       --vi-interval:#C81E1E  --vi-long:#7E3AF2  --vi-lift:#1D4ED8
+dark   the flats themselves
+```
+
+Tempo yellow measures about 1.2:1 against the paper canvas, so this is not a nicety.
+
+## Two rules that bite
+
+Every surface token you override needs its `-grad` twin overridden too, because
+components paint `background:var(--k-surface-grad)` over `backgroundColor` and a
+half-override leaves the old gradient on top.
+
+`.k-dark-surface`, used by the always-dark brand moments, must override `--color-*`
+rather than `--k-*`. Tailwind's `@theme` declares `--color-x: var(--k-x)` on `:root`
+and resolves it there, so re-declaring `--k-x` on a descendant changes nothing.
+
+Motion lives in `docs/MOTION.md`.
