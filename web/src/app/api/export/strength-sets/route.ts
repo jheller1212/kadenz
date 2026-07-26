@@ -1,6 +1,8 @@
-import { asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 import { db, strengthSets, strengthSessions, strengthExercises } from "@/db";
 import { csvRow } from "@/lib/csv";
+import { getActiveProfileId } from "@/lib/profiles";
 
 // ── GET /api/export/strength-sets ──────────────────────────────────────────────
 // Streams every logged strength set as CSV, joined to its session (for the
@@ -20,8 +22,19 @@ const HEADER = [
   "feel",
 ];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const encoder = new TextEncoder();
+
+  // Scope to the active household profile, exactly as every other strength
+  // endpoint does (see api/strength/sessions/route.ts). Without this the
+  // export joined straight through to every profile's sets, so any household
+  // member exporting their data received everyone else's as well, including
+  // the owner's. A null profile means the owner, whose sessions carry a NULL
+  // profile_id, so the two cases need different predicates.
+  const profileId = getActiveProfileId(request);
+  const profileCond = profileId
+    ? eq(strengthSessions.profileId, profileId)
+    : isNull(strengthSessions.profileId);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -45,7 +58,7 @@ export async function GET() {
             .from(strengthSets)
             .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
             .innerJoin(strengthExercises, eq(strengthSets.exerciseId, strengthExercises.id))
-            .where(cursor ? gt(strengthSets.id, cursor) : undefined)
+            .where(cursor ? and(profileCond, gt(strengthSets.id, cursor)) : profileCond)
             .orderBy(asc(strengthSets.id))
             .limit(BATCH_SIZE);
 
