@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -97,13 +97,16 @@ type Phase = "picker" | "overview" | "guided" | "summary";
 // Colors are grouped by family: Upper days are blues (+ Achilles = deeper
 // shade), Lower days are purples (+ Achilles = deeper shade), standalone
 // Achilles is orange, Full Body green.
-const TYPE_META: Record<SessionType, { title: string; sub: string; color: string }> = {
-  upper: { title: "Upper", sub: "6 lifts · ~40 min", color: "#93C5FD" },
-  upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#3B82F6" },
-  lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#D8B4FE" },
-  lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#A855F7" },
-  achilles: { title: "Achilles", sub: "4 lifts · ~20 min", color: "#FB923C" },
-  full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399" },
+const TYPE_META: Record<
+  SessionType,
+  { title: string; sub: string; color: string; icon: typeof Dumbbell }
+> = {
+  upper: { title: "Upper", sub: "6 lifts · ~40 min", color: "#93C5FD", icon: Dumbbell },
+  upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#3B82F6", icon: Dumbbell },
+  lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#D8B4FE", icon: Dumbbell },
+  lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#A855F7", icon: Dumbbell },
+  achilles: { title: "Achilles", sub: "4 lifts · ~20 min", color: "#FB923C", icon: HeartPulse },
+  full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399", icon: Dumbbell },
 };
 
 // Categories eligible for "Add exercise" per session type.
@@ -147,6 +150,9 @@ export default function StrengthPage() {
   const [painSaving, setPainSaving] = useState(false);
   const [painError, setPainError] = useState<string | null>(null);
 
+  // Kraft hub stat row — real aggregates only (sessions/wk, weekly volume);
+  // no invented "load delta" tile, see /api/strength/summary.
+  const [hubStats, setHubStats] = useState<{ sessionsPerWeek: number | null; volumeKg: number | null } | null>(null);
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
   // Today's scheduled strength session(s), surfaced at the top of the picker so
   // the planned workout is one tap away and manual types stay below it.
@@ -175,6 +181,21 @@ export default function StrengthPage() {
   useEffect(() => {
     if (phase === "picker") listWorkouts();
   }, [phase, listWorkouts]);
+
+  // Kraft hub stat row — fetched once per picker landing.
+  useEffect(() => {
+    if (phase !== "picker") return;
+    let alive = true;
+    apiFetch("/api/strength/summary")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (alive && s) setHubStats(s);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [phase]);
 
   // Is the watch connected? Decides whether "Send to watch" is offered.
   useEffect(() => {
@@ -706,44 +727,95 @@ export default function StrengthPage() {
         <div className="px-4 pb-tabbar">
           {(() => {
             const todayPlanned = todaySessions.filter((s) => s.status === "planned");
-            return todayPlanned.length > 0 ? (
-              <div className="mb-5 mt-1">
-                <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
-                  Today
-                </p>
-                <div className="flex flex-col gap-3">
-                  {todayPlanned.map((s) => (
-                    <motion.button
-                      key={s.id}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => openSessionOverview(s.id)}
-                      whileTap={{ scale: busy ? 1 : 0.97 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 32 }}
-                      style={{ touchAction: "manipulation" }}
-                      className="flex items-center gap-3 rounded-[var(--radius-card)] bg-accent/10 p-4 text-left ring-1 ring-accent/25 disabled:opacity-50"
+            const [hero, ...rest] = todayPlanned;
+            if (!hero) return null;
+            return (
+              <div className="mb-4 mt-1">
+                {/* Next session — hero card, matches the Volt "Next session" tile */}
+                <motion.button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openSessionOverview(hero.id)}
+                  whileTap={{ scale: busy ? 1 : 0.97 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                  style={{ touchAction: "manipulation" }}
+                  className="k-card flex w-full items-center justify-between p-5 text-left disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span
+                      className="block text-[10px] font-extrabold uppercase tracking-[0.14em]"
+                      style={{ color: TYPE_META[hero.type]?.color ?? "var(--k-type-strength)" }}
                     >
-                      <span
-                        className="h-11 w-1.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: TYPE_META[s.type]?.color ?? "var(--accent)" }}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[17px] font-bold text-text-1">
-                          {s.title || TYPE_META[s.type]?.title || "Strength"}
+                      Next session
+                    </span>
+                    <span className="mt-1 block text-[21px] font-extrabold text-text-1">
+                      {hero.title || TYPE_META[hero.type]?.title || "Strength"}
+                    </span>
+                    <span className="mt-0.5 block text-[13px] text-text-3">
+                      {hero.targetDurationMinutes ? `~${hero.targetDurationMinutes} min est.` : "Scheduled for today"}
+                    </span>
+                  </span>
+                  <span className="flex h-[54px] w-[54px] shrink-0 items-center justify-center rounded-full bg-accent">
+                    <Play className="h-[22px] w-[22px] text-on-accent" strokeWidth={2} fill="currentColor" />
+                  </span>
+                </motion.button>
+
+                {rest.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2.5">
+                    {rest.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => openSessionOverview(s.id)}
+                        style={{ touchAction: "manipulation" }}
+                        className="press flex items-center gap-3 k-card p-3.5 text-left disabled:opacity-50"
+                      >
+                        <span
+                          className="h-9 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: TYPE_META[s.type]?.color ?? "var(--accent)" }}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[15px] font-bold text-text-1">
+                            {s.title || TYPE_META[s.type]?.title || "Strength"}
+                          </span>
+                          <span className="block text-[12px] text-text-3">Also scheduled today</span>
                         </span>
-                        <span className="block text-[13px] text-text-3">
-                          {s.targetDurationMinutes ? `~${s.targetDurationMinutes} min · ` : ""}Scheduled for today
-                        </span>
-                      </span>
-                      <span className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-bold text-on-accent">
-                        Start
-                      </span>
-                    </motion.button>
-                  ))}
-                </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.9} />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            ) : null;
+            );
           })()}
+
+          {/* Stat row — real aggregates only; no invented numbers */}
+          {(hubStats?.sessionsPerWeek != null || hubStats?.volumeKg != null) && (
+            <div className="mb-5 flex gap-2.5">
+              {hubStats.sessionsPerWeek != null && (
+                <div className="flex-1 k-card p-3.5">
+                  <p className="font-display text-[26px] leading-none text-text-1">
+                    {hubStats.sessionsPerWeek}
+                    <span className="text-[13px] font-sans font-semibold text-text-3">/wk</span>
+                  </p>
+                  <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-text-3">Sessions</p>
+                </div>
+              )}
+              {hubStats.volumeKg != null && (
+                <div className="flex-1 k-card p-3.5">
+                  <p className="font-display text-[26px] leading-none text-text-1">
+                    {(displayWeight(hubStats.volumeKg) / 1000).toFixed(1)}
+                    <span className="text-[13px] font-sans font-semibold text-text-3">
+                      {" "}
+                      {weightUnitLabel() === "kg" ? "t" : "k lbs"}
+                    </span>
+                  </p>
+                  <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-text-3">Volume · 7d</p>
+                </div>
+              )}
+            </div>
+          )}
 
           <p className="text-[15px] text-text-2">
             {todaySessions.some((s) => s.status === "planned")
@@ -786,26 +858,38 @@ export default function StrengthPage() {
             </div>
           )}
 
-          <div className="mt-5 flex flex-col gap-3">
-            {(Object.keys(TYPE_META) as SessionType[]).map((t) => (
-              <motion.button
-                key={t}
-                type="button"
-                disabled={busy}
-                onClick={() => pickType(t)}
-                whileTap={{ scale: busy ? 1 : 0.97 }}
-                transition={{ type: "spring", stiffness: 500, damping: 32 }}
-                style={{ touchAction: "manipulation" }}
-                className="flex items-center gap-3 k-card p-4 text-left disabled:opacity-50"
-              >
-                <span className="h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: TYPE_META[t].color }} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[17px] font-bold text-text-1">{TYPE_META[t].title}</span>
-                  <span className="block text-[13px] text-text-3">{TYPE_META[t].sub}</span>
-                </span>
-                <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.9} />
-              </motion.button>
-            ))}
+          <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-[0.14em] text-text-3">
+            Programme
+          </p>
+          <div className="flex flex-col gap-2">
+            {(Object.keys(TYPE_META) as SessionType[]).map((t) => {
+              const meta = TYPE_META[t];
+              const Icon = meta.icon;
+              return (
+                <motion.button
+                  key={t}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => pickType(t)}
+                  whileTap={{ scale: busy ? 1 : 0.97 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                  style={{ touchAction: "manipulation" }}
+                  className="flex items-center gap-3 k-card p-3.5 text-left disabled:opacity-50"
+                >
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                    style={{ backgroundColor: `${meta.color}24` }}
+                  >
+                    <Icon className="h-[19px] w-[19px]" strokeWidth={2} style={{ color: meta.color }} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-bold text-text-1">{meta.title}</span>
+                    <span className="block text-[12px] text-text-3">{meta.sub}</span>
+                  </span>
+                  <ChevronRight className="h-[19px] w-[19px] shrink-0 text-text-3" strokeWidth={1.9} />
+                </motion.button>
+              );
+            })}
           </div>
 
           <div className="mt-6">

@@ -14,6 +14,7 @@ import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "
 import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration, zonesArePersonalized } from "@/lib/hr-zone-time";
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from "@/lib/settings";
 import { SPORT_LABEL, SPORT_ORDER, type SportBucket } from "@/lib/sport";
+import { workoutColor } from "@/lib/workout-colors";
 import {
   collapseToThreeZones,
   bandPercents,
@@ -129,15 +130,13 @@ function fmtPace(secKm: number): string {
 
 // ── Derived stats helpers ─────────────────────────────────────────────────────
 
-const WORKOUT_COLORS: Record<WorkoutType, string> = {
-  easy: "#7BC232",
-  recovery: "#7BC232",
-  long: "#8655F0",
-  tempo: "#F2A113",
-  interval: "#E0402E",
-  race: "#FF4D4D",
-  rest: "#2A2A2E",
-};
+// Colors come from lib/workout-colors.ts (kept in sync with the CSS
+// --k-type-* twins) — no local hex duplicates, that's exactly how the JS/CSS
+// palettes drifted apart before.
+function statsWorkoutColor(type: WorkoutType): string {
+  if (type === "rest") return "#2A2A2E";
+  return workoutColor(type).solid;
+}
 
 const WORKOUT_LABELS: Record<WorkoutType, string> = {
   easy: "Easy",
@@ -789,7 +788,7 @@ export default function StatsPage() {
               <div className="mt-4 grid grid-cols-3 gap-3">
                 <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
                   <p className="text-[10px] uppercase tracking-wider text-text-3">Time</p>
-                  <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
+                  <p className="mt-1 text-[17px] font-display tabular-nums leading-none text-text-1">
                     {fmtDuration(perf.totals.totalSeconds).split(":").slice(0, 2).join(":")}
                     <span className="text-[10px] font-semibold text-text-3">
                       {perf.totals.totalSeconds >= 3600 ? " h" : " min"}
@@ -798,14 +797,14 @@ export default function StatsPage() {
                 </div>
                 <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
                   <p className="text-[10px] uppercase tracking-wider text-text-3">Longest</p>
-                  <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
+                  <p className="mt-1 text-[17px] font-display tabular-nums leading-none text-text-1">
                     {displayDistance(perf.totals.longestRunKm)}
                     <span className="text-[10px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                   </p>
                 </div>
                 <div className="rounded-[var(--radius-input)] bg-elevated px-2 py-3 text-center">
                   <p className="text-[10px] uppercase tracking-wider text-text-3">Elev.</p>
-                  <p className="mt-1 text-[15px] font-extrabold tabular-nums text-text-1">
+                  <p className="mt-1 text-[17px] font-display tabular-nums leading-none text-text-1">
                     {perf.totals.totalElevation}
                     <span className="text-[10px] font-semibold text-text-3"> m</span>
                   </p>
@@ -1044,7 +1043,7 @@ export default function StatsPage() {
                       label={WORKOUT_LABELS[type]}
                       count={count}
                       total={planStats.totalWorkouts}
-                      color={WORKOUT_COLORS[type]}
+                      color={statsWorkoutColor(type)}
                     />
                   ))}
               </div>
