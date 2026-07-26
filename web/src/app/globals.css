@@ -48,13 +48,13 @@
   --k-surface: #141419;
   --k-surface-grad: linear-gradient(180deg, #17171D 0%, #111116 100%);
   --k-elevated: #1E1E26;
-  --k-float: #26262F;
-  --k-float-grad: linear-gradient(180deg, #2A2A34 0%, #222229 100%);
+  --k-float: #1E1E26;
+  --k-float-grad: linear-gradient(180deg, #23232C 0%, #1A1A21 100%);
   --k-hairline: #26262F;
 
   --k-text-1: #F4F4EE;
   --k-text-2: #A0A0AC;
-  --k-text-3: #83838F;
+  --k-text-3: #878B95;
 
   /* Accent — Volt green, ink text on top */
   --k-accent: #C8FF3D;
@@ -63,8 +63,8 @@
   --k-on-accent: #0B0B0F;
 
   /* Progress cyan + ultraviolet pair (ring gradients) */
-  --k-progress: #35E4D4;
-  --k-progress-2: #7C5CFF;
+  --k-progress: #C8FF3D;
+  --k-progress-2: #35E4D4;
 
   /* Signature gradient — the Volt "kinetic aurora", one hero moment per screen. */
   --k-signature-grad: var(--k-sig-kinetic);
@@ -81,19 +81,45 @@
   /* Workout type palette: easy=lime→green, tempo=amber, interval=red,
      long=purple, strength=blue. Gradients are the canonical rendering. */
   --k-type-easy: #4ADE80;
-  --k-type-easy-grad: linear-gradient(135deg, #63E88F 0%, #34C46B 100%);
   --k-type-recovery: #4ADE80;
-  --k-type-recovery-grad: linear-gradient(135deg, #63E88F 0%, #34C46B 100%);
   --k-type-tempo: #FFE14D;
-  --k-type-tempo-grad: linear-gradient(135deg, #FFEB7A 0%, #F5CE12 100%);
   --k-type-interval: #FF4D4D;
-  --k-type-interval-grad: linear-gradient(135deg, #FF6E6E 0%, #E02424 100%);
   --k-type-long: #C084FC;
-  --k-type-long-grad: linear-gradient(135deg, #CE9CFD 0%, #A855F7 100%);
-  --k-type-race: #FF5A3C;
-  --k-type-race-grad: linear-gradient(135deg, #FF7A60 0%, #E5401F 100%);
-  --k-type-strength: #60A5FA;
-  --k-type-strength-grad: linear-gradient(135deg, #7FB8FB 0%, #3B82F6 100%);
+  /* Red is reserved for intervals and races, so race shares the interval hue. */
+  --k-type-race: #FF4D4D;
+  /* Lift is the one type token that MUST differ per theme: WorkoutCard uses the
+     same value for graphics and for 12px badge text, and the light blue fails AA
+     on a dark card. */
+  --k-type-lift: #5AA0FF;
+  --k-type-strength: var(--k-type-lift);
+
+  /* Ramps are the canonical rendering for spines, dots and bars. */
+  --k-grad-easy: linear-gradient(180deg, #FFE14D 0%, #4ADE80 100%);
+  --k-grad-recovery: linear-gradient(180deg, #4ADE80 0%, #35E4D4 100%);
+  --k-grad-tempo: linear-gradient(180deg, #FF8A3D 0%, #FFE14D 100%);
+  --k-grad-interval: linear-gradient(180deg, #FF4D4D 0%, #FF8A3D 100%);
+  --k-grad-long: linear-gradient(180deg, #9B6BFF 0%, #7C5CFF 100%);
+  --k-grad-race: linear-gradient(180deg, #FF4D4D 0%, #FF8A3D 100%);
+  --k-grad-lift: linear-gradient(180deg, #5AA0FF 0%, #2563EB 100%);
+
+  /* Existing call sites read --k-type-*-grad; keep them pointing at the ramps. */
+  --k-type-easy-grad: var(--k-grad-easy);
+  --k-type-recovery-grad: var(--k-grad-recovery);
+  --k-type-tempo-grad: var(--k-grad-tempo);
+  --k-type-interval-grad: var(--k-grad-interval);
+  --k-type-long-grad: var(--k-grad-long);
+  --k-type-race-grad: var(--k-grad-race);
+  --k-type-strength-grad: var(--k-grad-lift);
+
+  /* Ramps and flats are for GRAPHICS. Type-coloured TEXT uses these instead: on
+     ink they are the flats, on paper they are darkened to clear AA. */
+  --vi-volt: #C8FF3D;
+  --vi-cyan: #35E4D4;
+  --vi-easy: #4ADE80;
+  --vi-tempo: #FFE14D;
+  --vi-interval: #FF4D4D;
+  --vi-long: #C084FC;
+  --vi-lift: #5AA0FF;
 
   /* Elevation — dark uses lighter surfaces; shadows collapse to a 0.5px ring */
   --k-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
@@ -106,9 +132,9 @@
   --k-desk: #000000;
 
   /* Translucent "material" fill for blurred bars (dark) */
-  --k-material: rgba(23, 24, 27, 0.72);
+  --k-material: rgba(20, 20, 25, 0.78);
   --k-material-border: rgba(255, 255, 255, 0.08);
-  --k-scrim: rgba(0, 0, 0, 0.55);
+  --k-scrim: rgba(0, 0, 0, 0.62);
 
   /* Safe-area insets, resolved once so we can compose them */
   --sa-top: env(safe-area-inset-top, 0px);
@@ -134,7 +160,7 @@ html.light {
 
   --k-text-1: #0B0B0F;
   --k-text-2: #565660;
-  --k-text-3: #6A6A74;
+  --k-text-3: #646973;
 
   /* Volt green accent, ink text on top */
   --k-accent: #C8FF3D;
@@ -142,15 +168,20 @@ html.light {
   --k-accent-grad: linear-gradient(180deg, #D6FF5E 0%, #B7F52A 100%);
   --k-on-accent: #0B0B0F;
 
-  --k-progress: #16B8A6;
-  --k-progress-2: #7C5CFF;
+  /* Accent and progress are identical in both themes. */
+  --k-progress: #C8FF3D;
+  --k-progress-2: #35E4D4;
 
-  /* Type colours are tuned for the ink canvas. On paper the bright ones fall
-     apart as text (tempo yellow is ~1.2:1 against #F4F4EE), so the two worst
-     offenders get a deepened twin. Fills/spines keep the brand hue via the
-     -grad twins; only the flat colour is darkened. */
-  --k-type-tempo: #8A6D00;
-  --k-type-easy: #2E9E58;
+  /* Flats and ramps stay identical to dark, they are graphics. Type-coloured
+     TEXT switches to the ink variants below, darkened to clear AA on paper. */
+  --k-type-lift: #2563EB;
+  --vi-volt: #3F6100;
+  --vi-cyan: #0C6A62;
+  --vi-easy: #17803D;
+  --vi-tempo: #755C00;
+  --vi-interval: #C81E1E;
+  --vi-long: #7E3AF2;
+  --vi-lift: #1D4ED8;
 
   --k-warn: #E8850A;
   --k-danger: #E03A3A;
@@ -166,9 +197,9 @@ html.light {
     0 24px 60px rgba(23, 26, 31, 0.16);
   --k-ring-hairline: 0 0 0 0.5px rgba(23, 26, 31, 0.06);
 
-  --k-material: rgba(238, 240, 244, 0.88);
+  --k-material: rgba(244, 244, 238, 0.78);
   --k-material-border: rgba(0, 0, 0, 0.08);
-  --k-scrim: rgba(10, 12, 16, 0.4);
+  --k-scrim: rgba(11, 11, 15, 0.42);
   --k-desk: #C7C7CC;
 }
 
