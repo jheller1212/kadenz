@@ -2,6 +2,7 @@ import {
   EXERCISE_BY_SLUG,
   hsrPrescriptionForWeek,
   isHsrExercise,
+  resolveSlotVariant,
   sessionTemplateFor,
 } from "./program";
 import { snapToLevel } from "./weights";
@@ -15,6 +16,7 @@ import { estimateWorkoutDuration } from "./estimate";
 import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
 import type {
   Complaint,
+  Equipment,
   ExerciseDef,
   ExerciseSessionHistory,
   StrengthSessionType,
@@ -92,6 +94,19 @@ export interface BuildSessionOptions {
    * their rest-timer choice. HSR/Achilles rehab work keeps its own protocol.
    */
   restSecondsOverride?: number | null;
+  /**
+   * The athlete's available equipment (Kraft setup's equipment step). When
+   * given, each slot resolves to the best variant it can actually perform
+   * (see program.ts resolveSlotVariant/SQUAT_VARIANTS etc.), and any
+   * remaining "accessory" slot whose exercise still doesn't fit is dropped
+   * rather than prescribed unusable — the same trim philosophy duration-fit
+   * already applies for time. Achilles-role and "primary"/"targeted" slots
+   * are never dropped this way; their variant chains always end in a
+   * bodyweight ("[]") option, so they always resolve to something.
+   * `null`/absent = no equipment info yet — every slot keeps its original
+   * base exercise, unfiltered (matches pre-equipment-aware behaviour).
+   */
+  equipment?: Equipment[] | null;
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -108,20 +123,27 @@ export function buildSessionPlan(
   const painGate = opts.painGate ?? { triggered: false, reason: null };
   const ability = opts.ability ?? "intermediate";
   const lifterProfile = opts.lifterProfile ?? null;
+  const equipmentAvailable = opts.equipment ?? null;
 
   const plan = template.slots.map((slot, slotIdx) => {
-    const ex = EXERCISE_BY_SLUG[slot.exerciseSlug];
-    const history = historyBySlug[slot.exerciseSlug] ?? [];
+    // Pick the best variant this athlete can actually perform (see
+    // program.ts resolveSlotVariant). `equipmentAvailable == null` (no
+    // equipment info yet) always resolves to the slot's own base exercise —
+    // Achilles-role slots have no `variants` list either way, so they're
+    // never touched here regardless of equipment.
+    const resolved = resolveSlotVariant(slot, equipmentAvailable);
+    const ex = EXERCISE_BY_SLUG[resolved.slug];
+    const history = historyBySlug[resolved.slug] ?? [];
 
-    let sets = slot.sets;
-    let repLow = slot.repLow;
-    let repHigh = slot.repHigh;
+    let sets = resolved.sets;
+    let repLow = resolved.repLow;
+    let repHigh = resolved.repHigh;
     let restSeconds = slot.restSeconds;
 
     // Ability scaling (HSR rehab work keeps its own scheme, applied below):
     // beginners drop a set and rest longer; advanced athletes add a set to
     // the first two main lifts of the session.
-    if (!isHsrExercise(slot.exerciseSlug)) {
+    if (!isHsrExercise(resolved.slug)) {
       if (ability === "beginner") {
         sets = Math.max(2, sets - 1);
         restSeconds = restSeconds + 30;
@@ -141,7 +163,7 @@ export function buildSessionPlan(
     const lastWeightKg = progression.currentWeightKg;
 
     // HSR calf raises follow the explicit week-based scheme.
-    if (isHsrExercise(slot.exerciseSlug)) {
+    if (isHsrExercise(resolved.slug)) {
       const presc = hsrPrescriptionForWeek(programWeek);
       sets = presc.sets;
       repLow = presc.reps;
@@ -154,7 +176,7 @@ export function buildSessionPlan(
 
     // Pain-gate advisory applies to calf (HSR) work only.
     let painGated = false;
-    if (isHsrExercise(slot.exerciseSlug) && painGate.triggered) {
+    if (isHsrExercise(resolved.slug) && painGate.triggered) {
       progression = applyPainGate(progression, painGate);
       suggestedWeightKg = progression.suggestedWeightKg;
       painGated = true;
@@ -174,7 +196,7 @@ export function buildSessionPlan(
       equipmentNote: ex.equipmentNote,
       tempoNote: ex.tempoNote,
       flatGroundOnly: ex.flatGroundOnly ?? false,
-      perSide: slot.perSide ?? false,
+      perSide: resolved.perSide,
       dumbbells: ex.dumbbells,
       holdNote: ex.holdNote,
       sets,
@@ -188,9 +210,21 @@ export function buildSessionPlan(
       progression,
       painGated,
       priority,
-      setsLocked: isHsrExercise(slot.exerciseSlug),
+      setsLocked: isHsrExercise(resolved.slug),
     };
-  });
+  })
+    // A remaining "accessory" slot whose resolved exercise still needs kit
+    // this athlete doesn't have (no variant list, or every variant needs
+    // more than they have) is dropped rather than prescribed unusable — the
+    // same trim the athlete already sees from duration-fit for time, now
+    // also applied for equipment. Primary/targeted/achilles slots are never
+    // dropped this way; their variant chains always end in a bodyweight
+    // option (or, for Achilles, were never equipment-gated to begin with).
+    .filter((planned) => {
+      if (equipmentAvailable == null || planned.priority !== "accessory") return true;
+      const needs = EXERCISE_BY_SLUG[planned.slug]?.equipment ?? [];
+      return needs.every((e) => equipmentAvailable.includes(e));
+    });
 
   if (opts.targetDurationMinutes == null) return plan;
 

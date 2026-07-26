@@ -1,7 +1,9 @@
 import type {
   Complaint,
+  Equipment,
   ExerciseDef,
   SessionTemplate,
+  SlotVariant,
   StrengthSessionType,
   TemplateSlot,
 } from "./types";
@@ -573,11 +575,542 @@ export const EXERCISES: ExerciseDef[] = [
     repHigh: 15,
     startWeightKg: 5,
   },
+
+  // ── Barbell / bench / pull-up bar / kettlebell / band library ────────────
+  // Added so the equipment picker actually changes what a runner gets (see
+  // sessionTemplateFor / resolveSlotVariant below) — every entry here is a
+  // ranked upgrade or floor for an existing movement pattern (squat, hinge,
+  // press, pull/row, hip thrust), not isolation filler. Slugs follow the
+  // Garmin exercise vocabulary (garmin-worker/data/garmin_exercises_snapshot
+  // .json) wherever a match exists, so sessions pushed to the watch land on
+  // a real Garmin exercise.
+  {
+    slug: "barbell_back_squat",
+    equipment: ["barbell"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
+    name: "Barbell back squat",
+    category: "lower",
+    equipmentNote: "Bar on the upper back, feet shoulder-width",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar — an empty 20 kg Olympic bar is a real load to start
+  },
+  {
+    slug: "barbell_straight_leg_deadlift",
+    equipment: ["barbell"],
+    primaryMuscle: "Hamstrings",
+    secondaryMuscles: ["Glutes", "Lower back"],
+    name: "Barbell straight-leg deadlift",
+    category: "lower",
+    tempoNote: "Hinge from the hips, soft knees, bar stays close to the shins",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar
+  },
+  {
+    slug: "barbell_hip_thrust_with_bench",
+    equipment: ["barbell", "bench"],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hamstrings"],
+    name: "Barbell hip thrust (bench)",
+    category: "lower",
+    equipmentNote: "Upper back on the bench, bar padded across the hips",
+    tempoNote: "Pause and squeeze at the top",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar — glutes tolerate load well, still start at the empty bar
+  },
+  {
+    slug: "barbell_bulgarian_split_squat",
+    equipment: ["barbell", "bench"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
+    name: "Barbell Bulgarian split squat",
+    category: "lower",
+    equipmentNote: "Rear foot on the bench, bar on the upper back",
+    tempoNote: "Slow eccentric, 3-4 seconds down",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar — unilateral, so this already feels heavier than it reads
+  },
+  {
+    slug: "barbell_reverse_lunge",
+    equipment: ["barbell"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
+    name: "Barbell reverse lunge",
+    category: "lower",
+    tempoNote: "Step back, knee hovers just off the floor",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar
+  },
+  {
+    slug: "barbell_bench_press",
+    equipment: ["barbell", "bench"],
+    primaryMuscle: "Chest",
+    secondaryMuscles: ["Triceps", "Front delts"],
+    name: "Barbell bench press",
+    category: "upper",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar — standard beginner floor
+  },
+  {
+    slug: "barbell_floor_press",
+    equipment: ["barbell"],
+    primaryMuscle: "Chest",
+    secondaryMuscles: ["Triceps", "Front delts"],
+    name: "Barbell floor press",
+    category: "upper",
+    equipmentNote: "Lying on the floor, elbows rest between reps — bench-free pressing",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar
+  },
+  {
+    slug: "barbell_row",
+    equipment: ["barbell"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Rear delts"],
+    name: "Barbell bent-over row",
+    category: "upper",
+    tempoNote: "Flat back, squeeze at the top",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar
+  },
+  {
+    slug: "barbell_shoulder_press",
+    equipment: ["barbell"],
+    primaryMuscle: "Shoulders",
+    secondaryMuscles: ["Triceps", "Core"],
+    name: "Barbell shoulder press",
+    category: "upper",
+    tempoNote: "Controlled, no leg drive",
+    slowProgressor: true, // overhead pressing progresses slower than everything else
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20, // whole bar
+  },
+  {
+    slug: "dumbbell_bench_press",
+    equipment: ["dumbbell", "bench"],
+    primaryMuscle: "Chest",
+    secondaryMuscles: ["Triceps", "Front delts"],
+    name: "Dumbbell bench press",
+    category: "upper",
+    equipmentNote: "Full range of motion off the bench — upgrade from the floor press",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 10,
+  },
+  {
+    slug: "pull_up",
+    equipment: ["pullup_bar"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Core"],
+    name: "Pull-up",
+    category: "upper",
+    tempoNote: "Full hang to chin over the bar, controlled lower",
+    slowProgressor: true, // bodyweight vertical pulling is a slow build for most runners
+    defaultSets: 3,
+    repLow: 4,
+    repHigh: 10,
+  },
+  {
+    slug: "chin_up",
+    equipment: ["pullup_bar"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps"],
+    name: "Chin-up",
+    category: "upper",
+    equipmentNote: "Underhand grip — usually the easier of the two to build toward",
+    slowProgressor: true,
+    defaultSets: 3,
+    repLow: 4,
+    repHigh: 10,
+  },
+  {
+    slug: "band_assisted_pull_up",
+    equipment: ["pullup_bar", "band"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Core"],
+    name: "Band-assisted pull-up",
+    category: "upper",
+    equipmentNote: "Band looped over the bar, foot or knee in the loop for assistance",
+    tempoNote: "Full hang to chin over the bar, controlled lower",
+    defaultSets: 3,
+    repLow: 6,
+    repHigh: 10,
+  },
+  {
+    slug: "kettlebell_swing",
+    equipment: ["kettlebell"],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hamstrings", "Core"],
+    name: "Kettlebell swing",
+    category: "full_body",
+    equipmentNote: "One kettlebell, both hands",
+    tempoNote: "Explosive hip drive — the arms just carry the bell, they don't lift it",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+    startWeightKg: 12,
+  },
+  {
+    slug: "kettlebell_squat",
+    equipment: ["kettlebell"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
+    name: "Kettlebell goblet squat",
+    category: "lower",
+    equipmentNote: "One kettlebell held at the chest",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 12,
+    holdNote: "at chest",
+  },
+  {
+    slug: "kettlebell_row",
+    equipment: ["kettlebell"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Core"],
+    name: "Kettlebell row",
+    category: "upper",
+    equipmentNote: "Hinge forward, one kettlebell, opposite hand supported",
+    tempoNote: "Drive the elbow back, squeeze at the top",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 12,
+    holdNote: "working arm",
+  },
+  {
+    slug: "kettlebell_deadlift",
+    equipment: ["kettlebell"],
+    primaryMuscle: "Hamstrings",
+    secondaryMuscles: ["Glutes", "Lower back"],
+    name: "Kettlebell deadlift",
+    category: "lower",
+    equipmentNote: "One kettlebell between the feet",
+    tempoNote: "Hinge from the hips, soft knees",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 16,
+  },
+  {
+    slug: "farmers_carry",
+    equipment: ["kettlebell"],
+    primaryMuscle: "Core",
+    secondaryMuscles: ["Grip", "Traps"],
+    name: "Farmers carry",
+    category: "full_body",
+    equipmentNote: "One kettlebell per hand, walk tall for 20-30 m",
+    tempoNote: "No leaning — brace and walk",
+    defaultSets: 3,
+    repLow: 1,
+    repHigh: 1, // one carry per round
+    startWeightKg: 16,
+  },
+  {
+    slug: "band_pull_apart",
+    equipment: ["band"],
+    primaryMuscle: "Shoulders",
+    secondaryMuscles: ["Upper back"],
+    name: "Band pull-apart",
+    category: "upper",
+    equipmentNote: "Arms straight out in front, pull the band apart to the chest",
+    tempoNote: "Slow and controlled — this is shoulder health work, not a rep-max",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 20,
+  },
+  {
+    slug: "band_row",
+    equipment: ["band"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Rear delts"],
+    name: "Band row",
+    category: "upper",
+    equipmentNote: "Band anchored at chest height, or looped around the feet seated",
+    tempoNote: "Drive the elbows back, squeeze at the top",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "band_glute_bridge",
+    equipment: ["band"],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hamstrings"],
+    name: "Band glute bridge",
+    category: "lower",
+    equipmentNote: "Band above the knees for extra hip drive",
+    tempoNote: "Pause and squeeze at the top",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "band_lateral_walk",
+    equipment: ["band"],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hip abductors"],
+    name: "Band lateral walk",
+    category: "lower",
+    equipmentNote: "Band above the knees or ankles, stay in a quarter squat",
+    tempoNote: "Small controlled steps, keep tension on the band throughout",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "band_external_rotation",
+    equipment: ["band"],
+    primaryMuscle: "Shoulders",
+    name: "Band external rotation",
+    category: "upper",
+    equipmentNote: "Elbow pinned to your side, band anchored at elbow height",
+    tempoNote: "Slow, controlled — rotator-cuff health work for pressing/pulling balance",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 20,
+  },
+  {
+    slug: "band_deadlift",
+    equipment: ["band"],
+    primaryMuscle: "Hamstrings",
+    secondaryMuscles: ["Glutes", "Lower back"],
+    name: "Band deadlift",
+    category: "lower",
+    equipmentNote: "Stand on the band, hinge and pull to hip height",
+    tempoNote: "Hinge from the hips, soft knees",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "band_clamshell",
+    equipment: ["band"],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hip external rotators"],
+    name: "Band clamshell",
+    category: "lower",
+    equipmentNote: "Band above the knees, lying on your side",
+    tempoNote: "Open the top knee against the band, slow controlled close",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 20,
+  },
+  {
+    slug: "band_squat",
+    equipment: ["band"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
+    name: "Band squat",
+    category: "lower",
+    equipmentNote: "Stand on the band, handles racked at the shoulders",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "band_squat_to_press",
+    equipment: ["band"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Shoulders", "Core"],
+    name: "Band squat to press",
+    category: "full_body",
+    equipmentNote: "Stand on the band, press overhead as you stand out of the squat",
+    tempoNote: "One smooth movement, not two separate ones",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+  },
+  {
+    slug: "air_squat",
+    equipment: [],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes", "Core"],
+    name: "Bodyweight squat",
+    category: "lower",
+    equipmentNote: "No load — the squat pattern's bodyweight floor",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 25,
+  },
+  {
+    slug: "hip_raise",
+    equipment: [],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hamstrings"],
+    name: "Bodyweight hip raise",
+    category: "lower",
+    equipmentNote: "Shoulders on the floor — the hip-hinge/hip-thrust pattern's bodyweight floor",
+    tempoNote: "Pause and squeeze at the top",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 25,
+  },
+  {
+    slug: "superman_from_floor",
+    equipment: [],
+    primaryMuscle: "Lower back",
+    secondaryMuscles: ["Glutes", "Shoulders"],
+    name: "Superman from floor",
+    category: "full_body",
+    equipmentNote: "Lying face down — the pulling pattern's bodyweight floor when nothing's available to row against",
+    tempoNote: "Lift chest and legs together, pause, slow controlled lower",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+  },
+  {
+    slug: "pike_push_up",
+    equipment: [],
+    primaryMuscle: "Shoulders",
+    secondaryMuscles: ["Triceps", "Core"],
+    name: "Pike push-up",
+    category: "upper",
+    equipmentNote: "Hips high, hands and feet on the floor — the overhead-press pattern's bodyweight floor",
+    tempoNote: "Head toward the floor between the hands, press back up",
+    defaultSets: 3,
+    repLow: 6,
+    repHigh: 12,
+  },
 ];
 
 export const EXERCISE_BY_SLUG: Record<string, ExerciseDef> = Object.fromEntries(
   EXERCISES.map((e) => [e.slug, e])
 );
+
+// ── Slot variants ──────────────────────────────────────────────────────────────
+// Ranked equipment-gated alternatives per movement pattern, best-equipped
+// first, each list ending in a `[]` (bodyweight) entry so resolveSlotVariant
+// can never fail to pick something. Reserved for the primary compound slots
+// below — accessory slots stay single-exercise and are equipment-fit-gated
+// instead (see the equipment-fit filter in session.ts): dropping an
+// accessory when the kit isn't there mirrors how duration-fit already drops
+// accessories for time, rather than growing this list without bound.
+// Achilles-role slots never get a `variants` list — that work is rehab, not
+// filler, and must never be swapped by equipment selection.
+
+const SQUAT_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "barbell_back_squat", equipment: ["barbell"] },
+  { exerciseSlug: "db_squat", equipment: ["dumbbell"] },
+  { exerciseSlug: "kettlebell_squat", equipment: ["kettlebell"] },
+  { exerciseSlug: "air_squat", equipment: [], repLow: 15, repHigh: 25 },
+];
+
+const HINGE_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "barbell_straight_leg_deadlift", equipment: ["barbell"] },
+  { exerciseSlug: "romanian_deadlift", equipment: ["dumbbell"] },
+  { exerciseSlug: "kettlebell_deadlift", equipment: ["kettlebell"] },
+  { exerciseSlug: "band_deadlift", equipment: ["band"], repLow: 12, repHigh: 20 },
+  { exerciseSlug: "hip_raise", equipment: [], repLow: 15, repHigh: 25 },
+];
+
+const HIP_THRUST_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "barbell_hip_thrust_with_bench", equipment: ["barbell", "bench"] },
+  { exerciseSlug: "glute_bridge", equipment: ["dumbbell"] },
+  { exerciseSlug: "band_glute_bridge", equipment: ["band"], repLow: 12, repHigh: 20 },
+  { exerciseSlug: "hip_raise", equipment: [], repLow: 15, repHigh: 25 },
+];
+
+const HORIZONTAL_PRESS_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "barbell_bench_press", equipment: ["barbell", "bench"] },
+  { exerciseSlug: "barbell_floor_press", equipment: ["barbell"] },
+  { exerciseSlug: "dumbbell_bench_press", equipment: ["dumbbell", "bench"] },
+  { exerciseSlug: "floor_press", equipment: ["dumbbell"] },
+  { exerciseSlug: "push_up", equipment: [], repLow: 8, repHigh: 20 },
+];
+
+const OVERHEAD_PRESS_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "barbell_shoulder_press", equipment: ["barbell"] },
+  { exerciseSlug: "overhead_press", equipment: ["dumbbell"] },
+  { exerciseSlug: "pike_push_up", equipment: [], repLow: 6, repHigh: 12 },
+];
+
+// Bent-over row (the two-hand back row slot).
+const ROW_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "pull_up", equipment: ["pullup_bar"], repLow: 4, repHigh: 10 },
+  { exerciseSlug: "barbell_row", equipment: ["barbell"] },
+  { exerciseSlug: "bent_over_row", equipment: ["dumbbell"] },
+  { exerciseSlug: "kettlebell_row", equipment: ["kettlebell"] },
+  { exerciseSlug: "band_row", equipment: ["band"], repLow: 12, repHigh: 20 },
+  { exerciseSlug: "superman_from_floor", equipment: [], repLow: 10, repHigh: 15 },
+];
+
+// Renegade row (upper day's single-arm/anti-rotation row slot).
+const RENEGADE_ROW_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "kettlebell_row", equipment: ["kettlebell"] },
+  { exerciseSlug: "renegade_row", equipment: ["dumbbell"] },
+  { exerciseSlug: "band_row", equipment: ["band"], repLow: 12, repHigh: 20 },
+  { exerciseSlug: "superman_from_floor", equipment: [], repLow: 10, repHigh: 15 },
+];
+
+// One-arm row (full-body day's single-arm row slot).
+const ONE_ARM_ROW_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "kettlebell_row", equipment: ["kettlebell"] },
+  { exerciseSlug: "one_arm_row", equipment: ["dumbbell", "chair"] },
+  { exerciseSlug: "band_row", equipment: ["band"], repLow: 12, repHigh: 20 },
+  { exerciseSlug: "superman_from_floor", equipment: [], repLow: 10, repHigh: 15 },
+];
+
+/**
+ * Which concrete exercise a template slot resolves to for this athlete.
+ *
+ * `equipment === null` means "no equipment info yet" (unconfigured Kraft
+ * settings) — always the slot's own base prescription (`exerciseSlug`),
+ * matching the exact pre-equipment-aware behaviour so unconfigured athletes
+ * and every existing caller keep getting exactly what they got before
+ * variants existed.
+ *
+ * When equipment is known, ranked `variants` (best first) are tried in
+ * order; the first whose required kit is fully available wins. A slot with
+ * no `variants` list (Achilles-role slots, and slots deliberately left
+ * single-exercise) always resolves to its base `exerciseSlug` regardless of
+ * equipment — variant selection never touches Achilles work.
+ */
+export function resolveSlotVariant(
+  slot: TemplateSlot,
+  equipment: Equipment[] | null
+): { slug: string; sets: number; repLow: number; repHigh: number; perSide: boolean } {
+  const base = {
+    slug: slot.exerciseSlug,
+    sets: slot.sets,
+    repLow: slot.repLow,
+    repHigh: slot.repHigh,
+    perSide: slot.perSide ?? false,
+  };
+  if (equipment == null || !slot.variants || slot.variants.length === 0) return base;
+
+  const has = (needs: Equipment[]) => needs.every((e) => equipment.includes(e));
+  const match = slot.variants.find((v) => has(v.equipment));
+  if (!match) return base;
+
+  return {
+    slug: match.exerciseSlug,
+    sets: match.sets ?? base.sets,
+    repLow: match.repLow ?? base.repLow,
+    repHigh: match.repHigh ?? base.repHigh,
+    perSide: match.perSide ?? base.perSide,
+  };
+}
 
 // ── Session templates ─────────────────────────────────────────────────────────
 // Slot order IS session order. For lower_achilles, explosive Achilles work is
@@ -597,10 +1130,10 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     targetDurationMinutes: 40,
     effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
-      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "renegade_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: OVERHEAD_PRESS_VARIANTS },
+      { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: ROW_VARIANTS },
+      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HORIZONTAL_PRESS_VARIANTS },
+      { exerciseSlug: "renegade_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: RENEGADE_ROW_VARIANTS },
       { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
       { exerciseSlug: "lateral_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
     ],
@@ -611,8 +1144,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     targetDurationMinutes: 35,
     effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
-      { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: SQUAT_VARIANTS },
+      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HINGE_VARIANTS },
       { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
       { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
       // Ordinary runner calf work — not the Achilles HSR protocol.
@@ -625,12 +1158,15 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     targetDurationMinutes: 38,
     effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
-      { exerciseSlug: "goblet_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true },
-      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
-      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
+      // Same squat pattern as the lower day (goblet_squat's dumbbell entry
+      // stays in the catalogue for the custom builder, just no longer the
+      // only option a full-body session can resolve to).
+      { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: SQUAT_VARIANTS },
+      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HINGE_VARIANTS },
+      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HORIZONTAL_PRESS_VARIANTS },
+      { exerciseSlug: "one_arm_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true, variants: ONE_ARM_ROW_VARIANTS },
+      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory", variants: OVERHEAD_PRESS_VARIANTS },
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory", variants: HIP_THRUST_VARIANTS },
       // Ordinary runner calf work — not the Achilles HSR protocol.
       { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
     ],
@@ -642,11 +1178,11 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     effortNote: "1-2 reps in reserve on upper; explosive step-ups at 6 reps only",
     slots: [
       // Upper
-      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: OVERHEAD_PRESS_VARIANTS },
+      { exerciseSlug: "bent_over_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: ROW_VARIANTS },
+      { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HORIZONTAL_PRESS_VARIANTS },
       { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
-      // Achilles: explosive first, then HSR
+      // Achilles: explosive first, then HSR — never variant-swapped.
       { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
       { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
       { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
@@ -681,12 +1217,12 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       // Toe walks third
       { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 120 },
       // Main lower strength
-      { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
-      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90 },
+      { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: SQUAT_VARIANTS },
+      { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HINGE_VARIANTS },
       { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
       { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
       // Glute bridge last
-      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
+      { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory", variants: HIP_THRUST_VARIANTS },
     ],
   },
 };

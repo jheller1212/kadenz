@@ -112,6 +112,25 @@ export interface ExerciseDef {
  */
 export type SlotPriority = "primary" | "accessory" | "targeted";
 
+/**
+ * A ranked equipment-gated alternative for a template slot. `equipment` is
+ * the exact kit this variant needs — every item must be in the athlete's
+ * available equipment for it to be picked. `[]` means bodyweight, always
+ * satisfiable, so a slot whose variant list ends in a `[]` entry can never
+ * fail to resolve. Rep/set overrides are optional — omitted fields fall
+ * back to the slot's own base prescription (most variants keep the same
+ * training stimulus; bodyweight floors usually need more reps to compensate
+ * for the missing load).
+ */
+export interface SlotVariant {
+  exerciseSlug: string;
+  equipment: Equipment[];
+  sets?: number;
+  repLow?: number;
+  repHigh?: number;
+  perSide?: boolean;
+}
+
 /** A prescribed slot in a session template. */
 export interface TemplateSlot {
   exerciseSlug: string;
@@ -123,6 +142,13 @@ export interface TemplateSlot {
   perSide?: boolean;
   /** Trim priority; omitted = "primary" (see SlotPriority). */
   priority?: SlotPriority;
+  /**
+   * Ranked equipment-gated alternatives for this slot, best first (see
+   * resolveSlotVariant in program.ts). Absent = the slot always resolves to
+   * `exerciseSlug` regardless of equipment — used for Achilles-role slots,
+   * which variant selection must never touch (see AchillesRole).
+   */
+  variants?: SlotVariant[];
 }
 
 export interface SessionTemplate {
