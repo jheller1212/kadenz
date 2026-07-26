@@ -17,6 +17,11 @@ export interface GuidedWorkSet {
   durationSec: number;
   /** Reason chip from the "Adjust load" sheet, if the athlete gave one. */
   feel?: LoadFeel | null;
+  /** Undefined/"working" = a normal set; "warmup" = a ramp set, excluded
+   *  from progression and PR detection (see progression.ts/pr.ts). Optional
+   *  so an in-progress session saved before this field existed still loads
+   *  and reads as all-working, same convention as strength_sets.kind. */
+  kind?: "warmup" | "working";
 }
 
 export interface GuidedSnapshot {

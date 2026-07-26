@@ -17,6 +17,7 @@ import {
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { AdjustLoadSheet } from "@/components/strength/AdjustLoadSheet";
 import { PrMoment, type PrMomentEvent } from "@/components/strength/PrMoment";
+import { deriveWarmupRamp } from "@/lib/strength/warmup";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
@@ -56,6 +57,12 @@ export interface PlannedExercise {
   lastDate?: string | null;
   painGated: boolean;
   progression: { action: string; reason: string };
+  /** Trim priority from session.ts — also the warm-up-ramp eligibility
+   *  signal (see lib/strength/warmup.ts): only "primary" compound lifts get
+   *  a suggested ramp. Optional because exchangeCurrentExercise's rebuilt
+   *  exercise object doesn't set it explicitly (it carries over via spread
+   *  from the original slot, same as session.ts's swap override). */
+  priority?: "primary" | "accessory" | "achilles" | "targeted";
 }
 
 export interface GuidedSessionInfo {
@@ -126,15 +133,76 @@ function Stepper({ onClick, children }: { onClick: () => void; children: React.R
   );
 }
 
+// Working-set number for a row, counting only "working" sets up to and
+// including `index` — warm-ups aren't numbered against the working count
+// (matches the design board: WU tags sit outside the 1/2/3/4 numbering).
+function workingSetNumber(arr: WorkSet[], index: number): number {
+  let n = 0;
+  for (let i = 0; i <= index; i++) {
+    if (arr[i]?.kind !== "warmup") n++;
+  }
+  return n;
+}
+
+// Small WU / numbered pill (see the design board's .setrow .tag). Tappable
+// to flip warm-up ↔ working when `onToggle` is given; read-only otherwise
+// (already-logged rows and the "last time" popup only ever display it).
+function SetTag({
+  kind,
+  number,
+  onToggle,
+}: {
+  kind?: "warmup" | "working";
+  number: number;
+  onToggle?: () => void;
+}) {
+  const isWarmup = kind === "warmup";
+  const classes = isWarmup
+    ? "bg-elevated text-text-3"
+    : "bg-[#5AA0FF]/15 text-[#5AA0FF]";
+  const content = isWarmup ? "WU" : String(number);
+  if (!onToggle) {
+    return (
+      <span className={`flex h-5 min-w-[24px] shrink-0 items-center justify-center rounded-md px-1 text-[9px] font-extrabold ${classes}`}>
+        {content}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={isWarmup ? "Mark as a working set" : "Mark as a warm-up set"}
+      style={{ touchAction: "manipulation" }}
+      className={`press flex h-5 min-w-[24px] shrink-0 items-center justify-center rounded-md px-1 text-[9px] font-extrabold ${classes}`}
+    >
+      {content}
+    </button>
+  );
+}
+
 function buildWork(exercises: PlannedExercise[]): Record<string, WorkSet[]> {
   const w: Record<string, WorkSet[]> = {};
   for (const ex of exercises) {
-    w[ex.slug] = Array.from({ length: ex.sets }, () => ({
+    // Pre-tag a suggested warm-up ramp ahead of the working sets, so a heavy
+    // primary lift arrives with something to correct rather than nothing —
+    // see lib/strength/warmup.ts for the eligibility and sizing rule.
+    const ramp = deriveWarmupRamp(ex.priority, ex.suggestedWeightKg);
+    const rampSets: WorkSet[] = ramp.map((r) => ({
+      kg: r.kg,
+      reps: r.reps,
+      logged: false,
+      durationSec: 0,
+      kind: "warmup",
+    }));
+    const workingSets: WorkSet[] = Array.from({ length: ex.sets }, () => ({
       kg: ex.suggestedWeightKg ?? 0,
       reps: ex.repHigh,
       logged: false,
       durationSec: 0,
+      kind: "working",
     }));
+    w[ex.slug] = [...rampSets, ...workingSets];
   }
   return w;
 }
@@ -401,6 +469,8 @@ export default function GuidedSession({
     if (!ex) return;
     const repPart = ex.repLow === ex.repHigh ? `${ex.repLow}` : `${ex.repLow} to ${ex.repHigh}`;
     const bits = [`${ex.name}.`, `${ex.sets} sets of ${repPart} reps.`];
+    const rampCount = (work[ex.slug] ?? []).filter((s) => s.kind === "warmup").length;
+    if (rampCount > 0) bits.push(`${rampCount} warm-up set${rampCount > 1 ? "s" : ""} first.`);
     if (ex.perSide) bits.push("Per side.");
     if (ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0) {
       const dbs = ex.dumbbells === 1 ? "one dumbbell" : "two dumbbells";
@@ -483,6 +553,7 @@ export default function GuidedSession({
         reps: set.reps,
         durationSeconds: set.durationSec || null,
         feel: set.feel ?? null,
+        kind: set.kind ?? "working",
       }),
     })
       .then(async (r) => {
@@ -520,9 +591,14 @@ export default function GuidedSession({
     setWork((w) => {
       const arr = [...(w[slug] ?? [])];
       arr[setIndex] = { ...arr[setIndex], logged: true, durationSec };
-      // Carry the working weight forward to later, not-yet-logged sets.
+      // Carry the weight forward to later, not-yet-logged sets of the SAME
+      // kind only — a ramp set's lighter weight must never leak into the
+      // working sets that follow it (or vice versa), or the ramp collapses
+      // into one flat weight the moment the first set is logged.
       for (let i = setIndex + 1; i < arr.length; i++) {
-        if (!arr[i].logged) arr[i] = { ...arr[i], kg: arr[setIndex].kg };
+        if (!arr[i].logged && arr[i].kind === arr[setIndex].kind) {
+          arr[i] = { ...arr[i], kg: arr[setIndex].kg };
+        }
       }
       return { ...w, [slug]: arr };
     });
@@ -540,12 +616,33 @@ export default function GuidedSession({
       if (!cur) return w;
       arr[setIndex] =
         field === "kg" ? { ...cur, kg: stepWeight(cur.kg, d > 0 ? 1 : -1) } : { ...cur, reps: Math.max(1, cur.reps + d) };
-      // Carrying forward keeps future sets in step while you tweak.
+      // Carrying forward keeps future sets of the SAME kind in step while
+      // you tweak — a ramp set's weight must stay isolated from the working
+      // sets that follow it (see doneSet for the same rule).
       if (!cur.logged) {
         for (let i = setIndex + 1; i < arr.length; i++) {
-          if (!arr[i].logged && field === "kg") arr[i] = { ...arr[i], kg: arr[setIndex].kg };
+          if (!arr[i].logged && field === "kg" && arr[i].kind === cur.kind) {
+            arr[i] = { ...arr[i], kg: arr[setIndex].kg };
+          }
         }
       }
+      return { ...w, [slug]: arr };
+    });
+    if ((workRef.current[slug] ?? [])[setIndex]?.logged) {
+      queueMicrotask(() => postSet(slug, setIndex));
+    }
+  }
+
+  // Flip a set between warm-up and working — the affordance the suggested
+  // ramp (buildWork) only pre-fills. Weight/reps are left as-is: toggling
+  // doesn't guess a new number, the athlete already has steppers for that.
+  function toggleSetKind(slug: string, setIndex: number) {
+    haptic("light");
+    setWork((w) => {
+      const arr = [...(w[slug] ?? [])];
+      const cur = arr[setIndex];
+      if (!cur) return w;
+      arr[setIndex] = { ...cur, kind: cur.kind === "warmup" ? "working" : "warmup" };
       return { ...w, [slug]: arr };
     });
     if ((workRef.current[slug] ?? [])[setIndex]?.logged) {
@@ -618,14 +715,27 @@ export default function GuidedSession({
     setWork((w) => {
       const { [cur.slug]: _dropped, ...rest } = w;
       void _dropped;
+      // Same ramp rule as the initial build (see buildWork) — the swap keeps
+      // the original slot's priority, so a primary-lift swap still gets a
+      // warm-up ramp for the new exercise's own starting weight.
+      const ramp = deriveWarmupRamp(cur.priority, cat.startWeightKg ?? null);
+      const rampSets: WorkSet[] = ramp.map((r) => ({
+        kg: r.kg,
+        reps: r.reps,
+        logged: false,
+        durationSec: 0,
+        kind: "warmup",
+      }));
+      const workingSets: WorkSet[] = Array.from({ length: cur.sets }, () => ({
+        kg: cat.startWeightKg ?? 0,
+        reps: cur.repHigh,
+        logged: false,
+        durationSec: 0,
+        kind: "working",
+      }));
       return {
         ...rest,
-        [cat.slug]: Array.from({ length: cur.sets }, () => ({
-          kg: cat.startWeightKg ?? 0,
-          reps: cur.repHigh,
-          logged: false,
-          durationSec: 0,
-        })),
+        [cat.slug]: [...rampSets, ...workingSets],
       };
     });
     lastPerfFetched.current.delete(cat.slug);
@@ -914,7 +1024,7 @@ export default function GuidedSession({
           {ex.name}
         </h1>
         <p className="mt-1 text-[14px] font-semibold text-text-2">
-          {allLogged ? "All sets done" : `Set ${nextSi + 1} of ${ex.sets}`} · target {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps{ex.perSide ? " / side" : ""}
+          {allLogged ? "All sets done" : `Set ${nextSi + 1} of ${arr.length}`} · target {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps{ex.perSide ? " / side" : ""}
         </p>
         {ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0 && (
           <p className="mt-1 text-[13px] font-semibold text-accent-fg">
@@ -980,9 +1090,9 @@ export default function GuidedSession({
           <div className="mt-3 w-full max-w-xs k-card p-2">
             {arr.map((s, i) =>
               s.logged ? (
-                <div key={i} className="flex items-center justify-between px-2 py-1 text-[13px]">
-                  <span className="font-semibold text-text-3">Set {i + 1}</span>
-                  <span className="tabular-nums text-text-1">
+                <div key={i} className="flex items-center gap-2 px-2 py-1 text-[13px]">
+                  <SetTag kind={s.kind} number={workingSetNumber(arr, i)} />
+                  <span className="ml-auto tabular-nums text-text-1">
                     <b>{displayWeight(s.kg)}</b> {weightUnitLabel()} × <b>{s.reps}</b>
                   </span>
                   <span className="tabular-nums text-text-3">{fmt(s.durationSec)}</span>
@@ -1034,8 +1144,10 @@ export default function GuidedSession({
                   set={editSet}
                   perSide={ex.perSide}
                   dumbbells={ex.dumbbells}
+                  number={workingSetNumber(arr, editIndex)}
                   onAdjust={(f, d) => adjustSet(ex.slug, editIndex, f, d)}
                   onOpenAdjust={() => { haptic("light"); setAdjustOpen(editIndex); }}
+                  onToggleKind={() => toggleSetKind(ex.slug, editIndex)}
                 />
               )}
               <div className="mt-4 grid grid-cols-2 gap-3">
@@ -1059,8 +1171,10 @@ export default function GuidedSession({
                   set={editSet}
                   perSide={ex.perSide}
                   dumbbells={ex.dumbbells}
+                  number={workingSetNumber(arr, timerHere.setIndex)}
                   onAdjust={(f, d) => adjustSet(ex.slug, timerHere.setIndex, f, d)}
                   onOpenAdjust={() => { haptic("light"); setAdjustOpen(timerHere.setIndex); }}
+                  onToggleKind={() => toggleSetKind(ex.slug, timerHere.setIndex)}
                 />
               )}
               <div className="mt-5">
@@ -1080,8 +1194,10 @@ export default function GuidedSession({
                   set={editSet}
                   perSide={ex.perSide}
                   dumbbells={ex.dumbbells}
+                  number={workingSetNumber(arr, nextSi)}
                   onAdjust={(f, d) => adjustSet(ex.slug, nextSi, f, d)}
                   onOpenAdjust={() => { haptic("light"); setAdjustOpen(nextSi); }}
+                  onToggleKind={() => toggleSetKind(ex.slug, nextSi)}
                 />
               )}
               <div className="mt-5">
@@ -1261,22 +1377,38 @@ function WeightReps({
   set,
   perSide,
   dumbbells,
+  number,
   onAdjust,
   onOpenAdjust,
+  onToggleKind,
 }: {
   set: WorkSet;
   perSide: boolean;
   dumbbells?: 1 | 2;
+  /** Working-set number (see workingSetNumber) — only meaningful when
+   *  set.kind !== "warmup"; SetTag ignores it otherwise. */
+  number?: number;
   onAdjust: (field: "kg" | "reps", d: number) => void;
   onOpenAdjust?: () => void;
+  /** Flip this set between warm-up and working (see toggleSetKind). */
+  onToggleKind?: () => void;
 }) {
+  const isWarmup = set.kind === "warmup";
   return (
     <div className="flex flex-col items-center">
+      {onToggleKind && (
+        <div className="flex items-center gap-1.5">
+          <SetTag kind={set.kind} number={number ?? 1} onToggle={onToggleKind} />
+          <span className="text-[11px] font-semibold text-text-3">
+            {isWarmup ? "Warm-up · tap to make working" : "Working set · tap to make warm-up"}
+          </span>
+        </div>
+      )}
       <div className="mt-4 flex items-center justify-center gap-4">
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
           <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
           <span className="w-[72px] text-center leading-none">
-            <b className="font-display text-[32px] tabular-nums text-text-1">{displayWeight(set.kg)}</b>
+            <b className={`font-display text-[32px] tabular-nums ${isWarmup ? "text-text-3" : "text-text-1"}`}>{displayWeight(set.kg)}</b>
             <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
           </span>
           <Stepper onClick={() => onAdjust("kg", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
@@ -1284,7 +1416,7 @@ function WeightReps({
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
           <Stepper onClick={() => onAdjust("reps", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
           <span className="w-16 text-center leading-none">
-            <b className="font-display text-[32px] tabular-nums text-text-1">{set.reps}</b>
+            <b className={`font-display text-[32px] tabular-nums ${isWarmup ? "text-text-3" : "text-text-1"}`}>{set.reps}</b>
             <span className="block text-[10px] uppercase tracking-wide text-text-3">reps</span>
           </span>
           <Stepper onClick={() => onAdjust("reps", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
