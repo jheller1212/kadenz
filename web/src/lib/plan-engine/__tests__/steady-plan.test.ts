@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { getPaceZones } from "../pace-zones";
 import {
+  repZoneFor,
   generateSteadyPlan,
   generateReturnPlan,
   generatePlanForConfig,
@@ -217,5 +219,44 @@ describe("week one anchoring when starting mid-week", () => {
     const first = plan.weeks[0];
     expect(runTypes(first).length).toBeGreaterThan(0);
     expect(first.workouts[0].date.getTime()).toBe(Date.UTC(2025, 0, 13));
+  });
+});
+
+describe("rep length decides the pace zone", () => {
+  it("puts short reps at R pace and 800m+ at I pace", () => {
+    expect(repZoneFor(0.2)).toBe("R");
+    expect(repZoneFor(0.4)).toBe("R");
+    expect(repZoneFor(0.6)).toBe("R");
+    expect(repZoneFor(0.8)).toBe("I");
+    expect(repZoneFor(1.2)).toBe("I");
+  });
+
+  it("prescribes short reps faster than long ones", () => {
+    const z = getPaceZones(vdotForRunnerLevel("intermediate"));
+    // Lower sec/km = faster.
+    expect(z[repZoneFor(0.4)].targetPaceSecKm).toBeLessThan(
+      z[repZoneFor(1.0)].targetPaceSecKm
+    );
+  });
+
+  it("gives interval workouts a work block paced for its own rep length", () => {
+    const plan = generateSteadyPlan({
+      ...base,
+      intent: "get_fit",
+      planLengthWeeks: 8,
+      trainingDifficulty: "hard", // ensures quality sessions appear
+    });
+    const z = getPaceZones(vdotForRunnerLevel("intermediate"));
+    const work = plan.weeks
+      .flatMap((w) => w.workouts)
+      .filter((wo) => wo.type === "interval")
+      .flatMap((wo) => wo.blocks)
+      .filter((b) => b.type === "work" && b.repDistanceKm != null);
+    expect(work.length).toBeGreaterThan(0);
+    for (const b of work) {
+      const expected = z[repZoneFor(b.repDistanceKm!)].targetPaceSecKm;
+      // Hills may shift the pace, so allow a small tolerance.
+      expect(Math.abs(b.targetPaceSecKm! - expected)).toBeLessThanOrEqual(12);
+    }
   });
 });
