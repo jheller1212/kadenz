@@ -10,6 +10,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
+import { timer } from "@/lib/timing";
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -97,9 +98,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const t = timer("plans.create");
   let generatedPlan;
   try {
     generatedPlan = generatePlanForConfig(config);
+    t.mark("generate");
   } catch (err) {
     const message = err instanceof Error ? err.message : "Plan generation failed";
     return Response.json({ error: message }, { status: 422 });
@@ -111,6 +114,7 @@ export async function POST(request: NextRequest) {
       .update(plans)
       .set({ status: "archived", updatedAt: new Date() })
       .where(eq(plans.status, "active"));
+    t.mark("archiveActive");
 
     // Insert plan
     const [insertedPlan] = await db
@@ -138,6 +142,7 @@ export async function POST(request: NextRequest) {
         status: "active",
       })
       .returning();
+    t.mark("insertPlan");
 
     const planId = insertedPlan.id;
 
@@ -150,6 +155,7 @@ export async function POST(request: NextRequest) {
       targetKm: week.targetKm,
     }));
     const insertedWeeks = await db.insert(weeks).values(weekValues).returning();
+    t.mark("insertWeeks");
 
     // Build a map of weekNumber → weekId
     const weekIdMap = new Map<number, string>();
@@ -173,6 +179,7 @@ export async function POST(request: NextRequest) {
       }))
     );
     const insertedWorkouts = await db.insert(workouts).values(workoutValues).returning();
+    t.mark("insertWorkouts");
 
     // Build a map of (weekId + sortOrder) → workoutId for block assignment
     const workoutIdMap = new Map<string, string>();
@@ -200,6 +207,7 @@ export async function POST(request: NextRequest) {
     );
     if (blockValues.length > 0) {
       await db.insert(blocks).values(blockValues);
+      t.mark("insertBlocks");
     }
 
     // Queue gcal sync if connected (fire-and-forget — don't fail plan creation if sync fails)
@@ -254,6 +262,7 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("Failed to read strength settings:", err);
     }
+    t.mark("strengthSettings");
 
     // Return the full plan (weeks + workouts + blocks) by fetching from DB
     const fullPlan = await db.query.plans.findFirst({
@@ -269,6 +278,13 @@ export async function POST(request: NextRequest) {
           },
         },
       },
+    });
+
+    t.mark("refetchPlan");
+    t.done({
+      weeks: generatedPlan.weeks.length,
+      workouts: workoutValues.length,
+      blocks: blockValues.length,
     });
 
     // `strength` is additive — existing clients that only read plan fields are
