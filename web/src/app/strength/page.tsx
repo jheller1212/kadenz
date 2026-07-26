@@ -800,7 +800,7 @@ export default function StrengthPage() {
                   <span className="min-w-0">
                     <span
                       className="block text-[10px] font-extrabold uppercase tracking-[0.14em]"
-                      style={{ color: TYPE_META[hero.type]?.color ?? "var(--k-type-strength)" }}
+                      style={{ color: "var(--vi-lift)" }}
                     >
                       Next session
                     </span>

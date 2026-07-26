@@ -26,7 +26,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
-import { WORKOUT_COLORS, workoutColor } from "@/lib/workout-colors";
+import { WORKOUT_COLORS, workoutColor, workoutInk } from "@/lib/workout-colors";
 import { displayTemp, displayDistance, distanceUnitLabel } from "@/lib/units";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { loadSettings } from "@/lib/settings";
@@ -593,9 +593,8 @@ const typeLabel: Record<string, string> = {
   race: "Race",
 };
 
-function WorkoutCard({ workout, planId, onStatusChange, onOpen }: { workout: TodayApiWorkout; planId?: string; onStatusChange?: (id: string, status: string) => void; onOpen?: (w: TodayApiWorkout) => void }) {
+function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWorkout; planId?: string; onStatusChange?: (id: string, status: string) => void }) {
   const router = useRouter();
-  void router;
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const isCompleted = (localStatus ?? workout.status) === "completed";
@@ -665,7 +664,7 @@ function WorkoutCard({ workout, planId, onStatusChange, onOpen }: { workout: Tod
 
   return (
     <motion.button
-      onClick={() => (onOpen ? onOpen(workout) : router.push(`/workout/${workout.id}`))}
+      onClick={() => router.push(`/workout/${workout.id}`)}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 450, damping: 32 }}
       className="w-full overflow-hidden k-card text-left"
@@ -678,7 +677,7 @@ function WorkoutCard({ workout, planId, onStatusChange, onOpen }: { workout: Tod
           {/* Type label + title */}
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: barColor }}>
+              <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: workoutInk(workout.type) }}>
                 {typeLabel[workout.type] ?? workout.type}
               </p>
               <p className="mt-0.5 truncate text-[20px] font-extrabold leading-tight text-text-1">{workout.title}</p>
@@ -783,9 +782,10 @@ function WeekOverviewCard({
 
 // ── My Insights Section ──────────────────────────────────────────────────────
 
-function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget }: {
+function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget }: {
   stats: TodayStats;
   weather: WeatherData | null;
+  selectedDate: Date | null;
   currentWeek: number;
   totalWeeks: number;
   weekWorkouts: DayInfo[];
@@ -862,8 +862,21 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
     ? nextSpeed.date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })
     : null;
 
-  // Today's date label
-  const todayLabel = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  // Weather card follows the day selected in the calendar strip, not just
+  // "today". Open-Meteo's forecast_days=16 window is fetched once and cached
+  // by useWeather (keyed per date) — picking a day inside that window is a
+  // lookup, never a new request. Outside it, say so rather than silently
+  // showing today's numbers under a different date.
+  const weatherRefDate = selectedDate ?? new Date();
+  const weatherDateLabel = weatherRefDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const refMidnight = new Date(weatherRefDate);
+  refMidnight.setHours(0, 0, 0, 0);
+  const daysFromToday = Math.round((refMidnight.getTime() - todayMidnight.getTime()) / 86_400_000);
+  // fetchForecast requests forecast_days=16 → today (0) through +15 are covered.
+  const weatherOutOfRange =
+    !weather && (daysFromToday < 0 ? "No forecast for past days" : daysFromToday > 15 ? "Outside forecast range" : null);
 
   return (
     <div>
@@ -923,7 +936,7 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               style={{ background: "linear-gradient(160deg, #60A5FA 0%, #3B82F6 55%, #2563EB 100%)" }}
             >
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">{todayLabel}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">{weatherDateLabel}</p>
                 {weather && (
                   <div className="flex flex-col items-end gap-0.5 text-[10px] text-white/85">
                     <div className="flex items-center gap-1">
@@ -947,7 +960,13 @@ function InsightsSection({ stats, weather, currentWeek, totalWeeks, weekWorkouts
               </div>
               <div className="mt-2 flex items-center gap-2">
                 {weather && <WeatherIcon code={weather.code} className="h-7 w-7 text-white/90" />}
-                <p className="font-display text-3xl leading-none text-white">{weather ? `${displayTemp(weather.temp)}°` : "—"}</p>
+                {weather ? (
+                  <p className="font-display text-3xl leading-none text-white">{`${displayTemp(weather.temp)}°`}</p>
+                ) : weatherOutOfRange ? (
+                  <p className="text-sm font-semibold leading-tight text-white/90">{weatherOutOfRange}</p>
+                ) : (
+                  <p className="font-display text-3xl leading-none text-white">—</p>
+                )}
               </div>
               <div className="mt-1">
                 <p className="text-[10px] font-medium text-white/75">{weather?.location ?? "Your location"}</p>
@@ -1123,7 +1142,7 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
             <Dumbbell className="h-4 w-4 text-text-1" strokeWidth={2} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color }}>Strength</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: "var(--vi-lift)" }}>Strength</p>
             <p className="mt-0.5 truncate text-base font-bold text-text-1">{session.title}</p>
             <p className="mt-0.5 text-xs text-text-3">
               {new Date(session.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
@@ -1424,7 +1443,6 @@ export default function Home() {
   // Post-run celebration: when a background refresh shows a workout that a
   // Strava sync flipped to completed (not ticked by hand here), celebrate once.
   const [celebration, setCelebration] = useState<TodayApiWorkout | null>(null);
-  const [sheetWorkout, setSheetWorkout] = useState<TodayApiWorkout | null>(null);
   const locallyTicked = useRef<Set<string>>(new Set());
   const prevStatuses = useRef<Map<string, string>>(new Map());
   useEffect(() => {
@@ -1720,7 +1738,7 @@ export default function Home() {
           {isRestDay && !strengthDays[(selectedDate ?? new Date()).toDateString()] ? (
             <RestDayCard />
           ) : (
-            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} onStatusChange={applyWorkoutStatus} onOpen={setSheetWorkout} />
+            !isRestDay && <WorkoutCard workout={activeWorkout!} planId={data?.planId} onStatusChange={applyWorkoutStatus} />
           )}
           {(() => {
             const shownKey = (selectedDate ?? new Date()).toDateString();
@@ -1741,7 +1759,7 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* My Insights */}
-        <InsightsSection stats={stats} weather={weather} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} />
+        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} />
       </div>
 
       {/* Sticky Bottom Button */}
@@ -1776,14 +1794,6 @@ export default function Home() {
         totalWeeks={totalWeeks}
         currentWeek={displayedWeek}
         onSelectWeek={(week) => { setWeekOffset(week - currentWeek); setSelectedDate(null); setSelectedWorkout(null); }}
-      />
-
-      {/* Workout half-sheet (card tap) */}
-      <WorkoutHalfSheet
-        workout={sheetWorkout}
-        planId={data?.planId}
-        onClose={() => setSheetWorkout(null)}
-        onStatusChange={applyWorkoutStatus}
       />
 
       {/* Post-run celebration (sync completed a planned workout) */}
@@ -1901,92 +1911,3 @@ function CelebrationSheet({
 }
 
 
-// ── Workout half-sheet ───────────────────────────────────────────────────────
-// Tapping the Today workout card opens a compact action sheet
-// instead of navigating straight to the full preview.
-
-function WorkoutHalfSheet({
-  workout,
-  planId,
-  onClose,
-  onStatusChange,
-}: {
-  workout: TodayApiWorkout | null;
-  planId?: string;
-  onClose: () => void;
-  onStatusChange: (id: string, status: string) => void;
-}) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  if (!workout) return null;
-  const color = workoutColor(workout.type);
-  const done = workout.status === "completed";
-  const dateStr = new Date(workout.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
-
-  async function setStatus(status: string) {
-    if (!workout || busy) return;
-    setBusy(true);
-    try {
-      const r =
-        status === "completed"
-          ? await mutateWithQueue(`/api/workouts/${workout.id}/complete`, { method: "PATCH", body: "{}" })
-          : await mutateWithQueue(`/api/plans/${planId}/workouts/${workout.id}`, {
-              method: "PATCH",
-              body: JSON.stringify({ status }),
-            });
-      if (!r.ok) throw new Error();
-      haptic(status === "completed" ? "success" : "light");
-      onStatusChange(workout.id, status);
-      onClose();
-    } catch {
-      haptic("warning");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Sheet open onClose={onClose}>
-      <div className="flex flex-col gap-4 pb-2">
-        <div className="flex items-center gap-3">
-          <div className="h-12 w-1.5 shrink-0 rounded-full" style={{ backgroundImage: color.grad }} />
-          <div className="min-w-0">
-            <p className="truncate text-base font-bold text-text-1">{workout.title}</p>
-            <p className="mt-0.5 text-xs text-text-3">
-              {dateStr}
-              {workout.targetKm ? ` · ${displayDistance(workout.targetKm)} ${distanceUnitLabel()}` : ""}
-              {workout.targetDurationMinutes ? ` · ~${workout.targetDurationMinutes}m` : ""}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <Button onClick={() => { onClose(); router.push(`/workout/${workout.id}`); }}>
-            View workout
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={busy || (!done && false)}
-            onClick={() => setStatus(done ? "planned" : "completed")}
-          >
-            {done ? "Mark as not done" : "Mark as complete"}
-          </Button>
-          {!done && (
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => setStatus("skipped")}
-            >
-              Skip workout
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            onClick={() => { onClose(); router.push("/plan/rearrange"); }}
-          >
-            Move in training calendar
-          </Button>
-        </div>
-      </div>
-    </Sheet>
-  );
-}
