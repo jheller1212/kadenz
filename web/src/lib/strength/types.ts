@@ -11,7 +11,8 @@ export type Equipment =
   | "box"
   | "kettlebell"
   | "pullup_bar"
-  | "band";
+  | "band"
+  | "machine";
 /** Every schedulable strength session type — the one list all schemas use. */
 export const STRENGTH_SESSION_TYPES = [
   "upper",
