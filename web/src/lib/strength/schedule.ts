@@ -16,6 +16,7 @@ import {
   weekKeyOf,
 } from "./reconcile";
 import type { Complaint, StrengthSessionType } from "./types";
+import { timer } from "@/lib/timing";
 
 // ── Weekly strength scheduler ────────────────────────────────────────────────
 // Tops up planned strength sessions for the next two weeks from the profile's
@@ -354,7 +355,11 @@ export async function pruneAutoSchedule(profileId: string | null) {
  * Also safe standalone (the reconcile route) to clean up an existing mess.
  */
 export async function reconcileStrengthSchedule(profileId: string | null) {
+  const t = timer("strength.reconcile");
   const { removed } = await pruneAutoSchedule(profileId);
+  t.mark("prune");
   const { created } = await ensureStrengthSchedule(profileId);
+  t.mark("ensure");
+  t.done({ removed, created });
   return { removed, created };
 }

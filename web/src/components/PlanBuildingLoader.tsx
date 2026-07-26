@@ -123,21 +123,26 @@ export function PlanBuildingLoader({
           style={{ boxShadow: "inset 0 1px 2px rgba(0,0,0,.4)" }}
         >
           <div
-            className="h-full rounded-full"
+            className="relative h-full overflow-hidden rounded-full"
             style={{
               width: `${progress}%`,
               background: "var(--k-volt-grad)",
               boxShadow: "0 0 12px rgba(200,255,60,.6)",
             }}
-          />
-          <div
-            aria-hidden
-            className="animate-k-shine absolute left-0 top-0 h-full w-2/5"
-            style={{
-              background:
-                "linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent)",
-            }}
-          />
+          >
+            {/* Shine rides the fill, not the track: sweeping it across the
+                whole track put a white gradient over the empty portion, which
+                read as a flicker rather than a glint on the bar. */}
+            <div
+              aria-hidden
+              className="animate-k-shine absolute left-0 top-0 h-full w-2/5"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent)",
+              }}
+            />
+          </div>
+
         </div>
 
         <div className="mt-[14px] text-[13px] font-semibold tracking-[1px] text-text-3 tabular-nums">

@@ -474,7 +474,7 @@ function TrainingDistribution({ seconds }: { seconds: number[] }) {
       <div className="mt-3 grid grid-cols-3 gap-2">
         {bands.map((b, i) => (
           <div key={b.label} className="rounded-[var(--radius-input)] bg-elevated px-3 py-2.5 text-center">
-            <p className="text-[20px] font-extrabold tabular-nums leading-none" style={{ color: BAND_COLORS[i] }}>
+            <p className="text-[20px] font-display tabular-nums leading-none" style={{ color: BAND_COLORS[i] }}>
               {b.value}%
             </p>
             <p className="mt-1 text-[12px] font-semibold text-text-2">{b.label}</p>
@@ -773,14 +773,14 @@ export default function StatsPage() {
               </p>
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-[34px] font-extrabold tabular-nums leading-none text-accent-fg">
+                  <p className="text-[34px] font-display tabular-nums leading-none text-accent-fg">
                     {displayDistance(perf.totals.totalKm, 0)}
                     <span className="text-[15px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                   </p>
                   <p className="mt-1.5 text-[13px] text-text-3">Total distance</p>
                 </div>
                 <div>
-                  <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
+                  <p className="text-[34px] font-display tabular-nums leading-none text-text-1">
                     {perf.totals.runCount}
                   </p>
                   <p className="mt-1.5 text-[13px] text-text-3">Runs logged</p>
@@ -877,7 +877,7 @@ export default function StatsPage() {
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-text-3">
                           {r.label}
                         </p>
-                        <p className="mt-1 text-[20px] font-extrabold tabular-nums leading-none text-text-1">
+                        <p className="mt-1 text-[20px] font-display tabular-nums leading-none text-text-1">
                           {r.key === "1k"
                             ? `${fmtPace(displayPace(r.paceSecKm!))}`
                             : fmtDuration(r.timeSeconds!)}
@@ -944,7 +944,7 @@ export default function StatsPage() {
                   <p className="text-[10px] uppercase tracking-wider text-text-3">
                     Week
                   </p>
-                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-accent-fg">
+                  <p className="mt-1 text-[22px] font-display tabular-nums text-accent-fg">
                     {planStats.currentWeekIdx + 1}
                     <span className="text-text-3 text-xs font-semibold">
                       /{plan.planLengthWeeks}
@@ -955,7 +955,7 @@ export default function StatsPage() {
                   <p className="text-[10px] uppercase tracking-wider text-text-3">
                     Total {distanceUnitLabel()}
                   </p>
-                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
+                  <p className="mt-1 text-[22px] font-display tabular-nums text-text-1">
                     {displayDistance(planStats.totalKm, 0)}
                   </p>
                 </div>
@@ -963,7 +963,7 @@ export default function StatsPage() {
                   <p className="text-[10px] uppercase tracking-wider text-text-3">
                     Workouts
                   </p>
-                  <p className="mt-1 text-[22px] font-extrabold tabular-nums text-text-1">
+                  <p className="mt-1 text-[22px] font-display tabular-nums text-text-1">
                     {planStats.totalWorkouts}
                   </p>
                 </div>
@@ -991,13 +991,13 @@ export default function StatsPage() {
                 </p>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
+                    <p className="text-[34px] font-display tabular-nums leading-none text-text-1">
                       {planStats.completionPct}%
                     </p>
                     <p className="mt-1.5 text-[13px] text-text-3">Workouts done</p>
                   </div>
                   <div>
-                    <p className="text-[34px] font-extrabold tabular-nums leading-none text-text-1">
+                    <p className="text-[34px] font-display tabular-nums leading-none text-text-1">
                       {displayDistance(planStats.currentWeek.targetKm)}
                       <span className="text-[15px] font-semibold text-text-3"> {distanceUnitLabel()}</span>
                     </p>
