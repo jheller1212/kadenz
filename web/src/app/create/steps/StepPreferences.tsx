@@ -51,7 +51,12 @@ export function StepPreferences({
           Weekly volume
           <InfoTooltip
             label="weekly volume"
-            text="How much you run each week. Low: a gentler mileage ramp, good alongside a busy life. Normal: the standard build for your distance. High: more km for a bigger aerobic engine."
+            text="How many kilometres a week the plan builds toward."
+            items={[
+              { term: "Low", def: "gentler ramp, fits a busy week" },
+              { term: "Normal", def: "the standard build for your distance" },
+              { term: "High", def: "more km, bigger aerobic base" },
+            ]}
           />
         </span>
         <Segmented
@@ -76,7 +81,12 @@ export function StepPreferences({
           Workout intensity
           <InfoTooltip
             label="workout intensity"
-            text="How hard your weekly quality sessions are. Low and Normal give one quality run a week (Normal adds more variety). High gives two quality sessions a week: tempo plus intervals."
+            text="How many hard sessions you get each week."
+            items={[
+              { term: "Low", def: "one, kept controlled" },
+              { term: "Normal", def: "one, with more variety" },
+              { term: "High", def: "two: tempo plus intervals" },
+            ]}
           />
         </span>
         <Segmented
@@ -114,12 +124,17 @@ export function StepPreferences({
             setAdvancedOpen((o) => !o);
           }}
           aria-expanded={advancedOpen}
-          className="press flex items-center justify-between py-1"
+          className="press flex w-full items-center justify-between rounded-2xl bg-surface p-4 text-left [box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
         >
-          <span className="text-xs font-semibold uppercase tracking-widest text-text-3">Advanced</span>
+          <span className="min-w-0 pr-3">
+            <span className="block text-[15px] font-bold text-text-1">Advanced</span>
+            <span className="mt-0.5 block text-[12px] leading-relaxed text-text-2">
+              Current weekly km, long-run cap, shortest easy run, hills
+            </span>
+          </span>
           <ChevronDown
-            className={`h-4 w-4 text-text-3 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-            strokeWidth={2}
+            className={`h-5 w-5 shrink-0 text-accent-fg transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+            strokeWidth={2.4}
           />
         </button>
 
@@ -140,7 +155,7 @@ export function StepPreferences({
                       Current weekly km
                       <InfoTooltip
                         label="current weekly km"
-                        text="Roughly how far you run per week right now. This is your starting point; the plan ramps up gradually from here, so be honest rather than aspirational."
+                        text="What you actually run now. The plan ramps up from here, so use your recent average rather than your best week."
                       />
                     </span>
                     <span className="text-sm font-bold tabular-nums text-accent-fg">{currentWeeklyKm} km</span>
@@ -191,7 +206,7 @@ export function StepPreferences({
                       Easy run minimum
                       <InfoTooltip
                         label="easy run minimum"
-                        text="The shortest an easy run will be. Raise it if very short runs aren't worth the effort of getting out the door. Zero means no minimum."
+                        text="The shortest an easy run will be. Raise it to avoid very short runs. Zero means no minimum."
                       />
                     </span>
                     <span className="text-sm font-bold tabular-nums text-accent-fg">

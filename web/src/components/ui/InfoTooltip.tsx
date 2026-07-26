@@ -6,7 +6,19 @@ import { haptic } from "@/lib/haptics";
 
 // A small tap-to-reveal help bubble next to a label. Mobile-friendly (tap, not
 // hover); tap again or tap away closes it.
-export function InfoTooltip({ text, label }: { text: string; label?: string }) {
+//
+// `items` renders option-by-option guidance as its own lines instead of cramming
+// "Low: … Normal: … High: …" into one paragraph, which was unreadable at this
+// width.
+export function InfoTooltip({
+  text,
+  label,
+  items,
+}: {
+  text: string;
+  label?: string;
+  items?: { term: string; def: string }[];
+}) {
   const [open, setOpen] = useState(false);
   return (
     <span className="relative inline-flex">
@@ -35,9 +47,19 @@ export function InfoTooltip({ text, label }: { text: string; label?: string }) {
           />
           <span
             role="tooltip"
-            className="absolute left-1/2 top-7 z-50 w-60 -translate-x-1/2 rounded-xl bg-elevated px-3.5 py-2.5 text-[12.5px] leading-snug text-text-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+            className="absolute left-1/2 top-7 z-50 w-[min(17rem,calc(100vw-3rem))] -translate-x-1/2 rounded-xl bg-elevated px-3.5 py-3 text-[12.5px] leading-relaxed text-text-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
           >
             {text}
+            {items && items.length > 0 && (
+              <span className="mt-2 flex flex-col gap-1">
+                {items.map((it) => (
+                  <span key={it.term}>
+                    <b className="font-bold text-text-1">{it.term}</b>
+                    <span className="text-text-2"> — {it.def}</span>
+                  </span>
+                ))}
+              </span>
+            )}
           </span>
         </>
       )}

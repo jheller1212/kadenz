@@ -124,7 +124,7 @@ export default function CreatePlanPage() {
 
   // ── Step 5: Timeline ──────────────────────────────────────────────────────
   const [startDate, setStartDate] = useState(() => isoToday());
-  const [blockWeeks, setBlockWeeks] = useState<8 | 12 | 16>(12);
+  const [blockWeeks, setBlockWeeks] = useState<number>(12);
 
   // ── Step 6: Preferences ───────────────────────────────────────────────────
   const [trainingVolume, setTrainingVolume] = useState<TrainingVolume>("medium");
@@ -372,7 +372,7 @@ export default function CreatePlanPage() {
     },
     variant: {
       title: "Pick a style",
-      sub: "Choose the flavour of your plan, swipe to compare. You can fine-tune it later.",
+      sub: "Choose the flavour of your plan. You can fine-tune it later.",
     },
     days: {
       title: "How many days per week do you want to run?",
