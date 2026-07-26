@@ -46,6 +46,7 @@ export async function GET(
         setNumber: strengthSets.setNumber,
         weightKg: strengthSets.weightKg,
         reps: strengthSets.reps,
+        kind: strengthSets.kind,
       })
       .from(strengthSets)
       .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
@@ -68,7 +69,12 @@ export async function GET(
         date: Date;
         type: string;
         title: string;
-        sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null }>;
+        sets: Array<{
+          setNumber: number;
+          weightKg: number | null;
+          reps: number | null;
+          kind: string | null;
+        }>;
       }
     >();
     for (const r of rows) {
@@ -79,7 +85,12 @@ export async function GET(
         title: r.sessionTitle,
         sets: [],
       };
-      cur.sets.push({ setNumber: r.setNumber, weightKg: r.weightKg, reps: r.reps });
+      cur.sets.push({
+        setNumber: r.setNumber,
+        weightKg: r.weightKg,
+        reps: r.reps,
+        kind: r.kind,
+      });
       sessionsById.set(r.sessionId, cur);
     }
     const sessionsChrono = [...sessionsById.values()].sort(
@@ -98,7 +109,12 @@ export async function GET(
     };
     const metricsChrono = sessionsChrono.map((s) =>
       computeSessionMetrics(
-        s.sets.map((set): PrSet => ({ weightKg: set.weightKg, reps: set.reps })),
+        // Warm-ups are excluded from every record (see lib/strength/pr.ts).
+        s.sets.map((set): PrSet => ({
+          weightKg: set.weightKg,
+          reps: set.reps,
+          setType: set.kind === "warmup" ? "warmup" : null,
+        })),
         s.sessionId,
         s.date,
         profile

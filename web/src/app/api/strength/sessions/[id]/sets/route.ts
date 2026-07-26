@@ -124,7 +124,11 @@ export async function POST(
       if (exerciseRow) {
         const profileId = getActiveProfileId(request);
         const priorRows = await db
-          .select({ weightKg: strengthSets.weightKg, reps: strengthSets.reps })
+          .select({
+            weightKg: strengthSets.weightKg,
+            reps: strengthSets.reps,
+            kind: strengthSets.kind,
+          })
           .from(strengthSets)
           .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
           .where(
@@ -136,10 +140,19 @@ export async function POST(
                 : isNull(strengthSessions.profileId)
             )
           );
-        const priorSets: PrSet[] = priorRows.map((r) => ({ weightKg: r.weightKg, reps: r.reps }));
+        // kind feeds setType so a warm-up can never take a record.
+        const priorSets: PrSet[] = priorRows.map((r) => ({
+          weightKg: r.weightKg,
+          reps: r.reps,
+          setType: r.kind === "warmup" ? "warmup" : null,
+        }));
         const catalogueEntry = EXERCISE_BY_SLUG[exerciseRow.slug];
         pr = isNewSingleSetRecord(
-          { weightKg: row.weightKg, reps: row.reps },
+          {
+            weightKg: row.weightKg,
+            reps: row.reps,
+            setType: row.kind === "warmup" ? "warmup" : null,
+          },
           priorSets,
           { bodyweight: exerciseRow.startWeightKg == null, dumbbells: catalogueEntry?.dumbbells }
         );
