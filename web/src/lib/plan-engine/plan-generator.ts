@@ -367,14 +367,39 @@ function tempoBlocks(
   ];
 }
 
+
+/**
+ * Which pace zone a rep of this length should be run at.
+ *
+ * Daniels separates R (reps) from I (intervals) by duration, not by calling
+ * everything "intervals": 200-600m reps develop speed and economy and are run at
+ * R pace, while 800-1600m reps are the 3-5 minute efforts that sit at I pace.
+ * The generator previously ran every rep at I pace, so a 400 was prescribed at
+ * roughly 3k effort — noticeably slower than the rep pace such a distance is
+ * meant to be run at. The R zone was already being computed and never used.
+ */
+export function repZoneFor(repDistanceKm: number): "R" | "I" {
+  return repDistanceKm <= 0.6 ? "R" : "I";
+}
+
+/** Target/min/max for a rep of the given length, hills applied. */
+function repPace(paces: PaceZones, repDistanceKm: number, hillyArea: boolean) {
+  const z = paces[repZoneFor(repDistanceKm)];
+  return {
+    targetPaceSecKm: applyHilly(z.targetPaceSecKm, hillyArea),
+    minPaceSecKm: applyHilly(z.minPaceSecKm, hillyArea),
+    maxPaceSecKm: applyHilly(z.maxPaceSecKm, hillyArea),
+  };
+}
+
 function intervalBlocks(
   paces: PaceZones,
   hillyArea: boolean,
   reps: number,
   repDistanceKm: number
 ): GeneratedBlock[] {
-  // Varied rep distances (descending ladder or mixed)
-  const intervalPace = applyHilly(paces.I.targetPaceSecKm, hillyArea);
+  // Varied rep distances (descending ladder or mixed). Pace is chosen per rep
+  // length, so a 400 is a rep and a 1000 is an interval.
   const blocks: GeneratedBlock[] = [warmupBlock(paces, hillyArea)];
   let order = 1;
 
@@ -388,9 +413,7 @@ function intervalBlocks(
         reps: 1,
         repDistanceKm: dist,
         repRestSeconds: Math.round(dist >= 0.8 ? 90 : 60),
-        targetPaceSecKm: intervalPace,
-        minPaceSecKm: applyHilly(paces.I.minPaceSecKm, hillyArea),
-        maxPaceSecKm: applyHilly(paces.I.maxPaceSecKm, hillyArea),
+        ...repPace(paces, dist, hillyArea),
       });
       // Recovery jog between reps
       blocks.push({
@@ -407,9 +430,7 @@ function intervalBlocks(
       reps,
       repDistanceKm,
       repRestSeconds: 90,
-      targetPaceSecKm: intervalPace,
-      minPaceSecKm: applyHilly(paces.I.minPaceSecKm, hillyArea),
-      maxPaceSecKm: applyHilly(paces.I.maxPaceSecKm, hillyArea),
+      ...repPace(paces, repDistanceKm, hillyArea),
     });
     blocks.push({
       sortOrder: order++,
@@ -575,7 +596,7 @@ function buildIntervalWorkout(
     targetKm: totalKm,
     targetDurationMinutes:
       estimateDuration(1.5, paces.E.targetPaceSecKm) +
-      estimateDuration(workKm, paces.I.targetPaceSecKm) +
+      estimateDuration(workKm, paces[repZoneFor(repKm)].targetPaceSecKm) +
       Math.round((reps * 90) / 60) +
       estimateDuration(1.0, paces.E.targetPaceSecKm),
     sortOrder,
