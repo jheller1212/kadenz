@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { and, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { db, activities, plans, workouts, strengthSessions } from "@/db";
+import { sortSessionsByDateAsc } from "@/lib/training/session";
 
 // ── GET /api/activities/[id]/candidates ───────────────────────────────────────
 // Planned run workouts and strength sessions near the activity's date that a
@@ -87,12 +88,11 @@ export async function GET(
         workoutId: activity.workoutId,
         strengthSessionId: activity.strengthSessionId,
       },
-      runs: runCandidates
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .map((w) => ({ ...w, linked: false })),
-      strength: sessions
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .map((s) => ({ ...s, linked: linkedSessionIds.has(s.id) })),
+      runs: sortSessionsByDateAsc(runCandidates).map((w) => ({ ...w, linked: false })),
+      strength: sortSessionsByDateAsc(sessions).map((s) => ({
+        ...s,
+        linked: linkedSessionIds.has(s.id),
+      })),
     });
   } catch (err) {
     console.error("DB error fetching link candidates:", err);

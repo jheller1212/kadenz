@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db, plans, activities, strengthSessions, strengthSets } from "@/db";
 import { eq, desc, isNull, and, inArray, isNotNull } from "drizzle-orm";
 import { getActiveProfileId } from "@/lib/profiles";
+import { isPastDuePlanned, sortSessionsByDateDesc } from "@/lib/training/session";
 
 export async function GET(request: NextRequest) {
   const profileId = getActiveProfileId(request);
@@ -91,7 +92,7 @@ export async function GET(request: NextRequest) {
       // Only include planned workouts in the past (missed) — not future ones
       const now = new Date();
       plannedWorkouts = planned
-        .filter((wo) => new Date(wo.date) < now && wo.type !== "rest")
+        .filter((wo) => isPastDuePlanned(wo, now) && wo.type !== "rest")
         .map((wo) => ({
           id: wo.id,
           type: wo.type,
@@ -187,7 +188,7 @@ export async function GET(request: NextRequest) {
     );
     const strengthItems = strengthRows
       .filter((s) => !linkedSessionIds.has(s.id))
-      .filter((s) => s.status === "completed" || (s.status === "planned" && new Date(s.date) < now))
+      .filter((s) => s.status === "completed" || isPastDuePlanned(s, now))
       .filter(
         (s) =>
           s.status === "completed" ||
@@ -218,9 +219,7 @@ export async function GET(request: NextRequest) {
         blocks: [],
       }));
 
-    const unified = [...activityItems, ...strengthItems].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    const unified = sortSessionsByDateDesc([...activityItems, ...strengthItems]);
 
     return Response.json({
       activities: unified,
