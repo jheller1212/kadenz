@@ -30,3 +30,29 @@ export const STRENGTH_COLOR: TypeColor = {
 export function workoutColor(type: string): TypeColor {
   return WORKOUT_COLORS[type] ?? { solid: "#94A3B8", grad: "linear-gradient(135deg, #A8B3C1, #7C8794)" };
 }
+
+// Ink (text-safe) variant per workout type. Flat type colors like tempo
+// (#FFE14D) are graphics-only — on paper (light theme) they read at ~1.2:1,
+// nowhere near AA. Text must use the darkened --vi-* twins from globals.css,
+// which flip back to the vivid flat value in dark theme. Always reference
+// these via CSS var (never resolve to a hex in JS) so the theme switch works.
+const INK_VARS: Record<string, string> = {
+  easy: "var(--vi-easy)",
+  recovery: "var(--vi-easy)",
+  tempo: "var(--vi-tempo)",
+  interval: "var(--vi-interval)",
+  race: "var(--vi-interval)",
+  long: "var(--vi-long)",
+  strength: "var(--vi-lift)",
+};
+
+export function workoutInk(type: string): string {
+  return INK_VARS[type] ?? "var(--k-text-2)";
+}
+
+// The quiet radial "type wash" every activity card carries behind its
+// graphics. 5% is a ceiling, not a taste call: --k-text-3 sits ~4.66:1 on the
+// plain dark surface, so a stronger tint drops card metadata under AA.
+export function typeWash(color: string): string {
+  return `radial-gradient(95% 95% at 100% 100%, color-mix(in srgb, ${color} 5%, var(--k-surface)) 0%, color-mix(in srgb, ${color} 2%, var(--k-surface)) 45%, var(--k-surface) 72%)`;
+}

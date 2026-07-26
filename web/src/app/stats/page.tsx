@@ -443,7 +443,10 @@ function TimeInZonesCard({
 // used in the endurance literature and by intervals.icu, and labels the pattern
 // plus the Treff (2019) Polarization Index.
 
-const BAND_COLORS = ["#3B82F6", "#F2A113", "#E0402E"]; // low / moderate / high
+// Reuse the shared --vi-* ink tokens rather than a local hex palette (a flat
+// hex here was ~2:1 on the elevated card in light mode, and had already
+// drifted from the type-color source of truth once before).
+const BAND_COLORS = ["var(--vi-cyan)", "var(--vi-tempo)", "var(--vi-interval)"]; // low / moderate / high
 
 function TrainingDistribution({ seconds }: { seconds: number[] }) {
   const three = collapseToThreeZones(seconds);

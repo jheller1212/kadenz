@@ -12,7 +12,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
-import { STRENGTH_COLOR, workoutColor } from "@/lib/workout-colors";
+import { STRENGTH_COLOR, workoutColor, typeWash } from "@/lib/workout-colors";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
@@ -368,12 +368,17 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
     </div>
   );
 
+  // Every feed card carries a quiet 5% radial wash of its own type color,
+  // behind the graphics only — see lib/workout-colors.ts typeWash().
+  const washStyle = { backgroundImage: typeWash(barColor) };
+
   if (hasActivity) {
     return (
       <TransitionLink
         href={`/activity/${workout.activity!.id}`}
         aria-label={`View activity details for ${workout.title}`}
         className="press block overflow-hidden k-card"
+        style={washStyle}
       >
         {cardInner}
       </TransitionLink>
@@ -387,13 +392,14 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
         href={`/strength/session/${workout.strengthSessionId}`}
         aria-label={`View strength session ${workout.title}`}
         className="press block overflow-hidden k-card"
+        style={washStyle}
       >
         {cardInner}
       </TransitionLink>
     );
   }
 
-  return <div className="overflow-hidden k-card">{cardInner}</div>;
+  return <div className="overflow-hidden k-card" style={washStyle}>{cardInner}</div>;
 }
 
 // ── MonthSection ──────────────────────────────────────────────────────────────
