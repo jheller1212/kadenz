@@ -4,8 +4,11 @@ import { Check } from "lucide-react";
 import { haptic } from "@/lib/haptics";
 import type { PlanVariant } from "./data";
 
-// A swipeable row of style variants for the chosen intent. Selecting one applies
-// its knobs to the wizard state.
+// Style variants for the chosen intent, stacked. The design system's
+// variant-step.html specifies a swipeable row, but in use the carousel hid the
+// second option and its CTA behind a gesture with no affordance, so the cards
+// are stacked and both are simply visible. Selecting one applies its knobs to
+// the wizard state.
 export function StepVariant({
   variants,
   selectedKey,
@@ -16,7 +19,7 @@ export function StepVariant({
   onSelect: (v: PlanVariant) => void;
 }) {
   return (
-    <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1">
+    <div className="flex flex-col gap-3">
       {variants.map((v) => {
         const selected = selectedKey === v.key;
         return (
@@ -28,7 +31,7 @@ export function StepVariant({
               haptic("light");
               onSelect(v);
             }}
-            className={`press flex min-w-[78%] snap-center flex-col rounded-2xl bg-surface p-5 text-left transition-shadow ${
+            className={`press flex w-full flex-col rounded-2xl bg-surface p-5 text-left transition-shadow ${
               selected
                 ? "[box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
                 : "[box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"

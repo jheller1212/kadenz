@@ -2,7 +2,13 @@
 
 import { AlertCircle, CalendarDays } from "lucide-react";
 import { haptic } from "@/lib/haptics";
+import { WheelPicker } from "@/components/ui/WheelPicker";
 import { formatRaceDate, isoDateOffset, isoNextMonday, isoToday, weeksBetween } from "./data";
+
+// The plan engine accepts 4-26 weeks (see PlanConfigSchema); the presets are the
+// common blocks and Custom opens the rest of that range.
+const LENGTH_PRESETS = [8, 12, 16] as const;
+const CUSTOM_DEFAULT = 20;
 
 export function StepTimeline({
   goalType,
@@ -21,10 +27,11 @@ export function StepTimeline({
   onRaceDate: (v: string) => void;
   /** True when a popular race locked the race date. */
   raceLocked: boolean;
-  blockWeeks: 8 | 12 | 16;
-  onBlockWeeks: (w: 8 | 12 | 16) => void;
+  blockWeeks: number;
+  onBlockWeeks: (w: number) => void;
 }) {
   const buildWeeks = weeksBetween(startDate, raceDate);
+  const isCustomLength = !LENGTH_PRESETS.includes(blockWeeks as 8 | 12 | 16);
   const today = isoToday();
   const nextMonday = isoNextMonday();
 
@@ -115,8 +122,8 @@ export function StepTimeline({
       ) : (
         <div className="flex flex-col gap-2.5">
           <span className="text-xs font-semibold uppercase tracking-widest text-text-3">Plan length</span>
-          <div className="grid grid-cols-3 gap-2.5" role="radiogroup" aria-label="Plan length">
-            {([8, 12, 16] as const).map((w) => {
+          <div className="grid grid-cols-4 gap-2.5" role="radiogroup" aria-label="Plan length">
+            {LENGTH_PRESETS.map((w) => {
               const selected = blockWeeks === w;
               return (
                 <button
@@ -133,14 +140,46 @@ export function StepTimeline({
                       : "[box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
                   }`}
                 >
-                  <span className={`text-2xl font-extrabold tabular-nums ${selected ? "text-accent-fg" : "text-text-1"}`}>
+                  <span className={`font-display text-2xl tabular-nums ${selected ? "text-accent-fg" : "text-text-1"}`}>
                     {w}
                   </span>
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-text-3">weeks</span>
                 </button>
               );
             })}
+            <button
+              role="radio"
+              aria-checked={isCustomLength}
+              onClick={() => {
+                haptic("light");
+                if (!isCustomLength) onBlockWeeks(CUSTOM_DEFAULT);
+              }}
+              className={`press flex flex-col items-center justify-center rounded-2xl bg-surface px-2 py-4 transition-shadow ${
+                isCustomLength
+                  ? "[box-shadow:0_0_0_2px_var(--k-accent),var(--k-shadow-card)]"
+                  : "[box-shadow:var(--k-ring-hairline),var(--k-shadow-card)]"
+              }`}
+            >
+              <span
+                className={`font-display text-2xl tabular-nums ${isCustomLength ? "text-accent-fg" : "text-text-1"}`}
+              >
+                {isCustomLength ? blockWeeks : "\u2022\u2022"}
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-text-3">
+                custom
+              </span>
+            </button>
           </div>
+          {isCustomLength && (
+            <WheelPicker
+              min={4}
+              max={26}
+              step={1}
+              value={blockWeeks}
+              onChange={onBlockWeeks}
+              unit="weeks"
+            />
+          )}
           <p className="text-[12px] leading-relaxed text-text-3">
             Your plan finishes with a goal-pace time trial on {formatRaceDate(raceDate)}.
           </p>
