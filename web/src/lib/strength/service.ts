@@ -17,9 +17,11 @@ import {
 } from "./session";
 import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
+import { EQUIPMENT_KEYS } from "./equipment";
 import type { LifterProfile } from "./load-model";
 import type {
   Complaint,
+  Equipment,
   ExerciseSessionHistory,
   StrengthSessionType,
   LoggedSet,
@@ -158,6 +160,7 @@ export async function buildPlannedSession(
     complaints: planSettings.complaints,
     targetDurationMinutes,
     restSecondsOverride: planSettings.restSeconds,
+    equipment: planSettings.equipment,
   });
   // Hand edits (Exchange / Remove) layered on last — see session.ts for why
   // these can't be baked into the template-derived plan itself.
@@ -192,6 +195,9 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
   lifterProfile: LifterProfile | null;
   complaints: Complaint[];
   restSeconds: number | null;
+  /** Available equipment (Kraft setup); null = not configured yet — every
+   *  session slot keeps its base exercise, unfiltered (see session.ts). */
+  equipment: Equipment[] | null;
 }> {
   const [row] = await db
     .select({
@@ -200,6 +206,7 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
       sex: strengthPlanSettings.sex,
       complaints: strengthPlanSettings.complaints,
       restSeconds: strengthPlanSettings.restSeconds,
+      equipment: strengthPlanSettings.equipment,
     })
     .from(strengthPlanSettings)
     .where(
@@ -218,6 +225,10 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
   const complaints = (row?.complaints ?? []).filter((c): c is Complaint =>
     complaintSet.has(c)
   );
+  const equipmentKeySet = new Set<string>(EQUIPMENT_KEYS);
+  const equipment = row?.equipment
+    ? row.equipment.filter((e): e is Equipment => equipmentKeySet.has(e))
+    : null;
   return {
     ability,
     lifterProfile: row
@@ -225,6 +236,7 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
       : null,
     complaints,
     restSeconds: row?.restSeconds ?? null,
+    equipment,
   };
 }
 
