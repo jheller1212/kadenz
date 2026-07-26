@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, CheckCircle2, Heart, SkipForward, Dumbbell } from "lucide-react";
+import { ChevronLeft, CheckCircle2, Heart, SkipForward, Dumbbell, Repeat, X } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
@@ -14,7 +14,10 @@ import { STRENGTH_COLOR } from "@/lib/workout-colors";
 import { formatLoad } from "@/lib/strength/weights";
 import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
+import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
+import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
 import type { PlannedExercise } from "@/components/strength/GuidedSession";
+import type { ExerciseOverride } from "@/lib/strength/session";
 
 // ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
@@ -40,6 +43,7 @@ interface SessionDetail {
   targetDurationMinutes: number | null;
   sets: SetRow[];
   plannedExercises: PlannedExercise[];
+  exerciseOverrides: ExerciseOverride[];
   linkedActivity?: {
     id: string;
     stravaId: string | null;
@@ -91,6 +95,54 @@ export default function StrengthSessionPage({
   const [catalog, setCatalog] = useState<Record<string, CatalogRow>>({});
   const [loading, setLoading] = useState(true);
   const [performed, setPerformed] = useState<PerformedExercise[]>([]);
+  // Exchange/Remove — planned, not-yet-started sessions only (see hasLoggedSets
+  // below); persisted via PATCH exerciseOverrides so it survives a reload.
+  const [actionsSlug, setActionsSlug] = useState<string | null>(null);
+  const [actionsBusy, setActionsBusy] = useState(false);
+  const [actionsError, setActionsError] = useState<string | null>(null);
+  const equipment = useStrengthEquipment();
+
+  async function saveOverrides(next: ExerciseOverride[]) {
+    setActionsBusy(true);
+    setActionsError(null);
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exerciseOverrides: next }),
+      });
+      if (!res.ok) {
+        setActionsError("Couldn't save that change — try again.");
+        return;
+      }
+      const fresh = await apiFetch(`/api/strength/sessions/${id}`);
+      if (fresh.ok) setSession(await fresh.json());
+      haptic("success");
+    } catch {
+      setActionsError("Network error — couldn't save that change.");
+    } finally {
+      setActionsBusy(false);
+      setActionsSlug(null);
+    }
+  }
+
+  function handleRemove(slug: string) {
+    if (!session) return;
+    if ((session.plannedExercises ?? []).length <= 1) {
+      haptic("warning");
+      setActionsError("Can't remove the only exercise in this session.");
+      return;
+    }
+    void saveOverrides([...(session.exerciseOverrides ?? []), { slug, action: "removed" }]);
+  }
+
+  function handleExchange(slug: string, replacementSlug: string) {
+    if (!session) return;
+    void saveOverrides([
+      ...(session.exerciseOverrides ?? []),
+      { slug, action: "swapped", replacementSlug },
+    ]);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -386,6 +438,10 @@ export default function StrengthSessionPage({
           // The prescription: one block per planned exercise.
           planned.map((ex, i) => {
             const muscle = muscleFor(ex.slug);
+            // Not started yet (checked above via hasLoggedSets) — editable,
+            // except the always-protected rehab work (see EXERCISE_BY_SLUG
+            // achillesRole, enforced server-side too).
+            const editable = session.status === "planned" && !EXERCISES.find((e) => e.slug === ex.slug)?.achillesRole;
             return (
               <div key={ex.slug} className="k-card flex items-start gap-3 p-3.5">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
@@ -413,9 +469,37 @@ export default function StrengthSessionPage({
                     })}
                   </p>
                 </div>
+                {editable && (
+                  <div className="flex shrink-0 items-start gap-1.5">
+                    <button
+                      type="button"
+                      disabled={actionsBusy}
+                      onClick={() => { haptic("light"); setActionsSlug(ex.slug); }}
+                      aria-label={`Exchange ${ex.name}`}
+                      style={{ touchAction: "manipulation" }}
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3 disabled:opacity-50"
+                    >
+                      <Repeat className="h-4 w-4" strokeWidth={2.2} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionsBusy}
+                      onClick={() => handleRemove(ex.slug)}
+                      aria-label={`Remove ${ex.name}`}
+                      style={{ touchAction: "manipulation" }}
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3 disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" strokeWidth={2.5} />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })
+        )}
+
+        {actionsError && (
+          <p className="text-center text-[13px] font-medium text-danger">{actionsError}</p>
         )}
 
         {/* Primary action */}
@@ -445,6 +529,16 @@ export default function StrengthSessionPage({
           ) : null}
         </div>
       </div>
+
+      <ExerciseActionsSheet
+        open={actionsSlug != null}
+        onClose={() => setActionsSlug(null)}
+        exercise={actionsSlug ? planned.find((e) => e.slug === actionsSlug) ?? null : null}
+        otherSlugsInSession={planned.filter((e) => e.slug !== actionsSlug).map((e) => e.slug)}
+        equipment={equipment}
+        hasLoggedSets={false}
+        onExchange={(replacementSlug) => actionsSlug && handleExchange(actionsSlug, replacementSlug)}
+      />
     </main>
   );
 }

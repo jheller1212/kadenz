@@ -445,6 +445,21 @@ export const strengthSessions = pgTable(
     // Created by the weekly scheduler (safe to prune when settings change).
     autoScheduled: boolean("auto_scheduled").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
+    // Hand edits to this session's exercise list, layered onto the
+    // template-derived plan at read time (see lib/strength/session.ts
+    // applyExerciseOverrides). "removed" drops a slot; "swapped" replaces it
+    // with a same-pattern/equipment-fit alternative, keeping the original
+    // slot's sets/reps/rest. Never applies to Achilles-role work (rehab, not
+    // filler — see EXERCISE_BY_SLUG[slug].achillesRole).
+    exerciseOverrides: jsonb("exercise_overrides")
+      .$type<
+        Array<
+          | { slug: string; action: "removed" }
+          | { slug: string; action: "swapped"; replacementSlug: string }
+        >
+      >()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

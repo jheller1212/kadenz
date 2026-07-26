@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Minus, Plus, Volume2, VolumeX, Check, Pause, Play, History } from "lucide-react";
+import { Minus, Plus, Volume2, VolumeX, Check, Pause, Play, History, Repeat, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
+import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
 import { haptic } from "@/lib/haptics";
 import { formatRecency } from "@/lib/recency";
 import {
@@ -24,7 +25,10 @@ import { getAudioCtx, unlockGuidedAudio } from "@/lib/strength/guided-audio";
 export { unlockGuidedAudio };
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 import { PAIN_SCORE_THRESHOLD } from "@/lib/strength/progression";
+import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
+import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import type { LoadFeel } from "@/lib/strength/guided-snapshot";
+import type { ExerciseOverride } from "@/lib/strength/session";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
 
@@ -71,6 +75,10 @@ type WorkSet = GuidedWorkSet;
 interface Props {
   session: GuidedSessionInfo;
   exercises: PlannedExercise[];
+  /** Persisted overrides already applied to `exercises` (see the session
+   *  detail/overview screens) — Exchange/Remove here append to this same
+   *  array so a minimize/resume or a later detail view stays in sync. */
+  exerciseOverrides?: ExerciseOverride[];
   /** Restore a previously saved in-progress session at its saved position. */
   resume?: { exIndex: number; work: Record<string, WorkSet[]>; startedAt: number } | null;
   /**
@@ -93,6 +101,10 @@ type Timer =
 const GET_READY_SECONDS = 5;
 
 const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
+// Rest countdown ring (state-driven fill, see the render below).
+const REST_RING_R = 85;
+const REST_RING_C = 2 * Math.PI * REST_RING_R;
 
 // ── Audio (Web Speech + a tiny Web Audio beep), both best-effort ──────────────
 // iOS gates both behind a user gesture, so `unlockGuidedAudio` must be called
@@ -132,12 +144,29 @@ interface LastPerf {
   sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null }>;
 }
 
-export default function GuidedSession({ session, exercises, resume, onExit, onDiscard, onFinish }: Props) {
+export default function GuidedSession({
+  session,
+  exercises: exercisesProp,
+  exerciseOverrides: initialOverrides,
+  resume,
+  onExit,
+  onDiscard,
+  onFinish,
+}: Props) {
   const [prefs, setPrefs] = useState<UserSettings>(() => loadSettings());
   const [now, setNow] = useState<number>(() => Date.now());
+  // Local copy: Exchange/Remove mutate the session's live exercise list
+  // (never sent as a prop update — see exchangeCurrentExercise/removeCurrentExercise).
+  const [exercises, setExercises] = useState<PlannedExercise[]>(exercisesProp);
   const [exIndex, setExIndex] = useState(() =>
-    resume ? Math.min(Math.max(resume.exIndex, 0), exercises.length - 1) : 0
+    resume ? Math.min(Math.max(resume.exIndex, 0), exercisesProp.length - 1) : 0
   );
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const equipment = useStrengthEquipment();
+  // Hand-edit layer this mount has made, seeded from what's already
+  // persisted — appended to (never replaced) and PATCHed best-effort, same
+  // pattern as the pain-log side-channel below (reportNiggle).
+  const overridesRef = useRef<ExerciseOverride[]>(initialOverrides ?? []);
   const [videoSlug, setVideoSlug] = useState<string | null>(null);
   const [work, setWork] = useState<Record<string, WorkSet[]>>(() => {
     // Fresh plan, overlaid with the snapshot where it still matches — sets
@@ -221,9 +250,10 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         setLastPerf((m) => ({ ...m, [ex.slug]: last }));
       })
       .catch(() => setLastPerf((m) => ({ ...m, [ex.slug]: null })));
-    // exercises are stable for the lifetime of this mount.
+    // Re-runs on the current exercise's slug too, so an Exchange re-fetches
+    // for the new exercise instead of showing the swapped-out one's history.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exIndex]);
+  }, [exIndex, exercises[exIndex]?.slug]);
 
   // ── Resumable snapshot — persist position + logged sets on every change ─────
   useEffect(() => {
@@ -236,10 +266,11 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       exIndex,
       work,
     });
-    // session/exercises are stable for the lifetime of this mount. pausedAt is
+    // session is stable for the lifetime of this mount. exercises now can
+    // change (Exchange/Remove), so it's a real dependency; pausedAt is
     // included so the shifted start time persists after a resume.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exIndex, work, pausedAt]);
+  }, [exIndex, work, pausedAt, exercises]);
 
   // ── Browser back — ask before leaving instead of dropping the workout ───────
   useEffect(() => {
@@ -373,8 +404,9 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
     }
     if (ex.tempoNote) bits.push(`${ex.tempoNote}.`);
     speak(bits.join(" "));
+    // Re-announce on an Exchange too (the slug at this index changed).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exIndex]);
+  }, [exIndex, exercises[exIndex]?.slug]);
 
   // ── Transitions (called from the interval callback — never in an effect body) ─
   function firstUnlogged(slug: string): number {
@@ -517,6 +549,94 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         note: `Marked "Niggle" during ${exName}.`,
       }),
     }).catch(() => {});
+  }
+
+  // Persist an Exchange/Remove decision — best-effort, same pattern as
+  // reportNiggle above. Read-side (buildPlannedSession) re-derives the plan
+  // from this list on every GET, so a minimize/resume or the detail screen
+  // sees the change too.
+  function patchOverride(ov: ExerciseOverride) {
+    overridesRef.current = [...overridesRef.current, ov];
+    apiFetch(`/api/strength/sessions/${session.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ exerciseOverrides: overridesRef.current }),
+    }).catch(() => {});
+  }
+
+  // Exchange/Remove only ever act on the CURRENT exercise, and only before
+  // any of its sets are logged (see ExerciseActionsSheet's hasLoggedSets —
+  // the guard against silently dropping history).
+  function exchangeCurrentExercise(replacementSlug: string) {
+    const cur = exercises[exIndex];
+    const cat = EXERCISE_BY_SLUG[replacementSlug];
+    if (!cur || !cat) return;
+    haptic("light");
+    setExercises((exs) =>
+      exs.map((e, i) =>
+        i !== exIndex
+          ? e
+          : {
+              ...e,
+              slug: cat.slug,
+              name: cat.name,
+              category: cat.category,
+              equipmentNote: cat.equipmentNote,
+              tempoNote: cat.tempoNote,
+              flatGroundOnly: cat.flatGroundOnly ?? false,
+              dumbbells: cat.dumbbells,
+              holdNote: cat.holdNote,
+              suggestedWeightKg: cat.startWeightKg ?? null,
+              lastWeightKg: null,
+              lastDate: null,
+              painGated: false,
+              progression: { action: "same", reason: "Exchanged" },
+            }
+      )
+    );
+    setWork((w) => {
+      const { [cur.slug]: _dropped, ...rest } = w;
+      void _dropped;
+      return {
+        ...rest,
+        [cat.slug]: Array.from({ length: cur.sets }, () => ({
+          kg: cat.startWeightKg ?? 0,
+          reps: cur.repHigh,
+          logged: false,
+          durationSec: 0,
+        })),
+      };
+    });
+    lastPerfFetched.current.delete(cat.slug);
+    setLastPerf((m) => {
+      const { [cur.slug]: _dropped2, ...rest } = m;
+      void _dropped2;
+      return rest;
+    });
+    setTimer((t) => (t && t.slug === cur.slug ? null : t));
+    setActionsOpen(false);
+    patchOverride({ slug: cur.slug, action: "swapped", replacementSlug: cat.slug });
+  }
+
+  function removeCurrentExercise() {
+    const cur = exercises[exIndex];
+    if (!cur) return;
+    if (exercises.length <= 1) {
+      haptic("warning");
+      setError("Add another exercise before removing this one.");
+      return;
+    }
+    haptic("warning");
+    setExercises((exs) => exs.filter((e) => e.slug !== cur.slug));
+    setWork((w) => {
+      const { [cur.slug]: _dropped, ...rest } = w;
+      void _dropped;
+      return rest;
+    });
+    setTimer((t) => (t && t.slug === cur.slug ? null : t));
+    setExIndex((i) => Math.min(i, exercises.length - 2));
+    setActionsOpen(false);
+    patchOverride({ slug: cur.slug, action: "removed" });
   }
 
   // Save a reason chip from the "Adjust load" sheet onto a set. "Too heavy" /
@@ -764,7 +884,13 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
       )}
 
       <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-3 text-center">
-        <h1 className="text-[24px] font-extrabold leading-tight tracking-tight text-text-1">{ex.name}</h1>
+        <h1
+          className={`text-[24px] font-extrabold leading-tight tracking-tight text-text-1 transition-opacity ${
+            timerHere?.kind === "rest" ? "opacity-50" : ""
+          }`}
+        >
+          {ex.name}
+        </h1>
         <p className="mt-1 text-[14px] font-semibold text-text-2">
           {allLogged ? "All sets done" : `Set ${nextSi + 1} of ${ex.sets}`} · target {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps{ex.perSide ? " / side" : ""}
         </p>
@@ -787,6 +913,32 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
             </button>
           )}
         </div>
+
+        {/* Swap + remove, 44×44 tap targets (sweaty-hands sizing) — only
+            while this exercise has nothing logged yet (see hasLoggedSets on
+            ExerciseActionsSheet and removeCurrentExercise's guard). */}
+        {loggedSets.length === 0 && !EXERCISE_BY_SLUG[ex.slug]?.achillesRole && (
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { haptic("light"); setActionsOpen(true); }}
+              aria-label={`Exchange ${ex.name}`}
+              style={{ touchAction: "manipulation" }}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-2"
+            >
+              <Repeat className="h-4 w-4" strokeWidth={2.2} />
+            </button>
+            <button
+              type="button"
+              onClick={removeCurrentExercise}
+              aria-label={`Remove ${ex.name}`}
+              style={{ touchAction: "manipulation" }}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-2"
+            >
+              <X className="h-4 w-4" strokeWidth={2.4} />
+            </button>
+          </div>
+        )}
 
         {/* Previous performance of THIS exercise — prominent button + popup */}
         {last && last.sets.length > 0 && (
@@ -829,11 +981,32 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
             </div>
           ) : timerHere?.kind === "rest" ? (
             <div className="flex flex-col items-center">
-              <div className="text-[44px] font-extrabold tabular-nums text-accent-fg">{fmt(restRemain)}</div>
-              <p className="mt-1 text-[13px] text-text-3">Rest — log your set below</p>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-elevated">
-                <div className="h-full rounded-full bg-accent" style={{ width: `${restPct}%` }} />
+              {/* Ring fill is driven by restPct (real countdown state), not a
+                  CSS animation — legible with motion off, no reduced-motion
+                  gating needed (see docs/MOTION.md). */}
+              <div className="relative flex h-[200px] w-[200px] items-center justify-center">
+                <svg width={200} height={200} viewBox="0 0 200 200" className="absolute inset-0 -rotate-90">
+                  <circle cx="100" cy="100" r={REST_RING_R} fill="none" stroke="var(--k-hairline)" strokeWidth="12" />
+                  <circle
+                    cx="100"
+                    cy="100"
+                    r={REST_RING_R}
+                    fill="none"
+                    stroke="var(--k-accent)"
+                    strokeWidth="12"
+                    strokeLinecap="round"
+                    strokeDasharray={REST_RING_C}
+                    strokeDashoffset={REST_RING_C * (1 - restPct / 100)}
+                  />
+                </svg>
+                <div className="text-center">
+                  <div className="font-display text-[56px] leading-none text-text-1">{fmt(restRemain)}</div>
+                  <div className="mt-1 text-[11px] font-bold uppercase tracking-wide text-text-3">
+                    of {fmt(Math.round(timerHere.totalMs / 1000))} prescribed
+                  </div>
+                </div>
               </div>
+              <p className="mt-2 text-[13px] text-text-3">Rest — log your set below</p>
               {editSet && (
                 <WeightReps
                   set={editSet}
@@ -856,7 +1029,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
               {prefs.kraftSetTimer && (
                 <>
                   <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">Set {timerHere.setIndex + 1} · time</p>
-                  <div className="text-[52px] font-extrabold leading-none tabular-nums text-text-1">{fmt(setRunSec)}</div>
+                  <div className="font-display text-[56px] leading-none tabular-nums text-text-1">{fmt(setRunSec)}</div>
                 </>
               )}
               {editSet && (
@@ -992,11 +1165,22 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         onClose={() => setAdjustOpen(null)}
         weightKg={adjustOpen != null ? arr[adjustOpen]?.kg ?? 0 : 0}
         previousWeightKg={ex.suggestedWeightKg ?? null}
+        dumbbells={ex.dumbbells}
         selected={adjustOpen != null ? arr[adjustOpen]?.feel ?? null : null}
         onSave={(feel) => {
           if (adjustOpen != null) saveLoadReason(ex.slug, adjustOpen, feel);
           setAdjustOpen(null);
         }}
+      />
+
+      <ExerciseActionsSheet
+        open={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        exercise={ex}
+        otherSlugsInSession={exercises.filter((e) => e.slug !== ex.slug).map((e) => e.slug)}
+        equipment={equipment}
+        hasLoggedSets={loggedSets.length > 0}
+        onExchange={exchangeCurrentExercise}
       />
 
       <Sheet open={confirmExit} onClose={() => setConfirmExit(false)} title="Leave workout?">
@@ -1069,16 +1253,16 @@ function WeightReps({
       <div className="mt-4 flex items-center justify-center gap-4">
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
           <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
-          <span className="w-16 text-center leading-none">
-            <b className="text-[24px] font-extrabold tabular-nums text-text-1">{displayWeight(set.kg)}</b>
+          <span className="w-[72px] text-center leading-none">
+            <b className="font-display text-[32px] tabular-nums text-text-1">{displayWeight(set.kg)}</b>
             <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
           </span>
           <Stepper onClick={() => onAdjust("kg", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
         </div>
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
           <Stepper onClick={() => onAdjust("reps", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
-          <span className="w-14 text-center leading-none">
-            <b className="text-[24px] font-extrabold tabular-nums text-text-1">{set.reps}</b>
+          <span className="w-16 text-center leading-none">
+            <b className="font-display text-[32px] tabular-nums text-text-1">{set.reps}</b>
             <span className="block text-[10px] uppercase tracking-wide text-text-3">reps</span>
           </span>
           <Stepper onClick={() => onAdjust("reps", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
