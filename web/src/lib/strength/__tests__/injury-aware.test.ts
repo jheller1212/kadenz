@@ -185,6 +185,54 @@ describe("duration fitting never trims the targeted work", () => {
   });
 });
 
+describe("targeted work still appears for an athlete with no box or chair", () => {
+  // step_down (knee) and nordic_curl_negative (hamstring) hard-require a box
+  // or chair. Targeted work is protected like Achilles work — it must never
+  // just disappear because the equipment isn't there.
+  it("a knee complaint with zero equipment still gets a targeted exercise, not nothing", () => {
+    const lower = buildSessionPlan("lower", { complaints: ["knee"], equipment: [] });
+    const targeted = lower.filter((e) => e.priority === "targeted");
+    expect(targeted.length).toBe(1);
+    expect(targeted[0].slug).not.toBe(""); // resolved to a real exercise
+  });
+
+  it("a hamstring complaint with zero equipment still gets a targeted exercise, not nothing", () => {
+    const fullBody = buildSessionPlan("full_body", { complaints: ["hamstring"], equipment: [] });
+    const targeted = fullBody.filter((e) => e.priority === "targeted");
+    expect(targeted.length).toBe(1);
+    expect(targeted[0].slug).not.toBe("");
+  });
+
+  it("the zero-equipment fallback for knee/hamstring is a real, zero-equipment exercise", () => {
+    const lower = buildSessionPlan("lower", {
+      complaints: ["knee", "hamstring"],
+      equipment: [],
+    });
+    const targeted = lower.filter((e) => e.priority === "targeted");
+    expect(targeted.length).toBe(2);
+    for (const t of targeted) {
+      expect(EXERCISE_BY_SLUG[t.slug]?.equipment ?? []).toEqual([]);
+    }
+  });
+
+  it("knee/hamstring targeted work still resolves to the box/chair exercise when available", () => {
+    const withBox = buildSessionPlan("lower", { complaints: ["knee"], equipment: ["box"] });
+    expect(withBox.some((e) => e.slug === "step_down")).toBe(true);
+    const withChair = buildSessionPlan("full_body", { complaints: ["hamstring"], equipment: ["chair"] });
+    expect(withChair.some((e) => e.slug === "nordic_curl_negative")).toBe(true);
+  });
+
+  it("targeted work's bodyweight fallback never collides with the session's own bodyweight floor", () => {
+    // Zero equipment: romanian_deadlift already falls back to the shared
+    // hinge/hip-thrust bodyweight floor — the targeted fallback must be a
+    // genuinely different exercise, not deduped away.
+    const lower = buildSessionPlan("lower", { complaints: ["hamstring"], equipment: [] });
+    const slugs = lower.map((e) => e.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    expect(lower.some((e) => e.priority === "targeted")).toBe(true);
+  });
+});
+
 describe("existing rows with no complaints behave like 'none'", () => {
   it("rotationFor treats an empty complaints array as the general default", () => {
     expect(rotationFor("running_focus", 2, [])).toEqual(["lower", "full_body"]);

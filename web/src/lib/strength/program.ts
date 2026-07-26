@@ -374,6 +374,42 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 5,
     repHigh: 8,
   },
+  // Bodyweight fallbacks for the two complaint-targeted exercises above that
+  // hard-require a chair/box — without these, an athlete with neither gets
+  // nothing prescribed for a reported knee or hamstring complaint, even
+  // though targeted work is supposed to be protected like Achilles work
+  // (see resolveSlotVariant / KNEE_TARGETED_VARIANTS / HAMSTRING_TARGETED_
+  // VARIANTS below). Deliberately distinct movements from the generic
+  // squat/hinge bodyweight floors (air_squat, hip_raise) so this fallback
+  // never collides with — and gets deduped away by — an ordinary lower/
+  // full_body slot in the same bodyweight-only session.
+  {
+    slug: "wall_sit",
+    equipment: [],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Knee stability"],
+    name: "Wall sit",
+    category: "lower",
+    equipmentNote:
+      "Back flat against a wall, thighs parallel to the floor — no step or chair needed. Reps shown are seconds held, not a rep count.",
+    tempoNote: "Static hold, knees tracking over the toes",
+    defaultSets: 3,
+    repLow: 30,
+    repHigh: 45,
+  },
+  {
+    slug: "single_leg_glute_bridge",
+    equipment: [],
+    primaryMuscle: "Hamstrings",
+    secondaryMuscles: ["Glutes"],
+    name: "Single-leg glute bridge",
+    category: "lower",
+    equipmentNote: "One foot planted, other leg extended straight — no chair anchor needed",
+    tempoNote: "Pause and squeeze at the top, slow controlled lower",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+  },
 
   // ── Extended library (custom-workout builder; home setup: dumbbells + chair
   // + floor, no bench). Not part of any stock session template.
@@ -992,6 +1028,212 @@ export const EXERCISES: ExerciseDef[] = [
     repLow: 6,
     repHigh: 12,
   },
+
+  // ── Machine / cable library (full-gym access) ────────────────────────────
+  // A "full gym" access preset only means something different from a box if
+  // machines actually unlock exercises a box doesn't have (see equipment.ts
+  // ACCESS_PRESETS). Machines are best for isolation/accessory volume and
+  // safe near-failure work without a spotter — they never replace a free
+  // compound lift here (squat/hinge/press/row variant chains are untouched),
+  // they upgrade the accessory slots that already exist (see the SlotVariant
+  // lists below) and extend the Exchange/custom-builder library. Assisted
+  // pull-up is deliberately left without a startWeightKg: more assistance
+  // weight means an EASIER rep (the opposite of every other tracked load),
+  // so it isn't a fit for the load-model's heavier-is-harder progression.
+  {
+    slug: "leg_press_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Quads",
+    secondaryMuscles: ["Glutes"],
+    name: "Leg press",
+    category: "lower",
+    equipmentNote: "Seated, feet shoulder-width on the platform",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 20,
+  },
+  {
+    slug: "leg_curl_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Hamstrings",
+    name: "Leg curl machine",
+    category: "lower",
+    equipmentNote: "Seated or lying — pad rests just above the heels",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+    startWeightKg: 15,
+  },
+  {
+    slug: "leg_extension_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Quads",
+    name: "Leg extension machine",
+    category: "lower",
+    equipmentNote: "Pad rests just above the ankles, back flat against the seat",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+    startWeightKg: 15,
+  },
+  {
+    slug: "hip_abduction_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Glutes",
+    secondaryMuscles: ["Hip abductors"],
+    name: "Hip abduction machine",
+    category: "lower",
+    equipmentNote: "Seated, pads press outward against the outside of the knees",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+    startWeightKg: 10,
+  },
+  {
+    slug: "hip_adduction_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Adductors",
+    name: "Hip adduction machine",
+    category: "lower",
+    equipmentNote: "Seated, pads press inward against the inside of the knees",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 20,
+    startWeightKg: 10,
+  },
+  {
+    slug: "calf_raise_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Calves",
+    name: "Calf raise machine",
+    category: "lower",
+    equipmentNote: "Standing or seated calf raise machine — full range, controlled",
+    tempoNote: "Full range, controlled — no bouncing",
+    defaultSets: 3,
+    repLow: 12,
+    repHigh: 15,
+    startWeightKg: 15,
+  },
+  {
+    slug: "lat_pulldown_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps"],
+    name: "Lat pulldown",
+    category: "upper",
+    equipmentNote: "Wide overhand grip, bar to the upper chest",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 15,
+  },
+  {
+    slug: "seated_row_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Rear delts"],
+    name: "Seated row machine",
+    category: "upper",
+    equipmentNote: "Chest against the pad, drive the elbows back",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 15,
+  },
+  {
+    slug: "cable_row",
+    equipment: ["machine"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Rear delts"],
+    name: "Seated cable row",
+    category: "upper",
+    equipmentNote: "V-bar or dual handle, sit tall, squeeze the shoulder blades together",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+    startWeightKg: 12.5,
+  },
+  {
+    slug: "chest_press_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Chest",
+    secondaryMuscles: ["Triceps", "Front delts"],
+    name: "Chest press machine",
+    category: "upper",
+    equipmentNote: "Seated, handles at chest height, press forward",
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 15,
+  },
+  {
+    slug: "shoulder_press_machine",
+    equipment: ["machine"],
+    primaryMuscle: "Shoulders",
+    secondaryMuscles: ["Triceps"],
+    name: "Shoulder press machine",
+    category: "upper",
+    equipmentNote: "Seated, handles at shoulder height, press overhead",
+    slowProgressor: true, // overhead pressing progresses slower than everything else
+    defaultSets: 3,
+    repLow: 8,
+    repHigh: 12,
+    startWeightKg: 12.5,
+  },
+  {
+    slug: "cable_fly",
+    equipment: ["machine"],
+    primaryMuscle: "Chest",
+    secondaryMuscles: ["Front delts"],
+    name: "Cable fly",
+    category: "upper",
+    equipmentNote: "Standing between two cable stacks, slight elbow bend, arc the hands together",
+    tempoNote: "Slow arc, stop at chest height",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+    startWeightKg: 7.5,
+  },
+  {
+    slug: "triceps_pushdown",
+    equipment: ["machine"],
+    primaryMuscle: "Arms",
+    name: "Triceps pushdown",
+    category: "upper",
+    equipmentNote: "Cable stack, rope or straight bar, elbows pinned to your sides",
+    defaultSets: 3,
+    repLow: 10,
+    repHigh: 15,
+    startWeightKg: 10,
+  },
+  {
+    slug: "face_pull",
+    equipment: ["machine"],
+    primaryMuscle: "Shoulders",
+    secondaryMuscles: ["Rear delts", "Rotator cuff"],
+    name: "Face pull",
+    category: "upper",
+    equipmentNote: "Rope attachment at head height, pull toward the face, elbows high",
+    tempoNote: "Slow and controlled — shoulder health work, not a rep-max",
+    defaultSets: 3,
+    repLow: 15,
+    repHigh: 20,
+    startWeightKg: 7.5,
+  },
+  {
+    slug: "assisted_pull_up",
+    equipment: ["machine"],
+    primaryMuscle: "Back",
+    secondaryMuscles: ["Biceps", "Core"],
+    name: "Assisted pull-up machine",
+    category: "upper",
+    equipmentNote:
+      "Counterweight or band-assist machine — start with more assistance, reduce it as you get stronger (more assistance weight makes the rep easier, not harder)",
+    defaultSets: 3,
+    repLow: 6,
+    repHigh: 10,
+  },
 ];
 
 export const EXERCISE_BY_SLUG: Record<string, ExerciseDef> = Object.fromEntries(
@@ -1071,6 +1313,53 @@ const ONE_ARM_ROW_VARIANTS: SlotVariant[] = [
   { exerciseSlug: "superman_from_floor", equipment: [], repLow: 10, repHigh: 15 },
 ];
 
+// Complaint-targeted work (see TARGETED_WORK below) — same shortcut-over-a-
+// list shape as the ordinary movement-pattern variants, so a knee/hamstring
+// complaint still resolves to something an athlete with no box or chair can
+// actually do, instead of a slot they can never complete.
+const KNEE_TARGETED_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "step_down", equipment: ["box"] },
+  { exerciseSlug: "wall_sit", equipment: [], repLow: 30, repHigh: 45 },
+];
+
+const HAMSTRING_TARGETED_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "nordic_curl_negative", equipment: ["chair"] },
+  { exerciseSlug: "single_leg_glute_bridge", equipment: [], repLow: 10, repHigh: 15, perSide: true },
+];
+
+// ── Accessory-slot machine upgrades ───────────────────────────────────────────
+// Ranked machine-first, existing exercise second: an athlete with a box's
+// worth of free weights (but no machine) still gets exactly what they got
+// before machines existed, while a full-gym athlete's accessory work
+// actually changes. Deliberately limited to isolation/accessory slots, not
+// the compound squat/hinge/press/row variant chains above — a machine is a
+// better fit for finishing volume than for the main lift itself.
+const CALF_RAISE_ACCESSORY_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "calf_raise_machine", equipment: ["machine"] },
+  { exerciseSlug: "standing_calf_raise", equipment: ["dumbbell"] },
+];
+
+// Split squat's quad-accessory role, machine-upgraded to a seated leg
+// extension when one's available.
+const SPLIT_SQUAT_ACCESSORY_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "leg_extension_machine", equipment: ["machine"], repLow: 12, repHigh: 20 },
+  { exerciseSlug: "bulgarian_split_squat", equipment: ["dumbbell", "chair"], repLow: 15, repHigh: 25 },
+];
+
+// Single-leg RDL's hamstring-accessory role, machine-upgraded to a leg curl.
+const SINGLE_LEG_RDL_ACCESSORY_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "leg_curl_machine", equipment: ["machine"], repLow: 10, repHigh: 15, perSide: false },
+  { exerciseSlug: "single_leg_rdl", equipment: ["dumbbell"], repLow: 15, repHigh: 25, perSide: true },
+];
+
+// Lateral raise's shoulder-accessory role, machine-upgraded to a cable face
+// pull — trades side-delt isolation for rear-delt/rotator-cuff health work,
+// but fills the same "small shoulder accessory" slot in the session.
+const LATERAL_RAISE_ACCESSORY_VARIANTS: SlotVariant[] = [
+  { exerciseSlug: "face_pull", equipment: ["machine"], repLow: 15, repHigh: 20 },
+  { exerciseSlug: "lateral_raise", equipment: ["dumbbell"], repLow: 12, repHigh: 15 },
+];
+
 /**
  * Which concrete exercise a template slot resolves to for this athlete.
  *
@@ -1085,11 +1374,22 @@ const ONE_ARM_ROW_VARIANTS: SlotVariant[] = [
  * no `variants` list (Achilles-role slots, and slots deliberately left
  * single-exercise) always resolves to its base `exerciseSlug` regardless of
  * equipment — variant selection never touches Achilles work.
+ *
+ * `usedSlugs` (optional) is the set of exercise slugs already resolved
+ * earlier in this same session — when given, the best equipment-satisfying
+ * variant NOT already in that set wins instead, walking down the chain one
+ * step (see session.ts buildSessionPlan: this is what stops two slots that
+ * share a bodyweight/machine-less floor, e.g. the hinge and hip-thrust
+ * patterns both bottoming out at the bodyweight hip raise, from prescribing
+ * the same exercise twice). `duplicate: true` means every equipment-
+ * satisfying candidate was already used — the caller decides whether that's
+ * acceptable (protected achilles/targeted work) or means dropping the slot.
  */
 export function resolveSlotVariant(
   slot: TemplateSlot,
-  equipment: Equipment[] | null
-): { slug: string; sets: number; repLow: number; repHigh: number; perSide: boolean } {
+  equipment: Equipment[] | null,
+  usedSlugs?: Set<string>
+): { slug: string; sets: number; repLow: number; repHigh: number; perSide: boolean; duplicate: boolean } {
   const base = {
     slug: slot.exerciseSlug,
     sets: slot.sets,
@@ -1097,11 +1397,16 @@ export function resolveSlotVariant(
     repHigh: slot.repHigh,
     perSide: slot.perSide ?? false,
   };
-  if (equipment == null || !slot.variants || slot.variants.length === 0) return base;
+  if (equipment == null || !slot.variants || slot.variants.length === 0) {
+    return { ...base, duplicate: false };
+  }
 
   const has = (needs: Equipment[]) => needs.every((e) => equipment.includes(e));
-  const match = slot.variants.find((v) => has(v.equipment));
-  if (!match) return base;
+  const candidates = slot.variants.filter((v) => has(v.equipment));
+  if (candidates.length === 0) return { ...base, duplicate: false };
+
+  const fresh = usedSlugs ? candidates.find((v) => !usedSlugs.has(v.exerciseSlug)) : candidates[0];
+  const match = fresh ?? candidates[0];
 
   return {
     slug: match.exerciseSlug,
@@ -1109,6 +1414,7 @@ export function resolveSlotVariant(
     repLow: match.repLow ?? base.repLow,
     repHigh: match.repHigh ?? base.repHigh,
     perSide: match.perSide ?? base.perSide,
+    duplicate: !fresh && !!usedSlugs && usedSlugs.has(match.exerciseSlug),
   };
 }
 
@@ -1135,7 +1441,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "floor_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HORIZONTAL_PRESS_VARIANTS },
       { exerciseSlug: "renegade_row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: RENEGADE_ROW_VARIANTS },
       { exerciseSlug: "curl_to_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory" },
-      { exerciseSlug: "lateral_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
+      { exerciseSlug: "lateral_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory", variants: LATERAL_RAISE_ACCESSORY_VARIANTS },
     ],
   },
   lower: {
@@ -1146,10 +1452,10 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
     slots: [
       { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: SQUAT_VARIANTS },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HINGE_VARIANTS },
-      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
-      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
+      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory", variants: SPLIT_SQUAT_ACCESSORY_VARIANTS },
+      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory", variants: SINGLE_LEG_RDL_ACCESSORY_VARIANTS },
       // Ordinary runner calf work — not the Achilles HSR protocol.
-      { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
+      { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory", variants: CALF_RAISE_ACCESSORY_VARIANTS },
     ],
   },
   full_body: {
@@ -1168,7 +1474,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       { exerciseSlug: "overhead_press", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory", variants: OVERHEAD_PRESS_VARIANTS },
       { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory", variants: HIP_THRUST_VARIANTS },
       // Ordinary runner calf work — not the Achilles HSR protocol.
-      { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory" },
+      { exerciseSlug: "standing_calf_raise", sets: 3, repLow: 12, repHigh: 15, restSeconds: 60, priority: "accessory", variants: CALF_RAISE_ACCESSORY_VARIANTS },
     ],
   },
   upper_achilles: {
@@ -1219,8 +1525,8 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
       // Main lower strength
       { exerciseSlug: "db_squat", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: SQUAT_VARIANTS },
       { exerciseSlug: "romanian_deadlift", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, variants: HINGE_VARIANTS },
-      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
-      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory" },
+      { exerciseSlug: "bulgarian_split_squat", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory", variants: SPLIT_SQUAT_ACCESSORY_VARIANTS },
+      { exerciseSlug: "single_leg_rdl", sets: 3, repLow: 15, repHigh: 25, restSeconds: 90, perSide: true, priority: "accessory", variants: SINGLE_LEG_RDL_ACCESSORY_VARIANTS },
       // Glute bridge last
       { exerciseSlug: "glute_bridge", sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, priority: "accessory", variants: HIP_THRUST_VARIANTS },
     ],
@@ -1248,7 +1554,18 @@ export const TARGETED_WORK: Partial<
   },
   knee: {
     slug: "step_down",
-    slot: { sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true, priority: "targeted" },
+    // step_down hard-requires a box; targeted work is protected like
+    // Achilles work (never dropped for missing equipment), so it needs a
+    // bodyweight fallback — see KNEE_TARGETED_VARIANTS.
+    slot: {
+      sets: 3,
+      repLow: 8,
+      repHigh: 12,
+      restSeconds: 90,
+      perSide: true,
+      priority: "targeted",
+      variants: KNEE_TARGETED_VARIANTS,
+    },
     sessionTypes: ["lower", "full_body"],
   },
   itb: {
@@ -1258,7 +1575,16 @@ export const TARGETED_WORK: Partial<
   },
   hamstring: {
     slug: "nordic_curl_negative",
-    slot: { sets: 3, repLow: 5, repHigh: 8, restSeconds: 120, priority: "targeted" },
+    // nordic_curl_negative hard-requires a chair — same protection/fallback
+    // reasoning as knee/step_down above (HAMSTRING_TARGETED_VARIANTS).
+    slot: {
+      sets: 3,
+      repLow: 5,
+      repHigh: 8,
+      restSeconds: 120,
+      priority: "targeted",
+      variants: HAMSTRING_TARGETED_VARIANTS,
+    },
     sessionTypes: ["lower", "full_body"],
   },
   hip_glute: {

@@ -133,13 +133,38 @@ export function buildSessionPlan(
   const lifterProfile = opts.lifterProfile ?? null;
   const equipmentAvailable = opts.equipment ?? null;
 
-  const plan = template.slots.map((slot, slotIdx) => {
-    // Pick the best variant this athlete can actually perform (see
-    // program.ts resolveSlotVariant). `equipmentAvailable == null` (no
-    // equipment info yet) always resolves to the slot's own base exercise —
-    // Achilles-role slots have no `variants` list either way, so they're
-    // never touched here regardless of equipment.
-    const resolved = resolveSlotVariant(slot, equipmentAvailable);
+  // Slots are resolved in template order, threading `usedSlugs` through so a
+  // later slot whose equipment-satisfying variants are all already used by
+  // an earlier slot in THIS session (e.g. the hinge and hip-thrust patterns
+  // both bottoming out at the bodyweight hip raise with no equipment) picks
+  // the next acceptable variant instead of repeating the same exercise — see
+  // program.ts resolveSlotVariant. A slot that's genuinely left with nothing
+  // new to add (every equipment-satisfying option already used) is dropped
+  // rather than prescribed twice, unless it's Achilles-role or "targeted"
+  // complaint work — that work is protected and never dropped, so its own
+  // variant chain always ends in a fallback distinct from the generic
+  // movement-pattern floors (see KNEE_TARGETED_VARIANTS / HAMSTRING_
+  // TARGETED_VARIANTS in program.ts) and should never actually collide.
+  const usedSlugs = new Set<string>();
+  const resolvedSlots: Array<{
+    slot: (typeof template.slots)[number];
+    slotIdx: number;
+    resolved: ReturnType<typeof resolveSlotVariant>;
+  }> = [];
+  template.slots.forEach((slot, slotIdx) => {
+    const resolved = resolveSlotVariant(slot, equipmentAvailable, usedSlugs);
+    const ex = EXERCISE_BY_SLUG[resolved.slug];
+    const priority: PlannedExercise["priority"] = ex.achillesRole
+      ? "achilles"
+      : slot.priority ?? "primary";
+    if (resolved.duplicate && priority !== "achilles" && priority !== "targeted") {
+      return; // nothing new to add — redundant with an earlier slot, drop it
+    }
+    usedSlugs.add(resolved.slug);
+    resolvedSlots.push({ slot, slotIdx, resolved });
+  });
+
+  const plan = resolvedSlots.map(({ slot, slotIdx, resolved }) => {
     const ex = EXERCISE_BY_SLUG[resolved.slug];
     const history = historyBySlug[resolved.slug] ?? [];
 

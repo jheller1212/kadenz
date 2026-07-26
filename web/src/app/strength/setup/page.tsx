@@ -17,12 +17,17 @@ import { apiFetch } from "@/lib/api";
 import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
 import { StrengthReadyScreen } from "@/components/StrengthReadyScreen";
 import { haptic } from "@/lib/haptics";
+import { EXERCISES } from "@/lib/strength/program";
 import type { Complaint, Equipment } from "@/lib/strength/types";
 import { COMPLAINT_LABELS, STRENGTH_COMPLAINTS } from "@/lib/strength/types";
 import {
+  ACCESS_PRESETS,
   DEFAULT_EQUIPMENT,
   EQUIPMENT_OPTIONS,
+  accessForEquipment,
+  exerciseCountForEquipment,
   saveEquipment,
+  type GymAccess,
 } from "@/lib/strength/equipment";
 
 // ── Stepped setup wizard for the weekly strength schedule ────────────────────
@@ -252,6 +257,18 @@ export default function StrengthSetupPage() {
     );
   }
 
+  // Access is a shortcut over the same equipment list, not a separate
+  // setting — picking one just replaces the ticks below with that preset's
+  // set, which stays individually editable straight after.
+  function selectAccess(access: GymAccess) {
+    markInteracted();
+    haptic("medium");
+    setEquipment(ACCESS_PRESETS[access].equipment);
+  }
+  // Highlight a segment only when the current ticks exactly match a preset —
+  // once the athlete hand-edits a box, none of the three should look "on".
+  const activeAccess = useMemo(() => accessForEquipment(equipment), [equipment]);
+
   function toggleComplaint(key: Complaint) {
     markInteracted();
     haptic("light");
@@ -292,8 +309,8 @@ export default function StrengthSetupPage() {
       sub: `Select every day that works, spaced through the week — at least ${Math.max(frequency, 1)} to continue.`,
     },
     equipment: {
-      title: "What equipment do you have?",
-      sub: "Select everything you can easily access. No equipment? Bodyweight work has you covered.",
+      title: "Where do you train?",
+      sub: "Pick the closest match — it ticks the equipment below for you, and every tick stays yours to change.",
     },
   };
 
@@ -456,16 +473,45 @@ export default function StrengthSetupPage() {
                   />
                 ))}
 
-              {step === "equipment" &&
-                EQUIPMENT_OPTIONS.map((o) => (
-                  <OptionCard
-                    key={o.key}
-                    selected={false}
-                    onSelect={() => { markInteracted(); toggleEquipment(o.key); }}
-                    title={o.label}
-                    trailing={<WizardCheck on={equipment.includes(o.key)} />}
-                  />
-                ))}
+              {step === "equipment" && (
+                <>
+                  <div className="flex gap-2">
+                    {(Object.keys(ACCESS_PRESETS) as GymAccess[]).map((access) => (
+                      <button
+                        key={access}
+                        type="button"
+                        onClick={() => selectAccess(access)}
+                        className={`press flex-1 rounded-[var(--radius-input)] px-2 py-3 text-[13px] font-bold ${
+                          activeAccess === access
+                            ? "bg-accent text-on-accent"
+                            : "bg-elevated text-text-2"
+                        }`}
+                      >
+                        {ACCESS_PRESETS[access].label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-[12px] leading-snug text-text-3">
+                    {activeAccess
+                      ? ACCESS_PRESETS[activeAccess].blurb
+                      : "Hand-picked below — doesn't match one of the presets above."}
+                    {" "}Unlocks {exerciseCountForEquipment(equipment)} of the {EXERCISES.length} exercises in Kraft.
+                  </p>
+
+                  <p className="mb-1 mt-6 text-[11px] font-bold uppercase tracking-wide text-text-3">
+                    Equipment you can use
+                  </p>
+                  {EQUIPMENT_OPTIONS.map((o) => (
+                    <OptionCard
+                      key={o.key}
+                      selected={false}
+                      onSelect={() => { markInteracted(); toggleEquipment(o.key); }}
+                      title={o.label}
+                      trailing={<WizardCheck on={equipment.includes(o.key)} />}
+                    />
+                  ))}
+                </>
+              )}
             </div>
 
             {error && (
