@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
+import { getCurrentFitnessEstimate } from "@/lib/current-fitness";
 import { queuePlanWorkoutsSync, queueWorkoutEventDeletes } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync, queueGarminWorkoutDeletes } from "@/lib/sync/garmin-sync";
@@ -92,10 +93,20 @@ export async function PUT(
   }
 
   const data = parsed.data;
+
+  let currentFitnessVdot: number | null = null;
+  try {
+    const estimate = await getCurrentFitnessEstimate();
+    currentFitnessVdot = estimate?.vdot ?? null;
+  } catch (err) {
+    console.error("Failed to read current fitness estimate:", err);
+  }
+
   const config: PlanConfig = {
     ...data,
     startDate: new Date(data.startDate),
     raceDate: new Date(data.raceDate),
+    currentFitnessVdot,
   };
   if (config.raceDate && config.raceDate <= config.startDate) {
     return Response.json({ error: "raceDate must be after startDate" }, { status: 422 });

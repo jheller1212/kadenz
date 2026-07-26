@@ -260,3 +260,37 @@ describe("rep length decides the pace zone", () => {
     }
   });
 });
+
+describe("currentFitnessVdot replaces the runnerLevel bucket for non-race plans", () => {
+  it("get_fit: uses currentFitnessVdot over the level bucket when present", () => {
+    const levelOnly = generateSteadyPlan({ ...base, intent: "get_fit", planLengthWeeks: 8 });
+    const withEstimate = generateSteadyPlan({
+      ...base,
+      intent: "get_fit",
+      planLengthWeeks: 8,
+      currentFitnessVdot: 50, // well above the "intermediate" bucket (42)
+    });
+    expect(withEstimate.vdot).toBe(50);
+    expect(withEstimate.vdot).not.toBe(levelOnly.vdot);
+  });
+
+  it("return: uses currentFitnessVdot over the level bucket when present", () => {
+    const plan = generateReturnPlan({
+      ...base,
+      intent: "return",
+      planLengthWeeks: 8,
+      currentFitnessVdot: 45,
+    });
+    expect(plan.vdot).toBe(45);
+  });
+
+  it("falls back to the level bucket when there's no current-fitness estimate", () => {
+    const plan = generateSteadyPlan({
+      ...base,
+      intent: "maintain",
+      planLengthWeeks: 8,
+      currentFitnessVdot: null,
+    });
+    expect(plan.vdot).toBe(vdotForRunnerLevel(base.runnerLevel));
+  });
+});

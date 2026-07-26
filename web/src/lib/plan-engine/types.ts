@@ -112,6 +112,14 @@ export interface PlanConfig {
   availableDays?: number[] | null;
   /** Self-reported runner level from onboarding (informational; drives wizard defaults) */
   runnerLevel?: RunnerLevel | null;
+  /**
+   * VDOT estimated from the athlete's actual recent runs (see
+   * plan-engine/fitness-estimate.ts). When present, this is the primary pace
+   * source for every intent: it fully replaces the runnerLevel bucket for
+   * non-race plans, and biases (caps) the goal-time VDOT for race plans.
+   * Null/omitted falls back to the pre-existing cold-start behaviour.
+   */
+  currentFitnessVdot?: number | null;
 }
 
 export interface GeneratedBlock {

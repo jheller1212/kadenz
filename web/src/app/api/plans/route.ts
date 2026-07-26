@@ -5,6 +5,7 @@ import { isNull } from "drizzle-orm";
 import { db, plans, weeks, workouts, blocks, strengthPlanSettings } from "@/db";
 import { generatePlanForConfig } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
+import { getCurrentFitnessEstimate } from "@/lib/current-fitness";
 import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
@@ -83,6 +84,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Read current fitness before generating, so paces are grounded in what the
+  // athlete can actually run today — a null estimate (no synced history yet)
+  // falls back to the pre-existing goal/level-only behaviour untouched.
+  let currentFitnessVdot: number | null = null;
+  try {
+    const estimate = await getCurrentFitnessEstimate();
+    currentFitnessVdot = estimate?.vdot ?? null;
+  } catch (err) {
+    console.error("Failed to read current fitness estimate:", err);
+  }
+
   const config: PlanConfig = {
     ...data,
     // Non-race plans use a neutral reference distance; the generator overrides it.
@@ -91,6 +103,7 @@ export async function POST(request: NextRequest) {
     goalTimeSeconds: data.goalTimeSeconds ?? 0,
     startDate: new Date(data.startDate),
     raceDate: data.raceDate ? new Date(data.raceDate) : undefined,
+    currentFitnessVdot,
   };
 
   // Validate date ordering (race intent only — non-race derives its own end).
