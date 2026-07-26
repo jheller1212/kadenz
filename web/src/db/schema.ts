@@ -203,6 +203,20 @@ export const weeks = pgTable(
     type: weekTypeEnum("type").notNull().default("normal"),
     targetKm: real("target_km"),
     actualKm: real("actual_km"),
+    // Set when the athlete drops this week (illness/travel/injury — see
+    // "skip a week"). Week numbering and every other week's dates are left
+    // untouched deliberately: date-derived week lookups elsewhere (strength
+    // phase/deload backoff, Garmin labels) assume a contiguous, un-shifted
+    // week-number-from-startDate mapping, so renumbering or shifting dates
+    // would silently desync them. The dropped week just becomes an empty
+    // (skipped) week in place; the race day never moves.
+    skippedAt: timestamp("skipped_at", { withTimezone: true }),
+    skipReason: text("skip_reason"),
+    // Snapshot of the workouts this action transitioned to "skipped"
+    // (id + previous status), so Undo can restore exactly those rows —
+    // never a workout the athlete had already skipped or completed
+    // themselves before this action ran.
+    skipSnapshot: jsonb("skip_snapshot").$type<{ id: string; status: string }[]>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

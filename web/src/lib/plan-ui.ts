@@ -39,9 +39,14 @@ export interface ApiWorkoutRow {
 }
 
 export interface ApiWeekRow {
+  id: string;
   weekNumber: number;
+  phase?: "base" | "build" | "peak" | "taper";
   targetKm: number;
   workouts: ApiWorkoutRow[];
+  /** Set once the athlete drops this week — see /plan/manage's "Skip a week". */
+  skippedAt?: string | null;
+  skipReason?: string | null;
 }
 
 export interface ApiPlanRow {

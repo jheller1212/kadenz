@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Share2, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Share2, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -33,6 +33,29 @@ const ABILITY_LABEL: Record<string, string> = {
   intermediate: "Intermediate",
   advanced: "Advanced",
 };
+
+interface SkipWeekEligibility {
+  weekId: string;
+  weekNumber: number;
+  phase: "base" | "build" | "peak" | "taper";
+  startDate: string;
+  endDate: string;
+  hasCompletedWorkouts: boolean;
+}
+
+interface SkipWeekOptions {
+  eligible: SkipWeekEligibility[];
+  suggestedWeekId: string | null;
+  blockedReason: string | null;
+}
+
+type SkipReason = "illness" | "travel" | "injury" | "other";
+const SKIP_REASONS: { key: SkipReason; label: string }[] = [
+  { key: "illness", label: "Illness" },
+  { key: "travel", label: "Travel" },
+  { key: "injury", label: "Injury" },
+  { key: "other", label: "Other" },
+];
 
 type Tab = "running" | "strength" | "yoga" | "pilates" | "stretch";
 const TABS: { key: Tab; label: string }[] = [
@@ -123,6 +146,15 @@ export default function ManagePlanPage() {
   const [pausing, setPausing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Skip a week ─────────────────────────────────────────────────────────────
+  const [skipOpen, setSkipOpen] = useState(false);
+  const [skipLoading, setSkipLoading] = useState(false);
+  const [skipOptions, setSkipOptions] = useState<SkipWeekOptions | null>(null);
+  const [skipSelectedId, setSkipSelectedId] = useState<string | null>(null);
+  const [skipReason, setSkipReason] = useState<SkipReason | null>(null);
+  const [skipping, setSkipping] = useState(false);
+  const [undoingWeekId, setUndoingWeekId] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -152,6 +184,88 @@ export default function ManagePlanPage() {
       cancelled = true;
     };
   }, []);
+
+  async function refetchPlan(planId: string) {
+    const res = await apiFetch(`/api/plans/${planId}`);
+    if (res.ok) setPlan((await res.json()) as ApiPlanRow);
+  }
+
+  async function openSkipWeek() {
+    if (!plan) return;
+    setSkipOpen(true);
+    setSkipLoading(true);
+    setSkipOptions(null);
+    setSkipSelectedId(null);
+    setSkipReason(null);
+    try {
+      const res = await apiFetch(`/api/plans/${plan.id}/skip-week`);
+      if (res.ok) {
+        const data = (await res.json()) as SkipWeekOptions;
+        setSkipOptions(data);
+        setSkipSelectedId(data.suggestedWeekId);
+      } else {
+        setSkipOptions({ eligible: [], suggestedWeekId: null, blockedReason: "Couldn't check your plan. Try again." });
+      }
+    } catch {
+      setSkipOptions({ eligible: [], suggestedWeekId: null, blockedReason: "Network error, couldn't check your plan." });
+    } finally {
+      setSkipLoading(false);
+    }
+  }
+
+  async function confirmSkipWeek() {
+    if (!plan || !skipSelectedId) return;
+    setSkipping(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/plans/${plan.id}/skip-week`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weekId: skipSelectedId, reason: skipReason ?? undefined }),
+      });
+      if (res.ok) {
+        haptic("success");
+        setSkipOpen(false);
+        await refetchPlan(plan.id);
+      } else {
+        const body = await res.json().catch(() => null);
+        haptic("warning");
+        setError(body?.error ?? "Couldn't skip that week. Try again.");
+        setSkipOpen(false);
+      }
+    } catch {
+      haptic("warning");
+      setError("Network error, couldn't skip that week.");
+      setSkipOpen(false);
+    } finally {
+      setSkipping(false);
+    }
+  }
+
+  async function undoSkipWeek(weekId: string) {
+    if (!plan) return;
+    setUndoingWeekId(weekId);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/plans/${plan.id}/skip-week/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weekId }),
+      });
+      if (res.ok) {
+        haptic("success");
+        await refetchPlan(plan.id);
+      } else {
+        haptic("warning");
+        setError("Couldn't undo that skip. Try again.");
+      }
+    } catch {
+      haptic("warning");
+      setError("Network error, couldn't undo that skip.");
+    } finally {
+      setUndoingWeekId(null);
+    }
+  }
 
   async function removePlan() {
     if (!plan) return;
@@ -337,9 +451,42 @@ export default function ManagePlanPage() {
               <SelectRow label="Long run day" value={DOW[plan.preferredLongRunDay ?? 6]} href="/plan/edit" />
               <SelectRow label="Units of measure" value="Set in Settings" href="/settings/units" />
 
+              {plan.weeks.some((w) => w.skippedAt) && (
+                <>
+                  <SectionHeader>Skipped weeks</SectionHeader>
+                  {plan.weeks
+                    .filter((w) => w.skippedAt)
+                    .map((w) => (
+                      <div
+                        key={w.id}
+                        className="flex items-center justify-between rounded-2xl bg-elevated px-4 py-3.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[15px] font-semibold text-text-1">
+                            Week {w.weekNumber}
+                            {w.skipReason ? ` · ${w.skipReason}` : ""}
+                          </p>
+                          <p className="mt-0.5 text-[12.5px] text-text-2">
+                            No training scheduled this week, later weeks are unchanged.
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          busy={undoingWeekId === w.id}
+                          onClick={() => undoSkipWeek(w.id)}
+                        >
+                          Undo
+                        </Button>
+                      </div>
+                    ))}
+                </>
+              )}
+
               <div className="mt-4 flex flex-col gap-2.5">
                 <TransitionLink href="/create" className="block"><Button full>Start a new plan</Button></TransitionLink>
                 <TransitionLink href="/plan/edit" className="block"><Button full variant="secondary">Edit this plan</Button></TransitionLink>
+                <Button full variant="secondary" onClick={openSkipWeek}>Skip a week</Button>
                 <Button full variant="danger" onClick={() => setRemoveOpen(true)}>Remove plan</Button>
               </div>
             </div>
@@ -432,6 +579,98 @@ export default function ManagePlanPage() {
           >
             Cancel
           </button>
+        </div>
+      </Sheet>
+
+      {/* Skip a week */}
+      <Sheet open={skipOpen} onClose={() => setSkipOpen(false)} title="Skip a week">
+        <div className="flex flex-col gap-4 px-1 pb-2">
+          {skipLoading ? (
+            <div className="flex flex-col gap-2.5">
+              {[0, 1].map((i) => (
+                <div key={i} className="h-16 rounded-2xl bg-elevated animate-shimmer" />
+              ))}
+            </div>
+          ) : skipOptions?.blockedReason ? (
+            <>
+              <p className="text-[14px] leading-relaxed text-text-2">{skipOptions.blockedReason}</p>
+              <button
+                onClick={() => setSkipOpen(false)}
+                className="press mx-auto text-[13px] font-medium text-text-3"
+              >
+                Close
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[14px] leading-relaxed text-text-2">
+                Life happens. Drop a base or build week and the rest of your plan
+                stays put, your race day does not move. Any workouts you have
+                already logged that week stay in your history.
+              </p>
+
+              <div className="flex flex-col gap-2">
+                {skipOptions?.eligible.map((w) => {
+                  const selected = w.weekId === skipSelectedId;
+                  return (
+                    <button
+                      key={w.weekId}
+                      onClick={() => { haptic("light"); setSkipSelectedId(w.weekId); }}
+                      className={`press flex items-center justify-between rounded-2xl px-4 py-3 text-left ${
+                        selected ? "bg-elevated ring-2 ring-text-1" : "bg-surface [box-shadow:var(--k-ring-hairline)]"
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-semibold text-text-1">Week {w.weekNumber}</p>
+                        <p className="text-[12.5px] text-text-2">
+                          {formatDate(w.startDate)} to {formatDate(w.endDate)}
+                          {w.hasCompletedWorkouts ? " · has logged workouts" : ""}
+                        </p>
+                      </div>
+                      {selected && <Check className="h-5 w-5 shrink-0 text-text-1" strokeWidth={2.5} />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div>
+                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-3">
+                  Reason (optional)
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {SKIP_REASONS.map((r) => (
+                    <button
+                      key={r.key}
+                      onClick={() => { haptic("light"); setSkipReason(skipReason === r.key ? null : r.key); }}
+                      className={`press rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${
+                        skipReason === r.key
+                          ? "bg-text-1 text-bg"
+                          : "bg-elevated text-text-2"
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Button
+                full
+                variant="danger"
+                busy={skipping}
+                disabled={!skipSelectedId}
+                onClick={confirmSkipWeek}
+              >
+                Skip this week
+              </Button>
+              <button
+                onClick={() => setSkipOpen(false)}
+                className="press mx-auto text-[13px] font-medium text-text-3"
+              >
+                Cancel
+              </button>
+            </>
+          )}
         </div>
       </Sheet>
     </main>
