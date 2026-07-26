@@ -96,6 +96,20 @@ export function isPrunable(
 }
 
 /**
+ * When completing a session absorbs a same-day planned "twin" of the same
+ * type (see PATCH /api/strength/sessions/[id]), the twin's sets and pain
+ * logs move onto the completed session, but the twin row itself is never
+ * hard-deleted. It's marked skipped instead: that drops it out of "planned"
+ * everywhere (no phantom leftover inflating week counts, same as the old
+ * delete), but the row survives so a note, a linked Strava/Garmin activity,
+ * or a hand-edited exercise list still sitting on it doesn't silently
+ * disappear without trace.
+ */
+export function twinAbsorptionUpdate(now: Date): { status: "skipped"; updatedAt: Date } {
+  return { status: "skipped", updatedAt: now };
+}
+
+/**
  * Whether a sessions PATCH counts as a user-meaningful edit that adopts an
  * auto-scheduled session. Bare status changes (tick / untick / skip) do NOT —
  * otherwise completing-and-unticking launders auto sessions into "hand-made"

@@ -279,10 +279,12 @@ function RunCard({
   workout,
   onOpen,
   dimmed,
+  highlighted,
 }: {
   workout: GeneratedWorkout;
   onOpen: () => void;
   dimmed: boolean;
+  highlighted?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `run:${workout.id}`,
@@ -290,6 +292,7 @@ function RunCard({
 
   return (
     <button
+      id={workout.id ? `run-card-${workout.id}` : undefined}
       ref={setNodeRef}
       {...attributes}
       {...listeners}
@@ -300,7 +303,7 @@ function RunCard({
       }}
       className={`press relative flex w-full items-stretch overflow-hidden rounded-[var(--radius-input)] bg-elevated text-left touch-manipulation select-none ${
         dimmed ? "opacity-50" : ""
-      }`}
+      } ${highlighted ? "ring-2 ring-accent" : ""}`}
     >
       {workout.status === "completed" && <CompletedBadge />}
       {/* Colored type accent spine */}
@@ -389,6 +392,7 @@ function DayRow({
   onOpenStrength,
   onAddStrength,
   dimmed,
+  focusedWorkoutId,
 }: {
   dayIdx: number;
   date: Date;
@@ -398,6 +402,7 @@ function DayRow({
   onOpenStrength: (session: StrengthSession) => void;
   onAddStrength: (date: Date) => void;
   dimmed: boolean;
+  focusedWorkoutId?: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${date.getTime()}` });
   const isToday = sameDay(date, new Date());
@@ -453,7 +458,12 @@ function DayRow({
           )}
 
           {run && !isRest ? (
-            <RunCard workout={run} onOpen={() => onOpenRun(run)} dimmed={dimmed} />
+            <RunCard
+              workout={run}
+              onOpen={() => onOpenRun(run)}
+              dimmed={dimmed}
+              highlighted={!!run.id && run.id === focusedWorkoutId}
+            />
           ) : (
             <span />
           )}
@@ -653,6 +663,10 @@ function LoadingSkeleton() {
 function PlanPageInner() {
   const searchParams = useSearchParams();
   const planId = searchParams.get("id");
+  // Set once from the URL — the workout detail actions menu links here with
+  // `?workoutId=` so the athlete lands on the session they chose to move,
+  // instead of wherever the current-week auto-scroll would otherwise land.
+  const [focusWorkoutId, setFocusWorkoutId] = useState(() => searchParams.get("workoutId"));
 
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -738,6 +752,26 @@ function PlanPageInner() {
     }
     loadPlan();
   }, [planId]);
+
+  // A deep link from the workout menu ("Move") wins over the default
+  // current-week scroll. Graceful when the id is missing or stale (a
+  // workout that got deleted/completed since the link was made): the
+  // lookup just fails silently and the current-week effect below runs as
+  // normal instead.
+  useEffect(() => {
+    if (!plan || !focusWorkoutId || didAutoScroll.current) return;
+    const target = plan.weeks
+      .flatMap((w) => w.workouts)
+      .find((w) => w.id === focusWorkoutId);
+    if (!target) return;
+    didAutoScroll.current = true;
+    const el = document.getElementById(`run-card-${focusWorkoutId}`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // The highlight ring is a one-time "you landed here" cue, not a
+    // permanent selection state.
+    const timer = setTimeout(() => setFocusWorkoutId(null), 2400);
+    return () => clearTimeout(timer);
+  }, [plan, focusWorkoutId]);
 
   // Scroll the current week into view once the plan has rendered.
   useEffect(() => {
@@ -1214,6 +1248,7 @@ function PlanPageInner() {
                           setAddDate(d);
                         }}
                         dimmed={dimmed}
+                        focusedWorkoutId={focusWorkoutId}
                       />
                     );
                   })}

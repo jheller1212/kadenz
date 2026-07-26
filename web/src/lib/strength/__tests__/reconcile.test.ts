@@ -4,6 +4,7 @@ import {
   computeTopUpPlacements,
   dateFromDayKey,
   isPrunable,
+  twinAbsorptionUpdate,
   weekKeyOf,
   weekBudgetFor,
 } from "../reconcile";
@@ -76,6 +77,26 @@ describe("clearsAutoScheduled", () => {
 
   it("status combined with a meaningful edit still adopts", () => {
     expect(clearsAutoScheduled({ status: "completed", durationMinutes: 40 })).toBe(true);
+  });
+});
+
+// ── Twin absorption on completion ────────────────────────────────────────────
+
+describe("twinAbsorptionUpdate", () => {
+  it("marks the twin skipped, never deletes it", () => {
+    const now = dateFromDayKey("2026-07-21");
+    const update = twinAbsorptionUpdate(now);
+    expect(update.status).toBe("skipped");
+    expect(update.updatedAt).toBe(now);
+    // No key here should ever be a delete-style signal — the twin survives
+    // as a real, queryable row.
+    expect(Object.keys(update).sort()).toEqual(["status", "updatedAt"]);
+  });
+
+  it("a skipped twin is never prunable, same as before", () => {
+    const today = dateFromDayKey("2026-07-18");
+    const twin = { date: dateFromDayKey("2026-07-18"), status: "skipped", autoScheduled: true };
+    expect(isPrunable(twin, today)).toBe(false);
   });
 });
 
