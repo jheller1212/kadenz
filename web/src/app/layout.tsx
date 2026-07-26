@@ -23,6 +23,7 @@ import { ServiceWorkerRegistration } from "./sw-register";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SessionProvider } from "@/components/SessionProvider";
 import { OfflineBanner } from "@/components/ui/feedback";
+import { PermissionsSync } from "@/components/PermissionsSync";
 
 export const metadata: Metadata = {
   title: "Kadenz",
@@ -82,6 +83,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider />
         <ServiceWorkerRegistration />
+        <PermissionsSync />
         <div className="app-frame">
           <OfflineBanner />
           <SessionProvider>{children}</SessionProvider>

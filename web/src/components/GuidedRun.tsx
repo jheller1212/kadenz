@@ -418,7 +418,15 @@ export function GuidedRun({
       stepStartDistRef.current = resumeFrom.stepStartDistM;
       lastMoveAtRef.current = Date.now();
       // stepIdx + started were seeded from resumeFrom at first render.
-    } else if (p.runStartOnMotion && p.runGps && "geolocation" in navigator) {
+    } else if (
+      p.runStartOnMotion &&
+      p.runGps &&
+      p.locationPermission === "allowed" &&
+      "geolocation" in navigator
+    ) {
+      // Motion detection here reads GPS movement (see distanceMRef below),
+      // so without location permission it would wait forever — fall through
+      // to the countdown/immediate start instead.
       setAwaitingMotion(true);
     } else if (p.runCountdownSeconds > 0) {
       setCountdown(p.runCountdownSeconds);
@@ -436,7 +444,16 @@ export function GuidedRun({
         .catch(() => {});
     }
 
-    if (prefsRef.current.runGps && "geolocation" in navigator) {
+    // Only ever watch position once the athlete has answered the location
+    // primer with "allow" — runGps being on just means they'd LIKE GPS, not
+    // that they've granted it. Falling through here keeps the run fully
+    // usable time-only (see gpsOn/gpsDenied below): no distance, pace or
+    // route, but nothing crashes or blocks.
+    if (
+      prefsRef.current.runGps &&
+      prefsRef.current.locationPermission === "allowed" &&
+      "geolocation" in navigator
+    ) {
       watchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           setGpsOn(true);
@@ -463,6 +480,11 @@ export function GuidedRun({
         () => setGpsDenied(true),
         { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
       );
+    } else if (prefsRef.current.runGps) {
+      // Wanted GPS but permission was never granted — show the same
+      // "unavailable" state a runtime denial would, instead of spinning on
+      // "Acquiring GPS" forever.
+      setGpsDenied(true);
     }
 
     return () => {
