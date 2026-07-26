@@ -17,6 +17,13 @@ const WorkoutPatchSchema = z.object({
   date: z.string().datetime().optional(),
   // Hand-tune: shift every pace target by this many sec/km (positive = slower).
   paceOffsetSecKm: z.number().int().min(-90).max(90).optional(),
+  // "HH:mm" 24h local, or null to clear. Undefined (field omitted) leaves it
+  // untouched — only an explicit null means "no specific time" again.
+  timeOfDay: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .nullable()
+    .optional(),
 }).strict();
 
 // ── PATCH /api/plans/[id]/workouts/[workoutId] ────────────────────────────────
@@ -174,8 +181,10 @@ export async function PATCH(
       return Response.json({ error: "Workout not found" }, { status: 404 });
     }
 
-    // Reschedule fans out to Google Calendar (same pattern as complete).
-    if (date) {
+    // Reschedule (date or a new time of day) fans out to Google Calendar
+    // (same pattern as complete). A missing connection is not an error — the
+    // time is still stored and shown, it just has nowhere else to sync to.
+    if (date || parsed.data.timeOfDay !== undefined) {
       isConnected()
         .then((connected) => {
           if (connected) {
@@ -185,6 +194,8 @@ export async function PATCH(
           }
         })
         .catch(() => {});
+    }
+    if (date) {
       // …and to the watch (self-gating: only when configured/pushed/enabled).
       queueGarminWorkoutMove(workoutId).catch((err) =>
         console.error("Failed to queue Garmin reschedule:", err)

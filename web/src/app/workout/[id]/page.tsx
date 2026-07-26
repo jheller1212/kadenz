@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Pencil, Minus, Plus, RotateCcw } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Pencil, Minus, Plus, RotateCcw, Link2, Clock, CalendarClock, Undo2, Check, Flag } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { useSettings } from "@/lib/useSettings";
 import { PaceChart, PaceBadge } from "@/components/PaceChart";
@@ -79,6 +79,7 @@ interface WorkoutDetail {
   date: string;
   dayOfWeek: number;
   blocks: WorkoutBlock[];
+  timeOfDay?: string | null;
 }
 
 const RACE_FEEL_OPTIONS = ["Great", "Solid", "Tough", "Struggled"] as const;
@@ -149,23 +150,49 @@ function OptionsSheet({
   open,
   onClose,
   onSkip,
+  onUnskip,
   onEdit,
   onUncomplete,
+  onLinkActivity,
+  onAddTime,
+  onMove,
+  onLogRaceResult,
   isCompleted,
+  isSkipped,
+  isRace,
 }: {
   open: boolean;
   onClose: () => void;
   onSkip: () => void;
+  onUnskip: () => void;
   onEdit: () => void;
   onUncomplete: () => void;
+  onLinkActivity: () => void;
+  onAddTime: () => void;
+  onMove: () => void;
+  onLogRaceResult: () => void;
   isCompleted: boolean;
+  isSkipped: boolean;
+  isRace: boolean;
 }) {
-  const actions = isCompleted
-    ? [{ label: "Mark as not completed", Icon: RotateCcw, action: onUncomplete }]
-    : [
-        { label: "Edit workout", Icon: Pencil, action: onEdit },
-        { label: "Skip workout", Icon: SkipForward, action: onSkip },
-      ];
+  // Skip has no other entry point in the app — this menu is the only place to
+  // reverse it, so "Restore" must always sit right where "Skip" would be.
+  const statusAction = isCompleted
+    ? { label: "Mark as not completed", Icon: RotateCcw, action: onUncomplete }
+    : isSkipped
+    ? { label: "Restore workout", Icon: Undo2, action: onUnskip }
+    : { label: "Skip workout", Icon: SkipForward, action: onSkip };
+
+  const actions = [
+    // Race day's own action leads the menu instead of living as a second,
+    // standalone button next to this same menu.
+    ...(isRace ? [{ label: "Log race result", Icon: Flag, action: onLogRaceResult }] : []),
+    ...(!isCompleted && !isSkipped ? [{ label: "Edit workout", Icon: Pencil, action: onEdit }] : []),
+    statusAction,
+    { label: "Link activity", Icon: Link2, action: onLinkActivity },
+    { label: "Add workout time", Icon: Clock, action: onAddTime },
+    { label: "Move workout", Icon: CalendarClock, action: onMove },
+  ];
 
   return (
     <Sheet open={open} onClose={onClose} title="Workout options">
@@ -355,6 +382,223 @@ function EditWorkoutSheet({
         <Button full busy={saving} disabled={!dirty} onClick={save}>
           Save changes
         </Button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Link activity ────────────────────────────────────────────────────────────
+// Reuses the same relationship the Activities tab's "Link this activity" flow
+// writes (activities.workoutId via PATCH /api/activities/[id]) — just entered
+// from the workout side instead of the activity side, so there's one link
+// concept, not two.
+
+interface LinkableActivity {
+  id: string;
+  date: string;
+  title: string;
+  distanceKm: number | null;
+  durationSeconds: number | null;
+}
+
+const LINK_WINDOW_DAYS = 10;
+
+function LinkActivitySheet({
+  open,
+  onClose,
+  workout,
+  onLinked,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workout: WorkoutDetail;
+  onLinked: () => void;
+}) {
+  const [candidates, setCandidates] = useState<LinkableActivity[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reload each time the sheet opens
+    setCandidates(null);
+    (async () => {
+      try {
+        const res = await apiFetch("/api/activities");
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const anchor = new Date(workout.date).getTime();
+        const windowMs = LINK_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+        const runs: LinkableActivity[] = (data.activities ?? [])
+          .filter((a: { kind: string; workoutId: string | null; date: string }) =>
+            a.kind === "run" &&
+            !a.workoutId &&
+            Math.abs(new Date(a.date).getTime() - anchor) <= windowMs
+          )
+          .sort(
+            (a: LinkableActivity, b: LinkableActivity) =>
+              Math.abs(new Date(a.date).getTime() - anchor) -
+              Math.abs(new Date(b.date).getTime() - anchor)
+          )
+          .slice(0, 10)
+          .map((a: LinkableActivity) => ({
+            id: a.id,
+            date: a.date,
+            title: a.title,
+            distanceKm: a.distanceKm,
+            durationSeconds: a.durationSeconds,
+          }));
+        if (!cancelled) setCandidates(runs);
+      } catch {
+        if (!cancelled) setCandidates([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, workout.date]);
+
+  async function link(activityId: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await apiFetch(`/api/activities/${activityId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workoutId: workout.id }),
+      });
+      if (res.ok) {
+        haptic("success");
+        onLinked();
+      } else {
+        haptic("warning");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtDay = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Link an activity">
+      <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pb-2">
+        <p className="text-[13px] text-text-3">
+          Attach a recorded run to this session, so it counts toward your plan.
+        </p>
+        {candidates === null ? (
+          <Skeleton className="h-24 w-full" />
+        ) : candidates.length === 0 ? (
+          <p className="text-[13px] text-text-2">No unlinked runs near this date.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {candidates.map((a) => (
+              <button
+                key={a.id}
+                disabled={busy}
+                onClick={() => link(a.id)}
+                className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-elevated px-3 py-2.5 text-left disabled:opacity-50"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-semibold text-text-1">{a.title}</span>
+                  <span className="block text-[12px] text-text-3">
+                    {fmtDay(a.date)}
+                    {a.distanceKm ? ` · ${displayDistance(a.distanceKm)} ${distanceUnitLabel()}` : ""}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Add workout time ─────────────────────────────────────────────────────────
+// Null means "no specific time" — never rendered or saved as midnight. Time
+// is always stored regardless of calendar connection; only the "also synced"
+// message depends on it, so the UI never implies a sync that didn't happen.
+
+function AddTimeSheet({
+  open,
+  onClose,
+  workout,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workout: WorkoutDetail;
+  onSaved: (timeOfDay: string | null) => void;
+}) {
+  const [time, setTime] = useState(workout.timeOfDay ?? "");
+  const [gcalConnected, setGcalConnected] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed from the current workout each open
+    setTime(workout.timeOfDay ?? "");
+    setErr(null);
+    apiFetch("/api/integrations/gcal/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setGcalConnected(d ? Boolean(d.connected) : false))
+      .catch(() => setGcalConnected(false));
+  }, [open, workout.timeOfDay]);
+
+  async function save(value: string | null) {
+    if (saving) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeOfDay: value }),
+      });
+      if (res.ok) {
+        haptic("success");
+        onSaved(value);
+      } else {
+        setErr("Couldn't save the time — try again.");
+      }
+    } catch {
+      setErr("Couldn't save the time — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Add workout time">
+      <div className="flex flex-col gap-4 px-4 pb-6">
+        <p className="text-[13px] text-text-3">
+          Set a time of day for this session. Leave it blank to keep just the date.
+        </p>
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          className="w-full rounded-[var(--radius-input)] bg-elevated px-3.5 py-3 text-center text-[22px] font-bold tabular-nums text-text-1 outline-none focus:ring-2 focus:ring-accent/40"
+        />
+        <p className="text-[12px] text-text-3">
+          {gcalConnected === null
+            ? " "
+            : gcalConnected
+            ? "This will also update your Google Calendar event."
+            : "Saved here only — connect Google Calendar in Settings to sync it there too."}
+        </p>
+        {err && (
+          <p className="rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">{err}</p>
+        )}
+        <Button full busy={saving} onClick={() => save(time || null)}>
+          Save time
+        </Button>
+        {workout.timeOfDay != null && (
+          <Button variant="secondary" full busy={saving} onClick={() => { setTime(""); save(null); }}>
+            Clear time
+          </Button>
+        )}
       </div>
     </Sheet>
   );
@@ -592,6 +836,15 @@ function fmtDurationShort(totalSeconds: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+// "HH:mm" 24h stored value → locale time string. Only called when a time is
+// actually set — null/undefined never reaches here as "00:00".
+function formatTimeOfDay(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
 // Carbs + hydration guidance for long runs and race day.
 function FuelingCard({ type, durationMinutes }: { type: string; durationMinutes: number | null }) {
   if (!shouldShowFueling(type, durationMinutes)) return null;
@@ -679,6 +932,16 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const [resumeSnap, setResumeSnap] = useState<RunSnapshot | null>(null);
   const [resuming, setResuming] = useState(false);
 
+  useEffect(() => {
+    const snap = loadRunSnapshot();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
+    if (snap && snap.workoutId === id) setResumeSnap(snap);
+  }, [id]);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+
   // Race-day result capture: the sheet, its prefill (from a guided run, if
   // one was used), and the post-race screen shown once a result is saved.
   const [raceResultOpen, setRaceResultOpen] = useState(false);
@@ -691,14 +954,6 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     feel: string | null;
     planClosed: boolean;
   } | null>(null);
-
-  useEffect(() => {
-    const snap = loadRunSnapshot();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
-    if (snap && snap.workoutId === id) setResumeSnap(snap);
-  }, [id]);
-
-  const [editOpen, setEditOpen] = useState(false);
 
   async function loadWorkout() {
     try {
@@ -743,48 +998,6 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
       setActionError("Couldn't save your workout. Please try again.");
     } finally {
       setCompleting(false);
-    }
-  }
-
-  async function submitRaceResult(finishSeconds: number, feel: string | null) {
-    if (!workout || raceResultSaving) return;
-    setRaceResultSaving(true);
-    setRaceResultError(null);
-    try {
-      const res = await apiFetch(`/api/workouts/${workout.id}/race-result`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ finishSeconds, feel: feel ?? undefined }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        haptic("success");
-        setWorkout((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: "completed",
-                actualDurationSeconds: finishSeconds,
-                raceFinishSeconds: finishSeconds,
-                raceFeel: feel,
-              }
-            : prev
-        );
-        setRaceResultOpen(false);
-        setPostRace({
-          finishSeconds,
-          distanceKm: workout.targetKm ?? null,
-          feel,
-          planClosed: data.planStatus === "completed",
-        });
-      } else {
-        const data = await res.json().catch(() => null);
-        setRaceResultError(data?.error ?? "Couldn't save your result. Try again.");
-      }
-    } catch {
-      setRaceResultError("Couldn't save your result. Try again.");
-    } finally {
-      setRaceResultSaving(false);
     }
   }
 
@@ -906,21 +1119,87 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  async function submitRaceResult(finishSeconds: number, feel: string | null) {
+    if (!workout || raceResultSaving) return;
+    setRaceResultSaving(true);
+    setRaceResultError(null);
+    try {
+      const res = await apiFetch(`/api/workouts/${workout.id}/race-result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ finishSeconds, feel: feel ?? undefined }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        haptic("success");
+        setWorkout((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "completed",
+                actualDurationSeconds: finishSeconds,
+                raceFinishSeconds: finishSeconds,
+                raceFeel: feel,
+              }
+            : prev
+        );
+        setRaceResultOpen(false);
+        setPostRace({
+          finishSeconds,
+          distanceKm: workout.targetKm ?? null,
+          feel,
+          planClosed: data.planStatus === "completed",
+        });
+      } else {
+        const data = await res.json().catch(() => null);
+        setRaceResultError(data?.error ?? "Couldn't save your result. Try again.");
+      }
+    } catch {
+      setRaceResultError("Couldn't save your result. Try again.");
+    } finally {
+      setRaceResultSaving(false);
+    }
+  }
+
+  // "skipped" is a real status (not a delete or a fake zero-distance
+  // completion) so the session stays visible in the plan and in adherence
+  // instead of vanishing. This menu is the only place to set or undo it, so
+  // it must stay on the page rather than navigating away.
   async function handleSkip() {
     if (!workout) return;
     try {
-      const res = await apiFetch(`/api/workouts/${workout.id}/complete`, {
+      const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actualKm: 0 }),
+        body: JSON.stringify({ status: "skipped" }),
       });
       if (res.ok) {
-        router.back();
+        haptic("light");
+        setWorkout((prev) => (prev ? { ...prev, status: "skipped" } : prev));
       } else {
         setActionError("Couldn't skip this workout. Please try again.");
       }
     } catch {
       setActionError("Couldn't skip this workout. Please try again.");
+    }
+  }
+
+  async function handleUnskip() {
+    if (!workout) return;
+    try {
+      const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "planned" }),
+      });
+      if (res.ok) {
+        haptic("light");
+        setWorkout((prev) => (prev ? { ...prev, status: "planned" } : prev));
+      } else {
+        setActionError("Couldn't restore this workout. Please try again.");
+      }
+    } catch {
+      setActionError("Couldn't restore this workout. Please try again.");
     }
   }
 
@@ -969,6 +1248,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
 
   const color = typeColors[workout.type] ?? "#FAFAFA";
   const isCompleted = workout.status === "completed";
+  const isSkipped = workout.status === "skipped";
+  const isRace = workout.type === "race";
   const workoutDate = new Date(workout.date);
   const dateStr = workoutDate.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
 
@@ -985,16 +1266,48 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         large={false}
         left={<BackButton />}
         right={
-          <button
-            onClick={() => {
-              haptic("light");
-              setMenuOpen(true);
-            }}
-            className="press flex h-9 w-9 items-center justify-center rounded-full"
-            aria-label="More options"
-          >
-            <MoreHorizontal className="h-5 w-5 text-text-2" strokeWidth={2} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                if (isCompleted) {
+                  haptic("light");
+                  handleUncomplete();
+                } else if (isRace) {
+                  // Same reasoning as the primary CTA: a race needs its
+                  // finish time, so completing it always goes through the
+                  // result sheet, never a bare status flip.
+                  haptic("medium");
+                  setRaceResultPrefillSeconds(workout.raceFinishSeconds ?? null);
+                  setRaceResultOpen(true);
+                } else {
+                  haptic("success");
+                  handleComplete();
+                }
+              }}
+              disabled={completing}
+              className="press flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50"
+              aria-label={isCompleted ? "Mark as not completed" : isRace ? "Log race result" : "Mark complete"}
+              aria-pressed={isCompleted}
+            >
+              {isCompleted ? (
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent">
+                  <Check className="h-4 w-4 text-on-accent" strokeWidth={3} />
+                </span>
+              ) : (
+                <span className="h-6 w-6 rounded-full border-2 border-text-3" />
+              )}
+            </button>
+            <button
+              onClick={() => {
+                haptic("light");
+                setMenuOpen(true);
+              }}
+              className="press flex h-11 w-11 items-center justify-center rounded-full"
+              aria-label="More options"
+            >
+              <MoreHorizontal className="h-5 w-5 text-text-2" strokeWidth={2} />
+            </button>
+          </div>
         }
       />
 
@@ -1010,12 +1323,16 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                 <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
                 <span className="text-[13px] font-semibold text-text-2">
                   {typeLabels[workout.type] ?? workout.type} · {dateStr}
+                  {workout.timeOfDay ? ` · ${formatTimeOfDay(workout.timeOfDay)}` : ""}
                 </span>
               </div>
               <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">
                 {workout.title}
                 {workout.edited && (
                   <span className="ml-2 align-middle rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-text-3">Edited</span>
+                )}
+                {isSkipped && (
+                  <span className="ml-2 align-middle rounded-md bg-text-3/20 px-2 py-0.5 text-[11px] font-bold text-text-2">Skipped</span>
                 )}
               </h1>
             </div>
@@ -1237,6 +1554,25 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </section>
 
+        {/* Skipped banner — stays visible (not hidden/removed) so a skipped
+            session still shows up in the plan and in adherence, and the only
+            way back is right here since Skip has no other entry point. */}
+        {isSkipped && (
+          <div className="k-card flex items-center justify-between gap-3 p-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-elevated">
+                <SkipForward className="h-4 w-4 text-text-2" strokeWidth={2} />
+              </span>
+              <p className="text-[13px] font-semibold text-text-2">
+                Skipped — won&apos;t count as missed
+              </p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleUnskip}>
+              Restore
+            </Button>
+          </div>
+        )}
+
         {/* Primary action */}
         <div className="pt-1 flex flex-col gap-2.5">
           {isCompleted ? (
@@ -1318,19 +1654,10 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   Start guided run
                 </span>
               </Button>
-              {workout.type === "race" ? (
-                <Button
-                  variant="secondary"
-                  full
-                  onClick={() => {
-                    haptic("medium");
-                    setRaceResultPrefillSeconds(null);
-                    setRaceResultOpen(true);
-                  }}
-                >
-                  Log race result
-                </Button>
-              ) : (
+              {/* Race day completes via "Log race result" (three-dot menu) —
+                  a plain Mark complete would skip the finish time and never
+                  close out the plan, so it's left out here on purpose. */}
+              {!isRace && (
                 <Button variant="secondary" full busy={completing} onClick={handleComplete}>
                   {completing ? "Saving..." : "Mark complete"}
                 </Button>
@@ -1389,9 +1716,24 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         onSkip={handleSkip}
+        onUnskip={handleUnskip}
         onEdit={() => setEditOpen(true)}
         onUncomplete={handleUncomplete}
+        onLinkActivity={() => setLinkOpen(true)}
+        onAddTime={() => setTimeOpen(true)}
+        onMove={() => {
+          // Rearrange already does drag-to-reschedule with the full week in
+          // view — reuse it instead of a second date picker. `workoutId`
+          // lets it focus/scroll to this session once it reads the param.
+          router.push(`/plan/rearrange?workoutId=${workout.id}`);
+        }}
+        onLogRaceResult={() => {
+          setRaceResultPrefillSeconds(workout.raceFinishSeconds ?? null);
+          setRaceResultOpen(true);
+        }}
         isCompleted={isCompleted}
+        isSkipped={isSkipped}
+        isRace={isRace}
       />
       <EditWorkoutSheet
         open={editOpen}
@@ -1400,6 +1742,24 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         onSaved={() => {
           setEditOpen(false);
           loadWorkout();
+        }}
+      />
+      <LinkActivitySheet
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
+        workout={workout}
+        onLinked={() => {
+          setLinkOpen(false);
+          loadWorkout();
+        }}
+      />
+      <AddTimeSheet
+        open={timeOpen}
+        onClose={() => setTimeOpen(false)}
+        workout={workout}
+        onSaved={(timeOfDay) => {
+          setTimeOpen(false);
+          setWorkout((prev) => (prev ? { ...prev, timeOfDay } : prev));
         }}
       />
       <RaceResultSheet

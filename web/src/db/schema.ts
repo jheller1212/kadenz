@@ -239,6 +239,10 @@ export const workouts = pgTable(
     // Elapsed time of a completed guided phone run (seconds); null for runs
     // completed without the guided player or imported from Strava/Garmin.
     actualDurationSeconds: integer("actual_duration_seconds"),
+    // "HH:mm" 24h local time of day, or null. Null means "no specific time" —
+    // NOT midnight — so a workout with no time set never renders as 00:00 and
+    // never pushes a midnight event to the calendar.
+    timeOfDay: text("time_of_day"),
     gcalEventId: text("gcal_event_id"),
     garminWorkoutId: text("garmin_workout_id"),
     stravaActivityId: text("strava_activity_id"),

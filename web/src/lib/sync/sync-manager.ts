@@ -190,6 +190,7 @@ async function fetchWorkoutForSync(workoutId: string): Promise<WorkoutEventInput
     date: row.date,
     targetKm: row.targetKm,
     targetDurationMinutes: row.targetDurationMinutes,
+    timeOfDay: row.timeOfDay,
     type: row.type,
     blocks: row.blocks.map((b) => ({
       type: b.type,
