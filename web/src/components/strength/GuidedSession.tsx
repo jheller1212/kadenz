@@ -14,6 +14,7 @@ import {
   type GuidedWorkSet,
 } from "@/lib/strength/guided-snapshot";
 import { VideoSheet } from "@/components/strength/VideoSheet";
+import { AdjustLoadSheet } from "@/components/strength/AdjustLoadSheet";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
@@ -22,6 +23,8 @@ import { CUE_VOLUME_GAIN, loadSettings, saveSettings, type UserSettings } from "
 import { getAudioCtx, unlockGuidedAudio } from "@/lib/strength/guided-audio";
 export { unlockGuidedAudio };
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
+import { PAIN_SCORE_THRESHOLD } from "@/lib/strength/progression";
+import type { LoadFeel } from "@/lib/strength/guided-snapshot";
 
 // ── Types (mirrors src/app/strength/page.tsx) ─────────────────────────────────
 
@@ -160,6 +163,8 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
   const [lastPerfOpen, setLastPerfOpen] = useState(false);
   // Set writes parked by the offline queue — the snapshot stays until they land.
   const [pendingWrites, setPendingWrites] = useState(0);
+  // "Adjust load" sheet — which set (by index into the current exercise) it's open for.
+  const [adjustOpen, setAdjustOpen] = useState<number | null>(null);
 
   const sessionStartRef = useRef<number>(resume?.startedAt ?? Date.now());
   const prefsRef = useRef(prefs);
@@ -441,6 +446,7 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         weightKg: set.kg,
         reps: set.reps,
         durationSeconds: set.durationSec || null,
+        feel: set.feel ?? null,
       }),
     })
       .then((r) => {
@@ -492,6 +498,43 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
     if ((workRef.current[slug] ?? [])[setIndex]?.logged) {
       queueMicrotask(() => postSet(slug, setIndex));
     }
+  }
+
+  // "Niggle" is a pain signal, not a load signal: route it to the same
+  // pain-log endpoint the post-session pain check-in uses (see
+  // src/app/strength/page.tsx logPain), which feeds the existing Achilles/HSR
+  // pain gate (evaluatePainGate in lib/strength/progression.ts) — a score just
+  // above its trigger threshold, logged as "during" this set. Best-effort:
+  // the reason chip is already saved on the set regardless of this call.
+  function reportNiggle(slug: string) {
+    const exName = exercises.find((e) => e.slug === slug)?.name ?? "this exercise";
+    apiFetch(`/api/strength/sessions/${session.id}/pain`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        score: PAIN_SCORE_THRESHOLD + 1,
+        timing: "during",
+        note: `Marked "Niggle" during ${exName}.`,
+      }),
+    }).catch(() => {});
+  }
+
+  // Save a reason chip from the "Adjust load" sheet onto a set. "Too heavy" /
+  // "Felt easy" ride along on the set's already-adjusted weightKg — that's
+  // what next session's suggested load already reads (see
+  // lib/strength/progression.ts suggestProgression), so no separate
+  // progression nudge is applied here.
+  function saveLoadReason(slug: string, setIndex: number, feel: LoadFeel) {
+    haptic("light");
+    setWork((w) => {
+      const arr = [...(w[slug] ?? [])];
+      const cur = arr[setIndex];
+      if (!cur) return w;
+      arr[setIndex] = { ...cur, feel };
+      return { ...w, [slug]: arr };
+    });
+    queueMicrotask(() => postSet(slug, setIndex));
+    if (feel === "niggle") reportNiggle(slug);
   }
 
   function skipRest() {
@@ -791,7 +834,15 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
               <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-elevated">
                 <div className="h-full rounded-full bg-accent" style={{ width: `${restPct}%` }} />
               </div>
-              {editSet && <WeightReps set={editSet} perSide={ex.perSide} dumbbells={ex.dumbbells} onAdjust={(f, d) => adjustSet(ex.slug, editIndex, f, d)} />}
+              {editSet && (
+                <WeightReps
+                  set={editSet}
+                  perSide={ex.perSide}
+                  dumbbells={ex.dumbbells}
+                  onAdjust={(f, d) => adjustSet(ex.slug, editIndex, f, d)}
+                  onOpenAdjust={() => { haptic("light"); setAdjustOpen(editIndex); }}
+                />
+              )}
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <Button variant="secondary" size="md" full onClick={() => { adjustRest(-15); }}>−15s</Button>
                 <Button variant="secondary" size="md" full onClick={() => { adjustRest(15); }}>+15s</Button>
@@ -808,7 +859,15 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
                   <div className="text-[52px] font-extrabold leading-none tabular-nums text-text-1">{fmt(setRunSec)}</div>
                 </>
               )}
-              {editSet && <WeightReps set={editSet} perSide={ex.perSide} dumbbells={ex.dumbbells} onAdjust={(f, d) => adjustSet(ex.slug, timerHere.setIndex, f, d)} />}
+              {editSet && (
+                <WeightReps
+                  set={editSet}
+                  perSide={ex.perSide}
+                  dumbbells={ex.dumbbells}
+                  onAdjust={(f, d) => adjustSet(ex.slug, timerHere.setIndex, f, d)}
+                  onOpenAdjust={() => { haptic("light"); setAdjustOpen(timerHere.setIndex); }}
+                />
+              )}
               <div className="mt-5">
                 <Button variant="primary" size="lg" full onClick={doneSet}>Done — set {timerHere.setIndex + 1}</Button>
               </div>
@@ -821,7 +880,15 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
           ) : (
             // Idle — ready to start the next set
             <div className="flex flex-col items-center">
-              {editSet && <WeightReps set={editSet} perSide={ex.perSide} dumbbells={ex.dumbbells} onAdjust={(f, d) => adjustSet(ex.slug, nextSi, f, d)} />}
+              {editSet && (
+                <WeightReps
+                  set={editSet}
+                  perSide={ex.perSide}
+                  dumbbells={ex.dumbbells}
+                  onAdjust={(f, d) => adjustSet(ex.slug, nextSi, f, d)}
+                  onOpenAdjust={() => { haptic("light"); setAdjustOpen(nextSi); }}
+                />
+              )}
               <div className="mt-5">
                 <Button variant="primary" size="lg" full onClick={() => beginSet(ex.slug, nextSi)}>Start set {nextSi + 1}</Button>
               </div>
@@ -920,6 +987,18 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
         })()}
       </Sheet>
 
+      <AdjustLoadSheet
+        open={adjustOpen != null}
+        onClose={() => setAdjustOpen(null)}
+        weightKg={adjustOpen != null ? arr[adjustOpen]?.kg ?? 0 : 0}
+        previousWeightKg={ex.suggestedWeightKg ?? null}
+        selected={adjustOpen != null ? arr[adjustOpen]?.feel ?? null : null}
+        onSave={(feel) => {
+          if (adjustOpen != null) saveLoadReason(ex.slug, adjustOpen, feel);
+          setAdjustOpen(null);
+        }}
+      />
+
       <Sheet open={confirmExit} onClose={() => setConfirmExit(false)} title="Leave workout?">
         <div className="flex flex-col gap-3 px-4 pb-6">
           <p className="text-[14px] text-text-2">
@@ -966,35 +1045,55 @@ export default function GuidedSession({ session, exercises, resume, onExit, onDi
 // One line of previous sets, e.g. "12 kg × 10 · 12 kg × 9 · 10.5 kg × 8".
 
 // ── Weight / reps stepper block ───────────────────────────────────────────────
+const FEEL_LABEL: Record<string, string> = {
+  too_heavy: "Too heavy",
+  easy: "Felt easy",
+  niggle: "Niggle",
+};
+
 function WeightReps({
   set,
   perSide,
   dumbbells,
   onAdjust,
+  onOpenAdjust,
 }: {
   set: WorkSet;
   perSide: boolean;
   dumbbells?: 1 | 2;
   onAdjust: (field: "kg" | "reps", d: number) => void;
+  onOpenAdjust?: () => void;
 }) {
   return (
-    <div className="mt-4 flex items-center justify-center gap-4">
-      <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
-        <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
-        <span className="w-16 text-center leading-none">
-          <b className="text-[24px] font-extrabold tabular-nums text-text-1">{displayWeight(set.kg)}</b>
-          <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
-        </span>
-        <Stepper onClick={() => onAdjust("kg", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+    <div className="flex flex-col items-center">
+      <div className="mt-4 flex items-center justify-center gap-4">
+        <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
+          <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+          <span className="w-16 text-center leading-none">
+            <b className="text-[24px] font-extrabold tabular-nums text-text-1">{displayWeight(set.kg)}</b>
+            <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
+          </span>
+          <Stepper onClick={() => onAdjust("kg", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+        </div>
+        <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
+          <Stepper onClick={() => onAdjust("reps", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+          <span className="w-14 text-center leading-none">
+            <b className="text-[24px] font-extrabold tabular-nums text-text-1">{set.reps}</b>
+            <span className="block text-[10px] uppercase tracking-wide text-text-3">reps</span>
+          </span>
+          <Stepper onClick={() => onAdjust("reps", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+        </div>
       </div>
-      <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
-        <Stepper onClick={() => onAdjust("reps", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
-        <span className="w-14 text-center leading-none">
-          <b className="text-[24px] font-extrabold tabular-nums text-text-1">{set.reps}</b>
-          <span className="block text-[10px] uppercase tracking-wide text-text-3">reps</span>
-        </span>
-        <Stepper onClick={() => onAdjust("reps", 1)}><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
-      </div>
+      {onOpenAdjust && (
+        <button
+          type="button"
+          onClick={onOpenAdjust}
+          style={{ touchAction: "manipulation" }}
+          className="press mt-2 text-[12px] font-bold text-accent-fg"
+        >
+          {set.feel ? `Load reason: ${FEEL_LABEL[set.feel]} · Change` : "Adjust load"}
+        </button>
+      )}
     </div>
   );
 }

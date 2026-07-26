@@ -476,6 +476,12 @@ export const strengthSets = pgTable(
     reps: integer("reps"),
     rpe: real("rpe"),
     durationSeconds: integer("duration_seconds"), // time under load for the set
+    // Reason chip from the "Adjust load" sheet when the athlete changed the
+    // weight mid-set: "too_heavy" | "easy" | "niggle". Null = no reason given.
+    // "niggle" is a pain signal, not a load signal — it is also POSTed to the
+    // pain-log endpoint (see GuidedSession.tsx), which feeds the existing
+    // Achilles/HSR pain gate (lib/strength/progression.ts evaluatePainGate).
+    feel: text("feel"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

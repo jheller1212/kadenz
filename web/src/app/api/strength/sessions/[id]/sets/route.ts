@@ -12,6 +12,8 @@ const SetSchema = z.object({
   reps: z.number().int().nonnegative().nullable().optional(),
   rpe: z.number().min(1).max(10).nullable().optional(),
   durationSeconds: z.number().int().nonnegative().nullable().optional(),
+  // Reason chip from the "Adjust load" sheet — see schema.ts strengthSets.feel.
+  feel: z.enum(["too_heavy", "easy", "niggle"]).nullable().optional(),
 });
 
 // ── POST /api/strength/sessions/[id]/sets ─────────────────────────────────────
@@ -84,6 +86,7 @@ export async function POST(
         reps: data.reps ?? null,
         rpe: data.rpe ?? null,
         durationSeconds: data.durationSeconds ?? null,
+        feel: data.feel ?? null,
       })
       .onConflictDoUpdate({
         target: [strengthSets.sessionId, strengthSets.exerciseId, strengthSets.setNumber],
@@ -92,6 +95,7 @@ export async function POST(
           reps: data.reps ?? null,
           rpe: data.rpe ?? null,
           durationSeconds: data.durationSeconds ?? null,
+          feel: data.feel ?? null,
         },
       })
       .returning();
