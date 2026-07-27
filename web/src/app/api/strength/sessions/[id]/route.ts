@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eq, and, gte, lt, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, painLogs, activities, strengthExercises } from "@/db";
 import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
-import { clearsAutoScheduled } from "@/lib/strength/reconcile";
+import { clearsAutoScheduled, twinAbsorptionUpdate } from "@/lib/strength/reconcile";
 import { SESSION_TEMPLATES, EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
@@ -198,8 +198,11 @@ export async function PATCH(
 
     // Completing a session absorbs any same-day planned twin of the same type
     // (an ad-hoc start that didn't adopt the scheduled slot, or vice versa).
-    // Its sets move over, the twin is removed — no phantom "planned" leftovers
-    // inflating week counts.
+    // Its sets and pain logs move over so no history is lost, and the twin is
+    // marked skipped rather than deleted — it stops counting as a phantom
+    // "planned" leftover, but it stays in the DB so nothing an athlete could
+    // have seen (a note, a linked Strava/Garmin activity still pointing at
+    // it, a hand-edited exercise list) silently vanishes without trace.
     if (updated && updates.status === "completed") {
       const dayStart = new Date(updated.date);
       dayStart.setHours(0, 0, 0, 0);
@@ -243,7 +246,17 @@ export async function PATCH(
             })
             .catch((err) => console.error("Failed to queue twin calendar cleanup:", err));
         }
-        await db.delete(strengthSessions).where(eq(strengthSessions.id, twin.id));
+        // Same reasoning as the calendar event: a Garmin workout push for the
+        // twin has to be cancelled explicitly, it doesn't follow the row.
+        if (twin.garminWorkoutId) {
+          queueGarminStrengthDelete(twin.id, twin.garminWorkoutId).catch((err) =>
+            console.error("Failed to queue twin Garmin cleanup:", err)
+          );
+        }
+        await db
+          .update(strengthSessions)
+          .set(twinAbsorptionUpdate(new Date()))
+          .where(eq(strengthSessions.id, twin.id));
       }
     }
 
