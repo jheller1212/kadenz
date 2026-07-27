@@ -1,8 +1,20 @@
 import { NextRequest } from "next/server";
 import { db, plans, activities, strengthSessions, strengthSets } from "@/db";
-import { eq, desc, isNull, inArray } from "drizzle-orm";
+import { and, eq, desc, gte, isNull, inArray, lte, or } from "drizzle-orm";
 import { getActiveProfileId } from "@/lib/profiles";
 import { isPastDuePlanned, sortSessionsByDateDesc } from "@/lib/training/session";
+
+// The feed's default rolling window. The client (activities/page.tsx) always
+// sends explicit `from`/`to` query params — this is only the fallback for a
+// caller that omits them, so the route never silently reads the whole table.
+// Keep in sync with DEFAULT_WINDOW_MONTHS in activities/page.tsx.
+const DEFAULT_WINDOW_MONTHS = 12;
+
+function defaultFrom(): Date {
+  const d = new Date();
+  d.setMonth(d.getMonth() - DEFAULT_WINDOW_MONTHS);
+  return d;
+}
 
 // Strava-shaped split row, as stored raw in activities.splitsJson (see
 // parseSplits() in api/activities/[id]/route.ts — same source, same shape).

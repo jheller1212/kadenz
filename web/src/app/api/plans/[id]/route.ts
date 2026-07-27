@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { and, eq, isNotNull, isNull, ne, notInArray, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, not, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
@@ -193,7 +193,12 @@ export async function PUT(
       .where(
         and(
           eq(workouts.planId, id),
-          or(ne(workouts.status, "planned"), eq(workouts.edited, true), isNotNull(workouts.timeOfDay))
+          // Derived from untouchedPlanned rather than restated, so the two can
+          // never drift apart. Spelling the inverse out by hand meant a future
+          // change to what counts as "touched" could update one and not the
+          // other, and a workout preserved by one predicate but deleted by the
+          // other loses its calendar event or gains a duplicate.
+          not(untouchedPlanned!)
         )
       );
 
