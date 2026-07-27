@@ -355,6 +355,17 @@ export const activities = pgTable(
     aiInsightGeneratedAt: timestamp("ai_insight_generated_at", {
       withTimezone: true,
     }),
+    // Cached Strava detail — immutable once synced. Populated for free at
+    // import (already fetched there) or back-filled on first detail view.
+    bestEffortsJson: jsonb("best_efforts_json"),
+    cadenceSpm: integer("cadence_spm"),
+    calories: integer("calories"),
+    deviceName: text("device_name"),
+    gearName: text("gear_name"),
+    // Cached Strava streams (heartrate/velocity/altitude/latlng/distance/time
+    // at medium resolution) — never fetched at import (would double the
+    // Strava calls per sync), only back-filled on first detail view.
+    streamsJson: jsonb("streams_json"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

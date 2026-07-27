@@ -34,28 +34,46 @@ const PlanConfigSchema = z.object({
 });
 
 // ── GET /api/plans/[id] ───────────────────────────────────────────────────────
+// ?summary=1 drops every workout's blocks (warmup/work/cooldown/rep detail) —
+// the bulk of the payload (~101KB full vs ~a few KB summary). Stats only ever
+// reads week.targetKm and workout.date/type/status for its distribution maths,
+// never block detail, so it asks for the summary. Today's week sheet and
+// plan/rearrange genuinely need every block and still get the full shape.
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const summary = request.nextUrl.searchParams.get("summary") === "1";
 
   try {
-    const plan = await db.query.plans.findFirst({
-      where: (p, { eq }) => eq(p.id, id),
-      with: {
-        weeks: {
-          orderBy: (w, { asc }) => [asc(w.weekNumber)],
+    const plan = summary
+      ? await db.query.plans.findFirst({
+          where: (p, { eq }) => eq(p.id, id),
           with: {
-            workouts: {
-              orderBy: (wo, { asc }) => [asc(wo.sortOrder)],
-              with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+            weeks: {
+              orderBy: (w, { asc }) => [asc(w.weekNumber)],
+              with: {
+                workouts: { orderBy: (wo, { asc }) => [asc(wo.sortOrder)] },
+              },
             },
           },
-        },
-      },
-    });
+        })
+      : await db.query.plans.findFirst({
+          where: (p, { eq }) => eq(p.id, id),
+          with: {
+            weeks: {
+              orderBy: (w, { asc }) => [asc(w.weekNumber)],
+              with: {
+                workouts: {
+                  orderBy: (wo, { asc }) => [asc(wo.sortOrder)],
+                  with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+                },
+              },
+            },
+          },
+        });
 
     if (!plan) {
       return Response.json({ error: "Plan not found" }, { status: 404 });

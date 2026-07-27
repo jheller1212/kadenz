@@ -601,6 +601,16 @@ export async function processActivity(activityId: number): Promise<ProcessResult
     splitsJson: activity.splits_metric ?? null,
     lapsJson: activity.laps ?? null,
     polyline: activity.map?.summary_polyline || null,
+    // Cached for the detail view — free here since `activity` is already the
+    // full Strava detail payload (fetchActivity), not the summary list one.
+    bestEffortsJson: activity.best_efforts ?? null,
+    cadenceSpm:
+      activity.average_cadence != null && activity.average_cadence > 0
+        ? Math.round(activity.average_cadence * 2)
+        : null,
+    calories: activity.calories != null ? Math.round(activity.calories) : null,
+    deviceName: activity.device_name ?? null,
+    gearName: activity.gear?.name ?? null,
   });
 
   // If matched to a workout, mark it completed

@@ -690,7 +690,10 @@ export default function StatsPage() {
             (p) => p.status === "active"
           );
           if (!active) return null;
-          const res = await apiFetch(`/api/plans/${active.id}`);
+          // Distribution maths here only ever reads week/workout-level fields,
+          // never block detail — summary=1 skips the ~101KB of warmup/work/
+          // cooldown/rep blocks the full plan detail carries per workout.
+          const res = await apiFetch(`/api/plans/${active.id}?summary=1`);
           if (!res.ok) throw new Error("plan");
           return adaptApiPlan(await res.json());
         })(),
