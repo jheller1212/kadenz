@@ -1483,6 +1483,12 @@ export default function Home() {
       const json: TodayApiResponse = await res.json();
       applyToday(json, { keepSelection: opts?.silent });
       writeCache("today", json);
+      // Today's own card and week strip are fully paintable from this
+      // response alone — the full plan fetch below is only needed to browse
+      // to OTHER weeks (see the allWorkouts-vs-weekWorkouts fallback further
+      // down). Drop the skeleton now instead of making a cold first load
+      // wait through a second sequential request for something off-screen.
+      setLoading(false);
 
       // The full nested plan (every week + workout + block) is heavy and rarely
       // changes, so a 60s heartbeat must NOT refetch it — only a foreground
@@ -1505,7 +1511,6 @@ export default function Home() {
       // Never let a failed background/silent refresh wipe a good cached
       // screen — only fall back to "no plan" when we truly have nothing yet.
       setData((prev) => prev ?? { activePlan: false });
-    } finally {
       setLoading(false);
     }
   }, [applyToday]);
