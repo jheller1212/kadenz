@@ -53,25 +53,31 @@ export function StepPreferences({
             label="weekly volume"
             text="How many kilometres a week the plan builds toward."
             items={[
+              { term: "Beg", def: "the gentlest ramp, new to structured training" },
               { term: "Low", def: "gentler ramp, fits a busy week" },
               { term: "Normal", def: "the standard build for your distance" },
               { term: "High", def: "more km, bigger aerobic base" },
+              { term: "Elite", def: "the biggest peak, for high-mileage runners" },
             ]}
           />
         </span>
         <Segmented
           options={[
+            { value: "beginner", label: "Beg" },
             { value: "low", label: "Low" },
             { value: "medium", label: "Normal" },
             { value: "high", label: "High" },
+            { value: "elite", label: "Elite" },
           ]}
-          value={trainingVolume === "beginner" ? "low" : trainingVolume === "elite" ? "high" : trainingVolume}
+          value={trainingVolume}
           onChange={(v) => onVolume(v as TrainingVolume)}
         />
         <p className="text-xs text-text-3">
-          {(trainingVolume === "low" || trainingVolume === "beginner") && "Gentler mileage ramp. Great alongside a busy life."}
+          {trainingVolume === "beginner" && "The gentlest ramp. Best if you're new to structured training."}
+          {trainingVolume === "low" && "Gentler mileage ramp. Great alongside a busy life."}
           {trainingVolume === "medium" && "The standard build for your race distance."}
-          {(trainingVolume === "high" || trainingVolume === "elite") && "More km per week for a bigger aerobic engine."}
+          {trainingVolume === "high" && "More km per week for a bigger aerobic engine."}
+          {trainingVolume === "elite" && "The biggest peak, for runners already carrying high mileage."}
         </p>
       </div>
 
