@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planRegenerateMerge } from "../regenerate-merge";
+import { isPreservedWorkout, planRegenerateMerge } from "../regenerate-merge";
 
 describe("planRegenerateMerge", () => {
   it("retains no weeks and inserts every generated week when nothing is preserved", () => {
@@ -57,6 +57,60 @@ describe("planRegenerateMerge", () => {
     ).toBe(false);
     expect(
       result.keepGeneratedWorkout({ weekNumber: 1, date: new Date("2026-01-06T00:00:00.000Z") })
+    ).toBe(true);
+  });
+});
+
+describe("isPreservedWorkout", () => {
+  it("preserves a hand-tuned (edited) planned workout", () => {
+    expect(isPreservedWorkout({ status: "planned", edited: true, timeOfDay: null })).toBe(true);
+  });
+
+  it("preserves a planned workout with a start time set", () => {
+    expect(isPreservedWorkout({ status: "planned", edited: false, timeOfDay: "07:00" })).toBe(
+      true
+    );
+  });
+
+  it("preserves a completed/skipped/missed workout regardless of edited/timeOfDay", () => {
+    expect(isPreservedWorkout({ status: "completed", edited: false, timeOfDay: null })).toBe(
+      true
+    );
+  });
+
+  it("does not preserve an untouched planned workout", () => {
+    expect(isPreservedWorkout({ status: "planned", edited: false, timeOfDay: null })).toBe(
+      false
+    );
+  });
+});
+
+describe("planRegenerateMerge with hand-edited/timed workouts", () => {
+  it("survives a regenerate for an edited workout and an untouched one is regenerated", () => {
+    // Simulates what PUT /api/plans/[id] does: it queries for workouts that
+    // are `isPreservedWorkout`, and only those become `preserved` refs here.
+    const rows = [
+      { weekNumber: 1, date: new Date("2026-01-05T00:00:00.000Z"), status: "planned", edited: true, timeOfDay: null },
+      { weekNumber: 1, date: new Date("2026-01-06T00:00:00.000Z"), status: "planned", edited: false, timeOfDay: "07:00" },
+      { weekNumber: 1, date: new Date("2026-01-07T00:00:00.000Z"), status: "planned", edited: false, timeOfDay: null },
+    ];
+    const preserved = rows.filter(isPreservedWorkout);
+    const result = planRegenerateMerge(preserved, [1, 2]);
+
+    // Both the edited workout and the timed workout keep their week and
+    // block a freshly generated workout from double-booking their day.
+    expect(result.retainedWeekNumbers).toEqual(new Set([1]));
+    expect(
+      result.keepGeneratedWorkout({ weekNumber: 1, date: new Date("2026-01-05T12:00:00.000Z") })
+    ).toBe(false);
+    expect(
+      result.keepGeneratedWorkout({ weekNumber: 1, date: new Date("2026-01-06T18:00:00.000Z") })
+    ).toBe(false);
+
+    // The untouched planned workout was never in `preserved`, so its day is
+    // free for the regenerated schedule to fill.
+    expect(
+      result.keepGeneratedWorkout({ weekNumber: 1, date: new Date("2026-01-07T00:00:00.000Z") })
     ).toBe(true);
   });
 });

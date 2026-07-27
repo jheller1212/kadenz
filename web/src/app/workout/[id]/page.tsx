@@ -240,6 +240,7 @@ function EditWorkoutSheet({
   const [paceOffset, setPaceOffset] = useState(0);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -301,11 +302,41 @@ function EditWorkoutSheet({
     }
   }
 
+  // Editing this workout also opts it out of the next plan regenerate (it's
+  // preserved the same way a completed workout is — see regenerate-merge.ts).
+  // Without an undo, that override would be permanent even after the athlete
+  // no longer wants it. This clears the "edited" flag only; the current
+  // numbers stay until the athlete next changes the plan, at which point a
+  // fresh, coached value for this day takes over.
+  async function resetToPlan() {
+    if (resetting) return;
+    setResetting(true);
+    setErr(null);
+    try {
+      const res = await apiFetch(`/api/plans/${workout.planId}/workouts/${workout.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ edited: false }),
+      });
+      if (!res.ok) {
+        setErr("Couldn't reset this workout — try again.");
+        return;
+      }
+      haptic("success");
+      onSaved();
+    } catch {
+      setErr("Couldn't reset this workout — try again.");
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <Sheet open={open} onClose={onClose} title="Edit workout">
       <div className="flex flex-col gap-5 px-4 pb-6">
         <p className="text-[13px] text-text-3">
-          Tunes this session only — the rest of the plan stays as coached.
+          Tunes this session only, the rest of the plan stays as coached. A
+          hand-tuned session also stays put when you later edit the plan.
         </p>
 
         {canEditDistance && km != null && (
@@ -382,6 +413,11 @@ function EditWorkoutSheet({
         <Button full busy={saving} disabled={!dirty} onClick={save}>
           Save changes
         </Button>
+        {workout.edited && (
+          <Button variant="secondary" full busy={resetting} onClick={resetToPlan}>
+            Reset to plan
+          </Button>
+        )}
       </div>
     </Sheet>
   );

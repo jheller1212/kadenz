@@ -6,11 +6,17 @@
 // non-GPS run), so once the row is gone that history is gone forever.
 //
 // The model here: a completed/skipped/missed workout is exempt from
-// deletion entirely. Regeneration only ever replaces workouts that are still
-// "planned". This keeps history exact (status, actualKm, rpe, the link to
-// any backing activity — nothing about the row changes) at the cost of a
-// schedule that can be part old, part new right after an edit. That trade
-// is the honest one: the plan is being changed going forward, not the past.
+// deletion entirely, and so is a still-"planned" workout the athlete already
+// hand-tuned (a distance/pace override, `edited`) or gave a specific start
+// time (`timeOfDay`) — same idea as the strength side's clearsAutoScheduled:
+// touching a field the scheduler doesn't own adopts the row, taking it out
+// of the auto-managed pool regardless of status. Regeneration only ever
+// replaces workouts that are still "planned" AND untouched. This keeps
+// history and deliberate overrides exact (status, actualKm, rpe, edited,
+// timeOfDay, the link to any backing activity — nothing about the row
+// changes) at the cost of a schedule that can be part old, part new right
+// after an edit. That trade is the honest one: the plan is being changed
+// going forward, not the past or what the athlete already touched.
 //
 // A week that holds at least one preserved workout can't be deleted outright
 // (the FK would cascade the preserved workout away with it), so it's kept
@@ -21,6 +27,25 @@
 export interface PreservedWorkoutRef {
   weekNumber: number;
   date: Date;
+}
+
+export interface WorkoutPreservationInputs {
+  status: string;
+  edited: boolean;
+  timeOfDay: string | null;
+}
+
+/**
+ * Whether a workout is exempt from a plan regenerate: it's real history (not
+ * "planned" anymore) or the athlete deliberately hand-tuned it regardless of
+ * status (a distance/pace override via `edited`, or a start time via
+ * `timeOfDay`) — same idea as the strength side's clearsAutoScheduled:
+ * touching a field the scheduler doesn't own adopts the row. Mirrors the SQL
+ * WHERE clause in PUT /api/plans/[id]; kept here too so the rule has one
+ * DB-free, unit-testable definition instead of living only inside a query.
+ */
+export function isPreservedWorkout(w: WorkoutPreservationInputs): boolean {
+  return w.status !== "planned" || w.edited || w.timeOfDay != null;
 }
 
 export interface GeneratedWorkoutRef {
