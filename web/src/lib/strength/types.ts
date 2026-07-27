@@ -181,3 +181,47 @@ export interface ExerciseSessionHistory {
   date: Date;
   sets: LoggedSet[];
 }
+
+/**
+ * The 1/2/3… number an athlete sees for a set, counting only working sets
+ * (warm-ups aren't numbered against it — they show a "WU" tag instead, see
+ * GuidedSession's SetTag). `arr` must be in the order the sets were
+ * performed (ascending `setNumber`/array order); a warm-up before the first
+ * working set returns 0, which callers never render (they only show this
+ * number for working-kind rows).
+ *
+ * This is deliberately a *display* derivation, not the persisted
+ * `setNumber` column — the column stays a raw, unique (session, exercise)
+ * position so the upsert key and ordering never change, while this function
+ * is the single source of truth for what the athlete is shown, applied the
+ * same way to old rows (kind === null reads as "working", so a pre-warm-up
+ * session's raw setNumber already equalled its working count) and new ones.
+ */
+export function workingSetNumber(
+  arr: Array<{ kind?: SetKind | null }>,
+  index: number
+): number {
+  let n = 0;
+  for (let i = 0; i <= index; i++) {
+    if (arr[i]?.kind !== "warmup") n++;
+  }
+  return n;
+}
+
+/**
+ * Total kg × reps across working sets only. A warm-up ramp isn't what the
+ * progression/PR engines train against (see progression.ts workingSets and
+ * pr.ts), so a volume stat that counted it would read higher than the load
+ * the athlete actually trained — excluded silently here, the same way those
+ * two already exclude it, rather than surfaced as a separate "warm-up
+ * volume" figure nobody asked for.
+ */
+export function workingVolumeKg(
+  sets: Array<{ kind?: SetKind | null; weightKg: number | null; reps: number | null }>
+): number {
+  return sets.reduce(
+    (sum, s) =>
+      sum + (s.kind !== "warmup" && s.weightKg != null && s.reps != null ? s.weightKg * s.reps : 0),
+    0
+  );
+}

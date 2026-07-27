@@ -28,6 +28,7 @@ export { unlockGuidedAudio };
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 import { PAIN_SCORE_THRESHOLD } from "@/lib/strength/progression";
 import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
+import { workingSetNumber } from "@/lib/strength/types";
 import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import type { LoadFeel } from "@/lib/strength/guided-snapshot";
 import type { ExerciseOverride } from "@/lib/strength/session";
@@ -133,17 +134,6 @@ function Stepper({ onClick, children }: { onClick: () => void; children: React.R
   );
 }
 
-// Working-set number for a row, counting only "working" sets up to and
-// including `index` — warm-ups aren't numbered against the working count
-// (matches the design board: WU tags sit outside the 1/2/3/4 numbering).
-function workingSetNumber(arr: WorkSet[], index: number): number {
-  let n = 0;
-  for (let i = 0; i <= index; i++) {
-    if (arr[i]?.kind !== "warmup") n++;
-  }
-  return n;
-}
-
 // Small WU / numbered pill (see the design board's .setrow .tag). Tappable
 // to flip warm-up ↔ working when `onToggle` is given; read-only otherwise
 // (already-logged rows and the "last time" popup only ever display it).
@@ -209,9 +199,12 @@ function buildWork(exercises: PlannedExercise[], warmupSuggestionsEnabled: boole
 }
 
 // Previous performance of one exercise (dated per-set detail from history).
+// `setNumber` is the raw persisted position (kept for the API's upsert key,
+// not display — see workingSetNumber in lib/strength/types.ts); `kind`
+// drives what's actually shown.
 interface LastPerf {
   date: string;
-  sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null }>;
+  sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null; kind?: "warmup" | "working" | null }>;
 }
 
 export default function GuidedSession({
@@ -542,6 +535,13 @@ export default function GuidedSession({
   // Logged sets must survive bad gym wifi: the endpoint upserts on
   // (session, exercise, setNumber), so a queued replay is safe, and the
   // workout is never finished while writes are still parked.
+  //
+  // setNumber below is the raw array position (warm-ups included) — it's
+  // only a unique, order-preserving key for the upsert, never what's shown
+  // to the athlete. Display always goes through workingSetNumber (see
+  // lib/strength/types.ts), which derives the 1/2/3 count from `kind` at
+  // read time instead, so it stays correct without needing every already-
+  // logged set's setNumber column rewritten.
   function postSet(slug: string, setIndex: number) {
     const set = (workRef.current[slug] ?? [])[setIndex];
     if (!set) return;
@@ -1286,7 +1286,9 @@ export default function GuidedSession({
               <div className="rounded-[var(--radius-input)] bg-elevated p-2">
                 {lp.sets.map((st, i) => (
                   <div key={i} className="flex items-center justify-between px-2 py-1.5 text-[14px]">
-                    <span className="font-semibold text-text-3">Set {st.setNumber ?? i + 1}</span>
+                    <span className="font-semibold text-text-3">
+                      {st.kind === "warmup" ? "WU" : `Set ${workingSetNumber(lp.sets, i)}`}
+                    </span>
                     <span className="tabular-nums font-semibold text-text-1">
                       {st.weightKg != null && st.weightKg > 0
                         ? `${displayWeight(st.weightKg)} ${weightUnitLabel()} × ${st.reps ?? "—"}`

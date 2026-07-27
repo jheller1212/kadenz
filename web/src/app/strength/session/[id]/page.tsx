@@ -18,6 +18,7 @@ import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
 import type { PlannedExercise } from "@/components/strength/GuidedSession";
 import type { ExerciseOverride } from "@/lib/strength/session";
+import { workingSetNumber, workingVolumeKg } from "@/lib/strength/types";
 
 // ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
@@ -31,6 +32,10 @@ interface SetRow {
   weightKg: number | null;
   reps: number | null;
   durationSeconds: number | null;
+  /** "warmup" | "working" | null (null/undefined reads as working — see
+   *  strength_sets.kind). Drives both the athlete-facing set number (see
+   *  workingSetNumber) and the volume stat's warm-up exclusion below. */
+  kind?: "warmup" | "working" | null;
 }
 
 interface SessionDetail {
@@ -241,10 +246,8 @@ export default function StrengthSessionPage({
     session.durationMinutes ??
     session.targetDurationMinutes ??
     (planned.length ? estimateWorkoutDuration(planned) : null);
-  const volumeKg = session.sets.reduce(
-    (sum, s) => sum + (s.weightKg != null && s.reps != null ? s.weightKg * s.reps : 0),
-    0
-  );
+  // Working volume only — see workingVolumeKg for why warm-ups are excluded.
+  const volumeKg = workingVolumeKg(session.sets);
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -414,19 +417,26 @@ export default function StrengthSessionPage({
                     {sets.length} {sets.length === 1 ? "set" : "sets"}
                   </p>
                   <div className="mt-2 flex flex-col gap-1.5">
-                    {sets
-                      .sort((a, b) => a.setNumber - b.setNumber)
-                      .map((s) => (
+                    {(() => {
+                      const ordered = [...sets].sort((a, b) => a.setNumber - b.setNumber);
+                      return ordered.map((s, idx) => (
                         <div
                           key={s.id}
                           className="flex items-center justify-between text-[14px]"
                         >
-                          <span className="text-text-3">Set {s.setNumber}</span>
+                          {/* Number counts working sets only — a warm-up ramp
+                              (raw setNumber counts it) would otherwise push
+                              "Set 1" as logged during the guided session up to
+                              "Set 3" here (see workingSetNumber). */}
+                          <span className="text-text-3">
+                            {s.kind === "warmup" ? "WU" : `Set ${workingSetNumber(ordered, idx)}`}
+                          </span>
                           <span className="font-semibold tabular-nums text-text-1">
                             {s.weightKg != null ? `${s.weightKg} kg` : "BW"} × {s.reps ?? "—"}
                           </span>
                         </div>
-                      ))}
+                      ));
+                    })()}
                   </div>
                 </div>
               </div>
