@@ -14,6 +14,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { STRENGTH_COLOR, workoutColor, typeWash } from "@/lib/workout-colors";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
+import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
@@ -105,12 +106,6 @@ interface PersonalRecord {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatPace(secPerKm: number): string {
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);

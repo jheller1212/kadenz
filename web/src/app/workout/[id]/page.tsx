@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/feedback";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
-import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel } from "@/lib/units";
+import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel, actualPaceSecKm } from "@/lib/units";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
 import { WorkoutCelebration } from "@/components/WorkoutCelebration";
@@ -80,6 +80,9 @@ interface WorkoutDetail {
   dayOfWeek: number;
   blocks: WorkoutBlock[];
   timeOfDay?: string | null;
+  // Linked recorded activity (Strava/Garmin sync) — carries the measured avg
+  // pace for a completed run, the source of truth for "actual pace" below.
+  activity?: { avgPaceSecKm?: number | null } | null;
 }
 
 const RACE_FEEL_OPTIONS = ["Great", "Solid", "Tough", "Struggled"] as const;
@@ -1294,6 +1297,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   const isCompleted = workout.status === "completed";
   const isSkipped = workout.status === "skipped";
   const isRace = workout.type === "race";
+  // Achieved pace, not the planned block target — see lib/units.ts.
+  const achievedPace = isCompleted ? actualPaceSecKm(workout) : null;
   const workoutDate = new Date(workout.date);
   const dateStr = workoutDate.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
 
@@ -1414,10 +1419,11 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
 
-          {/* Actual result (guided phone run) */}
+          {/* Actual result (guided phone run, or a synced Strava/Garmin activity) */}
           {isCompleted &&
             ((workout.actualKm != null && workout.actualKm > 0) ||
-              (workout.actualDurationSeconds != null && workout.actualDurationSeconds > 0)) && (
+              (workout.actualDurationSeconds != null && workout.actualDurationSeconds > 0) ||
+              achievedPace != null) && (
               <div className="mt-4 flex items-end gap-8 rounded-[var(--radius-card)] bg-elevated px-4 py-3">
                 {workout.actualKm != null && workout.actualKm > 0 && (
                   <div>
@@ -1433,6 +1439,15 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                     <p className="text-[11px] uppercase tracking-wide text-accent-fg">Actual time</p>
                     <p className="text-[20px] font-extrabold tabular-nums text-text-1">
                       {fmtDurationShort(workout.actualDurationSeconds)}
+                    </p>
+                  </div>
+                )}
+                {achievedPace != null && (
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-accent-fg">Actual pace</p>
+                    <p className="text-[20px] font-extrabold tabular-nums text-text-1">
+                      {formatPace(displayPace(achievedPace, settings.units))}
+                      {paceUnitLabel(settings.units)}
                     </p>
                   </div>
                 )}

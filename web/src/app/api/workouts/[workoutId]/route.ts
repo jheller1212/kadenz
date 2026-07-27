@@ -14,7 +14,10 @@ export async function GET(
   try {
     const workout = await db.query.workouts.findFirst({
       where: (wo, { eq }) => eq(wo.id, workoutId),
-      with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+      // `activity` carries the measured avg pace for a completed, synced run
+      // — the detail screen's "actual" section needs it (see units.ts
+      // actualPaceSecKm) rather than showing the block's planned target.
+      with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] }, activity: true },
     });
 
     if (!workout) {

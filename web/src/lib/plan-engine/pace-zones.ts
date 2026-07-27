@@ -79,8 +79,12 @@ export function getPaceZones(vdot: number): PaceZones {
   };
 }
 
-/** Format pace (sec/km) as "mm:ss" string. If miles=true, converts to sec/mile. */
-export function formatPace(secPerKm: number, miles?: boolean): string {
+/** Format pace (sec/km) as "mm:ss" string. If miles=true, converts to sec/mile.
+ *  This is the one pace formatter in the app — every screen that shows a
+ *  pace (planned or achieved) should call this rather than reimplement the
+ *  mm:ss split, so a unit or rounding fix only has to happen once. */
+export function formatPace(secPerKm: number | null | undefined, miles?: boolean): string {
+  if (secPerKm == null || !Number.isFinite(secPerKm) || secPerKm <= 0) return "—";
   const pace = miles ? secPerKm * 1.60934 : secPerKm;
   const mins = Math.floor(pace / 60);
   const secs = Math.round(pace % 60);

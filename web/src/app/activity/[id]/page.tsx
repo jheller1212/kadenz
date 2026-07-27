@@ -24,6 +24,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
+import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { apiFetch } from "@/lib/api";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 import { getUserZoneBounds, computeZoneSeconds, formatZoneTime } from "@/lib/hr-zone-time";
@@ -81,13 +82,6 @@ interface ActivityDetail {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatPace(secPerKm: number): string {
-  if (!secPerKm || secPerKm <= 0) return "—";
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 function formatDuration(totalSeconds: number): string {
   // Never render a fractional or sub-second duration: a positive value under
