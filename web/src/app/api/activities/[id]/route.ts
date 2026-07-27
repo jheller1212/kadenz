@@ -211,10 +211,20 @@ export async function GET(
       return Response.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Strava's OAuth token doesn't depend on anything below — kick the DB
-    // read for it off now so it overlaps with the workout+blocks query
-    // instead of waiting behind it.
-    const tokenPromise = activity.stravaId ? getAccessToken() : null;
+    // Everything Strava-sourced is cached on the row once synced (see below),
+    // so most views need no token at all — only fetch/refresh one when this
+    // row still has something missing, and kick it off now so it overlaps
+    // with the workout+blocks query below instead of waiting behind it.
+    const cachedStreams = activity.streamsJson as ParsedStreams | null;
+    const needsLive =
+      !activity.polyline ||
+      activity.bestEffortsJson == null ||
+      activity.cadenceSpm == null ||
+      activity.calories == null ||
+      activity.deviceName == null ||
+      activity.gearName == null ||
+      cachedStreams == null;
+    const tokenPromise = needsLive && activity.stravaId ? getAccessToken() : null;
 
     // Fetch linked workout + blocks if present, in one query (relational
     // fetch) instead of two sequential round trips.
@@ -277,22 +287,10 @@ export async function GET(
           )
         : null;
 
-    // Nothing about a finished activity changes after it syncs, so everything
-    // Strava-sourced is cached on the row (populated at import, or here on
-    // first view for older rows) — a live call only happens for whatever's
-    // still missing, same backfill-on-read pattern the polyline established.
-    // tokenPromise is already in flight from above, so this doesn't wait
-    // behind the workout+blocks query either.
-    const cachedStreams = activity.streamsJson as ParsedStreams | null;
-    const needsLive =
-      !activity.polyline ||
-      activity.bestEffortsJson == null ||
-      activity.cadenceSpm == null ||
-      activity.calories == null ||
-      activity.deviceName == null ||
-      activity.gearName == null ||
-      cachedStreams == null;
-
+    // Nothing about a finished activity changes after it syncs, so a live
+    // call only happens for whatever this row is still missing (populated at
+    // import, or backfilled here for older rows) — same backfill-on-read
+    // pattern the polyline established. needsLive/tokenPromise from above.
     let streams: ParsedStreams | null = cachedStreams;
     let live = EMPTY_LIVE_DETAIL;
     if (needsLive && activity.stravaId && tokenPromise) {
