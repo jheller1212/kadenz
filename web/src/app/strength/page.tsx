@@ -66,8 +66,9 @@ import {
 import { formatRecency } from "@/lib/recency";
 import { displayWeight, formatWeightKg, weightUnitLabel } from "@/lib/units";
 import { EXERCISES } from "@/lib/strength/program";
-import { COMPLAINT_SHORT_LABELS, type Complaint } from "@/lib/strength/types";
+import { COMPLAINT_SHORT_LABELS, type Complaint, type Equipment } from "@/lib/strength/types";
 import { formatLoad, stepWeight } from "@/lib/strength/weights";
+import { ACCESS_PRESETS, ACCESS_LEVELS, type GymAccess } from "@/lib/strength/equipment";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
 
@@ -80,6 +81,16 @@ interface SessionDetail {
   plannedExercises: PlannedExercise[];
   exerciseOverrides?: ExerciseOverride[];
 }
+
+// Session-level "this session only" overrides picked in the pre-start sheet
+// — see pickType. Both optional/undefined = use the athlete's profile
+// defaults, exactly as before this existed.
+interface SessionStartOptions {
+  durationOverrideMinutes?: number;
+  equipmentOverride?: Equipment[];
+}
+
+const START_DURATIONS: Array<30 | 45 | 60> = [30, 45, 60];
 
 interface ExerciseCatalogRow {
   slug: string;
@@ -115,6 +126,14 @@ const TYPE_META: Record<
   achilles: { title: "Achilles", sub: "4 lifts · ~20 min", color: "#FB923C", icon: HeartPulse },
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399", icon: Dumbbell },
 };
+
+// The picker only offers the standard programme types — the three dedicated
+// Achilles types above are no longer offered for NEW sessions (an "achilles"
+// complaint now reshapes these instead, see program.ts
+// ACHILLES_COMPLAINT_SLOTS); TYPE_META keeps all six entries so a historic
+// achilles/lower_achilles/upper_achilles session still renders its title,
+// color and icon correctly wherever it's looked up by type.
+const PICKER_TYPES: SessionType[] = ["full_body", "upper", "lower"];
 
 // Categories eligible for "Add exercise" per session type.
 const ADD_CATEGORIES: Record<SessionType, Array<ExerciseCatalogRow["category"]>> = {
@@ -157,6 +176,13 @@ export default function StrengthPage() {
   // reusing the same VideoSheet the guided session uses (see GuidedSession.tsx).
   const [videoSlug, setVideoSlug] = useState<string | null>(null);
   const equipment = useStrengthEquipment();
+
+  // Pre-start sheet: "this session only" duration/equipment, offered when
+  // starting a NEW session from the picker (see pickType). `null` selections
+  // mean "use my usual setting" — nothing is sent as an override.
+  const [startType, setStartType] = useState<SessionType | null>(null);
+  const [startDuration, setStartDuration] = useState<30 | 45 | 60 | null>(null);
+  const [startAccess, setStartAccess] = useState<GymAccess | null>(null);
 
   const [summary, setSummary] = useState<GuidedFinishSummary | null>(null);
   const [painLogged, setPainLogged] = useState(false);
@@ -411,7 +437,7 @@ export default function StrengthPage() {
   // before the screen the athlete needs to reorder from. Show the overview
   // shell (skeleton) immediately, the same way the deep-link path already
   // does, so the tap feels instant and the real content fills in as it loads.
-  async function pickType(type: SessionType) {
+  async function pickType(type: SessionType, start?: SessionStartOptions) {
     setBusy(true);
     setError(null);
     fromDeepLinkRef.current = false; // picker-started → Back returns to picker
@@ -420,7 +446,10 @@ export default function StrengthPage() {
       let sessionId: string | null = null;
       adHocIdRef.current = null;
 
-      // Adopt: a planned session of this type scheduled for today.
+      // Adopt: a planned session of this type scheduled for today. An
+      // already-planned session (e.g. from auto-scheduling) keeps its own
+      // committed plan — a chosen start-sheet override only applies when
+      // this tap is what creates the session below.
       const dayStart = new Date();
       dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date();
@@ -437,7 +466,17 @@ export default function StrengthPage() {
         const res = await apiFetch("/api/strength/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type, date: new Date().toISOString(), force: true }),
+          body: JSON.stringify({
+            type,
+            date: new Date().toISOString(),
+            force: true,
+            ...(start?.durationOverrideMinutes != null
+              ? { durationOverrideMinutes: start.durationOverrideMinutes }
+              : {}),
+            ...(start?.equipmentOverride != null
+              ? { equipmentOverride: start.equipmentOverride }
+              : {}),
+          }),
         });
         if (!res.ok) {
           setError("Couldn't start the session. Try again.");
@@ -970,15 +1009,23 @@ export default function StrengthPage() {
             Programme
           </p>
           <div className="flex flex-col gap-2">
-            {(Object.keys(TYPE_META) as SessionType[]).map((t) => {
+            {PICKER_TYPES.map((t) => {
               const meta = TYPE_META[t];
               const Icon = meta.icon;
+              // An athlete with a reported Achilles complaint gets that work
+              // folded into these standard sessions instead of a separate
+              // card (see program.ts ACHILLES_COMPLAINT_SLOTS) — say so.
+              const sub = complaints.includes("achilles") ? `${meta.sub} + Achilles work` : meta.sub;
               return (
                 <motion.button
                   key={t}
                   type="button"
                   disabled={busy}
-                  onClick={() => pickType(t)}
+                  onClick={() => {
+                    setStartType(t);
+                    setStartDuration(null);
+                    setStartAccess(null);
+                  }}
                   whileTap={{ scale: busy ? 1 : 0.97 }}
                   transition={{ type: "spring", stiffness: 500, damping: 32 }}
                   style={{ touchAction: "manipulation" }}
@@ -992,7 +1039,7 @@ export default function StrengthPage() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[15px] font-bold text-text-1">{meta.title}</span>
-                    <span className="block text-[12px] text-text-3">{meta.sub}</span>
+                    <span className="block text-[12px] text-text-3">{sub}</span>
                   </span>
                   <ChevronRight className="h-[19px] w-[19px] shrink-0 text-text-3" strokeWidth={1.9} />
                 </motion.button>
@@ -1059,6 +1106,93 @@ export default function StrengthPage() {
           onSave={handleSaveCustomWorkout}
           initial={editingTemplate ? { name: editingTemplate.name, slots: editingTemplate.slots } : null}
         />
+
+        {/* Pre-start sheet: "this session only" length/equipment — see
+            SessionStartOptions. Selections default to "Usual" (no override,
+            the profile's own Kraft settings apply, same as before this
+            existed). */}
+        <Sheet
+          open={startType != null}
+          onClose={() => setStartType(null)}
+          title={startType ? TYPE_META[startType].title : undefined}
+        >
+          {startType && (
+            <div className="px-4 pb-6">
+              <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">
+                Length today
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { haptic("light"); setStartDuration(null); }}
+                  className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                    startDuration == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                  }`}
+                >
+                  Usual
+                </button>
+                {START_DURATIONS.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { haptic("light"); setStartDuration(m); }}
+                    className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                      startDuration === m ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                    }`}
+                  >
+                    {m} min
+                  </button>
+                ))}
+              </div>
+
+              <p className="mb-2 mt-5 text-[12px] font-bold uppercase tracking-wide text-text-3">
+                Equipment today
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { haptic("light"); setStartAccess(null); }}
+                  className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                    startAccess == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                  }`}
+                >
+                  Usual
+                </button>
+                {ACCESS_LEVELS.map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => { haptic("light"); setStartAccess(level); }}
+                    className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                      startAccess === level ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                    }`}
+                  >
+                    {ACCESS_PRESETS[level].label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-6">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  full
+                  onClick={() => {
+                    const t = startType;
+                    setStartType(null);
+                    if (!t) return;
+                    pickType(t, {
+                      durationOverrideMinutes: startDuration ?? undefined,
+                      equipmentOverride: startAccess ? ACCESS_PRESETS[startAccess].equipment : undefined,
+                    });
+                  }}
+                >
+                  Start
+                </Button>
+              </div>
+            </div>
+          )}
+        </Sheet>
 
         <BottomNav active="strength" />
       </main>

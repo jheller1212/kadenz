@@ -4,6 +4,7 @@ import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
+import { EQUIPMENT_KEYS } from "@/lib/strength/equipment";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
 import {
@@ -15,6 +16,7 @@ import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
+import type { Equipment } from "@/lib/strength/types";
 import type { PlannedExercise } from "@/lib/strength/session";
 
 const CreateSchema = z.object({
@@ -26,6 +28,13 @@ const CreateSchema = z.object({
   // history and calendar fan-out show the template name, not "Full Body".
   title: z.string().trim().min(1).max(120).optional(),
   targetDurationMinutes: z.number().int().min(1).max(600).optional(),
+  // Session-level overrides ("I'm at the gym today", "only got 30 min
+  // today") — apply to this one session only, never written back to
+  // strength_plan_settings (see lib/strength/service.ts buildPlannedSession).
+  // `equipmentOverride` is client-sent and re-validated below against the
+  // known equipment vocabulary — never trusted blindly.
+  equipmentOverride: z.array(z.string()).max(20).optional(),
+  durationOverrideMinutes: z.number().int().min(10).max(120).optional(),
 });
 
 // ── GET /api/strength/sessions?from=&to= ──────────────────────────────────────
@@ -139,12 +148,24 @@ export async function POST(request: NextRequest) {
             .where(isNull(strengthSessions.profileId))
         ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
+    // Fetched once and handed to buildPlannedSession below (both branches),
+    // and to the constraint engine right below — so it's queried at most
+    // once per request.
+    const settingsRow = await getStrengthPlanSettingsRow(profileId);
+    // A reported achilles complaint now reshapes an ordinary lower/upper/
+    // full_body session with the Achilles/HSR block (see program.ts
+    // ACHILLES_COMPLAINT_SLOTS) instead of needing a dedicated session type
+    // — the constraint engine's Achilles-spacing/frequency rules must keep
+    // firing for those sessions too, not just the historic dedicated types.
+    const hasAchillesComplaint = (settingsRow?.complaints ?? []).includes("achilles");
+
     const violations = profileId
       ? []
       : validateStrengthPlacement({
           session: { date, type: data.type },
           runWorkouts,
           strengthSessions: existingStrength,
+          hasAchillesComplaint,
         });
     const hasError = violations.some((v) => v.severity === "error");
     if (hasError && !data.force) {
@@ -161,9 +182,15 @@ export async function POST(request: NextRequest) {
     // real custom-workout duration with a stock-template-based guess.
     const isCustom = data.title != null;
 
-    // Fetched once and handed to buildPlannedSession below (both branches)
-    // so it doesn't query strength_plan_settings a second time.
-    const settingsRow = await getStrengthPlanSettingsRow(profileId);
+    // Never trust a client-sent equipment list blindly — filter to the known
+    // vocabulary the same way derivePlanSettingsForLoads already filters the
+    // profile's own stored equipment. `undefined` (field absent) means "no
+    // override, use the profile default"; an explicit `[]` is a real
+    // override (bodyweight only), not "not sent".
+    const equipmentKeySet = new Set<string>(EQUIPMENT_KEYS);
+    const equipmentOverride: Equipment[] | undefined = data.equipmentOverride
+      ? data.equipmentOverride.filter((e): e is Equipment => equipmentKeySet.has(e))
+      : undefined;
 
     let targetDurationMinutes: number;
     let plannedExercises: PlannedExercise[];
@@ -174,9 +201,11 @@ export async function POST(request: NextRequest) {
       ).exercises;
     } else {
       // Honor the athlete's Kraft settings length (30/45/60 min) — an
-      // explicit override wins, otherwise fall back to the saved
-      // preference, and only then to the template's nominal length.
+      // explicit per-session override wins, then the legacy
+      // targetDurationMinutes field (kept for existing callers), then the
+      // saved preference, and only then the template's nominal length.
       const chosenMinutes =
+        data.durationOverrideMinutes ??
         data.targetDurationMinutes ??
         planDurationMinutesFromRow(settingsRow) ??
         template.targetDurationMinutes;
@@ -186,7 +215,8 @@ export async function POST(request: NextRequest) {
         profileId,
         chosenMinutes,
         [],
-        settingsRow
+        settingsRow,
+        equipmentOverride
       );
       plannedExercises = built.exercises;
       // Store the plan's real estimate, not the nominal chosen number — this
@@ -198,6 +228,8 @@ export async function POST(request: NextRequest) {
       .insert(strengthSessions)
       .values({
         planId,
+        equipmentOverride: equipmentOverride ?? null,
+        durationOverrideMinutes: data.durationOverrideMinutes ?? null,
         profileId,
         date,
         dayOfWeek: date.getDay(),

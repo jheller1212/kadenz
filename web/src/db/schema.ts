@@ -510,6 +510,16 @@ export const strengthSessions = pgTable(
       >()
       .notNull()
       .default([]),
+    // Per-session overrides ("I'm at the gym today", "only got 30 min today")
+    // — apply to THIS session only, never written back to
+    // strength_plan_settings. Null = no override, use the profile's default
+    // (see lib/strength/service.ts buildPlannedSession). Re-applied on every
+    // read (lib/strength/session.ts has no stored per-session exercise list
+    // — see the comment above applyExerciseOverrides), so these must be
+    // persisted here rather than only used at creation time, or a reopened
+    // session would silently revert to the profile default.
+    equipmentOverride: text("equipment_override").array(),
+    durationOverrideMinutes: integer("duration_override_minutes"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -3,6 +3,7 @@ import {
   hsrPrescriptionForWeek,
   isHsrExercise,
   resolveSlotVariant,
+  RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS,
   sessionTemplateFor,
 } from "./program";
 import { snapToLevel } from "./weights";
@@ -20,6 +21,7 @@ import type {
   Equipment,
   ExerciseDef,
   ExerciseSessionHistory,
+  Goal,
   StrengthSessionType,
 } from "./types";
 import type { LifterProfile } from "./load-model";
@@ -115,6 +117,14 @@ export interface BuildSessionOptions {
    * standalone strength block), which leaves set counts untouched.
    */
   weekInfo?: WeekInfo | null;
+  /**
+   * The athlete's strength goal (Kraft setup wizard). "running_focus" trims
+   * a set from ordinary upper-body work and adds one to posterior-chain/
+   * unilateral lower work (see program.ts RUNNING_FOCUS_POSTERIOR_CHAIN_
+   * SLUGS) — never touches HSR/Achilles-role sets, same as ability scaling
+   * above. Undefined/"all_round" leaves set counts exactly as prescribed.
+   */
+  goal?: Goal;
 }
 
 function repRangeLabel(sets: number, low: number, high: number): string {
@@ -187,6 +197,17 @@ export function buildSessionPlan(
       // the beginner +30) for regular lifts — rehab work above keeps its scheme.
       if (opts.restSecondsOverride != null) {
         restSeconds = opts.restSecondsOverride;
+      }
+      // Running-focus goal: minimal upper-body volume, extra posterior-chain/
+      // unilateral work — see program.ts RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS.
+      // Never touches HSR/Achilles-role sets (guarded by the isHsrExercise
+      // check above and the !ex.achillesRole check below).
+      if (opts.goal === "running_focus" && !ex.achillesRole) {
+        if (ex.category === "upper") {
+          sets = Math.max(2, sets - 1);
+        } else if (RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS.has(resolved.slug)) {
+          sets = sets + 1;
+        }
       }
     }
 

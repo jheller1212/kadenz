@@ -1600,12 +1600,33 @@ const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
   "upper_achilles",
 ]);
 
+// ── Achilles complaint block ──────────────────────────────────────────────────
+// The dedicated achilles/lower_achilles/upper_achilles session TYPES are no
+// longer offered on the picker (see strength/page.tsx PICKER_TYPES) — a Kraft
+// picker showing three Achilles-rehab cards to an athlete with no Achilles
+// problem was the bug being fixed here. Those types are kept exactly as they
+// were (SESSION_TEMPLATES above, ACHILLES_SESSION_TYPES branch below) purely
+// so historic sessions of those types still load and render correctly.
+//
+// Going forward, an "achilles" complaint reshapes the ordinary upper/lower/
+// full_body sessions instead — same explosive-then-slow-heavy block the old
+// dedicated types used (order matters: see validateAchillesOrdering in
+// session.ts), injected as extra slots the same way TARGETED_WORK injects
+// other complaints' work below, just with more than one slot and its own
+// fixed internal order.
+const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
+  { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
+  { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+  { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
+  { exerciseSlug: "loaded_toe_walk", sets: 3, repLow: 1, repHigh: 1, restSeconds: 120 },
+];
+
 /**
  * The session template an athlete actually gets for `type`, given their
- * reported complaints. Achilles session types are always returned unchanged
- * — that programme already exists and is complaint-independent once an
- * athlete is on it. For every other session type, each non-Achilles
- * complaint whose `TARGETED_WORK` entry lists `type` gets its slot appended.
+ * reported complaints. Achilles session types (historic only, see above) are
+ * always returned unchanged. For every other session type, an "achilles"
+ * complaint appends the Achilles/HSR block above, and each other reported
+ * complaint whose `TARGETED_WORK` entry lists `type` appends its own slot.
  */
 export function sessionTemplateFor(
   type: StrengthSessionType,
@@ -1616,6 +1637,12 @@ export function sessionTemplateFor(
 
   const extraSlots: TemplateSlot[] = [];
   const seen = new Set<string>();
+  if (complaints.includes("achilles")) {
+    for (const slot of ACHILLES_COMPLAINT_SLOTS) {
+      seen.add(slot.exerciseSlug);
+      extraSlots.push(slot);
+    }
+  }
   for (const complaint of complaints) {
     if (complaint === "achilles") continue;
     const targeted = TARGETED_WORK[complaint];
@@ -1628,6 +1655,33 @@ export function sessionTemplateFor(
 
   return { ...template, slots: [...template.slots, ...extraSlots] };
 }
+
+// ── Running-focus goal ────────────────────────────────────────────────────────
+// Exercises that train the hinge/hip-thrust (posterior chain) or a unilateral
+// leg pattern — the movements a runner gets the most transfer from. A
+// "running_focus" goal (see types.ts Goal) adds a set to these and trims a
+// set from ordinary upper-body work (session.ts buildSessionPlan), instead of
+// collecting the goal and never acting on it.
+export const RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS = new Set([
+  "romanian_deadlift",
+  "single_leg_rdl",
+  "barbell_straight_leg_deadlift",
+  "kettlebell_deadlift",
+  "band_deadlift",
+  "hip_raise",
+  "glute_bridge",
+  "single_leg_hip_thrust",
+  "barbell_hip_thrust_with_bench",
+  "band_glute_bridge",
+  "kettlebell_swing",
+  "nordic_curl_negative",
+  "leg_curl_machine",
+  "bulgarian_split_squat",
+  "barbell_bulgarian_split_squat",
+  "reverse_lunge",
+  "barbell_reverse_lunge",
+  "single_leg_glute_bridge",
+]);
 
 export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
   upper: 40,

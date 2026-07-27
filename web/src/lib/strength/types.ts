@@ -43,6 +43,16 @@ export const STRENGTH_COMPLAINTS = [
 
 export type Complaint = (typeof STRENGTH_COMPLAINTS)[number];
 
+// ── Strength goal (Kraft setup wizard) ───────────────────────────────────────
+// "running_focus" trims upper-body accessory volume and adds a set to
+// posterior-chain/unilateral lower work (see program.ts
+// RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS + session.ts buildSessionPlan);
+// "all_round" leaves the template's own set counts untouched. Also drives
+// which session-type mix the weekly scheduler rotates through (see
+// reconcile.ts rotationFor).
+export const STRENGTH_GOALS = ["running_focus", "all_round"] as const;
+export type Goal = (typeof STRENGTH_GOALS)[number];
+
 export const COMPLAINT_LABELS: Record<Complaint, string> = {
   achilles: "Achilles tendinopathy",
   plantar_fascia: "Plantar fascia pain",
