@@ -254,19 +254,37 @@ export async function GET() {
         const slow = verdicts.filter((v) => v === 1).length;
         const inBand = verdicts.length - fast - slow;
         const majority = Math.ceil(verdicts.length / 2);
+        const n = verdicts.length;
         inBandPct = Math.round((inBand / verdicts.length) * 100);
+
+        // "Consistently" is a claim about a pattern, not a single data point.
+        // Word choice scales with how many workouts actually back it up: one
+        // workout gets a tentative, singular read; a handful gets "recent";
+        // only a fuller sample earns "consistently".
+        const MIN_FOR_TREND_LANGUAGE = 3;
 
         if (inBand === verdicts.length) {
           paceStatus = "on_point";
-          statusMessage = "Your recent paces are within target. Keep it up!";
+          statusMessage =
+            n === 1
+              ? "Your last workout with pace data was within target."
+              : "Your recent paces are within target. Keep it up!";
         } else if (fast >= majority && slow === 0) {
           paceStatus = "ahead";
           statusMessage =
-            "You're consistently faster than target — your fitness may have outgrown your paces. Consider updating your race times.";
+            n === 1
+              ? "Your last workout with pace data came in faster than target. One workout isn't a trend yet, watch the next few before changing anything."
+              : n < MIN_FOR_TREND_LANGUAGE
+              ? "Your last couple of workouts came in faster than target. Worth watching, but it's early to call it a pattern."
+              : "You're consistently faster than target. Your fitness may have outgrown your paces. Consider updating your race times.";
         } else if (slow >= majority && fast === 0) {
           paceStatus = "review";
           statusMessage =
-            "Recent workouts came in slower than target. Occasional off days are fine — if it keeps happening, ease your goal time or check recovery.";
+            n === 1
+              ? "Your last workout with pace data came in slower than target. One off day is normal, no need to change your goal yet."
+              : n < MIN_FOR_TREND_LANGUAGE
+              ? "Your last couple of workouts came in slower than target. If it keeps happening, ease your goal time or check recovery."
+              : "Recent workouts came in slower than target. Occasional off days are fine, but if it keeps happening, ease your goal time or check recovery.";
         } else {
           paceStatus = "variable";
           statusMessage =

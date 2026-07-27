@@ -699,6 +699,14 @@ function PlanPageInner() {
   >(null);
   const [skipBusy, setSkipBusy] = useState(false);
 
+  // Confirm-before-remove sheet for a strength session (destructive, so it
+  // never fires straight off the tap — mirrors "Leave workout?" in
+  // GuidedSession).
+  const [confirmRemoveStrength, setConfirmRemoveStrength] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+
   // Add-strength sheet state.
   const [addDate, setAddDate] = useState<Date | null>(null);
   const [addType, setAddType] = useState<SessionType>("lower_achilles");
@@ -967,7 +975,10 @@ function PlanPageInner() {
     setStrengthBusy(true);
     setSessions((prev) => prev.filter((s) => s.id !== id)); // optimistic
     try {
-      const res = await apiFetch(`/api/strength/sessions/${id}`, { method: "DELETE" });
+      // Trash, not hard-delete — snapshots the session + logged sets so it's
+      // recoverable from Activities > Recently deleted for 30 days, same as
+      // deleted activities.
+      const res = await apiFetch(`/api/strength/sessions/${id}/trash`, { method: "POST" });
       if (!res.ok) {
         showError("Couldn't remove that session.");
         await loadSessions(); // reconcile — session reappears
@@ -1362,12 +1373,19 @@ function PlanPageInner() {
               </button>
             )}
 
-            {/* Remove (strength only) */}
+            {/* Remove (strength only) — recoverable, but still needs a
+                confirm step; a completed session's sets are worth the same
+                protection as a planned one's. */}
             {detailSheet.kind === "strength" && (
               <button
                 onClick={() => {
                   haptic("medium");
-                  deleteStrength(detailSheet.session.id);
+                  setConfirmRemoveStrength({
+                    id: detailSheet.session.id,
+                    label:
+                      detailSheet.session.title ||
+                      strengthMeta(detailSheet.session.type).label,
+                  });
                   setDetailSheet(null);
                 }}
                 disabled={strengthBusy}
@@ -1387,6 +1405,45 @@ function PlanPageInner() {
               <X className="h-3.5 w-3.5" strokeWidth={2} />
               Cancel
             </button>
+          </div>
+        )}
+      </Sheet>
+
+      {/* Confirm remove — strength sessions trash-delete (30-day recovery via
+          Activities > Recently deleted), so the copy says so rather than
+          reading like the loss is permanent. */}
+      <Sheet
+        open={!!confirmRemoveStrength}
+        onClose={() => setConfirmRemoveStrength(null)}
+        title="Remove session?"
+      >
+        {confirmRemoveStrength && (
+          <div className="flex flex-col gap-3 px-4 pb-6">
+            <p className="text-[14px] text-text-2">
+              <span className="font-semibold text-text-1">{confirmRemoveStrength.label}</span>{" "}
+              and any logged sets move to Recently deleted. You can restore it from Activities
+              within 30 days.
+            </p>
+            <Button
+              variant="secondary"
+              size="lg"
+              full
+              onClick={() => { haptic("light"); setConfirmRemoveStrength(null); }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="lg"
+              full
+              busy={strengthBusy}
+              onClick={() => {
+                deleteStrength(confirmRemoveStrength.id);
+                setConfirmRemoveStrength(null);
+              }}
+            >
+              Remove session
+            </Button>
           </div>
         )}
       </Sheet>
