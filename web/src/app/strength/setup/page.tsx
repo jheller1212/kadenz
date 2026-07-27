@@ -14,6 +14,7 @@ import {
   WizardTitle,
 } from "@/components/ui/wizard";
 import { apiFetch } from "@/lib/api";
+import { loadSettings, saveSettings } from "@/lib/settings";
 import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
 import { StrengthReadyScreen } from "@/components/StrengthReadyScreen";
 import { haptic } from "@/lib/haptics";
@@ -46,6 +47,7 @@ const STEPS = [
   "complaints",
   "days",
   "equipment",
+  "warmup",
 ] as const;
 type Step = (typeof STEPS)[number];
 
@@ -87,6 +89,19 @@ const SEXES: Array<{ key: Sex; title: string; sub?: string }> = [
   { key: "unspecified", title: "Prefer not to say", sub: "We'll use a neutral starting point" },
 ];
 
+const WARMUP_OPTIONS: Array<{ key: boolean; title: string; sub: string }> = [
+  {
+    key: true,
+    title: "Suggest a warm-up ramp",
+    sub: "Kadenz pre-fills a couple of lighter sets before your heavy lifts, ready to adjust",
+  },
+  {
+    key: false,
+    title: "Don't suggest anything",
+    sub: "I'll warm up my own way — you can still mark any set as a warm-up by hand",
+  },
+];
+
 const DAYS: Array<{ dow: number; label: string }> = [
   { dow: 1, label: "Monday" },
   { dow: 2, label: "Tuesday" },
@@ -122,6 +137,11 @@ export default function StrengthSetupPage() {
   const [equipment, setEquipment] = useState<Equipment[]>(DEFAULT_EQUIPMENT);
   // Empty = "None / nothing bothering me" — the normal, default answer.
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  // Same UserSettings value the Kraft settings page reads/writes (not the
+  // plan-settings API) — setup and settings share one source of truth.
+  const [warmupSuggestions, setWarmupSuggestions] = useState<boolean>(
+    () => loadSettings().kraftWarmupSuggestions
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState(false);
@@ -275,6 +295,16 @@ export default function StrengthSetupPage() {
     setComplaints((c) => (c.includes(key) ? c.filter((x) => x !== key) : [...c, key]));
   }
 
+  // Written straight to localStorage (not the plan-settings PUT below) —
+  // it's the same UserSettings value the Kraft settings page reads, so it
+  // takes effect immediately rather than waiting on the final save.
+  function selectWarmupSuggestions(v: boolean) {
+    markInteracted();
+    haptic("light");
+    setWarmupSuggestions(v);
+    saveSettings({ ...loadSettings(), kraftWarmupSuggestions: v });
+  }
+
   const TITLES: Record<Step, { title: string; sub: string }> = {
     goal: {
       title: "What is your strength goal?",
@@ -311,6 +341,10 @@ export default function StrengthSetupPage() {
     equipment: {
       title: "Where do you train?",
       sub: "Pick the closest match — it ticks the equipment below for you, and every tick stays yours to change.",
+    },
+    warmup: {
+      title: "Suggested warm-up sets?",
+      sub: "Just about whether Kadenz suggests a ramp for you — you can change this any time in Kraft settings.",
     },
   };
 
@@ -512,6 +546,17 @@ export default function StrengthSetupPage() {
                   ))}
                 </>
               )}
+
+              {step === "warmup" &&
+                WARMUP_OPTIONS.map((o) => (
+                  <OptionCard
+                    key={String(o.key)}
+                    selected={warmupSuggestions === o.key}
+                    onSelect={() => selectWarmupSuggestions(o.key)}
+                    title={o.title}
+                    sub={o.sub}
+                  />
+                ))}
             </div>
 
             {error && (

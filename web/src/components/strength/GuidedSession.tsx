@@ -17,7 +17,7 @@ import {
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import { AdjustLoadSheet } from "@/components/strength/AdjustLoadSheet";
 import { PrMoment, type PrMomentEvent } from "@/components/strength/PrMoment";
-import { deriveWarmupRamp } from "@/lib/strength/warmup";
+import { deriveWarmupRampIfEnabled } from "@/lib/strength/warmup";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
@@ -181,13 +181,14 @@ function SetTag({
   );
 }
 
-function buildWork(exercises: PlannedExercise[]): Record<string, WorkSet[]> {
+function buildWork(exercises: PlannedExercise[], warmupSuggestionsEnabled: boolean): Record<string, WorkSet[]> {
   const w: Record<string, WorkSet[]> = {};
   for (const ex of exercises) {
     // Pre-tag a suggested warm-up ramp ahead of the working sets, so a heavy
     // primary lift arrives with something to correct rather than nothing —
-    // see lib/strength/warmup.ts for the eligibility and sizing rule.
-    const ramp = deriveWarmupRamp(ex.priority, ex.suggestedWeightKg);
+    // see lib/strength/warmup.ts for the eligibility and sizing rule. Gated
+    // by the athlete's preference (off = stop suggesting, not "no warm-ups").
+    const ramp = deriveWarmupRampIfEnabled(ex.priority, ex.suggestedWeightKg, warmupSuggestionsEnabled);
     const rampSets: WorkSet[] = ramp.map((r) => ({
       kg: r.kg,
       reps: r.reps,
@@ -240,7 +241,7 @@ export default function GuidedSession({
   const [work, setWork] = useState<Record<string, WorkSet[]>>(() => {
     // Fresh plan, overlaid with the snapshot where it still matches — sets
     // already logged to the server stay logged.
-    const base = buildWork(exercises);
+    const base = buildWork(exercises, prefs.kraftWarmupSuggestions);
     if (resume?.work) {
       for (const slug of Object.keys(base)) {
         const saved = resume.work[slug];
@@ -717,8 +718,9 @@ export default function GuidedSession({
       void _dropped;
       // Same ramp rule as the initial build (see buildWork) — the swap keeps
       // the original slot's priority, so a primary-lift swap still gets a
-      // warm-up ramp for the new exercise's own starting weight.
-      const ramp = deriveWarmupRamp(cur.priority, cat.startWeightKg ?? null);
+      // warm-up ramp for the new exercise's own starting weight, unless the
+      // athlete has turned suggestions off.
+      const ramp = deriveWarmupRampIfEnabled(cur.priority, cat.startWeightKg ?? null, prefsRef.current.kraftWarmupSuggestions);
       const rampSets: WorkSet[] = ramp.map((r) => ({
         kg: r.kg,
         reps: r.reps,

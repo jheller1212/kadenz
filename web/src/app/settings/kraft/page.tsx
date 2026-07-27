@@ -162,6 +162,20 @@ export default function KraftSettingsPage() {
               }
             />
           </ListGroup>
+
+          <ListGroup header="Warm-up">
+            <Row
+              title="Suggest warm-up sets"
+              subtitle="Pre-fill a warm-up ramp before your heavy lifts. Turn off if you warm up another way — you can still mark a set as a warm-up by hand"
+              accessory={
+                <Switch
+                  checked={settings.kraftWarmupSuggestions}
+                  onChange={(v) => update({ kraftWarmupSuggestions: v })}
+                  aria-label="Suggest warm-up sets"
+                />
+              }
+            />
+          </ListGroup>
         </>
       )}
     </SettingsSubpage>
