@@ -39,6 +39,14 @@ interface ActivityData {
   maxHr?: number;
 }
 
+// Inline feed mini chart: per-km pace for a run, per-set tonnage (weight ×
+// reps) for a strength session. Comes pre-compacted from /api/activities —
+// see that route for why nothing bigger ever reaches the client.
+interface ActivityChart {
+  kind: "pace" | "volume";
+  values: number[];
+}
+
 interface ActivityWorkout {
   id: string;
   type: string;
@@ -61,6 +69,7 @@ interface ActivityWorkout {
   stravaId?: string | null;
   workoutId?: string | null;
   strengthSessionId?: string | null;
+  chart?: ActivityChart | null;
 }
 
 // Lets any WorkoutRow open the Link sheet without prop-threading.
@@ -270,6 +279,44 @@ function ActivitiesSkeleton() {
   );
 }
 
+// ── Inline feed mini chart ──────────────────────────────────────────────────
+// Plain flex/div bars, not SVG or a charting dependency — this renders once
+// per card in a feed that can be long, and divs are cheap to lay out at that
+// scale (same pattern WeeklyBarChart already uses below). Degrades to
+// nothing when the card has no real chart data — see the `chart` null checks
+// at each call site, never an empty frame.
+
+function MiniFeedChart({ chart, color }: { chart: ActivityChart; color: string }) {
+  const { kind, values } = chart;
+  // Pace: faster (lower sec/km) reads as a taller bar, matching PaceChart's
+  // "intensity" convention on the workout detail page. Volume: heavier sets
+  // read taller directly.
+  const heights =
+    kind === "pace"
+      ? (() => {
+          const min = Math.min(...values);
+          const max = Math.max(...values);
+          const range = max - min || 1;
+          return values.map((v) => 0.25 + ((max - v) / range) * 0.75);
+        })()
+      : (() => {
+          const max = Math.max(...values);
+          return values.map((v) => 0.2 + (v / (max || 1)) * 0.8);
+        })();
+
+  return (
+    <div className="mt-2.5 flex h-6 items-end gap-[3px]" aria-hidden="true">
+      {heights.map((h, i) => (
+        <div
+          key={i}
+          className="flex-1 rounded-[1.5px]"
+          style={{ height: `${Math.max(h, 0.12) * 100}%`, backgroundColor: color, opacity: 0.55 }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ── WorkoutRow ────────────────────────────────────────────────────────────────
 
 function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
@@ -364,6 +411,9 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
             {elevation != null && <span className="tabular-nums">+{Math.round(elevation)} m</span>}
           </div>
         )}
+
+        {/* Inline split/tonnage mini chart — only when real data exists */}
+        {workout.chart && <MiniFeedChart chart={workout.chart} color={barColor} />}
       </div>
     </div>
   );

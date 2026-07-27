@@ -10,9 +10,11 @@ import {
   Check,
   LayoutList,
   LayoutGrid,
+  Minus,
   SlidersHorizontal,
   TrendingUp,
   ChevronRight,
+  X,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -30,11 +32,13 @@ import {
   type ApiWeekRow,
   type ApiWorkoutRow,
   type StrengthSessionRow,
+  type ItemState,
   mondayOf,
   addDays,
   sameDay,
   weekRangeLabel,
   itemSpec,
+  itemState,
 } from "@/lib/plan-ui";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -43,20 +47,26 @@ type DayItem =
   | { kind: "run"; workout: ApiWorkoutRow }
   | { kind: "strength"; session: StrengthSessionRow };
 
-function itemCompleted(item: DayItem): boolean {
-  return (item.kind === "run" ? item.workout.status : item.session.status) === "completed";
-}
-
-// ── Day chip: keeps its workout colors (solid or two-tone split); a white
-// check overlays when everything that day is done ────────────────────────────
+// ── Day chip: keeps its workout colors (solid or two-tone split) for a day
+// that's still open or was completed; a skipped/missed day mutes to the
+// same quiet "elevated" treatment the week-level Skipped pill already uses,
+// so it never competes with — let alone outshouts — a completed check ─────
 
 function DayChip({ items }: { items: DayItem[] }) {
-  const allDone = items.length > 0 && items.every(itemCompleted);
+  const states = items.map((i) => itemState(i));
+  const allDone = items.length > 0 && states.every((s) => s === "completed");
+  // A day only reads as "skipped" once every item on it was skipped — a
+  // mixed run+strength day where just one half was dropped still shows its
+  // real colors so the part that did happen doesn't get muted away.
+  const allSkipped = items.length > 0 && states.every((s) => s === "skipped");
+  const anyMissed = states.some((s) => s === "missed");
   const run = items.find((i) => i.kind === "run");
   const strength = items.find((i) => i.kind === "strength");
 
   let style: React.CSSProperties;
-  if (run && strength && run.kind === "run") {
+  if (allSkipped) {
+    style = { backgroundColor: "var(--k-elevated)" };
+  } else if (run && strength && run.kind === "run") {
     // Two-tone split: left half strength, right half the run color.
     const runSolid = workoutColor(run.workout.type).solid;
     style = {
@@ -74,12 +84,19 @@ function DayChip({ items }: { items: DayItem[] }) {
       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
       style={style}
     >
-      {allDone && (
+      {allDone ? (
         <Check
           className="h-4 w-4 text-white [filter:drop-shadow(0_1px_1px_rgba(0,0,0,0.45))]"
           strokeWidth={3.5}
         />
-      )}
+      ) : allSkipped ? (
+        // Deliberate, quiet — a dash, not a failure mark.
+        <Minus className="h-4 w-4 text-text-3" strokeWidth={3} />
+      ) : anyMissed ? (
+        // Distinct from both: it happened to be missed, not chosen — same
+        // muted ink as skipped's dash so it doesn't read as an alarm.
+        <X className="h-3.5 w-3.5 text-white/70" strokeWidth={3} />
+      ) : null}
     </span>
   );
 }
@@ -113,7 +130,15 @@ function WeekCard({
   });
 
   const allItems = dayItems.flat();
-  const doneCount = allItems.filter(itemCompleted).length;
+  const itemStates: ItemState[] = allItems.map((it) => itemState(it));
+  const doneCount = itemStates.filter((s) => s === "completed").length;
+  // A skipped item isn't owed anymore — Skip a week exists precisely so a
+  // dropped week doesn't read as a shortfall, so it comes out of both sides
+  // of the ratio. A fully skipped week has nothing left to report; showing
+  // "0/0" would look like a data bug, so that case renders as a dash instead
+  // (the "Skipped" pill above already says why).
+  const skippedCount = itemStates.filter((s) => s === "skipped").length;
+  const owedCount = allItems.length - skippedCount;
 
   return (
     <section
@@ -133,26 +158,37 @@ function WeekCard({
         )}
       </div>
 
-      {/* Dashed workout-progress segments */}
+      {/* Dashed workout-progress segments — skipped items recede to the same
+          quiet hairline tone as the day chip's dash, instead of sitting flush
+          with an item that's still genuinely owed. */}
       {allItems.length > 0 && (
         <div className="mt-2.5 flex h-1.5 gap-1">
-          {allItems.map((item, i) => (
-            <span
-              key={i}
-              className="flex-1 rounded-full"
-              style={{
-                backgroundColor: itemCompleted(item)
-                  ? "var(--k-text-1)"
-                  : "var(--k-elevated)",
-              }}
-            />
-          ))}
+          {allItems.map((item, i) => {
+            const s = itemStates[i];
+            return (
+              <span
+                key={i}
+                className="flex-1 rounded-full"
+                style={{
+                  backgroundColor:
+                    s === "completed"
+                      ? "var(--k-text-1)"
+                      : s === "skipped"
+                      ? "var(--k-hairline)"
+                      : "var(--k-elevated)",
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
       <div className="mt-2 flex items-center justify-between text-[12px] text-text-2">
         <span>
-          Workouts: <span className="font-bold text-text-1 tabular-nums">{doneCount}/{allItems.length}</span>
+          Workouts:{" "}
+          <span className="font-bold text-text-1 tabular-nums">
+            {owedCount > 0 ? `${doneCount}/${owedCount}` : "—"}
+          </span>
         </span>
         <span>
           Distance: <span className="font-bold text-text-1 tabular-nums">{displayDistance(week.targetKm, 0)} {distanceUnitLabel()}</span>

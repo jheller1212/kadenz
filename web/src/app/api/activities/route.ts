@@ -1,8 +1,30 @@
 import { NextRequest } from "next/server";
 import { db, plans, activities, strengthSessions, strengthSets } from "@/db";
-import { eq, desc, isNull, and, inArray, isNotNull } from "drizzle-orm";
+import { eq, desc, isNull, inArray } from "drizzle-orm";
 import { getActiveProfileId } from "@/lib/profiles";
 import { isPastDuePlanned, sortSessionsByDateDesc } from "@/lib/training/session";
+
+// Strava-shaped split row, as stored raw in activities.splitsJson (see
+// parseSplits() in api/activities/[id]/route.ts — same source, same shape).
+interface RawSplit {
+  split: number;
+  average_speed: number;
+}
+
+/**
+ * Reduce a full splitsJson blob down to just per-km paces for the feed's
+ * inline mini chart. The list route intentionally never selects splitsJson
+ * itself (it can be a large per-activity blob) — this is fetched in one
+ * batched, id-scoped query and discarded immediately after compaction, so
+ * only a short number array per activity ever reaches the response.
+ */
+function splitPacesFromJson(raw: unknown, max = 12): number[] | null {
+  if (!Array.isArray(raw) || raw.length < 2) return null;
+  const paces = (raw as RawSplit[])
+    .map((s) => (s.average_speed > 0 ? Math.round(1000 / s.average_speed) : 0))
+    .filter((p) => p > 0);
+  return paces.length >= 2 ? paces.slice(0, max) : null;
+}
 
 export async function GET(request: NextRequest) {
   const profileId = getActiveProfileId(request);
@@ -116,31 +138,95 @@ export async function GET(request: NextRequest) {
       );
     const sessionMap = new Map(strengthRows.map((s) => [s.id, s]));
 
+    // All logged sets for these sessions, batched once — feeds both the
+    // "has any logged sets" check below and the feed's per-session tonnage
+    // mini chart (real weight × reps per set, never invented numbers).
+    const allSets =
+      strengthRows.length > 0
+        ? await db
+            .select({
+              sessionId: strengthSets.sessionId,
+              weightKg: strengthSets.weightKg,
+              reps: strengthSets.reps,
+              kind: strengthSets.kind,
+              createdAt: strengthSets.createdAt,
+            })
+            .from(strengthSets)
+            .where(
+              inArray(
+                strengthSets.sessionId,
+                strengthRows.map((s) => s.id)
+              )
+            )
+        : [];
+
     // Which sessions actually logged at least one set (reps recorded). Sessions
     // with zero logged sets are treated as never-really-done and kept out of the
     // standalone strength feed below.
-    const sessionsWithSets = new Set<string>();
-    if (strengthRows.length > 0) {
-      const setRows = await db
-        .selectDistinct({ sessionId: strengthSets.sessionId })
-        .from(strengthSets)
-        .where(
-          and(
-            inArray(
-              strengthSets.sessionId,
-              strengthRows.map((s) => s.id)
-            ),
-            isNotNull(strengthSets.reps)
-          )
-        );
-      for (const r of setRows) sessionsWithSets.add(r.sessionId);
+    const sessionsWithSets = new Set(
+      allSets.filter((s) => s.reps != null).map((s) => s.sessionId)
+    );
+
+    /** Chronological working-set tonnage (weight × reps) for one session's
+     * mini chart. Warm-ups and bodyweight-only sets (no weight logged) are
+     * excluded so bars stay a consistent, honest unit — a session that never
+     * logged weight gets no chart rather than a misleading one. */
+    function sessionVolumeBars(sessionId: string, max = 10): number[] | null {
+      const bars = allSets
+        .filter((s) => s.sessionId === sessionId && s.kind !== "warmup" && s.weightKg != null && s.reps != null)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map((s) => Math.round(s.weightKg! * s.reps!));
+      return bars.length >= 2 ? bars.slice(0, max) : null;
     }
+
+    /** Wrap a raw values array (or null) into the feed's tagged chart shape. */
+    function volumeChart(sessionId: string): { kind: "volume"; values: number[] } | null {
+      const values = sessionVolumeBars(sessionId);
+      return values ? { kind: "volume", values } : null;
+    }
+
+    // 5b. Splits, batched, id-scoped — only for run activities (splitsJson is
+    // meaningless for a strength entry). Compacted to bare pace numbers by
+    // splitPacesFromJson() before it ever touches the response; see that
+    // function's comment for why this doesn't reintroduce the payload-size
+    // problem the original slim select() above was written to avoid.
+    const runActivityIds = allActivities
+      .filter(
+        (a) =>
+          !a.strengthSessionId &&
+          a.sportType !== "WeightTraining" &&
+          a.sportType !== "Workout" &&
+          a.sportType !== "Crossfit" &&
+          a.sportType !== "HIIT"
+      )
+      .map((a) => a.id);
+    const splitsRows =
+      runActivityIds.length > 0
+        ? await db
+            .select({ id: activities.id, splitsJson: activities.splitsJson })
+            .from(activities)
+            .where(inArray(activities.id, runActivityIds))
+        : [];
+    const splitPacesMap = new Map(
+      splitsRows.map((r) => [r.id, splitPacesFromJson(r.splitsJson)])
+    );
 
     // 6. Build unified response — recorded activities first (runs + strength).
     const activityItems = allActivities.map((a) => {
       const linkedRun = a.workoutId ? workoutMap.get(a.workoutId) : null;
       const linkedSession = a.strengthSessionId ? sessionMap.get(a.strengthSessionId) : null;
       const isStrength = !!linkedSession || a.sportType === "WeightTraining" || a.sportType === "Workout" || a.sportType === "Crossfit" || a.sportType === "HIIT";
+      // Inline feed mini chart: split paces for a run, set tonnage for a
+      // linked strength session. Null when there's genuinely nothing to
+      // chart — the card renders without one rather than an empty frame.
+      const paceValues = !isStrength ? splitPacesMap.get(a.id) ?? null : null;
+      const chart = isStrength
+        ? a.strengthSessionId
+          ? volumeChart(a.strengthSessionId)
+          : null
+        : paceValues
+        ? { kind: "pace" as const, values: paceValues }
+        : null;
       return {
         id: a.id,
         source: "strava" as const,
@@ -159,6 +245,7 @@ export async function GET(request: NextRequest) {
         status: "completed",
         workoutId: a.workoutId,
         strengthSessionId: a.strengthSessionId,
+        chart,
         activity: {
           id: a.id,
           stravaId: a.stravaId,
@@ -215,6 +302,7 @@ export async function GET(request: NextRequest) {
         status: s.status,
         workoutId: null,
         strengthSessionId: s.id,
+        chart: volumeChart(s.id),
         activity: null,
         blocks: [],
       }));
