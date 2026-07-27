@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { deriveWarmupRamp, WARMUP_THRESHOLD_KG, RAMP_TWO_STEP_KG, RAMP_REPS } from "../warmup";
+import {
+  deriveWarmupRamp,
+  deriveWarmupRampIfEnabled,
+  WARMUP_THRESHOLD_KG,
+  RAMP_TWO_STEP_KG,
+  RAMP_REPS,
+  type WarmupEligiblePriority,
+} from "../warmup";
 
 describe("deriveWarmupRamp", () => {
   it("gives no ramp to accessory work, even if heavy", () => {
@@ -49,5 +56,27 @@ describe("deriveWarmupRamp", () => {
     // off-ladder weight leaks out.
     const ramp = deriveWarmupRamp("primary", 12.5);
     expect(ramp[0].kg).toBe(7.5);
+  });
+});
+
+describe("deriveWarmupRampIfEnabled", () => {
+  it("suggests no ramp rows at all when the preference is off, even for a heavy primary lift", () => {
+    expect(deriveWarmupRampIfEnabled("primary", 25, false)).toEqual([]);
+    expect(deriveWarmupRampIfEnabled("primary", RAMP_TWO_STEP_KG, false)).toEqual([]);
+  });
+
+  it("matches deriveWarmupRamp exactly when the preference is on — the default behaviour is unchanged", () => {
+    const cases: Array<[WarmupEligiblePriority | undefined, number | null]> = [
+      ["primary", 25],
+      ["primary", RAMP_TWO_STEP_KG],
+      ["primary", WARMUP_THRESHOLD_KG - 0.5],
+      ["accessory", 25],
+      ["primary", null],
+    ];
+    for (const [priority, weight] of cases) {
+      expect(deriveWarmupRampIfEnabled(priority, weight, true)).toEqual(
+        deriveWarmupRamp(priority, weight)
+      );
+    }
   });
 });

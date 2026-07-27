@@ -65,3 +65,23 @@ export function deriveWarmupRamp(
     { kg: snapToLevel(workingWeightKg * 0.75), reps: RAMP_REPS },
   ];
 }
+
+/**
+ * Same ramp, gated by the athlete's "suggest warm-up sets" preference
+ * (UserSettings.kraftWarmupSuggestions). Kept separate from deriveWarmupRamp
+ * itself so the ramp maths above stay a pure function of load — this is
+ * purely an on/off switch GuidedSession.tsx's buildWork (and the
+ * exchange-exercise path) calls instead, never the maths.
+ *
+ * Off means "stop suggesting", not "warm-ups don't exist": hand-tagging a
+ * set as a warm-up (toggleSetKind in GuidedSession.tsx) is untouched by this
+ * flag either way.
+ */
+export function deriveWarmupRampIfEnabled(
+  priority: WarmupEligiblePriority | undefined,
+  workingWeightKg: number | null | undefined,
+  suggestionsEnabled: boolean
+): WarmupRampSet[] {
+  if (!suggestionsEnabled) return [];
+  return deriveWarmupRamp(priority, workingWeightKg);
+}

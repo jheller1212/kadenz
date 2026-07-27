@@ -45,6 +45,11 @@ export interface UserSettings {
   kraftKeepAwake: boolean;
   /** Loudness of beeps & spoken cues in guided sessions and runs */
   cueVolume: "off" | "low" | "normal" | "loud";
+  /** Pre-insert a suggested warm-up ramp ahead of primary lifts in a guided
+   *  session (see lib/strength/warmup.ts). Off just stops the suggestion —
+   *  hand-tagging a set as a warm-up still works either way. Default true
+   *  preserves the ramp every existing athlete already sees. */
+  kraftWarmupSuggestions: boolean;
 
   // ── Guided run preferences ───────────────────────────────────────────────
   /** Master switch for guided-run audio cues (beeps + voice) */
@@ -113,6 +118,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   kraftGetReady: true,
   kraftKeepAwake: true,
   cueVolume: "normal",
+  kraftWarmupSuggestions: true,
   runAudio: true,
   runVoice: true,
   runGps: true,
