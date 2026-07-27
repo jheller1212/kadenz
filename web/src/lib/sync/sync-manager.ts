@@ -1,5 +1,5 @@
 import { db, syncOutbox, workouts, strengthSessions } from "@/db";
-import { eq, and, asc, or, lt, isNull } from "drizzle-orm";
+import { eq, and, or, lt, isNull, sql } from "drizzle-orm";
 import { STALE_CLAIM_MS, isMootFailure } from "./outbox-claims";
 import {
   createEvent,
@@ -216,6 +216,54 @@ export interface SyncResult {
   errors: Array<{ id: string; error: string }>;
 }
 
+/**
+ * Atomically claim up to `limit` pending jobs for a target, ordering deletes
+ * ahead of everything else. A stale entry left on the watch/calendar by a
+ * replaced plan is far more confusing than a new one arriving a few seconds
+ * late, so clearing it wins the race for outbox slots.
+ *
+ * The claim is a single UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP
+ * LOCKED) so two drains running at once (the daily cron, the 15-minute
+ * safety-net cron, and an immediate post-plan-change drain can all overlap)
+ * can never pick up the same row: Postgres locks each candidate for the
+ * duration of the subquery, and SKIP LOCKED makes the second drain skip past
+ * rows the first already grabbed instead of blocking on them. The previous
+ * select-then-update-by-id sequence had no such guarantee — a row selected
+ * by two concurrent drains before either claimed it would have been
+ * processed twice.
+ */
+export async function claimJobs(
+  target: "gcal" | "garmin",
+  limit = 50
+): Promise<Array<typeof syncOutbox.$inferSelect>> {
+  const rows = await db.execute<typeof syncOutbox.$inferSelect>(sql`
+    UPDATE sync_outbox
+    SET status = 'processing', attempts = attempts + 1, claimed_at = now()
+    WHERE id IN (
+      SELECT id FROM sync_outbox
+      WHERE target = ${target} AND status = 'pending'
+      ORDER BY (action = 'delete') DESC, created_at ASC
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING
+      id,
+      entity_type AS "entityType",
+      entity_id AS "entityId",
+      action,
+      target,
+      payload,
+      status,
+      idempotency_key AS "idempotencyKey",
+      attempts,
+      last_error AS "lastError",
+      created_at AS "createdAt",
+      processed_at AS "processedAt",
+      claimed_at AS "claimedAt"
+  `);
+  return Array.from(rows as unknown as Array<typeof syncOutbox.$inferSelect>);
+}
+
 export async function processGCalOutbox(): Promise<SyncResult> {
   const result: SyncResult = {
     processed: 0,
@@ -226,27 +274,10 @@ export async function processGCalOutbox(): Promise<SyncResult> {
 
   await resetStaleClaims("gcal");
 
-  // Fetch pending gcal jobs with remaining attempts
-  const jobs = await db
-    .select()
-    .from(syncOutbox)
-    .where(
-      and(
-        eq(syncOutbox.target, "gcal"),
-        eq(syncOutbox.status, "pending")
-      )
-    )
-    .orderBy(asc(syncOutbox.createdAt))
-    .limit(50);
+  const jobs = await claimJobs("gcal");
 
   for (const job of jobs) {
     result.processed++;
-
-    // Mark as processing
-    await db
-      .update(syncOutbox)
-      .set({ status: "processing", attempts: job.attempts + 1, claimedAt: new Date() })
-      .where(eq(syncOutbox.id, job.id));
 
     try {
       await processJob(job);
@@ -259,7 +290,8 @@ export async function processGCalOutbox(): Promise<SyncResult> {
       result.succeeded++;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      const newAttempts = job.attempts + 1;
+      // claimJobs already incremented attempts as part of the atomic claim.
+      const newAttempts = job.attempts;
       // A vanished entity or already-deleted calendar event is a settled
       // outcome, not a transient error — drop it instead of retrying to the cap.
       const nextStatus = isMootFailure(errorMsg)

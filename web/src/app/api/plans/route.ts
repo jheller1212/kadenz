@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { isNull } from "drizzle-orm";
@@ -11,6 +11,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
+import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { pruneAutoSchedule, reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { timer } from "@/lib/timing";
 
@@ -244,25 +245,31 @@ export async function POST(request: NextRequest) {
       t.mark("insertBlocks");
     }
 
-    // Queue gcal sync if connected (fire-and-forget — don't fail plan creation if sync fails)
-    isConnected().then((connected) => {
-      if (connected) {
-        queuePlanWorkoutsSync(planId, "gcal").catch((err) => {
-          console.error("Failed to queue gcal sync:", err);
-        });
-      }
-    }).catch(() => {});
-
-    // Push the first 14 days of run workouts to the watch (fire-and-forget).
-    isGarminWorkoutSyncEnabled()
-      .then((enabled) => {
-        if (enabled) {
-          queueGarminWindowSync(planId).catch((err) =>
-            console.error("Failed to queue Garmin sync:", err)
-          );
+    // Queue gcal + Garmin sync for the new plan, then drain both outboxes —
+    // registered with after() so the work survives the response being sent
+    // instead of riding a bare unawaited promise a frozen invocation can
+    // drop outright (see outbox-drain.ts). Not awaited inline: plan creation
+    // is already a multi-second operation (see the strength reconcile below
+    // and the #54 postmortem) and pushing every workout to Garmin here would
+    // risk a serverless timeout.
+    after(async () => {
+      try {
+        if (await isConnected()) {
+          await queuePlanWorkoutsSync(planId, "gcal");
         }
-      })
-      .catch(() => {});
+      } catch (err) {
+        console.error("Failed to queue gcal sync:", err);
+      }
+      try {
+        if (await isGarminWorkoutSyncEnabled()) {
+          await queueGarminWindowSync(planId);
+        }
+      } catch (err) {
+        console.error("Failed to queue Garmin sync:", err);
+      }
+      // Runs after the queueing above so the rows it just wrote are included.
+      await drainOutboxNow();
+    });
 
     // Rebuild the auto strength schedule around the new plan's run days.
     // Strength sessions have no plan FK — without this, the old plan's future

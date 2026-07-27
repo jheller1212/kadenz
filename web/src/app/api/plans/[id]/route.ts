@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { and, eq, isNotNull, isNull, ne, not, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
@@ -13,6 +13,7 @@ import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { queueRetireDeletes, retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
+import { drainOutboxNow, scheduleOutboxDrain } from "@/lib/sync/outbox-drain";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra", "custom"]),
@@ -338,33 +339,36 @@ export async function PUT(
       console.error("Failed to queue old schedule's sync deletes:", err)
     );
 
-    isConnected()
-      .then((connected) => {
-        if (connected) {
+    // Queue gcal + Garmin sync for the regenerated plan, then drain both
+    // outboxes — registered with after() so the work survives the response
+    // being sent instead of riding a bare unawaited promise a frozen
+    // invocation can drop outright (see outbox-drain.ts). The old schedule's
+    // deletes were already awaited above via queueRetireDeletes, so this
+    // drain flushes them first (deletes are prioritised — see claimJobs)
+    // before pushing anything from the new schedule.
+    const insertedWorkoutIds = insertedWorkouts.map((wo) => wo.id);
+    after(async () => {
+      try {
+        if (await isConnected()) {
           // Only push the freshly inserted workouts — a preserved workout
           // already has (or never had) its own event and must not be
           // re-queued as a "create", which would push a duplicate event and
           // overwrite the id of the one already on the calendar.
-          queuePlanWorkoutsSync(
-            id,
-            "gcal",
-            insertedWorkouts.map((wo) => wo.id)
-          ).catch((err) => console.error("Failed to queue gcal sync:", err));
+          await queuePlanWorkoutsSync(id, "gcal", insertedWorkoutIds);
         }
-      })
-      .catch(() => {});
-
-    if (garminClient.isConfigured()) {
-      isGarminWorkoutSyncEnabled()
-        .then((enabled) => {
-          if (enabled) {
-            queueGarminWindowSync(id).catch((err) =>
-              console.error("Failed to queue Garmin sync:", err)
-            );
-          }
-        })
-        .catch(() => {});
-    }
+      } catch (err) {
+        console.error("Failed to queue gcal sync:", err);
+      }
+      try {
+        if (garminClient.isConfigured() && (await isGarminWorkoutSyncEnabled())) {
+          await queueGarminWindowSync(id);
+        }
+      } catch (err) {
+        console.error("Failed to queue Garmin sync:", err);
+      }
+      // Runs after the queueing above so the rows it just wrote are included.
+      await drainOutboxNow();
+    });
 
     // Rebuild the auto strength schedule around the regenerated run days.
     // Strength sessions have no plan FK — without this, the old schedule's
@@ -423,6 +427,11 @@ export async function DELETE(
     await retirePlanSyncArtifacts(id).catch((err) =>
       console.error("Failed to retire plan's sync artifacts:", err)
     );
+
+    // Flush those deletes promptly instead of waiting for the daily cron —
+    // this is what actually clears the archived plan's workouts off the
+    // watch and calendar (see outbox-drain.ts).
+    scheduleOutboxDrain();
 
     return Response.json({ id: updated.id, status: "archived" });
   } catch (err) {
