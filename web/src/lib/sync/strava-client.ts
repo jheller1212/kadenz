@@ -2,10 +2,40 @@ import { db, syncOutbox, activities, workouts, plans, strengthSessions, deletedA
 import { eq, and, gte, lte, ne, isNull, inArray } from "drizzle-orm";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+import { isDuplicateActivity } from "./garmin-import";
+import { pickWorkoutMatch } from "./workout-match";
 
 // A Strava activity must be at least this long to auto-complete ("lock") a
 // planned strength session — guards against accidental / trivial recordings.
 const MIN_STRENGTH_MATCH_SECONDS = 5 * 60;
+
+// Same run arriving from the other source (a watch that uploads to both
+// Strava and Garmin is a common setup). Mirrors garmin-activity-import.ts's
+// isDuplicate() so the cross-source dedup is symmetric: whichever activity
+// lands second sees the first one already sitting in `activities` and backs
+// off, regardless of which source went first. The actual start+duration
+// tolerance lives in the shared pure isDuplicateActivity (garmin-import.ts);
+// this window just bounds the candidate query.
+const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+async function isDuplicateOfExisting(
+  startDate: Date,
+  durationSeconds: number | null
+): Promise<boolean> {
+  const nearby = await db
+    .select({
+      startDate: activities.startDate,
+      durationSeconds: activities.durationSeconds,
+    })
+    .from(activities)
+    .where(
+      and(
+        gte(activities.startDate, new Date(startDate.getTime() - DEDUPE_WINDOW_MS)),
+        lte(activities.startDate, new Date(startDate.getTime() + DEDUPE_WINDOW_MS))
+      )
+    );
+  return isDuplicateActivity({ startDate, durationSeconds }, nearby);
+}
 
 // ── Token storage (same pattern as gcal-client.ts) ──────────────────────────
 
@@ -359,9 +389,7 @@ export async function fetchActivity(
 /**
  * Match a Strava activity to a workout on the same day.
  * Candidates come from the active plan only (never archived plans) and
- * exclude rest days. Planned workouts win over manually-completed ones
- * that lack Strava data; ties break on targetKm closest to the actual
- * distance so multi-run days attach to the right session.
+ * exclude rest days. See pickWorkoutMatch for the selection contract.
  */
 export async function findMatchingWorkout(
   activity: Pick<StravaActivity, "start_date_local" | "distance">
@@ -385,24 +413,26 @@ export async function findMatchingWorkout(
         gte(workouts.date, dayStart),
         lte(workouts.date, dayEnd),
         ne(workouts.type, "rest"),
-        eq(plans.status, "active"),
-        isNull(workouts.stravaActivityId)
+        eq(plans.status, "active")
       )
     );
 
   if (candidates.length === 0) return null;
 
-  const distanceKm = activity.distance / 1000;
-  const byDistance = (pool: typeof candidates) =>
-    [...pool].sort(
-      (a, b) =>
-        Math.abs((a.targetKm ?? 0) - distanceKm) -
-        Math.abs((b.targetKm ?? 0) - distanceKm)
-    )[0];
+  // A workout already backed by a recorded activity — from EITHER source —
+  // must never be matched again. stravaActivityId alone can't carry that:
+  // Garmin's importRun completes a workout by setting status/actualKm only,
+  // never stravaActivityId, so a workout already completed from a Garmin run
+  // still looked open to this matcher and could be re-linked (and its
+  // actualKm overwritten) by a later Strava upload of the same run. Same
+  // "linked activity" check findMatchingStrengthSession already uses below.
+  const linked = await db
+    .select({ workoutId: activities.workoutId })
+    .from(activities)
+    .where(inArray(activities.workoutId, candidates.map((c) => c.id)));
+  const linkedIds = new Set(linked.map((l) => l.workoutId).filter((id): id is string => id != null));
 
-  const planned = candidates.filter((c) => c.status === "planned");
-  const best = planned.length > 0 ? byDistance(planned) : byDistance(candidates);
-  return best?.id ?? null;
+  return pickWorkoutMatch(candidates, linkedIds, activity.distance / 1000);
 }
 
 // Strava sport types we treat as a strength/lifting session.
@@ -478,6 +508,14 @@ export async function processActivity(activityId: number): Promise<ProcessResult
 
   const avgHr = activity.average_heartrate ? Math.round(activity.average_heartrate) : null;
   const maxHr = activity.max_heartrate ? Math.round(activity.max_heartrate) : null;
+
+  // Cross-source dedup: the same physical run/session may already have
+  // arrived via the Garmin worker (a watch that uploads to both is the
+  // common case). Check before inserting so the same run never produces two
+  // `activities` rows regardless of arrival order.
+  if (await isDuplicateOfExisting(new Date(activity.start_date), activity.moving_time)) {
+    return "duplicate";
+  }
 
   // ── Strength: store + match to a strength session ──────────────────────────
   if (isStrength) {

@@ -109,6 +109,20 @@ export async function POST(
       })
       .returning();
 
+    // A logged set is unambiguous proof the athlete started this session —
+    // clear autoScheduled the same way a meaningful sessions PATCH does, so a
+    // half-logged session is structurally no longer scheduler filler the
+    // prune sweep could hard-delete out from under it (isPrunable's own
+    // logged-data guard is the backstop if this ever misses).
+    try {
+      await db
+        .update(strengthSessions)
+        .set({ autoScheduled: false })
+        .where(and(eq(strengthSessions.id, id), eq(strengthSessions.autoScheduled, true)));
+    } catch (err) {
+      console.error("Failed to clear autoScheduled after logging set:", err);
+    }
+
     // PR check: compare this set against every other completed session that
     // logged the same exercise (the current, in-progress session is excluded
     // by the status filter, so it can never be its own prior best). See
