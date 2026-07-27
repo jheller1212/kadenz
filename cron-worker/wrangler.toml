@@ -2,6 +2,12 @@ name = "kadenz-cron"
 main = "src/index.ts"
 compatibility_date = "2026-07-27"
 
+# This Worker is reached only by its cron trigger, never over HTTP, so it needs
+# no public route. Without this, deploy fails asking for a workers.dev
+# subdomain it would never use, and publishing one would expose an endpoint
+# that only exists to hold a secret.
+workers_dev = false
+
 # Every 5 minutes. Reminders and the sync-drain safety net both want
 # minute-scale granularity, not the hour-plus gaps GitHub Actions'
 # best-effort `schedule` trigger was actually delivering (see README).
