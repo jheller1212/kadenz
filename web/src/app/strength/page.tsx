@@ -393,10 +393,17 @@ export default function StrengthPage() {
   }, []);
 
   // ── Picker → adopt today's planned session of this type, or create one ──────
+  // Tapping a programme card (e.g. "Upper") used to sit on the picker doing
+  // nothing visible while up to three API calls ran in sequence (list check,
+  // create, then a full detail refetch) — a silent 1+ second wait right
+  // before the screen the athlete needs to reorder from. Show the overview
+  // shell (skeleton) immediately, the same way the deep-link path already
+  // does, so the tap feels instant and the real content fills in as it loads.
   async function pickType(type: SessionType) {
     setBusy(true);
     setError(null);
     fromDeepLinkRef.current = false; // picker-started → Back returns to picker
+    setPhase("overview"); // shell now, session fills in below
     try {
       let sessionId: string | null = null;
       adHocIdRef.current = null;
@@ -422,25 +429,43 @@ export default function StrengthPage() {
         });
         if (!res.ok) {
           setError("Couldn't start the session. Try again.");
+          setPhase("picker");
           return;
         }
-        const { session: s } = await res.json();
-        sessionId = s.id as string;
-        adHocIdRef.current = sessionId;
+        // The create response already carries the freshly-built plan — a
+        // brand-new session has no sets, overrides or linked activity yet,
+        // so build the detail straight from it instead of immediately
+        // re-fetching the exact same thing via GET /sessions/[id].
+        const { session: s, plannedExercises: created } = await res.json();
+        const detail: SessionDetail = {
+          id: s.id,
+          type: s.type,
+          title: s.title,
+          status: s.status,
+          targetDurationMinutes: s.targetDurationMinutes,
+          plannedExercises: created,
+          exerciseOverrides: s.exerciseOverrides ?? [],
+        };
+        adHocIdRef.current = s.id as string;
+        setSession(detail);
+        setExercises(detail.plannedExercises);
+        setSortMode("custom");
+        return;
       }
 
       const detailRes = await apiFetch(`/api/strength/sessions/${sessionId}`);
       if (!detailRes.ok) {
         setError("Couldn't load the session. Try again.");
+        setPhase("picker");
         return;
       }
       const detail: SessionDetail = await detailRes.json();
       setSession(detail);
       setExercises(detail.plannedExercises);
       setSortMode("custom");
-      setPhase("overview");
     } catch {
       setError("Network error — couldn't start the session.");
+      setPhase("picker");
     } finally {
       setBusy(false);
     }

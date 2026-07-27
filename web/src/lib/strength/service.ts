@@ -41,40 +41,42 @@ function weekNumberFor(date: Date, startDate: Date): number {
   return Math.max(1, Math.floor(diffDays / 7) + 1);
 }
 
-/** 1-based program week for a date, from the active plan's start date. */
-export async function getProgramWeek(date: Date): Promise<number> {
-  const [plan] = await db
-    .select({ startDate: plans.startDate })
-    .from(plans)
-    .where(eq(plans.status, "active"))
-    .limit(1);
-  if (!plan) return 1;
-  return weekNumberFor(date, plan.startDate);
-}
-
 /**
- * The active running plan's phase/type (base/build/peak/taper,
- * normal/deload/race) for the week containing `date` — drives the strength
- * set-count backoff in phase-policy.ts. Null with no active plan: a
- * standalone strength block has no phase concept and its sessions are left
- * exactly as their template/ability prescribes (see schedule.ts's `block`
- * branch, which never touches this).
+ * The active running plan's id + start date, or null with no active plan.
+ * Both the program week and the week's phase info derive from this same row
+ * — fetched once and reused, rather than each querying `plans` on its own
+ * (they used to, doubling a round trip that costs real latency over the pooled
+ * connection on every planned-session build).
  */
-export async function getWeekPhaseInfo(
-  date: Date
-): Promise<{ phase: string; type: string } | null> {
+async function getActivePlanRef(): Promise<{ id: string; startDate: Date } | null> {
   const [plan] = await db
     .select({ id: plans.id, startDate: plans.startDate })
     .from(plans)
     .where(eq(plans.status, "active"))
     .limit(1);
-  if (!plan) return null;
+  return plan ?? null;
+}
+
+/**
+ * Program week + week phase info (base/build/peak/taper, normal/deload/race
+ * — drives the strength set-count backoff in phase-policy.ts) together, from
+ * a single active-plan lookup instead of two separate ones against `plans`
+ * (see getActivePlanRef). Null weekInfo with no active plan: a standalone
+ * strength block has no phase concept and its sessions are left exactly as
+ * their template/ability prescribes (see schedule.ts's `block` branch, which
+ * never touches this).
+ */
+async function getProgramWeekAndPhase(
+  date: Date
+): Promise<{ programWeek: number; weekInfo: { phase: string; type: string } | null }> {
+  const plan = await getActivePlanRef();
+  if (!plan) return { programWeek: 1, weekInfo: null };
   const weekNumber = weekNumberFor(date, plan.startDate);
   const [week] = await db
     .select({ phase: weeks.phase, type: weeks.type })
     .from(weeks)
     .where(and(eq(weeks.planId, plan.id), eq(weeks.weekNumber, weekNumber)));
-  return week ?? null;
+  return { programWeek: weekNumber, weekInfo: week ?? null };
 }
 
 /**
@@ -178,15 +180,23 @@ export async function buildPlannedSession(
   date: Date,
   profileId: string | null = null,
   targetDurationMinutes?: number,
-  exerciseOverrides: ExerciseOverride[] = []
+  exerciseOverrides: ExerciseOverride[] = [],
+  // Callers that already fetched the settings row for their own purposes
+  // (e.g. the duration to fit against) pass it through here so this doesn't
+  // hit `strength_plan_settings` a second time for the same profile — see
+  // getStrengthPlanSettingsRow. `undefined` (not passed) means "fetch it";
+  // `null` explicitly means "known absent, don't bother querying".
+  preloadedSettingsRow?: PlanSettingsRow | null
 ): Promise<PlannedSessionResult> {
-  const [programWeek, historyBySlug, painGate, planSettings, weekInfo] = await Promise.all([
-    getProgramWeek(date),
+  const [{ programWeek, weekInfo }, historyBySlug, painGate, settingsRow] = await Promise.all([
+    getProgramWeekAndPhase(date),
     getExerciseHistoryBySlug(date, profileId),
     getPainGate(date),
-    getPlanSettingsForLoads(profileId),
-    getWeekPhaseInfo(date),
+    preloadedSettingsRow !== undefined
+      ? Promise.resolve(preloadedSettingsRow)
+      : getStrengthPlanSettingsRow(profileId),
   ]);
+  const planSettings = derivePlanSettingsForLoads(settingsRow);
   const plan = buildSessionPlan(type, {
     programWeek,
     historyBySlug,
@@ -208,36 +218,32 @@ export async function buildPlannedSession(
   return { exercises, estimatedDurationMinutes: estimateSessionMinutes(exercises) };
 }
 
-/** The athlete's chosen Kraft session length (30/45/60 min), if configured. */
-export async function getPlanDurationMinutes(
-  profileId: string | null
-): Promise<number | undefined> {
-  const [row] = await db
-    .select({ durationMinutes: strengthPlanSettings.durationMinutes })
-    .from(strengthPlanSettings)
-    .where(
-      profileId
-        ? eq(strengthPlanSettings.profileId, profileId)
-        : isNull(strengthPlanSettings.profileId)
-    );
-  return row?.durationMinutes ?? undefined;
+/** Raw `strength_plan_settings` row shape shared by duration lookups and
+ *  load-model derivation — fetched once per request and reused, see
+ *  getStrengthPlanSettingsRow. */
+export interface PlanSettingsRow {
+  durationMinutes: number | null;
+  ability: string | null;
+  bodyweightKg: number | null;
+  sex: string | null;
+  complaints: string[] | null;
+  restSeconds: number | null;
+  equipment: string[] | null;
 }
 
 /**
- * Ability + cold-start load inputs from the weekly-plan wizard settings, if
- * configured. `ability` doubles as lifting experience for the load model.
+ * The full `strength_plan_settings` row for a profile in one query — every
+ * column any caller in this file needs. Callers that used to run a narrow
+ * `getPlanDurationMinutes` query and then hand off to `buildPlannedSession`
+ * (which queried the same table again for the rest of the columns) now fetch
+ * this once and pass it straight through instead.
  */
-async function getPlanSettingsForLoads(profileId: string | null): Promise<{
-  ability: "beginner" | "intermediate" | "advanced" | undefined;
-  lifterProfile: LifterProfile | null;
-  complaints: Complaint[];
-  restSeconds: number | null;
-  /** Available equipment (Kraft setup); null = not configured yet — every
-   *  session slot keeps its base exercise, unfiltered (see session.ts). */
-  equipment: Equipment[] | null;
-}> {
+export async function getStrengthPlanSettingsRow(
+  profileId: string | null
+): Promise<PlanSettingsRow | null> {
   const [row] = await db
     .select({
+      durationMinutes: strengthPlanSettings.durationMinutes,
       ability: strengthPlanSettings.ability,
       bodyweightKg: strengthPlanSettings.bodyweightKg,
       sex: strengthPlanSettings.sex,
@@ -251,6 +257,28 @@ async function getPlanSettingsForLoads(profileId: string | null): Promise<{
         ? eq(strengthPlanSettings.profileId, profileId)
         : isNull(strengthPlanSettings.profileId)
     );
+  return row ?? null;
+}
+
+/** The athlete's chosen Kraft session length (30/45/60 min), if configured. */
+export function planDurationMinutesFromRow(row: PlanSettingsRow | null): number | undefined {
+  return row?.durationMinutes ?? undefined;
+}
+
+/**
+ * Ability + cold-start load inputs from the weekly-plan wizard settings, if
+ * configured. `ability` doubles as lifting experience for the load model.
+ * Pure derivation from an already-fetched row — see getStrengthPlanSettingsRow.
+ */
+function derivePlanSettingsForLoads(row: PlanSettingsRow | null): {
+  ability: "beginner" | "intermediate" | "advanced" | undefined;
+  lifterProfile: LifterProfile | null;
+  complaints: Complaint[];
+  restSeconds: number | null;
+  /** Available equipment (Kraft setup); null = not configured yet — every
+   *  session slot keeps its base exercise, unfiltered (see session.ts). */
+  equipment: Equipment[] | null;
+} {
   const a = row?.ability;
   const ability =
     a === "beginner" || a === "intermediate" || a === "advanced" ? a : undefined;
