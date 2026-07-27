@@ -81,21 +81,25 @@ readiness, #71 profile soft delete, #72 doc correction. No open PRs.
 
 ## 3. Product work, ready to build
 
-### 3.1 Readiness from real physiology
-Today readiness uses: self-reported energy, sleep QUALITY 1-5, soreness,
-illness and injury, plus pain logs, RPE and 7-day volume against the prior
-3-week average. No physiological input at all.
+### 3.1 Readiness from real physiology (SHIPPED #70, deployed)
+Readiness previously used only self-report: energy, sleep QUALITY 1-5,
+soreness, illness and injury, plus pain logs, RPE and 7-day volume against the
+prior 3-week average. It now also uses the watch.
 
-Two sources exist and are unused:
+**Source: Garmin, not Intervals.icu.** `intervals-client.ts` turned out to be
+a stub where every method throws `NOT_IMPLEMENTED`, and no
+`INTERVALS_ICU_*` credentials exist in Vercel or any local env. It was never a
+real option, despite looking like one. The Garmin worker was already deployed
+and authenticated, so `/wellness` was added there instead, pulling sleep
+duration and resting HR from `garth.DailySleepData` and HRV from
+`garth.HRVData`.
 
-- `web/src/lib/sync/intervals-client.ts` already types weight, resting HR, HRV
-  and sleep from Intervals.icu. Imported nowhere. Check whether Jonas actually
-  has an account with data before building on it.
-- The Garmin worker authenticates via `garth`, which exposes daily sleep, HRV
-  status, resting heart rate, stress and Body Battery. The worker has no
-  wellness endpoints today, so this is real work in the Python service.
+Shipped: `wellness_metrics` table, a daily pull on the existing cron that
+backfills up to 60 nights of watch history, and `web/src/lib/physiology.ts`
+holding the baseline maths as pure tested functions.
 
-Design constraints that matter more than the plumbing:
+The design constraints below were the point of the exercise and still govern
+any change to it:
 
 - HRV means nothing in absolute terms. It signals only against the athlete's
   own rolling baseline, conventionally 7-day against 30 to 60 day. A single
@@ -108,6 +112,13 @@ Design constraints that matter more than the plumbing:
   signals. "HRV 18 percent below your baseline" beats "Readiness 62".
 - Device sleep DURATION and check-in sleep QUALITY are different things. Keep
   both.
+
+As built: a **21-night warm-up floor** (`MIN_BASELINE_NIGHTS`). Below it the
+physiological signal contributes exactly zero and the card says "Building your
+recovery baseline from the watch (N/21 days)" rather than inventing a verdict.
+Above it, a 7-day recent average runs against a 30 to 60 day baseline, and
+every adjustment carries a reason. The 60-night backfill means the warm-up may
+clear faster than three weeks from a standing start.
 
 ### 3.2 Apple Health
 HealthKit has no web API and a PWA cannot read it. The realistic bridges are a
