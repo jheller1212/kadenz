@@ -4,11 +4,11 @@
 // so retries and the daily cron top-up reuse the same machinery as gcal.
 
 import { db, syncOutbox, workouts, plans, strengthSessions } from "@/db";
-import { eq, and, asc, gte, lte, ne, isNull, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, ne, isNull, isNotNull, inArray } from "drizzle-orm";
 import { garminClient, toGarminDate } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
-import { resetStaleClaims } from "./sync-manager";
+import { resetStaleClaims, claimJobs } from "./sync-manager";
 import { rowsNeedingRepush } from "./garmin-heal";
 import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
 import { garminLabel, garminDescription, planWeekNumber } from "./garmin-label";
@@ -353,19 +353,14 @@ export async function processGarminOutbox(): Promise<SyncResult> {
 
   const result: SyncResult = { processed: 0, succeeded: 0, failed: 0, errors: [] };
 
-  const jobs = await db
-    .select()
-    .from(syncOutbox)
-    .where(and(eq(syncOutbox.target, "garmin"), eq(syncOutbox.status, "pending")))
-    .orderBy(asc(syncOutbox.createdAt))
-    .limit(50);
+  // Atomic claim (see claimJobs in sync-manager.ts) — safe against two
+  // drains running at once, and orders deletes ahead of creates so a stale
+  // watch entry from a replaced plan clears before the new plan's workouts
+  // compete for outbox slots.
+  const jobs = await claimJobs("garmin");
 
   for (const job of jobs) {
     result.processed++;
-    await db
-      .update(syncOutbox)
-      .set({ status: "processing", attempts: job.attempts + 1, claimedAt: new Date() })
-      .where(eq(syncOutbox.id, job.id));
 
     try {
       await processGarminJob(job);
@@ -376,7 +371,8 @@ export async function processGarminOutbox(): Promise<SyncResult> {
       result.succeeded++;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      const newAttempts = job.attempts + 1;
+      // claimJobs already incremented attempts as part of the atomic claim.
+      const newAttempts = job.attempts;
       await db
         .update(syncOutbox)
         .set({

@@ -1,0 +1,39 @@
+name: Sync outbox drain
+
+# Safety net for delivering plan changes to Google Calendar and the watch.
+# A plan create/edit/delete already triggers its own drain immediately (see
+# web/src/lib/sync/outbox-drain.ts), so this is not the primary delivery
+# path — it exists in case that drain gets cut off mid-flight (hard
+# serverless timeout, a bad deploy) and nothing else would pick the leftover
+# rows up until the once-daily /api/cron/gcal run.
+#
+# Same reasoning as reminders.yml: Vercel Hobby allows exactly one cron job
+# and that slot is spent on /api/cron/gcal, but the repo is public so GitHub
+# Actions minutes are free. See web/src/app/api/cron/sync-drain/route.ts for
+# why this is safe to run this often and concurrently with everything else.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-outbox-drain
+  cancel-in-progress: true
+
+jobs:
+  drain:
+    name: Drain sync outbox
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call sync-drain cron endpoint
+        run: |
+          status=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
+            -X GET "https://kadenz-tau.vercel.app/api/cron/sync-drain" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP status: $status"
+          cat /tmp/response.txt
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Sync drain failed with status $status"
+            exit 1
+          fi
