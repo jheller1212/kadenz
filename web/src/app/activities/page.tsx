@@ -259,6 +259,64 @@ const FILTER_TYPE_MAP: Record<string, string[]> = {
   "Strength": ["strength"],
 };
 
+// ── Feed window ────────────────────────────────────────────────────────────────
+// The feed defaults to a rolling window rather than the athlete's whole
+// history — /api/activities used to run four unbounded queries (including
+// one pulling every run's splitsJson blob) on every load. Keep in sync with
+// DEFAULT_WINDOW_MONTHS in api/activities/route.ts.
+
+const DEFAULT_WINDOW_MONTHS = 12;
+
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// Year filter options. There's no cheap way to know the athlete's very first
+// activity without the full-history scan this change removes, so this is a
+// generous fixed lookback rather than a query — old enough to predate the
+// app, recent enough not to clutter the picker.
+const YEAR_OPTIONS_BACK = 6;
+
+/**
+ * Turn the year/month filters into the from/to window sent to /api/activities.
+ * - Year picked (any month): that whole calendar year.
+ * - Year + month picked: that single month.
+ * - Month picked, no year: that month in the current year — the natural
+ *   reading of "March" with nothing else selected.
+ * - Neither: the default rolling window, open-ended so nothing that just
+ *   synced a moment in the future gets excluded.
+ */
+function computeWindow(yearFilter: string, monthFilter: string): { from: string; to: string | null } {
+  const now = new Date();
+  const monthIndex = monthFilter === "All" ? null : MONTHS.indexOf(monthFilter);
+
+  if (yearFilter !== "All") {
+    const year = Number(yearFilter);
+    if (monthIndex != null) {
+      return {
+        from: new Date(year, monthIndex, 1).toISOString(),
+        to: new Date(year, monthIndex + 1, 1).toISOString(),
+      };
+    }
+    return {
+      from: new Date(year, 0, 1).toISOString(),
+      to: new Date(year + 1, 0, 1).toISOString(),
+    };
+  }
+
+  if (monthIndex != null) {
+    const year = now.getFullYear();
+    return {
+      from: new Date(year, monthIndex, 1).toISOString(),
+      to: new Date(year, monthIndex + 1, 1).toISOString(),
+    };
+  }
+
+  const from = new Date(now.getFullYear(), now.getMonth() - (DEFAULT_WINDOW_MONTHS - 1), 1);
+  return { from: from.toISOString(), to: null };
+}
+
 // ── Loading skeleton ──────────────────────────────────────────────────────────
 
 function ActivitiesSkeleton() {
@@ -492,35 +550,41 @@ function WorkoutsTab({
   workouts,
   trashCount,
   onOpenTrash,
+  yearFilter,
+  setYearFilter,
+  monthFilter,
+  setMonthFilter,
 }: {
   workouts: ActivityWorkout[];
   trashCount: number;
   onOpenTrash: () => void;
+  yearFilter: string;
+  setYearFilter: (v: string) => void;
+  monthFilter: string;
+  setMonthFilter: (v: string) => void;
 }) {
   const [typeFilter, setTypeFilter] = useState("All");
-  const [yearFilter, setYearFilter] = useState("All");
-  const [monthFilter, setMonthFilter] = useState("All");
 
-  const years = Array.from(
-    new Set(workouts.map((wo) => new Date(wo.date).getFullYear().toString()))
-  ).sort((a, b) => Number(b) - Number(a));
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: YEAR_OPTIONS_BACK }, (_, i) => (currentYear - i).toString());
 
-  const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-  ];
-
+  // The server already scopes `workouts` to the year/month window (see
+  // computeWindow) — only the type filter still needs to run client-side.
   const filtered = workouts.filter((wo) => {
     if (wo.type === "rest") return false;
-    const d = new Date(wo.date);
-    const typeMatch =
-      typeFilter === "All" || FILTER_TYPE_MAP[typeFilter]?.includes(wo.type);
-    const yearMatch = yearFilter === "All" || d.getFullYear().toString() === yearFilter;
-    const monthMatch = monthFilter === "All" || d.getMonth() === months.indexOf(monthFilter);
-    return typeMatch && yearMatch && monthMatch;
+    return typeFilter === "All" || FILTER_TYPE_MAP[typeFilter]?.includes(wo.type);
   });
 
   const groups = groupByMonth(filtered);
+
+  const windowCaption =
+    yearFilter !== "All"
+      ? monthFilter !== "All"
+        ? `Showing ${monthFilter} ${yearFilter}.`
+        : `Showing all of ${yearFilter}.`
+      : monthFilter !== "All"
+      ? `Showing ${monthFilter} ${currentYear}.`
+      : `Showing the last ${DEFAULT_WINDOW_MONTHS} months. Pick a year for older training.`;
 
   return (
     <div className="flex flex-col gap-5">
@@ -544,7 +608,7 @@ function WorkoutsTab({
         <div className="relative shrink-0">
           <select
             value={yearFilter}
-            onChange={(e) => setYearFilter(e.target.value)}
+            onChange={(e) => { haptic("light"); setYearFilter(e.target.value); }}
             className="press appearance-none rounded-full bg-elevated py-1.5 pl-3 pr-7 text-[13px] font-semibold text-text-1 focus:outline-none"
           >
             <option value="All">Year</option>
@@ -559,17 +623,21 @@ function WorkoutsTab({
         <div className="relative shrink-0">
           <select
             value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
+            onChange={(e) => { haptic("light"); setMonthFilter(e.target.value); }}
             className="press appearance-none rounded-full bg-elevated py-1.5 pl-3 pr-7 text-[13px] font-semibold text-text-1 focus:outline-none"
           >
             <option value="All">Month</option>
-            {months.map((m) => <option key={m} value={m}>{m}</option>)}
+            {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </div>
       </div>
+
+      {/* Windowed-feed indicator — the feed is scoped by default, this says so
+          rather than letting older training look like it disappeared. */}
+      <p className="-mt-2 text-[12px] text-text-3">{windowCaption}</p>
 
       {/* Month groups */}
       {groups.length === 0 ? (
@@ -821,9 +889,16 @@ export default function ActivitiesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  // Owned here (not inside WorkoutsTab) because the window they imply is a
+  // server request, not a client-side filter — see computeWindow.
+  const [yearFilter, setYearFilter] = useState("All");
+  const [monthFilter, setMonthFilter] = useState("All");
+
   async function load() {
     try {
-      const r = await apiFetch("/api/activities");
+      const { from, to } = computeWindow(yearFilter, monthFilter);
+      const qs = new URLSearchParams({ from, ...(to ? { to } : {}) });
+      const r = await apiFetch(`/api/activities?${qs.toString()}`);
       if (!r.ok) throw new Error("Failed to load activities");
       const data: ActivitiesApiResponse = await r.json();
       // Use activities (real Strava data) if available, fall back to workouts
@@ -836,8 +911,11 @@ export default function ActivitiesPage() {
     }
   }
 
+  // Re-fetches whenever the year/month filter changes — selecting an older
+  // year asks the server for that period rather than filtering a list that
+  // was never sent in the first place.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [yearFilter, monthFilter]);
 
   // Garmin has no activity webhook (unlike Strava), so nothing pushes new watch
   // activities in. Pull them in the background when this screen opens — throttled
@@ -1008,6 +1086,10 @@ export default function ActivitiesPage() {
               workouts={workouts}
               trashCount={trashItems.length}
               onOpenTrash={() => setTrashOpen(true)}
+              yearFilter={yearFilter}
+              setYearFilter={setYearFilter}
+              monthFilter={monthFilter}
+              setMonthFilter={setMonthFilter}
             />
           </EditContext.Provider>
         ) : (

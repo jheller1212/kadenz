@@ -40,122 +40,123 @@ function splitPacesFromJson(raw: unknown, max = 12): number[] | null {
 
 export async function GET(request: NextRequest) {
   const profileId = getActiveProfileId(request);
+  const { searchParams } = new URL(request.url);
+  // Client-controlled window (activities/page.tsx always sends both; see
+  // DEFAULT_WINDOW_MONTHS above for the fallback when it doesn't). Selecting
+  // an older year re-requests with that year's from/to — it is never a
+  // client-side filter over a truncated list, which is what would silently
+  // break once this route stopped returning full history.
+  const fromParam = searchParams.get("from");
+  const toParam = searchParams.get("to");
+  const windowFrom = fromParam ? new Date(fromParam) : defaultFrom();
+  const windowTo = toParam ? new Date(toParam) : null;
+
   try {
-    // 1. Get all Strava activities (the real data). Strava is the owner's
-    //    device — guest profiles see only their own in-app sessions.
-    const allActivities = profileId
-      ? []
-      : await db
-          // Only what the list renders. `select()` also pulled splitsJson,
-          // lapsJson, polyline and aiInsight — megabytes of per-activity JSON
-          // that nothing here reads (the detail route fetches those).
-          .select({
-            id: activities.id,
-            stravaId: activities.stravaId,
-            garminId: activities.garminId,
-            sportType: activities.sportType,
-            name: activities.name,
-            startDate: activities.startDate,
-            distanceKm: activities.distanceKm,
-            durationSeconds: activities.durationSeconds,
-            avgPaceSecKm: activities.avgPaceSecKm,
-            avgHr: activities.avgHr,
-            maxHr: activities.maxHr,
-            elevationGain: activities.elevationGain,
-            workoutId: activities.workoutId,
-            strengthSessionId: activities.strengthSessionId,
-            createdAt: activities.createdAt,
-          })
-          .from(activities)
-          .orderBy(desc(activities.startDate), desc(activities.createdAt));
+    // Every table below is scoped to [windowFrom, windowTo]. Activities and
+    // strength sessions are independent of each other, so fetch them (and
+    // the active plan) together instead of serialising three round-trips
+    // over the single DB connection (postgres({ max: 1 }) in src/db/index.ts).
+    const [allActivities, [activePlan], strengthRows] = await Promise.all([
+      // 1. Strava activities in the window. Strava is the owner's device —
+      //    guest profiles see only their own in-app sessions.
+      profileId
+        ? Promise.resolve([])
+        : db
+            // Only what the list renders. `select()` also pulled splitsJson,
+            // lapsJson, polyline and aiInsight — megabytes of per-activity JSON
+            // that nothing here reads (the detail route fetches those).
+            .select({
+              id: activities.id,
+              stravaId: activities.stravaId,
+              garminId: activities.garminId,
+              sportType: activities.sportType,
+              name: activities.name,
+              startDate: activities.startDate,
+              distanceKm: activities.distanceKm,
+              durationSeconds: activities.durationSeconds,
+              avgPaceSecKm: activities.avgPaceSecKm,
+              avgHr: activities.avgHr,
+              maxHr: activities.maxHr,
+              elevationGain: activities.elevationGain,
+              workoutId: activities.workoutId,
+              strengthSessionId: activities.strengthSessionId,
+              createdAt: activities.createdAt,
+            })
+            .from(activities)
+            // startDate is null for a handful of legacy/manual rows, which is
+            // also why the list orders by createdAt as a tiebreak — fall back
+            // to createdAt for the window check on exactly those rows too, so
+            // they don't silently disappear from every window.
+            .where(
+              or(
+                and(
+                  gte(activities.startDate, windowFrom),
+                  windowTo ? lte(activities.startDate, windowTo) : undefined
+                ),
+                and(
+                  isNull(activities.startDate),
+                  gte(activities.createdAt, windowFrom),
+                  windowTo ? lte(activities.createdAt, windowTo) : undefined
+                )
+              )
+            )
+            .orderBy(desc(activities.startDate), desc(activities.createdAt)),
 
-    // 2. Get active plan for linking workout details
-    const [activePlan] = await db
-      .select({ id: plans.id, name: plans.name })
-      .from(plans)
-      .where(eq(plans.status, "active"))
-      .limit(1);
+      // Active plan, for linking workout details.
+      db
+        .select({ id: plans.id, name: plans.name })
+        .from(plans)
+        .where(eq(plans.status, "active"))
+        .limit(1),
 
-    // 3. For activities linked to workouts, fetch workout details
+      // 5. Strength sessions in the same window — unified feed + enrichment.
+      db
+        .select()
+        .from(strengthSessions)
+        .where(
+          and(
+            profileId
+              ? eq(strengthSessions.profileId, profileId)
+              : isNull(strengthSessions.profileId),
+            gte(strengthSessions.date, windowFrom),
+            windowTo ? lte(strengthSessions.date, windowTo) : undefined
+          )
+        ),
+    ]);
+
+    // For activities linked to workouts, fetch workout details; planned
+    // (missed) workouts on the active plan; and this window's strength sets.
+    // These three depend on the results above but not on each other.
     const linkedWorkoutIds = allActivities
       .filter((a) => a.workoutId)
       .map((a) => a.workoutId!);
 
-    const workoutMap = new Map<
-      string,
-      { type: string; title: string; blocks: unknown[] }
-    >();
+    const [linkedWorkouts, planned, allSets] = await Promise.all([
+      linkedWorkoutIds.length > 0
+        ? db.query.workouts.findMany({
+            where: (wo, { inArray }) => inArray(wo.id, linkedWorkoutIds),
+            with: {
+              blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
+            },
+          })
+        : Promise.resolve([]),
 
-    if (linkedWorkoutIds.length > 0) {
-      const linkedWorkouts = await db.query.workouts.findMany({
-        where: (wo, { inArray }) => inArray(wo.id, linkedWorkoutIds),
-        with: {
-          blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
-        },
-      });
-      for (const wo of linkedWorkouts) {
-        workoutMap.set(wo.id, {
-          type: wo.type,
-          title: wo.title,
-          blocks: wo.blocks,
-        });
-      }
-    }
+      activePlan
+        ? db.query.workouts.findMany({
+            where: (wo, { and, eq }) =>
+              and(eq(wo.planId, activePlan.id), eq(wo.status, "planned")),
+            orderBy: (wo, { desc }) => [desc(wo.date)],
+            with: {
+              blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
+            },
+          })
+        : Promise.resolve([]),
 
-    // 4. Also get planned (future) workouts that haven't been completed yet
-    let plannedWorkouts: Array<{
-      id: string;
-      type: string;
-      title: string;
-      date: Date;
-      status: string;
-      targetKm: number | null;
-      targetDurationMinutes: number | null;
-      blocks: unknown[];
-    }> = [];
-
-    if (activePlan) {
-      const planned = await db.query.workouts.findMany({
-        where: (wo, { and, eq }) =>
-          and(eq(wo.planId, activePlan.id), eq(wo.status, "planned")),
-        orderBy: (wo, { desc }) => [desc(wo.date)],
-        with: {
-          blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
-        },
-      });
-      // Only include planned workouts in the past (missed) — not future ones
-      const now = new Date();
-      plannedWorkouts = planned
-        .filter((wo) => isPastDuePlanned(wo, now) && wo.type !== "rest")
-        .map((wo) => ({
-          id: wo.id,
-          type: wo.type,
-          title: wo.title,
-          date: wo.date,
-          status: wo.status,
-          targetKm: wo.targetKm,
-          targetDurationMinutes: wo.targetDurationMinutes,
-          blocks: wo.blocks,
-        }));
-    }
-
-    // 5. Strength sessions — for a unified feed and to enrich linked activities.
-    const strengthRows = await db
-      .select()
-      .from(strengthSessions)
-      .where(
-        profileId
-          ? eq(strengthSessions.profileId, profileId)
-          : isNull(strengthSessions.profileId)
-      );
-    const sessionMap = new Map(strengthRows.map((s) => [s.id, s]));
-
-    // All logged sets for these sessions, batched once — feeds both the
-    // "has any logged sets" check below and the feed's per-session tonnage
-    // mini chart (real weight × reps per set, never invented numbers).
-    const allSets =
+      // All logged sets for this window's sessions, batched once — feeds both
+      // the "has any logged sets" check below and the feed's per-session
+      // tonnage mini chart (real weight × reps per set, never invented numbers).
       strengthRows.length > 0
-        ? await db
+        ? db
             .select({
               sessionId: strengthSets.sessionId,
               weightKg: strengthSets.weightKg,
@@ -170,7 +171,37 @@ export async function GET(request: NextRequest) {
                 strengthRows.map((s) => s.id)
               )
             )
-        : [];
+        : Promise.resolve([]),
+    ]);
+
+    const workoutMap = new Map<
+      string,
+      { type: string; title: string; blocks: unknown[] }
+    >();
+    for (const wo of linkedWorkouts) {
+      workoutMap.set(wo.id, {
+        type: wo.type,
+        title: wo.title,
+        blocks: wo.blocks,
+      });
+    }
+
+    // Only include planned workouts in the past (missed) — not future ones
+    const now = new Date();
+    const plannedWorkouts = planned
+      .filter((wo) => isPastDuePlanned(wo, now) && wo.type !== "rest")
+      .map((wo) => ({
+        id: wo.id,
+        type: wo.type,
+        title: wo.title,
+        date: wo.date,
+        status: wo.status,
+        targetKm: wo.targetKm,
+        targetDurationMinutes: wo.targetDurationMinutes,
+        blocks: wo.blocks,
+      }));
+
+    const sessionMap = new Map(strengthRows.map((s) => [s.id, s]));
 
     // Which sessions actually logged at least one set (reps recorded). Sessions
     // with zero logged sets are treated as never-really-done and kept out of the
@@ -273,7 +304,6 @@ export async function GET(request: NextRequest) {
 
     // 7. Strength sessions without a recorded activity → standalone feed items
     //    (completed in-app, or past-planned = missed). Future ones are skipped.
-    const now = new Date();
     const linkedSessionIds = new Set(
       allActivities.filter((a) => a.strengthSessionId).map((a) => a.strengthSessionId!)
     );
@@ -325,6 +355,11 @@ export async function GET(request: NextRequest) {
       activities: unified,
       plannedWorkouts,
       planName: activePlan?.name ?? null,
+      // Echoes the window actually applied (including the server fallback
+      // when the client sent no `from`), so the feed can tell the athlete
+      // it's showing a range rather than letting them think older training
+      // vanished.
+      window: { from: windowFrom.toISOString(), to: windowTo ? windowTo.toISOString() : null },
     });
   } catch (err) {
     console.error("DB error fetching activities:", err);
