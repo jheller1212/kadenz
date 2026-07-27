@@ -69,48 +69,67 @@ describe("no-complaint athlete never gets HSR/Achilles work", () => {
 });
 
 describe("achilles-reporting athlete gets exactly today's programme", () => {
-  it("running_focus rotation with an achilles complaint matches the original achilles-only rotation", () => {
+  // Achilles is no longer a session-type choice for NEW sessions — the
+  // scheduler always rotates the plain types, and an "achilles" complaint
+  // reshapes whichever plain type lands on the day (see program.ts
+  // ACHILLES_COMPLAINT_SLOTS / sessionTemplateFor). rotationFor still accepts
+  // a `complaints` argument for backward compatibility with existing
+  // callers, but it no longer changes which types are scheduled.
+  it("running_focus rotation is unaffected by an achilles complaint — never a dedicated achilles type", () => {
     for (let n = 1; n <= 4; n++) {
-      const rotation = rotationFor("running_focus", n, ["achilles"]);
-      const legacy = {
-        1: ["lower_achilles"],
-        2: ["lower_achilles", "full_body"],
-        3: ["lower_achilles", "full_body", "achilles"],
-        4: ["lower_achilles", "full_body", "achilles", "upper"],
-      }[n];
-      expect(rotation).toEqual(legacy);
+      const withAchilles = rotationFor("running_focus", n, ["achilles"]);
+      const without = rotationFor("running_focus", n, []);
+      expect(withAchilles).toEqual(without);
+      for (const type of withAchilles) {
+        expect(["achilles", "lower_achilles", "upper_achilles"]).not.toContain(type);
+      }
     }
   });
 
-  it("all_round rotation with an achilles complaint matches the original rotation", () => {
+  it("all_round rotation is unaffected by an achilles complaint — never a dedicated achilles type", () => {
     for (let n = 1; n <= 4; n++) {
-      const rotation = rotationFor("all_round", n, ["achilles"]);
-      const legacy = {
-        1: ["full_body"],
-        2: ["upper", "lower"],
-        3: ["upper", "lower", "full_body"],
-        4: ["upper", "lower", "full_body", "upper_achilles"],
-      }[n];
-      expect(rotation).toEqual(legacy);
+      const withAchilles = rotationFor("all_round", n, ["achilles"]);
+      const without = rotationFor("all_round", n, []);
+      expect(withAchilles).toEqual(without);
+      for (const type of withAchilles) {
+        expect(["achilles", "lower_achilles", "upper_achilles"]).not.toContain(type);
+      }
     }
   });
 
-  it("achilles session templates are unaffected by other reported complaints", () => {
-    const plain = buildSessionPlan("lower_achilles");
-    const withExtraComplaints = buildSessionPlan("lower_achilles", {
-      complaints: ["achilles", ...ALL_COMPLAINTS_EXCEPT_ACHILLES],
-    });
-    expect(withExtraComplaints.map((e) => e.slug)).toEqual(plain.map((e) => e.slug));
+  it("an achilles complaint reshapes the plain lower/upper/full_body sessions with the same explosive-then-HSR block", () => {
+    for (const type of NON_ACHILLES_TYPES) {
+      const plan = buildSessionPlan(type, { complaints: ["achilles"] });
+      for (const slug of ACHILLES_SLUGS) {
+        expect(plan.some((e) => e.slug === slug)).toBe(true);
+      }
+    }
   });
 
-  it("still enforces explosive-before-slow-heavy ordering regardless of other complaints", () => {
-    const plan = buildSessionPlan("upper_achilles", {
+  it("historic achilles/lower_achilles/upper_achilles session templates are still exactly what they were — unaffected by any complaint list", () => {
+    for (const type of ["achilles", "lower_achilles", "upper_achilles"] as const) {
+      const plain = buildSessionPlan(type);
+      const withExtraComplaints = buildSessionPlan(type, {
+        complaints: ["achilles", ...ALL_COMPLAINTS_EXCEPT_ACHILLES],
+      });
+      expect(withExtraComplaints.map((e) => e.slug)).toEqual(plain.map((e) => e.slug));
+    }
+  });
+
+  it("still enforces explosive-before-slow-heavy ordering on a plain session reshaped by the achilles complaint", () => {
+    const plan = buildSessionPlan("upper", {
       complaints: ["achilles", "knee", "hamstring"],
     });
     const explosiveIdx = plan.findIndex((p) => p.slug === "explosive_box_step_up");
     const hsrIdx = plan.findIndex((p) => p.slug === "straight_knee_calf_raise");
     expect(explosiveIdx).toBeGreaterThanOrEqual(0);
     expect(hsrIdx).toBeGreaterThan(explosiveIdx);
+  });
+
+  it("STRENGTH_SESSION_TYPES still contains the historic achilles types so old sessions keep loading", () => {
+    expect(STRENGTH_SESSION_TYPES).toContain("achilles");
+    expect(STRENGTH_SESSION_TYPES).toContain("lower_achilles");
+    expect(STRENGTH_SESSION_TYPES).toContain("upper_achilles");
   });
 });
 

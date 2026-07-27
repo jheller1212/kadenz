@@ -24,6 +24,7 @@ import type {
   Complaint,
   Equipment,
   ExerciseSessionHistory,
+  Goal,
   StrengthSessionType,
   LoggedSet,
 } from "./types";
@@ -174,6 +175,12 @@ export interface PlannedSessionResult {
  * length (Kraft settings: 30/45/60 min) — the plan is reshaped to fit it
  * (see duration-fit.ts) rather than always producing the template's fixed
  * nominal-length plan regardless of what was chosen.
+ *
+ * `equipmentOverride`, when given (not `undefined`), replaces the profile's
+ * stored equipment for THIS call only — the profile's own
+ * `strength_plan_settings.equipment` is never read or written here. Used for
+ * a session-level "I'm at the gym today" override (see the sessions POST/GET
+ * routes) without mutating the athlete's default equipment.
  */
 export async function buildPlannedSession(
   type: StrengthSessionType,
@@ -186,7 +193,8 @@ export async function buildPlannedSession(
   // hit `strength_plan_settings` a second time for the same profile — see
   // getStrengthPlanSettingsRow. `undefined` (not passed) means "fetch it";
   // `null` explicitly means "known absent, don't bother querying".
-  preloadedSettingsRow?: PlanSettingsRow | null
+  preloadedSettingsRow?: PlanSettingsRow | null,
+  equipmentOverride?: Equipment[] | null
 ): Promise<PlannedSessionResult> {
   const [{ programWeek, weekInfo }, historyBySlug, painGate, settingsRow] = await Promise.all([
     getProgramWeekAndPhase(date),
@@ -206,7 +214,8 @@ export async function buildPlannedSession(
     complaints: planSettings.complaints,
     targetDurationMinutes,
     restSecondsOverride: planSettings.restSeconds,
-    equipment: planSettings.equipment,
+    equipment: equipmentOverride !== undefined ? equipmentOverride : planSettings.equipment,
+    goal: planSettings.goal,
     weekInfo,
   });
   // Hand edits (Exchange / Remove) layered on last — see session.ts for why
@@ -229,6 +238,7 @@ export interface PlanSettingsRow {
   complaints: string[] | null;
   restSeconds: number | null;
   equipment: string[] | null;
+  goal: string | null;
 }
 
 /**
@@ -250,6 +260,7 @@ export async function getStrengthPlanSettingsRow(
       complaints: strengthPlanSettings.complaints,
       restSeconds: strengthPlanSettings.restSeconds,
       equipment: strengthPlanSettings.equipment,
+      goal: strengthPlanSettings.goal,
     })
     .from(strengthPlanSettings)
     .where(
@@ -278,6 +289,9 @@ function derivePlanSettingsForLoads(row: PlanSettingsRow | null): {
   /** Available equipment (Kraft setup); null = not configured yet — every
    *  session slot keeps its base exercise, unfiltered (see session.ts). */
   equipment: Equipment[] | null;
+  /** Strength goal (Kraft setup); undefined = not configured yet, same as
+   *  "all_round" (no set-count adjustment) — see session.ts buildSessionPlan. */
+  goal: Goal | undefined;
 } {
   const a = row?.ability;
   const ability =
@@ -294,6 +308,8 @@ function derivePlanSettingsForLoads(row: PlanSettingsRow | null): {
   const equipment = row?.equipment
     ? row.equipment.filter((e): e is Equipment => equipmentKeySet.has(e))
     : null;
+  const goal: Goal | undefined =
+    row?.goal === "running_focus" || row?.goal === "all_round" ? row.goal : undefined;
   return {
     ability,
     lifterProfile: row
@@ -302,6 +318,7 @@ function derivePlanSettingsForLoads(row: PlanSettingsRow | null): {
     complaints,
     restSeconds: row?.restSeconds ?? null,
     equipment,
+    goal,
   };
 }
 

@@ -2,7 +2,9 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
+import { getActiveProfileId } from "@/lib/profiles";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
+import { getStrengthPlanSettingsRow } from "@/lib/strength/service";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 
@@ -62,10 +64,19 @@ export async function POST(request: NextRequest) {
         .from(strengthSessions)
     ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
+    // Same reasoning as the sessions POST route: an achilles complaint
+    // reshapes plain lower/upper/full_body sessions with the Achilles block
+    // now (see program.ts ACHILLES_COMPLAINT_SLOTS), so the constraint
+    // engine needs to know about it to keep enforcing Achilles spacing/cap.
+    const profileId = getActiveProfileId(request);
+    const settingsRow = await getStrengthPlanSettingsRow(profileId);
+    const hasAchillesComplaint = (settingsRow?.complaints ?? []).includes("achilles");
+
     const violations = validateStrengthPlacement({
       session: { id: data.excludeSessionId, date: new Date(data.date), type: data.type },
       runWorkouts,
       strengthSessions: strength,
+      hasAchillesComplaint,
     });
 
     return Response.json({

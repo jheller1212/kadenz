@@ -12,7 +12,7 @@ import { SESSION_TEMPLATES, EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
-import type { StrengthSessionType } from "@/lib/strength/types";
+import type { Equipment, StrengthSessionType } from "@/lib/strength/types";
 import type { ExerciseOverride } from "@/lib/strength/session";
 
 const ExerciseOverrideSchema = z.discriminatedUnion("action", [
@@ -94,7 +94,17 @@ export async function GET(
     // buildPlannedSession always needs ability/equipment/complaints from this
     // row regardless of isCustom, only the duration-fit use is conditional.
     const settingsRow = await getStrengthPlanSettingsRow(session.profileId);
-    const fitMinutes = isCustom ? undefined : planDurationMinutesFromRow(settingsRow);
+    // This session's own stored duration/equipment override (if the athlete
+    // set one at creation — see the sessions POST route) wins over the
+    // profile default, exactly like the plan is rebuilt from the template on
+    // every read rather than stored — the override must be re-applied here
+    // too, or a reopened session would silently revert to the profile's
+    // default equipment/length (see schema.ts strengthSessions comment).
+    const fitMinutes = isCustom
+      ? undefined
+      : session.durationOverrideMinutes ?? planDurationMinutesFromRow(settingsRow);
+    const equipmentOverride =
+      session.equipmentOverride != null ? (session.equipmentOverride as Equipment[]) : undefined;
     const { exercises: plannedExercises, estimatedDurationMinutes } =
       await buildPlannedSession(
         type,
@@ -102,7 +112,8 @@ export async function GET(
         session.profileId,
         fitMinutes,
         (session.exerciseOverrides as ExerciseOverride[] | null) ?? [],
-        settingsRow
+        settingsRow,
+        equipmentOverride
       );
 
     // Self-heal: a session's targetDurationMinutes may still hold the
