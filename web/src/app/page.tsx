@@ -18,6 +18,8 @@ import {
   Zap,
   Dumbbell,
   MapPin,
+  Trophy,
+  Flag,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -29,6 +31,8 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor, workoutInk } from "@/lib/workout-colors";
 import { displayTemp, displayDistance, distanceUnitLabel, actualPaceSecKm } from "@/lib/units";
+import { completedDistanceKm } from "@/lib/training/distance";
+import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { loadSettings, saveSettings } from "@/lib/settings";
 import { requestLocationPermission, declineLocationPrimer } from "@/lib/permissions";
@@ -101,6 +105,11 @@ interface TodayApiResponse {
   todayWorkout?: TodayApiWorkout | null;
   weekWorkouts?: TodayApiWorkout[];
   stats?: TodayStats;
+  // Set instead of the fields above once the plan has no current or future
+  // workouts left — see PlanFinishedCTA.
+  planFinished?: boolean;
+  raceWorkoutId?: string | null;
+  achieved?: { completedKm: number; completedRuns: number };
 }
 
 // ── Weather ─────────────────────────────────────────────────────────────────
@@ -737,7 +746,7 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
               <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: workoutInk(workout.type) }}>
                 {typeLabel[workout.type] ?? workout.type}
               </p>
-              <p className="mt-0.5 truncate text-[20px] font-extrabold leading-tight text-text-1">{workout.title}</p>
+              <p className="mt-0.5 truncate text-[20px] font-extrabold leading-tight text-text-1">{displayWorkoutTitle(workout)}</p>
               <p className="mt-0.5 text-xs text-text-3">{dateStr}</p>
             </div>
 
@@ -1319,6 +1328,59 @@ function NoPlanCTA({ error, onRetry }: { error?: boolean; onRetry?: () => void }
   );
 }
 
+// The plan has no current or future workouts left — see api/today's
+// planFinished branch. A race plan whose result isn't logged yet points at
+// that workout first; otherwise this is just "you finished, here's what to
+// do next" (new plan, or nothing — a maintain block can just end).
+function PlanFinishedCTA({
+  planName,
+  raceWorkoutId,
+  achieved,
+}: {
+  planName?: string;
+  raceWorkoutId?: string | null;
+  achieved?: { completedKm: number; completedRuns: number };
+}) {
+  const km = achieved?.completedKm ?? 0;
+  const runs = achieved?.completedRuns ?? 0;
+  const distanceLabel = `${displayDistance(km, 0)} ${distanceUnitLabel()}`;
+
+  return (
+    <main className="min-h-dvh bg-bg">
+      <NavBar title="Today" large left={<ProfileAvatar />} />
+      <div className="flex min-h-[70dvh] items-center justify-center px-5 pb-tabbar">
+        <EmptyState
+          icon={
+            raceWorkoutId ? (
+              <Flag className="h-10 w-10" strokeWidth={1.5} />
+            ) : (
+              <Trophy className="h-10 w-10" strokeWidth={1.5} />
+            )
+          }
+          title={raceWorkoutId ? "Race day has passed" : "Plan complete"}
+          message={
+            raceWorkoutId
+              ? `${planName ?? "Your plan"} is done. Log how ${distanceUnitLabel() === "mi" ? "the race" : "it"} went to close it out.`
+              : `${planName ?? "Your plan"} is done — ${distanceLabel} across ${runs} run${runs === 1 ? "" : "s"}.`
+          }
+          action={
+            raceWorkoutId ? (
+              <TransitionLink href={`/workout/${raceWorkoutId}`}>
+                <Button variant="primary">Log race result</Button>
+              </TransitionLink>
+            ) : (
+              <TransitionLink href="/create">
+                <Button variant="primary">Start a new plan</Button>
+              </TransitionLink>
+            )
+          }
+        />
+      </div>
+      <BottomNav active="today" />
+    </main>
+  );
+}
+
 // ── Loading skeleton ─────────────────────────────────────────────────────────
 
 function TodaySkeleton() {
@@ -1565,7 +1627,7 @@ export default function Home() {
           // What was actually run, when we know it — the payload already
           // carries actualKm, so the optimistic number matches the server's.
           completedKm:
-            Math.round(done.reduce((sum, w) => sum + (w.actualKm ?? w.targetKm ?? 0), 0) * 10) / 10,
+            Math.round(done.reduce((sum, w) => sum + completedDistanceKm(w), 0) * 10) / 10,
           daysCompleted: done.length,
         };
       }
@@ -1706,6 +1768,18 @@ export default function Home() {
       </>
     );
 
+  if (data.planFinished)
+    return (
+      <>
+        <PlanFinishedCTA
+          planName={data.planName}
+          raceWorkoutId={data.raceWorkoutId}
+          achieved={data.achieved}
+        />
+        {onboardingOverlay}
+      </>
+    );
+
   const currentWeek = data.currentWeek ?? 1;
   const totalWeeks = data.totalWeeks ?? 1;
   const viewingToday = weekOffset === 0 && (!selectedDate || (selectedDate.getDate() === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth() && selectedDate.getFullYear() === new Date().getFullYear()));
@@ -1726,7 +1800,7 @@ export default function Home() {
     ? (data.stats ?? { plannedKm: 0, completedKm: 0, daysCompleted: 0, totalDays: 0 })
     : {
         plannedKm: Math.round(viewedWeekWorkouts.reduce((s, w) => s + (w.targetKm ?? 0), 0) * 10) / 10,
-        completedKm: Math.round(viewedWeekWorkouts.filter((w) => w.status === "completed").reduce((s, w) => s + (w.actualKm ?? w.targetKm ?? 0), 0) * 10) / 10,
+        completedKm: Math.round(viewedWeekWorkouts.filter((w) => w.status === "completed").reduce((s, w) => s + completedDistanceKm(w), 0) * 10) / 10,
         daysCompleted: viewedWeekWorkouts.filter((w) => w.status === "completed").length,
         totalDays: viewedWeekWorkouts.filter((w) => w.type !== "rest").length,
       };
@@ -1992,7 +2066,7 @@ function CelebrationSheet({
         </div>
         <div>
           <p className="text-lg font-bold text-text-1">Workout complete</p>
-          <p className="mt-1 text-sm text-text-2">{workout.title}</p>
+          <p className="mt-1 text-sm text-text-2">{displayWorkoutTitle(workout)}</p>
           <p className="mt-0.5 text-xs text-text-3">
             {new Date(workout.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
             {km ? ` · ${displayDistance(km)} ${distanceUnitLabel()}` : ""}

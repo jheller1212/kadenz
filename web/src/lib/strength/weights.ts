@@ -1,3 +1,7 @@
+// Relative import, not "@/" — there is no vitest config in this repo, so the
+// alias does not resolve under the test runner (see training/session.ts).
+import { displayWeight, weightUnitLabel } from "../units";
+
 // ── Weight ladder ─────────────────────────────────────────────────────────────
 //
 // Standard universal increments (hardware-agnostic): 0.5 kg steps up to 25 kg,
@@ -112,12 +116,10 @@ export function loadUnitLabel(dumbbells?: 1 | 2): string {
   return `${displayLoad(1).label} × ${dumbbells === 1 ? 1 : 2}`;
 }
 
-/** Convert a stored kg load to the display unit from settings. */
+/** Convert a stored kg load to the display unit from settings. Routed through
+ *  lib/units.ts's loadSettings()-backed helpers so this agrees with every
+ *  other weight display in the app by construction, not by coincidence. */
 function displayLoad(kg: number): { value: number; label: "kg" | "lbs" } {
-  try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem("kadenz_settings") : null;
-    const unit = raw ? (JSON.parse(raw).weightUnit as string | undefined) : undefined;
-    if (unit === "lbs") return { value: Math.round(kg * 2.20462 * 2) / 2, label: "lbs" };
-  } catch { /* default */ }
-  return { value: kg, label: "kg" };
+  const label = weightUnitLabel() === "lbs" ? "lbs" : "kg";
+  return { value: displayWeight(kg), label };
 }

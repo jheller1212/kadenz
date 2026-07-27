@@ -1,6 +1,7 @@
-import { db, plans, weeks } from "@/db";
+import { db, plans, weeks, workouts } from "@/db";
 import { isSameLocalDay, localWeekRange } from "@/lib/app-time";
-import { eq, and } from "drizzle-orm";
+import { completedDistanceKm } from "@/lib/training/distance";
+import { eq, and, desc } from "drizzle-orm";
 
 // ── GET /api/today ────────────────────────────────────────────────────────────
 // Returns the active plan's current week workouts + stats + week info
@@ -15,6 +16,7 @@ export async function GET() {
         raceDistance: plans.raceDistance,
         planLengthWeeks: plans.planLengthWeeks,
         name: plans.name,
+        intent: plans.intent,
       })
       .from(plans)
       .where(eq(plans.status, "active"))
@@ -72,6 +74,58 @@ export async function GET() {
       }
     }
 
+    // The plan is over once it has no workouts this week and nothing left in
+    // the future — race day passed (or the non-race block's end date did)
+    // and nobody closed it out via the race-result flow or a new plan. Do
+    // NOT fall through to "Week 1" below for this: that's the wrong week for
+    // a plan that finished weeks ago, and it hides that anything is wrong.
+    if (weekWorkouts.length === 0 && activePlan.raceDate < now) {
+      const allPlanWorkouts = await db
+        .select({
+          type: workouts.type,
+          status: workouts.status,
+          targetKm: workouts.targetKm,
+          actualKm: workouts.actualKm,
+        })
+        .from(workouts)
+        .where(eq(workouts.planId, activePlan.id));
+
+      const completedRuns = allPlanWorkouts.filter(
+        (w) => w.status === "completed" && w.type !== "rest"
+      );
+      const achievedKm = completedRuns.reduce((sum, w) => sum + completedDistanceKm(w), 0);
+
+      const [raceWorkout] =
+        activePlan.intent === "race"
+          ? await db
+              .select({ id: workouts.id, status: workouts.status })
+              .from(workouts)
+              .where(and(eq(workouts.planId, activePlan.id), eq(workouts.type, "race")))
+              .orderBy(desc(workouts.date))
+              .limit(1)
+          : [];
+
+      return Response.json({
+        activePlan: true,
+        planFinished: true,
+        planId: activePlan.id,
+        planName: activePlan.name,
+        raceDistance: activePlan.raceDistance,
+        raceDate: activePlan.raceDate,
+        totalWeeks: activePlan.planLengthWeeks,
+        // Only a race plan needs a result logged before it can be closed out
+        // (see /api/workouts/[id]/race-result) — get_fit/maintain blocks just end.
+        raceWorkoutId:
+          activePlan.intent === "race" && raceWorkout && raceWorkout.status !== "completed"
+            ? raceWorkout.id
+            : null,
+        achieved: {
+          completedKm: Math.round(achievedKm * 10) / 10,
+          completedRuns: completedRuns.length,
+        },
+      });
+    }
+
     // Find the week number from the weeks table
     let currentWeekNumber = 1;
     if (weekWorkouts.length > 0) {
@@ -98,7 +152,7 @@ export async function GET() {
     const plannedKm = weekWorkouts.reduce((sum, w) => sum + (w.targetKm ?? 0), 0);
     const completedKm = weekWorkouts
       .filter((w) => w.status === "completed")
-      .reduce((sum, w) => sum + (w.actualKm ?? w.targetKm ?? 0), 0);
+      .reduce((sum, w) => sum + completedDistanceKm(w), 0);
     const daysCompleted = weekWorkouts.filter((w) => w.status === "completed").length;
     const totalDays = weekWorkouts.filter((w) => w.type !== "rest").length;
 

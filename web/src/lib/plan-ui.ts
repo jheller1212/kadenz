@@ -8,6 +8,8 @@
 import type { WorkoutType } from "@/lib/plan-engine/types";
 import { WORKOUT_COLORS, STRENGTH_COLOR } from "@/lib/workout-colors";
 import { isCompletedSession, isPastDuePlanned, type SessionStatus } from "@/lib/training/session";
+import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
+import { displayDistance, distanceUnitLabel } from "@/lib/units";
 
 export const STRENGTH_BLUE = STRENGTH_COLOR.solid;
 
@@ -37,6 +39,11 @@ export interface ApiWorkoutRow {
   status: string;
   targetKm: number | null;
   targetDurationMinutes: number | null;
+  actualKm?: number | null;
+  // Present when the API query included blocks (the plan detail route
+  // always does) — displayWorkoutTitle() needs the "work" block to derive a
+  // tempo title's number; falls back to the stored title without it.
+  blocks?: Array<{ type: string; distanceKm?: number | null }> | null;
 }
 
 export interface ApiWeekRow {
@@ -230,9 +237,12 @@ export function itemSpec(item: DaySpecItem, state?: ItemState): string {
       return d ? `${item.session.title} · ${durationWindow(d)}` : item.session.title;
     }
     const w = item.workout;
-    if (w.targetKm != null) return `${w.title} · ${w.targetKm}km`;
-    if (w.targetDurationMinutes != null) return `${w.title} · ${w.targetDurationMinutes}m`;
-    return w.title;
+    const title = displayWorkoutTitle(w);
+    // Was `· ${w.targetKm}km` — hardcoded km regardless of the unit setting,
+    // same bug as the title itself. Route both through the same conversion.
+    if (w.targetKm != null) return `${title} · ${displayDistance(w.targetKm)} ${distanceUnitLabel()}`;
+    if (w.targetDurationMinutes != null) return `${title} · ${w.targetDurationMinutes}m`;
+    return title;
   })();
   const resolved = state ?? itemState(item);
   if (resolved === "skipped") return `${base} · Skipped`;
