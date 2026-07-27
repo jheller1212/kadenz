@@ -28,31 +28,33 @@ export async function GET() {
 
     const now = new Date();
 
-    // Get all weeks
-    const allWeeks = await db
-      .select({
-        id: weeks.id,
-        weekNumber: weeks.weekNumber,
-        targetKm: weeks.targetKm,
-      })
-      .from(weeks)
-      .where(eq(weeks.planId, activePlan.id))
-      .orderBy(weeks.weekNumber);
+    // Weeks and workouts both only depend on activePlan.id, not on each
+    // other — fetch together instead of two serialised round trips.
+    const [allWeeks, allWorkouts] = await Promise.all([
+      db
+        .select({
+          id: weeks.id,
+          weekNumber: weeks.weekNumber,
+          targetKm: weeks.targetKm,
+        })
+        .from(weeks)
+        .where(eq(weeks.planId, activePlan.id))
+        .orderBy(weeks.weekNumber),
 
-    // Get all workouts up to today (past + current)
-    const allWorkouts = await db
-      .select({
-        id: workouts.id,
-        weekId: workouts.weekId,
-        type: workouts.type,
-        status: workouts.status,
-        targetKm: workouts.targetKm,
-        actualKm: workouts.actualKm,
-        date: workouts.date,
-      })
-      .from(workouts)
-      .where(eq(workouts.planId, activePlan.id))
-      .orderBy(workouts.date);
+      db
+        .select({
+          id: workouts.id,
+          weekId: workouts.weekId,
+          type: workouts.type,
+          status: workouts.status,
+          targetKm: workouts.targetKm,
+          actualKm: workouts.actualKm,
+          date: workouts.date,
+        })
+        .from(workouts)
+        .where(eq(workouts.planId, activePlan.id))
+        .orderBy(workouts.date),
+    ]);
 
     // "All" window: everything due so far (past + today, excluding rest days)
     const pastWorkouts = allWorkouts.filter(
