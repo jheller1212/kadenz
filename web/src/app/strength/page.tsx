@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Repeat } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Repeat, Video } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -47,6 +47,8 @@ const CustomWorkoutBuilder = dynamic(
 import { SortableItem } from "@/components/strength/SortableItem";
 import { SortChips } from "@/components/strength/SortChips";
 import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
+import { VideoSheet } from "@/components/strength/VideoSheet";
+import { getVideoId } from "@/lib/strength/videos";
 import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import { sortExerciseList, type ExerciseSortMode } from "@/lib/strength/sort";
 import {
@@ -150,6 +152,9 @@ export default function StrengthPage() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   // Exchange/Remove sheet — which exercise (by slug) it's currently open for.
   const [actionsSlug, setActionsSlug] = useState<string | null>(null);
+  // Form-demo video sheet — which exercise (by slug) it's currently open for,
+  // reusing the same VideoSheet the guided session uses (see GuidedSession.tsx).
+  const [videoSlug, setVideoSlug] = useState<string | null>(null);
   const equipment = useStrengthEquipment();
 
   const [summary, setSummary] = useState<GuidedFinishSummary | null>(null);
@@ -1207,7 +1212,8 @@ export default function StrengthPage() {
           }
         />
         <div className="px-4 pb-tabbar">
-          <h1 className="text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-text-3">Session setup</p>
+          <h1 className="mt-1 text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
 
           <div className="mt-3 flex gap-2.5">
             <div className="flex-1 k-card p-3.5">
@@ -1310,9 +1316,20 @@ export default function StrengthPage() {
                     )}
                   </div>
                 </div>
-                {/* Swap + remove, 44×44 tap targets — sweaty-hands sizing, not a
-                    combined menu (see Volt session-start spec). */}
+                {/* Video preview + swap + remove, 44×44 tap targets — sweaty-hands
+                    sizing, not a combined menu (see Volt session-start spec). */}
                 <div className="flex shrink-0 items-start gap-1.5">
+                  {getVideoId(ex.slug) && (
+                    <button
+                      type="button"
+                      onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
+                      aria-label={`Watch ${ex.name} form demo`}
+                      style={{ touchAction: "manipulation" }}
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3"
+                    >
+                      <Video className="h-4 w-4" strokeWidth={2.2} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => openActionsFor(ex.slug)}
@@ -1421,6 +1438,12 @@ export default function StrengthPage() {
           equipment={equipment}
           hasLoggedSets={false}
           onExchange={(replacementSlug) => actionsSlug && exchangeExercise(actionsSlug, replacementSlug)}
+        />
+
+        <VideoSheet
+          slug={videoSlug}
+          title={videoSlug ? exercises.find((e) => e.slug === videoSlug)?.name : undefined}
+          onClose={() => setVideoSlug(null)}
         />
 
         <BottomNav active="strength" />
