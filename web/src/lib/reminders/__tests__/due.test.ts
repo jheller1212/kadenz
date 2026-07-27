@@ -41,6 +41,22 @@ describe("selectDueReminders", () => {
     expect(due).toHaveLength(0);
   });
 
+  it("does not send a stale burst for workouts hours past their start after a long cron outage", () => {
+    // A 15-minute GitHub Actions schedule can be down for hours (runner
+    // outage, secret rotation, etc). When it comes back, `now` may be far
+    // past several workouts' start times at once — none of those should
+    // fire late, only the (if any) still-open window should.
+    const now = new Date("2026-07-20T10:00:00.000Z"); // 12:00 Amsterdam (CEST), 4h after the 08:00 start
+    const candidates = [
+      candidate({ workoutId: "missed-by-hours" }), // starts 08:00 local, long gone
+      candidate({ workoutId: "missed-by-minutes", dateKey: "2026-07-20", timeOfDay: "11:55" }), // started 5 min ago
+      candidate({ workoutId: "still-open", dateKey: "2026-07-20", timeOfDay: "12:15" }), // window open now
+      candidate({ workoutId: "not-yet", dateKey: "2026-07-20", timeOfDay: "16:00" }), // window not open yet
+    ];
+    const due = selectDueReminders(now, candidates, SETTINGS, new Set());
+    expect(due.map((d) => d.workoutId)).toEqual(["still-open"]);
+  });
+
   it("skips a workout that's already been marked completed", () => {
     const now = new Date("2026-07-20T05:35:00.000Z");
     const due = selectDueReminders(now, [candidate({ status: "completed" })], SETTINGS, new Set());

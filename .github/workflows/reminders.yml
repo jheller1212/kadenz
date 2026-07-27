@@ -1,0 +1,46 @@
+name: Workout reminders
+
+# Vercel Hobby allows exactly one cron job, and that slot is already used by
+# the daily sync at /api/cron/gcal. Workout push reminders need to be checked
+# far more often than once a day for their lead-time window to ever line up
+# with a real send, so this schedule lives here instead: the repo is public,
+# so GitHub Actions minutes are free and unlimited. This can move back to a
+# second Vercel cron if the plan ever changes (delete this file, add the
+# schedule to web/vercel.json).
+#
+# Honest caveat: GitHub's scheduled workflows are best-effort, not real-time —
+# under platform load a run can drift 5 to 15 minutes late. The reminder
+# dispatch endpoint is written to tolerate that (see web/src/lib/reminders/due.ts):
+# it never fires for a workout whose start time has already passed, so a late
+# or missed run skips that reminder instead of sending it stale.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+# Overlapping runs must not double-dispatch. The DB-level claim in
+# dispatch.ts already makes a repeat call a no-op, but there's no reason to
+# let GitHub pile up concurrent invocations when a previous one is still in
+# flight, so cancel-in-progress is on here too (unlike ci.yml on main, a
+# superseded reminder check has nothing worth keeping).
+concurrency:
+  group: workout-reminders
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Dispatch due reminders
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call reminder cron endpoint
+        run: |
+          status=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
+            -X GET "https://kadenz-tau.vercel.app/api/cron/reminders" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP status: $status"
+          cat /tmp/response.txt
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Reminder dispatch failed with status $status"
+            exit 1
+          fi
