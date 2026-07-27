@@ -61,13 +61,24 @@ export async function GET(
     const session = await db.query.strengthSessions.findFirst({
       where: (s, { eq }) => eq(s.id, id),
       with: {
-        sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] },
+        // Exercise slug per set is a single indexed FK join (exerciseId is
+        // already the PK lookup strength_sets is built around) — needed so
+        // the volume stat below can look up each set's dumbbell/bodyweight
+        // profile from the catalogue (see lib/strength/volume.ts).
+        sets: {
+          orderBy: (st, { asc }) => [asc(st.setNumber)],
+          with: { exercise: { columns: { slug: true } } },
+        },
         painLogs: true,
       },
     });
     if (!session) {
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
+    const sets = session.sets.map(({ exercise, ...set }) => ({
+      ...set,
+      exerciseSlug: exercise.slug,
+    }));
     const type = session.type as StrengthSessionType;
     // A custom-workout session (title differs from the stock template's
     // title) already carries its own real duration — never re-fit it
@@ -122,6 +133,7 @@ export async function GET(
 
     return Response.json({
       ...session,
+      sets,
       plannedExercises,
       linkedActivity: linkedActivity ?? null,
     });

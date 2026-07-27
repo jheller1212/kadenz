@@ -2,20 +2,25 @@ import { NextRequest } from "next/server";
 import { and, eq, gte, isNull } from "drizzle-orm";
 import { db, strengthSessions } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
-import { workingVolumeKg, type SetKind } from "@/lib/strength/types";
+import { sessionVolume, type VolumeSet } from "@/lib/strength/volume";
 
 // ── GET /api/strength/summary ─────────────────────────────────────────────────
 // Honest, small aggregate for the Kraft hub stat row: how many completed
 // sessions per week (trailing 4 weeks) and how much weight was moved this
-// week (trailing 7 days). No invented numbers — both are direct sums over
-// logged sets, via the same workingVolumeKg() helper session-detail uses, so
-// a warm-up ramp can't inflate this number the way it used to.
+// week (trailing 7 days), via the same sessionVolume() helper session detail
+// and exercise history use (see lib/strength/volume.ts) — a raw weightKg ×
+// reps sum here used to disagree with both of those screens (no dumbbell
+// scaling, bodyweight sets counted as zero). sessionVolume() excludes
+// warm-up sets internally (same as it always did here), so a warm-up ramp
+// still can't inflate this number.
 //
-// This deliberately does NOT apply pr.ts's dumbbell-count scaling: that
-// scaling needs each set's exercise (to know 1 vs 2 dumbbells), which this
-// route doesn't join, and the hub is a lightweight rollup, not a per-exercise
-// record page. Matching session-detail's simpler number keeps the hub and the
-// screen an athlete taps into it from agreeing with each other.
+// This does join each set to its exercise for the slug sessionVolume needs
+// to look up the dumbbell/bodyweight profile — skipping that join used to be
+// exactly how this route drifted from the other two screens. Measured: it's
+// one extra indexed FK-joined column on a query that's already fetching
+// every set for the trailing 4 weeks, so it's not a new round trip, just a
+// wider one — no measurable added latency for the handful of sessions a week
+// this route ever sees.
 
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -34,22 +39,32 @@ export async function GET(request: NextRequest) {
     const recentSessions = await db.query.strengthSessions.findMany({
       where: and(profileCond, eq(strengthSessions.status, "completed"), gte(strengthSessions.date, fourWeeksAgo)),
       columns: { id: true, date: true },
-      with: { sets: { columns: { weightKg: true, reps: true, kind: true } } },
+      with: {
+        sets: {
+          columns: { weightKg: true, reps: true, kind: true },
+          with: { exercise: { columns: { slug: true } } },
+        },
+      },
     });
 
     const sessionsPerWeek = Math.round((recentSessions.length / 4) * 10) / 10;
 
-    const volumeKg = recentSessions
+    const setsThisWeek: VolumeSet[] = recentSessions
       .filter((s) => s.date >= oneWeekAgo)
-      .reduce(
-        (sum, s) =>
-          sum + workingVolumeKg(s.sets.map((set) => ({ ...set, kind: set.kind as SetKind | null }))),
-        0
+      .flatMap((s) =>
+        s.sets.map((set) => ({
+          exerciseSlug: set.exercise.slug,
+          weightKg: set.weightKg,
+          reps: set.reps,
+          kind: set.kind as "warmup" | "working" | null,
+        }))
       );
+    const volume = sessionVolume(setsThisWeek);
 
     return Response.json({
       sessionsPerWeek: recentSessions.length > 0 ? sessionsPerWeek : null,
-      volumeKg: volumeKg > 0 ? Math.round(volumeKg) : null,
+      volumeKg: volume.kg != null ? Math.round(volume.kg) : null,
+      bodyweightReps: volume.bodyweightReps,
     });
   } catch (err) {
     console.error("DB error computing strength summary:", err);

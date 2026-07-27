@@ -18,7 +18,8 @@ import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
 import type { PlannedExercise } from "@/components/strength/GuidedSession";
 import type { ExerciseOverride } from "@/lib/strength/session";
-import { workingSetNumber, workingVolumeKg } from "@/lib/strength/types";
+import { workingSetNumber } from "@/lib/strength/types";
+import { sessionVolume } from "@/lib/strength/volume";
 
 // ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
@@ -28,6 +29,9 @@ import { workingSetNumber, workingVolumeKg } from "@/lib/strength/types";
 interface SetRow {
   id: string;
   exerciseId: string;
+  /** Catalogue slug (see program.ts) — the volume stat's dumbbell/bodyweight
+   *  lookup key (see lib/strength/volume.ts). */
+  exerciseSlug: string;
   setNumber: number;
   weightKg: number | null;
   reps: number | null;
@@ -246,8 +250,9 @@ export default function StrengthSessionPage({
     session.durationMinutes ??
     session.targetDurationMinutes ??
     (planned.length ? estimateWorkoutDuration(planned) : null);
-  // Working volume only — see workingVolumeKg for why warm-ups are excluded.
-  const volumeKg = workingVolumeKg(session.sets);
+  // Working volume only, dumbbell/bodyweight-aware — see sessionVolume for
+  // why warm-ups are excluded and kg/reps are kept as two separate figures.
+  const volume = sessionVolume(session.sets);
 
   return (
     <main className="min-h-dvh bg-bg">
@@ -315,12 +320,21 @@ export default function StrengthSessionPage({
                 </p>
               </div>
             )}
-            {volumeKg > 0 && (
+            {volume.kg != null && (
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-text-3">Volume</p>
                 <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                  {Math.round(volumeKg)}
+                  {Math.round(volume.kg)}
                   <span className="text-[13px] font-semibold text-text-3"> kg</span>
+                </p>
+              </div>
+            )}
+            {volume.bodyweightReps != null && (
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-text-3">Bodyweight</p>
+                <p className="text-[22px] font-extrabold tabular-nums text-text-1">
+                  {volume.bodyweightReps}
+                  <span className="text-[13px] font-semibold text-text-3"> reps</span>
                 </p>
               </div>
             )}

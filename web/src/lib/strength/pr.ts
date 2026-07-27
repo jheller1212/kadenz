@@ -113,6 +113,25 @@ export interface SessionMetrics extends SingleSetBest {
   volume: number;
 }
 
+/**
+ * One set's contribution to session volume: kg × reps, doubled for a
+ * two-dumbbell lift (weightKg is stored PER DUMBBELL — see module note
+ * above), or bare reps for a bodyweight exercise (there's no external load
+ * to multiply, so reps is the closest volume analogue). This is the single
+ * place that formula lives — session-detail, the Kraft hub, and exercise
+ * history all reach it via lib/strength/volume.ts's sessionVolume(), so a
+ * set is never worth two different numbers on two screens.
+ */
+export function setVolumeKg(
+  set: Pick<PrSet, "weightKg" | "reps">,
+  profile: ExerciseLoadProfile
+): number {
+  const reps = set.reps ?? 0;
+  if (profile.bodyweight) return reps;
+  const dumbbellMultiplier = profile.dumbbells === 1 ? 1 : 2;
+  return (set.weightKg ?? 0) * reps * dumbbellMultiplier;
+}
+
 /** Aggregate one session's sets into its PR-relevant metrics. */
 export function computeSessionMetrics(
   sets: PrSet[],
@@ -121,17 +140,11 @@ export function computeSessionMetrics(
   profile: ExerciseLoadProfile
 ): SessionMetrics {
   const best = foldSingleSetBest(sets, profile);
-  const dumbbellMultiplier = profile.bodyweight ? 1 : profile.dumbbells === 1 ? 1 : 2;
 
   let volume = 0;
   for (const s of sets) {
     if (!isWorkingSet(s)) continue;
-    const reps = s.reps ?? 0;
-    if (profile.bodyweight) {
-      volume += reps;
-    } else {
-      volume += (s.weightKg ?? 0) * reps * dumbbellMultiplier;
-    }
+    volume += setVolumeKg(s, profile);
   }
 
   return { sessionId, date, volume, ...best };

@@ -208,20 +208,8 @@ export function workingSetNumber(
   return n;
 }
 
-/**
- * Total kg × reps across working sets only. A warm-up ramp isn't what the
- * progression/PR engines train against (see progression.ts workingSets and
- * pr.ts), so a volume stat that counted it would read higher than the load
- * the athlete actually trained — excluded silently here, the same way those
- * two already exclude it, rather than surfaced as a separate "warm-up
- * volume" figure nobody asked for.
- */
-export function workingVolumeKg(
-  sets: Array<{ kind?: SetKind | null; weightKg: number | null; reps: number | null }>
-): number {
-  return sets.reduce(
-    (sum, s) =>
-      sum + (s.kind !== "warmup" && s.weightKg != null && s.reps != null ? s.weightKg * s.reps : 0),
-    0
-  );
-}
+// Session volume (kg × reps, dumbbell-scaled, bodyweight-aware) lives in
+// lib/strength/volume.ts's sessionVolume() — the canonical implementation
+// every screen uses, not a per-file reimplementation. See that module's
+// header for why a naive kg × reps sum here was wrong (no dumbbell scaling,
+// bodyweight sets silently contributing zero).
