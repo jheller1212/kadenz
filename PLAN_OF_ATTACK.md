@@ -7,6 +7,9 @@ This is what is left, why, and what only Jonas can do.
 
 ## 1. Needs Jonas, nobody else can do these
 
+Priority order: 1.1 is the only security item, do it first. 1.2 and 1.3 each
+leave a shipped feature inert until done.
+
 ### 1.1 Rotate the Neon database password (do this first)
 The production connection string was pasted into a chat session, so the
 password `neondb_owner` is considered exposed.
@@ -60,13 +63,19 @@ reconnecting is now safe and will sync the active plan only.
 
 ---
 
-## 2. In flight at the time of writing
+## 2. Status as of 2026-07-27 evening
 
-- **Objective readiness** (agent `objective-readiness`): pulling sleep,
-  resting heart rate and HRV into the readiness score. See section 3.1.
-- **Cloudflare Worker cron** (agent `cron-cloudflare`): see 1.3.
+Merged: #68 this doc, #69 Cloudflare Worker cron, #70 Garmin wellness into
+readiness, #71 profile soft delete, #72 doc correction. No open PRs.
 
-Check open PRs with `gh pr list`. Anything green should be merged.
+**Done already, do not redo:**
+- The Garmin worker is **deployed to Fly.io** with the new `/wellness` route.
+  Verified live: `/health` returns 200 and `/wellness` returns 422 rather than
+  404, so the route exists and is rejecting unauthenticated calls as intended.
+- The readiness maths, the `wellness_metrics` table and the daily pull are all
+  merged. Once the app has nights of data, the card starts using it.
+
+**The open items are exactly section 1.** Nothing is blocked on Claude.
 
 ---
 
@@ -235,3 +244,33 @@ Then check on the phone: Today shows achieved pace for a completed run, the
 Kraft session fits one screen, activity detail renders heart rate and pace
 charts (these had never worked before that day), and the plan hub counts
 actual distance.
+
+---
+
+## 7. Kraft rebuild, waiting on design
+
+Jonas is prompting Claude Design for two screens. Once they exist, the
+functional work behind them is known (evidence in section 4b):
+
+1. **Kraft hub.** 2-column programme grid over a standard set (Full Body,
+   Upper, Lower, Push, Pull). Duration and today's equipment visible on the
+   card before committing, because both already change what gets generated.
+   Custom workouts as their own section below.
+2. **Pre-start sheet.** Tap a programme, see the actual generated exercise
+   list with the live duration estimate, swap or reorder, override equipment
+   for this session only, then start. This is where the per-user generation
+   becomes visible instead of silent.
+
+Behind them, four changes:
+- Collapse the three Achilles cards into complaint-driven variants of the
+  standard five. The engine already reshapes sessions by complaint, so this is
+  mostly deleting top-level entries and letting the existing path run.
+- Wire `goal` into generation or drop it from the wizard. Collecting an input
+  and ignoring it is worse than not asking.
+- Per-session equipment override ("at the gym today"). `ACCESS_PRESETS` for
+  home, box and full gym already exist in `equipment.ts:53`.
+- Duration as a per-session choice, not only a profile setting. The fitting
+  logic in `duration-fit.ts` already accepts a target, so this is plumbing.
+
+Not yet designed and worth considering later: the set logger during an active
+session, which works but has had no design pass.
