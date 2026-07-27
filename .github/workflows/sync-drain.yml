@@ -12,9 +12,17 @@ name: Sync outbox drain
 # Actions minutes are free. See web/src/app/api/cron/sync-drain/route.ts for
 # why this is safe to run this often and concurrently with everything else.
 
+# Measured with `gh run list`: this was drifting up to 2h31m between actual
+# runs at */15, the same GitHub Actions scheduling gap that hit
+# reminders.yml. The primary schedule moved to a Cloudflare Worker cron
+# trigger (see cron-worker/), which does run on time. This workflow is kept
+# as a low-frequency backstop in case the Worker is not deployed yet or goes
+# stale, so it was slowed to hourly instead of removed: it costs nothing and
+# a repeat drain is a no-op once the outbox is empty.
+
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 concurrency:

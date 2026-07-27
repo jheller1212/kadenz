@@ -14,9 +14,17 @@ name: Workout reminders
 # it never fires for a workout whose start time has already passed, so a late
 # or missed run skips that reminder instead of sending it stale.
 
+# Measured with `gh run list`: this was drifting 1h50m to 2h46m between
+# actual runs at */15, not the 15 minutes it says on the tin, which starved
+# the reminder lead-time window of the cadence it needs. The primary
+# schedule moved to a Cloudflare Worker cron trigger (see cron-worker/),
+# which does run on time. This workflow is kept as a low-frequency backstop
+# in case the Worker is not deployed yet or goes stale, so it was slowed to
+# hourly instead of removed: it costs nothing and dispatch is idempotent.
+
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 # Overlapping runs must not double-dispatch. The DB-level claim in

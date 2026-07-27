@@ -1,0 +1,13 @@
+name = "kadenz-cron"
+main = "src/index.ts"
+compatibility_date = "2026-07-27"
+
+# Every 5 minutes. Reminders and the sync-drain safety net both want
+# minute-scale granularity, not the hour-plus gaps GitHub Actions'
+# best-effort `schedule` trigger was actually delivering (see README).
+# 5 minutes is comfortably inside Cloudflare's free-tier request budget
+# (2 fetches per run x 288 runs/day = 576 requests/day, far under the
+# 100k/day free limit) and gives reminder lead-time windows a real chance
+# to line up with a send.
+[triggers]
+crons = ["*/5 * * * *"]
