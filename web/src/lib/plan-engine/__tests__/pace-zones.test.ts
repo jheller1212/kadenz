@@ -85,4 +85,26 @@ describe("formatPace", () => {
   it("pads seconds with leading zero", () => {
     expect(formatPace(361)).toBe("6:01");
   });
+
+  // Regression: production run — 11.0223 km in 59:57 (3597s), the exact
+  // numbers Strava/Garmin synced onto the activity row — showed correctly
+  // on the Activities screen but the Today screen showed the workout's
+  // planned target pace instead of this achieved one. secPerKm here is what
+  // an activity sync computes: durationSeconds / distanceKm.
+  it("formats the production run (11.0223 km in 59:57) as 5:26/km", () => {
+    const secPerKm = 3597 / 11.0223;
+    expect(formatPace(secPerKm)).toBe("5:26");
+  });
+
+  it("formats the same run's mile pace as 8:45/mi", () => {
+    const secPerKm = 3597 / 11.0223;
+    expect(formatPace(secPerKm, true)).toBe("8:45");
+  });
+
+  it("returns a placeholder instead of garbage for zero or missing pace", () => {
+    expect(formatPace(0)).toBe("—");
+    expect(formatPace(null)).toBe("—");
+    expect(formatPace(undefined)).toBe("—");
+    expect(formatPace(-5)).toBe("—");
+  });
 });

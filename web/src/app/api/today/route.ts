@@ -37,7 +37,10 @@ export async function GET() {
           between(wo.date, weekStart, weekEnd)
         ),
       orderBy: (wo, { asc }) => [asc(wo.date), asc(wo.sortOrder)],
-      with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+      // `activity` carries the measured avg pace for a completed, synced run —
+      // the Today card needs it so it shows the ACHIEVED pace, not the block's
+      // planned target (see lib/units.ts actualPaceSecKm).
+      with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] }, activity: true },
     });
 
     // If no workouts this calendar week, find the first week with planned workouts
@@ -63,7 +66,7 @@ export async function GET() {
           weekWorkouts = await db.query.workouts.findMany({
             where: (wo, { eq }) => eq(wo.weekId, weekRow.id),
             orderBy: (wo, { asc }) => [asc(wo.date), asc(wo.sortOrder)],
-            with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+            with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] }, activity: true },
           });
         }
       }

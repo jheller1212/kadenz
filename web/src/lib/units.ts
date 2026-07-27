@@ -63,3 +63,31 @@ export function displayTemp(celsius: number, unit?: "celsius" | "fahrenheit"): n
   const u = unit ?? loadSettings().tempUnit;
   return u === "fahrenheit" ? Math.round(celsius * 1.8 + 32) : Math.round(celsius);
 }
+
+interface ActualPaceSource {
+  actualKm?: number | null;
+  actualDurationSeconds?: number | null;
+  activity?: { avgPaceSecKm?: number | null } | null;
+}
+
+/**
+ * Achieved pace (stored sec/km) for a completed workout — NOT the planned
+ * target. A linked activity's measured average is the most trustworthy
+ * source (it's what the Activities feed shows, so using it here is what
+ * keeps the two screens agreeing). A guided in-app run with no linked
+ * activity falls back to actualKm/actualDurationSeconds, which the guided
+ * player writes directly onto the workout row. Returns null if the workout
+ * carries nothing to compute an actual pace from yet.
+ */
+export function actualPaceSecKm(workout: ActualPaceSource): number | null {
+  if (workout.activity?.avgPaceSecKm != null) return workout.activity.avgPaceSecKm;
+  if (
+    workout.actualKm != null &&
+    workout.actualKm > 0 &&
+    workout.actualDurationSeconds != null &&
+    workout.actualDurationSeconds > 0
+  ) {
+    return workout.actualDurationSeconds / workout.actualKm;
+  }
+  return null;
+}

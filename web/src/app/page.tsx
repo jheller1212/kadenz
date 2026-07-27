@@ -28,7 +28,7 @@ import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { WORKOUT_COLORS, workoutColor, workoutInk } from "@/lib/workout-colors";
-import { displayTemp, displayDistance, distanceUnitLabel } from "@/lib/units";
+import { displayTemp, displayDistance, distanceUnitLabel, actualPaceSecKm } from "@/lib/units";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { loadSettings, saveSettings } from "@/lib/settings";
 import { requestLocationPermission, declineLocationPrimer } from "@/lib/permissions";
@@ -61,6 +61,7 @@ interface TodayApiWorkout {
   targetKm?: number | null;
   targetDurationMinutes?: number | null;
   actualKm?: number | null;
+  actualDurationSeconds?: number | null;
   rpe?: number | null;
   status: string;
   date: string;
@@ -73,6 +74,10 @@ interface TodayApiWorkout {
     reps?: number | null;
     repDistanceKm?: number | null;
   }>;
+  // Linked recorded activity (Strava/Garmin sync). Carries the measured avg
+  // pace and duration for a completed run — the source of truth this card
+  // must show instead of the block's planned target once the workout is done.
+  activity?: { avgPaceSecKm?: number | null; durationSeconds?: number | null } | null;
 }
 
 interface StrengthSessionLite {
@@ -673,19 +678,35 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
   // Three stat columns: distance, pace, duration — whichever the workout
   // actually carries. A workout with only a duration target (no distance
   // plan) simply shows two columns rather than a fabricated third.
+  //
+  // Once the workout is completed, every column prefers the ACHIEVED number
+  // over the planned target — otherwise a card can show a duration close to
+  // reality (target and actual often land near each other) right next to a
+  // pace that's badly off (the target pace band and the achieved pace often
+  // don't), which is exactly the mismatch this screen used to show.
   const workBlock = workout.blocks.find((b) => b.type === "work") ?? workout.blocks[0];
   const useMiles = loadSettings().units === "miles";
-  const paceValue = workBlock?.targetPaceSecKm
-    ? formatPace(workBlock.targetPaceSecKm, useMiles)
+  const achievedPace = isCompleted ? actualPaceSecKm(workout) : null;
+  const paceValue =
+    achievedPace != null
+      ? formatPace(achievedPace, useMiles)
+      : workBlock?.targetPaceSecKm
+      ? formatPace(workBlock.targetPaceSecKm, useMiles)
+      : null;
+  const displayKm = isCompleted ? workout.actualKm ?? workout.targetKm : workout.targetKm;
+  const achievedDurationSeconds = isCompleted
+    ? workout.actualDurationSeconds ?? workout.activity?.durationSeconds ?? null
     : null;
   const stats: { value: string; unit: string; label: string }[] = [];
-  if (workout.targetKm != null) {
-    stats.push({ value: `${displayDistance(workout.targetKm)}`, unit: distanceUnitLabel(), label: "Distance" });
+  if (displayKm != null) {
+    stats.push({ value: `${displayDistance(displayKm)}`, unit: distanceUnitLabel(), label: "Distance" });
   }
   if (paceValue) {
     stats.push({ value: paceValue, unit: useMiles ? "/mi" : "/km", label: "Pace" });
   }
-  if (workout.targetDurationMinutes != null) {
+  if (achievedDurationSeconds != null) {
+    stats.push({ value: String(Math.round(achievedDurationSeconds / 60)), unit: "min", label: "Duration" });
+  } else if (workout.targetDurationMinutes != null) {
     stats.push({ value: String(workout.targetDurationMinutes), unit: "min", label: "Duration" });
   }
 
