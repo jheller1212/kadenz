@@ -389,9 +389,33 @@ def create_workout(body: CreateWorkoutRequest, _auth: Auth):
         raise
     except Exception as exc:
         logger.error("Workout created (%s) but scheduling failed: %s", workout_id, exc)
+        # Creation succeeded but scheduling didn't — from the caller's side
+        # this whole operation must look atomic, otherwise every outbox retry
+        # (MAX_ATTEMPTS = 3) creates yet another orphaned workout on Garmin
+        # since the web side never learns garmin_workout_id until this call
+        # resolves. Delete what we just created before surfacing the error.
+        try:
+            _garmin_call(
+                f"/workout-service/workout/{workout_id}",
+                method="DELETE",
+            )
+        except Exception as cleanup_exc:
+            logger.error(
+                "Workout %s created but scheduling failed (%s); cleanup delete ALSO "
+                "failed (%s) — workout is orphaned on Garmin and needs manual/reconcile "
+                "cleanup.",
+                workout_id, exc, cleanup_exc,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Workout created (id={workout_id}) but scheduling failed: {exc}. "
+                    f"Cleanup delete also failed: {cleanup_exc}"
+                ),
+            )
         raise HTTPException(
             status_code=502,
-            detail=f"Workout created (id={workout_id}) but scheduling failed: {exc}",
+            detail=f"Scheduling failed and the created workout was rolled back: {exc}",
         )
 
     return {

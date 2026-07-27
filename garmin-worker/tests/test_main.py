@@ -197,6 +197,50 @@ def test_create_workout_garmin_api_error():
     assert "Garmin API error" in resp.json()["detail"]
 
 
+def test_create_workout_schedule_fails_cleans_up_orphan():
+    """Scheduling failing after creation must delete the just-created workout,
+    not leave it dangling for every outbox retry to duplicate."""
+    with patch("main.garth.connectapi") as mock_api:
+        mock_api.side_effect = [
+            {"workoutId": 12345, "workoutName": "Easy Run"},  # create succeeds
+            Exception("schedule down"),  # schedule fails
+            {},  # cleanup delete succeeds
+        ]
+        resp = client.post(
+            "/workouts",
+            json=make_simple_request(),
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 502
+    assert "rolled back" in resp.json()["detail"]
+    # create, schedule, delete
+    assert mock_api.call_count == 3
+    delete_call = mock_api.call_args_list[2]
+    assert delete_call.args[0] == "/workout-service/workout/12345"
+    assert delete_call.kwargs["method"] == "DELETE"
+
+
+def test_create_workout_schedule_and_cleanup_both_fail():
+    """If the cleanup delete also fails, the error must say so clearly rather
+    than swallowing it and reporting a plain scheduling failure."""
+    with patch("main.garth.connectapi") as mock_api:
+        mock_api.side_effect = [
+            {"workoutId": 12345, "workoutName": "Easy Run"},
+            Exception("schedule down"),
+            Exception("delete down too"),
+        ]
+        resp = client.post(
+            "/workouts",
+            json=make_simple_request(),
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert "scheduling failed" in detail
+    assert "Cleanup delete also failed" in detail
+    assert "delete down too" in detail
+
+
 def test_create_workout_missing_blocks():
     payload = {
         "title": "Bad",

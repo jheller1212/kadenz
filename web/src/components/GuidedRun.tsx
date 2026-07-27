@@ -8,6 +8,7 @@ import { CUE_VOLUME_GAIN, loadSettings, type UserSettings } from "@/lib/settings
 import { haptic } from "@/lib/haptics";
 import { openSpotify } from "@/lib/spotify";
 import { encodePolyline, type LatLng } from "@/lib/polyline";
+import { accurateFix, haversine, isPlausibleDelta, type GpsFix } from "@/lib/gps";
 import { RunMap } from "@/components/RunMap";
 import {
   clearRunSnapshot,
@@ -149,19 +150,6 @@ function buildSteps(blocks: GuidedRunBlock[]): Step[] {
   return steps;
 }
 
-// Haversine distance between two lat/lng points, in metres.
-function haversine(a: GeolocationCoordinates, b: GeolocationCoordinates): number {
-  const R = 6371000;
-  const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
-  const dLng = ((b.longitude - a.longitude) * Math.PI) / 180;
-  const lat1 = (a.latitude * Math.PI) / 180;
-  const lat2 = (b.latitude * Math.PI) / 180;
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
 function fmtClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s / 3600);
@@ -235,7 +223,7 @@ export function GuidedRun({
   const [gpsDenied, setGpsDenied] = useState(false);
   const [livePos, setLivePos] = useState<LatLng | null>(null); // drives the live map
   const watchRef = useRef<number | null>(null);
-  const lastFixRef = useRef<GeolocationCoordinates | null>(null);
+  const lastFixRef = useRef<GpsFix | null>(null);
   const distanceMRef = useRef(0); // total metres
   const trackRef = useRef<LatLng[]>([]); // accepted GPS fixes, for the route
   const splitsRef = useRef<{ distance: number; moving_time: number; elapsed_time: number }[]>([]);
@@ -462,11 +450,12 @@ export function GuidedRun({
             livePaceRef.current = 1000 / c.speed;
           }
           const prev = lastFixRef.current;
-          const accurate = c.accuracy == null || c.accuracy < 35;
+          const accurate = accurateFix(c);
           if (prev && accurate) {
-            const d = haversine(prev, c);
-            // Reject GPS jitter / teleports.
-            if (d > 1 && d < 60) {
+            const d = haversine(prev.coords, c);
+            // Reject GPS jitter / teleports, widening the bound if it's
+            // been a while since the last accurate fix (poor-signal stretch).
+            if (isPlausibleDelta(d, pos.timestamp - prev.timestamp)) {
               distanceMRef.current += d;
               trackRef.current.push([c.latitude, c.longitude]);
             }
@@ -474,8 +463,13 @@ export function GuidedRun({
             // Seed the route with the first good fix.
             trackRef.current.push([c.latitude, c.longitude]);
           }
-          if (accurate) setLivePos([c.latitude, c.longitude]);
-          lastFixRef.current = c;
+          if (accurate) {
+            setLivePos([c.latitude, c.longitude]);
+            // Only an accurate fix becomes the baseline for the next delta,
+            // so a bad fix (bounce under trees/a bridge) can't skew the
+            // distance once GPS recovers.
+            lastFixRef.current = { coords: c, timestamp: pos.timestamp };
+          }
         },
         () => setGpsDenied(true),
         { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
