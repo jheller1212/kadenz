@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Repeat, Video } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Minus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Repeat, Video } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -19,6 +19,7 @@ import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
+import { StepperButton } from "@/components/ui/StepperButton";
 import { ListGroup, Row } from "@/components/ui/List";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
@@ -1504,8 +1505,6 @@ export default function StrengthPage() {
 
 const REST_PRESETS = [30, 60, 90];
 
-const stepBtn = "press flex h-10 w-10 items-center justify-center rounded-full bg-elevated";
-
 function Stepper({
   label,
   value,
@@ -1521,11 +1520,15 @@ function Stepper({
     <div className="flex items-center justify-between">
       <span className="text-[13px] font-semibold text-text-2">{label}</span>
       <div className="flex items-center gap-3">
-        <button type="button" aria-label={`Less ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(-1); }}>−</button>
+        <StepperButton ariaLabel={`Less ${label}`} onClick={() => { haptic("light"); onDelta(-1); }}>
+          <Minus className="h-4 w-4" strokeWidth={2.5} />
+        </StepperButton>
         <span className="min-w-[72px] text-center text-[17px] font-extrabold tabular-nums text-text-1">
           {value}{unit && <span className="text-[12px] font-semibold text-text-3"> {unit}</span>}
         </span>
-        <button type="button" aria-label={`More ${label}`} className={stepBtn} onClick={() => { haptic("light"); onDelta(1); }}>+</button>
+        <StepperButton ariaLabel={`More ${label}`} onClick={() => { haptic("light"); onDelta(1); }}>
+          <Plus className="h-4 w-4" strokeWidth={2.5} />
+        </StepperButton>
       </div>
     </div>
   );

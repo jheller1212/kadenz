@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton } from "@/components/ui/feedback";
+import { StepperButton } from "@/components/ui/StepperButton";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
@@ -347,25 +348,21 @@ function EditWorkoutSheet({
           <div>
             <p className="mb-2 text-[13px] font-semibold text-text-2">Distance</p>
             <div className="flex items-center justify-center gap-5">
-              <button
-                type="button"
-                aria-label="Less distance"
+              <StepperButton
+                ariaLabel="Less distance"
                 onClick={() => { haptic("light"); setKm((v) => Math.max(minKm, Math.round(((v ?? 1) - 0.5) * 10) / 10)); }}
-                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
               >
                 <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
-              </button>
+              </StepperButton>
               <span className="min-w-[110px] text-center text-[28px] font-extrabold tabular-nums text-text-1">
                 {km.toFixed(1)} <span className="text-[15px] font-semibold text-text-3">km</span>
               </span>
-              <button
-                type="button"
-                aria-label="More distance"
+              <StepperButton
+                ariaLabel="More distance"
                 onClick={() => { haptic("light"); setKm((v) => Math.min(60, Math.round(((v ?? 0) + 0.5) * 10) / 10)); }}
-                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
               >
                 <Plus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
-              </button>
+              </StepperButton>
             </div>
             <p className="mt-1.5 text-center text-[12px] text-text-3">
               Warm-up and cool-down stay fixed; the main session scales.
@@ -383,26 +380,22 @@ function EditWorkoutSheet({
           <div>
             <p className="mb-2 text-[13px] font-semibold text-text-2">Pace targets</p>
             <div className="flex items-center justify-center gap-5">
-              <button
-                type="button"
-                aria-label="Faster paces"
+              <StepperButton
+                ariaLabel="Faster paces"
                 onClick={() => { haptic("light"); setPaceOffset((v) => Math.max(minOffset, v - 5)); }}
-                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
               >
                 <Minus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
-              </button>
+              </StepperButton>
               <span className="min-w-[110px] text-center text-[28px] font-extrabold tabular-nums text-text-1">
                 {paceOffset > 0 ? "+" : ""}{paceOffset}
                 <span className="text-[15px] font-semibold text-text-3"> s/km</span>
               </span>
-              <button
-                type="button"
-                aria-label="Slower paces"
+              <StepperButton
+                ariaLabel="Slower paces"
                 onClick={() => { haptic("light"); setPaceOffset((v) => Math.min(60, v + 5)); }}
-                className="press flex h-11 w-11 items-center justify-center rounded-full bg-elevated"
               >
                 <Plus className="h-5 w-5 text-text-1" strokeWidth={2.2} />
-              </button>
+              </StepperButton>
             </div>
             <p className="mt-1.5 text-center text-[12px] text-text-3">
               + is easier (slower), − is harder. Applies to every pace in this session.
@@ -1376,7 +1369,12 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                   {workout.timeOfDay ? ` · ${formatTimeOfDay(workout.timeOfDay)}` : ""}
                 </span>
               </div>
-              <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">
+              {/* The feed card truncates a title to one line (see WorkoutCard in
+                  app/page.tsx); this hero has no card below it competing for
+                  vertical space, so it gets two lines instead of one before
+                  capping — still bounded, just not as tight, for the rare
+                  hand-edited or km-baked title long enough to wrap. */}
+              <h1 className="mt-1.5 line-clamp-2 text-[22px] font-bold tracking-tight text-text-1">
                 {displayWorkoutTitle(workout, settings.units)}
                 {workout.edited && (
                   <span className="ml-2 align-middle rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-text-3">Edited</span>
