@@ -7,10 +7,13 @@ import {
   strengthSessions,
   strengthSets,
   wellnessLogs,
+  wellnessMetrics,
   workouts,
 } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
 import { computeReadiness } from "@/lib/readiness";
+import { computePhysiologyReadiness, type WellnessNight } from "@/lib/physiology";
+import { toGarminDate } from "@/lib/sync/garmin-client";
 
 // ── GET /api/readiness ────────────────────────────────────────────────────────
 // Readiness score for the Today view: latest wellness check-in (≤48 h), recent
@@ -91,6 +94,31 @@ export async function GET(request: NextRequest) {
       priorWeeklyAvgKm = priorKm / 3;
     }
 
+    // Overnight physiology (owner only — a household guest has no watch
+    // feeding this, same gate as run load above).
+    let physiology = null;
+    if (!profileId) {
+      const since60d = new Date(now - 60 * 24 * 3600_000);
+      const rows = await db
+        .select({
+          date: wellnessMetrics.date,
+          sleepSeconds: wellnessMetrics.sleepSeconds,
+          restingHr: wellnessMetrics.restingHr,
+          hrvLastNightAvg: wellnessMetrics.hrvLastNightAvg,
+        })
+        .from(wellnessMetrics)
+        .where(gte(wellnessMetrics.date, since60d));
+      const nights: WellnessNight[] = rows.map((r) => ({
+        date: toGarminDate(r.date),
+        sleepSeconds: r.sleepSeconds,
+        restingHr: r.restingHr,
+        hrvLastNightAvg: r.hrvLastNightAvg,
+      }));
+      if (nights.length > 0) {
+        physiology = computePhysiologyReadiness(nights, new Date(now));
+      }
+    }
+
     const result = computeReadiness({
       wellness: w
         ? {
@@ -107,6 +135,7 @@ export async function GET(request: NextRequest) {
       recentRunRpe,
       last7DaysKm,
       priorWeeklyAvgKm,
+      physiology,
     });
 
     return Response.json(result);

@@ -163,6 +163,29 @@ def _garmin_call(path: str, **kwargs: Any) -> Any:
             raise
 
 
+def _garmin_call_fn(fn, *args: Any, **kwargs: Any) -> Any:
+    """Same retry-then-503 semantics as _garmin_call, for garth's typed Data
+    helpers (DailySleepData.get, HRVData.get). Those call the module's default
+    http client directly and bypass _garmin_call, so without this an expired
+    session would raise a raw exception instead of the GarminAuthError the
+    web side knows how to turn into "reconnect Garmin"."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        if not _is_auth_error(exc):
+            raise
+        logger.warning("Garmin auth error on %s, refreshing session", getattr(fn, "__qualname__", fn))
+        try:
+            _refresh_garth_session()
+            return fn(*args, **kwargs)
+        except GarminAuthError:
+            raise
+        except Exception as exc2:
+            if _is_auth_error(exc2):
+                raise GarminAuthError(str(exc2)) from exc2
+            raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_garth()
@@ -753,6 +776,63 @@ def get_exercise_sets(garmin_id: int, _auth: Auth):
                 "reps": [reps] if reps else [],
             })
     return {"exercises": out}
+
+
+# ── Wellness route ───────────────────────────────────────────────────────────
+
+
+@app.get("/wellness")
+def get_wellness(_auth: Auth, date: str):
+    """Overnight physiological wellness for one calendar day: sleep duration
+    and resting HR (sleep service) plus HRV (hrv service). Feeds readiness —
+    Kadenz computes its own rolling baseline from a history of these rows
+    rather than trusting Garmin's on-device status, so this returns the raw
+    per-night numbers, not a verdict.
+
+    Either service can have no data for a given day (watch not worn overnight,
+    a gap in syncing) — that must return nulls for those fields, not a 404,
+    since the readiness caller queries a whole date range and one thin night
+    shouldn't break the rest of the pull.
+    """
+    try:
+        target = date_cls.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    sleep_seconds: int | None = None
+    resting_hr: int | None = None
+    try:
+        sleep = _garmin_call_fn(garth.DailySleepData.get, target)
+        if sleep is not None:
+            sleep_seconds = sleep.daily_sleep_dto.sleep_time_seconds
+            resting_hr = sleep.resting_heart_rate
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.warning("Sleep data unavailable for %s: %s", date, exc)
+
+    hrv_last_night_avg: int | None = None
+    hrv_weekly_avg: int | None = None
+    hrv_status: str | None = None
+    try:
+        hrv = _garmin_call_fn(garth.HRVData.get, target)
+        if hrv is not None:
+            hrv_last_night_avg = hrv.hrv_summary.last_night_avg
+            hrv_weekly_avg = hrv.hrv_summary.weekly_avg
+            hrv_status = hrv.hrv_summary.status
+    except GarminAuthError:
+        raise
+    except Exception as exc:
+        logger.warning("HRV data unavailable for %s: %s", date, exc)
+
+    return {
+        "date": date,
+        "sleepSeconds": sleep_seconds,
+        "restingHr": resting_hr,
+        "hrvLastNightAvg": hrv_last_night_avg,
+        "hrvWeeklyAvg": hrv_weekly_avg,
+        "hrvStatus": hrv_status,
+    }
 
 
 # ── Strength workout route ───────────────────────────────────────────────────

@@ -97,6 +97,17 @@ export interface GarminPerformedExercise {
   reps: number[];
 }
 
+/** Raw overnight wellness for one calendar day. Null fields mean the watch
+ * has no data for that day (not worn, sync gap) — not an error. */
+export interface GarminWellness {
+  date: string; // YYYY-MM-DD
+  sleepSeconds: number | null;
+  restingHr: number | null;
+  hrvLastNightAvg: number | null;
+  hrvWeeklyAvg: number | null;
+  hrvStatus: string | null;
+}
+
 export interface GarminClient {
   isConfigured(): boolean;
   healthCheck(): Promise<boolean>;
@@ -116,6 +127,8 @@ export interface GarminClient {
   getExerciseSets(garminId: string): Promise<GarminPerformedExercise[]>;
   pushStrengthWorkout(workout: GarminStrengthWorkout): Promise<string>;
   listWorkouts(limit?: number, withSchedules?: boolean): Promise<GarminWorkoutSummary[]>;
+  /** Overnight wellness (sleep, resting HR, HRV) for one calendar day. */
+  getWellness(date: string): Promise<GarminWellness>;
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -392,5 +405,18 @@ export const garminClient: GarminClient = {
     const id = data.garminWorkoutId ?? data.garmin_workout_id;
     if (id == null) throw new Error("Garmin worker returned no workout id");
     return String(id);
+  },
+
+  async getWellness(date) {
+    const res = await workerFetch(`/wellness?date=${encodeURIComponent(date)}`);
+    const data = (await res.json()) as Partial<GarminWellness>;
+    return {
+      date: data.date ?? date,
+      sleepSeconds: data.sleepSeconds ?? null,
+      restingHr: data.restingHr ?? null,
+      hrvLastNightAvg: data.hrvLastNightAvg ?? null,
+      hrvWeeklyAvg: data.hrvWeeklyAvg ?? null,
+      hrvStatus: data.hrvStatus ?? null,
+    };
   },
 };

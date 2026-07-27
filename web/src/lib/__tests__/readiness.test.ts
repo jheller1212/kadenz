@@ -15,6 +15,7 @@ function base(overrides: Partial<ReadinessInput> = {}): ReadinessInput {
     recentStrengthRpe: null,
     last7DaysKm: 30,
     priorWeeklyAvgKm: 30,
+    physiology: null,
     ...overrides,
   };
 }
@@ -92,6 +93,31 @@ describe("computeReadiness", () => {
     );
     expect(r.hasCheckIn).toBe(false);
     expect(r.band).toBe("rest");
+  });
+
+  it("physiology in warm-up contributes nothing but is surfaced for the card", () => {
+    const r = computeReadiness(
+      base({ physiology: { delta: 0, reasons: [], ready: false, warmup: { daysCollected: 5, daysNeeded: 21 } } })
+    );
+    expect(r.score).toBe(75);
+    expect(r.reasons).toEqual([]);
+    expect(r.physiologyWarmup).toEqual({ daysCollected: 5, daysNeeded: 21 });
+  });
+
+  it("ready physiology folds its reasons and delta into the score", () => {
+    const r = computeReadiness(
+      base({
+        physiology: {
+          delta: -12,
+          reasons: [{ label: "HRV 20% below your baseline", delta: -12 }],
+          ready: true,
+          warmup: null,
+        },
+      })
+    );
+    expect(r.score).toBe(63);
+    expect(r.reasons.some((x) => x.label.includes("HRV"))).toBe(true);
+    expect(r.physiologyWarmup).toBeNull();
   });
 
   it("score is clamped to 0..100", () => {

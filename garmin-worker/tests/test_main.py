@@ -6,6 +6,7 @@ All Garmin API calls are mocked — no real network requests are made.
 
 import os
 import warnings
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -295,3 +296,89 @@ def test_delete_workout_garmin_error():
     with patch("main.garth.connectapi", side_effect=Exception("not found")):
         resp = client.delete("/workouts/99999", headers=AUTH_HEADERS)
     assert resp.status_code == 502
+
+
+# ── GET /wellness ────────────────────────────────────────────────────────────
+
+
+def _fake_sleep(sleep_time_seconds=25200, resting_heart_rate=47):
+    dto = SimpleNamespace(sleep_time_seconds=sleep_time_seconds)
+    return SimpleNamespace(daily_sleep_dto=dto, resting_heart_rate=resting_heart_rate)
+
+
+def _fake_hrv(last_night_avg=42, weekly_avg=45, status="BALANCED"):
+    summary = SimpleNamespace(
+        last_night_avg=last_night_avg, weekly_avg=weekly_avg, status=status
+    )
+    return SimpleNamespace(hrv_summary=summary)
+
+
+def test_wellness_no_auth():
+    resp = client.get("/wellness", params={"date": "2026-07-20"})
+    assert resp.status_code == 422  # missing Authorization header
+
+
+def test_wellness_invalid_date():
+    resp = client.get("/wellness", params={"date": "not-a-date"}, headers=AUTH_HEADERS)
+    assert resp.status_code == 400
+
+
+def test_wellness_success():
+    with (
+        patch("main.garth.DailySleepData.get", return_value=_fake_sleep()),
+        patch("main.garth.HRVData.get", return_value=_fake_hrv()),
+    ):
+        resp = client.get("/wellness", params={"date": "2026-07-20"}, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {
+        "date": "2026-07-20",
+        "sleepSeconds": 25200,
+        "restingHr": 47,
+        "hrvLastNightAvg": 42,
+        "hrvWeeklyAvg": 45,
+        "hrvStatus": "BALANCED",
+    }
+
+
+def test_wellness_no_data_returns_nulls_not_error():
+    """A night the watch wasn't worn: both services return None. Must be a
+    200 with null fields, not a 404 — the caller pulls a date range and one
+    thin night must not break the rest of the response."""
+    with (
+        patch("main.garth.DailySleepData.get", return_value=None),
+        patch("main.garth.HRVData.get", return_value=None),
+    ):
+        resp = client.get("/wellness", params={"date": "2026-07-20"}, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sleepSeconds"] is None
+    assert body["restingHr"] is None
+    assert body["hrvLastNightAvg"] is None
+
+
+def test_wellness_partial_failure_still_returns_the_other_signal():
+    """HRV service down but sleep service fine (or vice versa): don't lose
+    the signal that did succeed."""
+    with (
+        patch("main.garth.DailySleepData.get", return_value=_fake_sleep()),
+        patch("main.garth.HRVData.get", side_effect=Exception("hrv-service down")),
+    ):
+        resp = client.get("/wellness", params={"date": "2026-07-20"}, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sleepSeconds"] == 25200
+    assert body["hrvLastNightAvg"] is None
+
+
+def test_wellness_auth_error_returns_503():
+    from main import GarminAuthError
+
+    with (
+        patch("main.garth.DailySleepData.get", side_effect=Exception("401 Unauthorized")),
+        patch("main._refresh_garth_session", side_effect=GarminAuthError("expired")),
+    ):
+        resp = client.get(
+            "/wellness", params={"date": "2026-07-20"}, headers=AUTH_HEADERS
+        )
+    assert resp.status_code == 503

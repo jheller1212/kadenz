@@ -1,8 +1,15 @@
 // ── Readiness score ──────────────────────────────────────────────────────────
 // A transparent 0–100 heuristic from the signals the app already collects:
-// daily wellness check-ins, strength-session RPE, Achilles pain logs, and the
-// week-over-week run load. Every adjustment is returned as a reason so the UI
-// can show WHY, not just a number. No medical language — advisory only.
+// daily wellness check-ins, strength-session RPE, Achilles pain logs, the
+// week-over-week run load, and (once enough history exists) overnight
+// physiology from the watch — sleep duration, resting HR and HRV against the
+// athlete's own rolling baseline (see lib/physiology.ts). Every adjustment is
+// returned as a reason so the UI can show WHY, not just a number. No medical
+// language — advisory only. Physiology never replaces the check-in: it's
+// folded in alongside it, and stays silent (not zero) until it has enough
+// history to say anything real — see physiologyWarmup on the result.
+
+import type { PhysiologyResult } from "./physiology";
 
 export type ReadinessBand = "ready" | "easy" | "rest";
 
@@ -31,6 +38,11 @@ export interface ReadinessInput {
   last7DaysKm: number;
   /** Average weekly completed km over the 3 weeks before that */
   priorWeeklyAvgKm: number;
+  /** Overnight physiology (sleep/RHR/HRV vs baseline), already computed by
+   * lib/physiology.ts from the wellness_metrics history. Null when the
+   * Garmin worker isn't configured or nothing has synced yet — distinct from
+   * `ready: false`, which means "configured but still in warm-up". */
+  physiology: PhysiologyResult | null;
 }
 
 export interface ReadinessResult {
@@ -39,6 +51,11 @@ export interface ReadinessResult {
   reasons: ReadinessReason[];
   hasCheckIn: boolean;
   advice: string;
+  /** Set while physiology data exists but hasn't cleared the baseline floor
+   * yet, so the card can say "still building your baseline" instead of
+   * silently omitting the signal. Null once ready, or if there's no
+   * physiology data at all. */
+  physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
 }
 
 const BASE = 75;
@@ -98,6 +115,14 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
     add("Load spike vs recent weeks", -10);
   }
 
+  // Physiology folds in alongside the check-in, not instead of it. During
+  // warm-up (not enough baseline history) it contributes nothing — see the
+  // module doc in physiology.ts for why a confident number from four days
+  // of data would be worse than staying silent.
+  if (input.physiology?.ready) {
+    for (const r of input.physiology.reasons) add(r.label, r.delta);
+  }
+
   // Hard caps — these override everything else.
   if (w?.illness) {
     score = Math.min(score, 25);
@@ -116,5 +141,7 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
     reasons,
     hasCheckIn: w != null && w.ageHours <= 30,
     advice: ADVICE[b],
+    physiologyWarmup:
+      input.physiology && !input.physiology.ready ? input.physiology.warmup : null,
   };
 }
