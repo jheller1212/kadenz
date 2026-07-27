@@ -424,11 +424,19 @@ function LinkActivitySheet({
     setCandidates(null);
     (async () => {
       try {
-        const res = await apiFetch("/api/activities");
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
+        // /api/activities defaults to a rolling 12-month window — a workout
+        // from further back would otherwise have no linkable candidates at
+        // all. Ask it for exactly the +/- LINK_WINDOW_DAYS range around this
+        // workout's date instead, which also keeps the request small.
         const anchor = new Date(workout.date).getTime();
         const windowMs = LINK_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+        const from = new Date(anchor - windowMs).toISOString();
+        const to = new Date(anchor + windowMs).toISOString();
+        const res = await apiFetch(
+          `/api/activities?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
         const runs: LinkableActivity[] = (data.activities ?? [])
           .filter((a: { kind: string; workoutId: string | null; date: string }) =>
             a.kind === "run" &&
