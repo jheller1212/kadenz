@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
 import { Minus, Plus, Volume2, VolumeX, Check, Pause, Play, History, Repeat, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
+import { StepperButton } from "@/components/ui/StepperButton";
 import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
 import { haptic } from "@/lib/haptics";
 import { formatRecency } from "@/lib/recency";
@@ -123,32 +123,6 @@ const REST_RING_C = 2 * Math.PI * REST_RING_R;
 // ── Audio (Web Speech + a tiny Web Audio beep), both best-effort ──────────────
 // iOS gates both behind a user gesture, so `unlockGuidedAudio` must be called
 // synchronously from the Start button's onClick before this component mounts.
-
-function Stepper({
-  onClick,
-  label,
-  children,
-}: {
-  onClick: () => void;
-  /** Accessible name — the icon alone doesn't say which of the four
-   *  identical-looking mid-set buttons (kg −/+, reps −/+) this is. */
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      whileTap={{ scale: 0.85 }}
-      transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      style={{ touchAction: "manipulation" }}
-      className="flex h-12 w-12 items-center justify-center rounded-[var(--radius-input)] bg-elevated text-text-1"
-    >
-      {children}
-    </motion.button>
-  );
-}
 
 // Small WU / numbered pill (see the design board's .setrow .tag). Tappable
 // to flip warm-up ↔ working when `onToggle` is given; read-only otherwise
@@ -1439,20 +1413,20 @@ function WeightReps({
       )}
       <div className={`${compact ? "mt-2.5" : "mt-4"} flex items-center justify-center gap-4`}>
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
-          <Stepper onClick={() => onAdjust("kg", -1)} label="Decrease weight"><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+          <StepperButton onClick={() => onAdjust("kg", -1)} ariaLabel="Decrease weight"><Minus className="h-5 w-5" strokeWidth={2.5} /></StepperButton>
           <span className="w-[72px] text-center leading-none">
             <b className={`font-display text-[32px] tabular-nums ${isWarmup ? "text-text-3" : "text-text-1"}`}>{displayWeight(set.kg)}</b>
             <span className="block text-[10px] uppercase tracking-wide text-text-3">{loadUnitLabel(dumbbells)}{perSide ? " · side" : ""}</span>
           </span>
-          <Stepper onClick={() => onAdjust("kg", 1)} label="Increase weight"><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+          <StepperButton onClick={() => onAdjust("kg", 1)} ariaLabel="Increase weight"><Plus className="h-5 w-5" strokeWidth={2.5} /></StepperButton>
         </div>
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
-          <Stepper onClick={() => onAdjust("reps", -1)} label="Decrease reps"><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+          <StepperButton onClick={() => onAdjust("reps", -1)} ariaLabel="Decrease reps"><Minus className="h-5 w-5" strokeWidth={2.5} /></StepperButton>
           <span className="w-16 text-center leading-none">
             <b className={`font-display text-[32px] tabular-nums ${isWarmup ? "text-text-3" : "text-text-1"}`}>{set.reps}</b>
             <span className="block text-[10px] uppercase tracking-wide text-text-3">reps</span>
           </span>
-          <Stepper onClick={() => onAdjust("reps", 1)} label="Increase reps"><Plus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
+          <StepperButton onClick={() => onAdjust("reps", 1)} ariaLabel="Increase reps"><Plus className="h-5 w-5" strokeWidth={2.5} /></StepperButton>
         </div>
       </div>
       {onOpenAdjust && (

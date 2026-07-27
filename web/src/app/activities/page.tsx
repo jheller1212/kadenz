@@ -471,8 +471,11 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
     </div>
   );
 
-  // Every feed card carries a quiet 5% radial wash of its own type color,
-  // behind the graphics only — see lib/workout-colors.ts typeWash().
+  // Every feed card carries a quiet 5% radial wash of its own type color as
+  // the whole card's background, with the card's text and graphics rendered
+  // directly on top of it (see lib/workout-colors.ts typeWash()). Contrast
+  // was measured against the wash and stays AA-compliant down to 4.83:1 in
+  // the worst case, so don't push the tint darker without re-checking that.
   const washStyle = { backgroundImage: typeWash(barColor) };
 
   if (hasActivity) {
