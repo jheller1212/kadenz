@@ -43,6 +43,7 @@ import { WellnessCheckIn } from "@/components/WellnessCheckIn";
 import { haptic } from "@/lib/haptics";
 import { readCache, writeCache } from "@/lib/client-cache";
 import { mutateWithQueue, installQueueFlush } from "@/lib/offline-queue";
+import { itemState, type ApiWorkoutRow } from "@/lib/plan-ui";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -533,12 +534,16 @@ function CalendarStrip({
       {days.map((day, i) => {
         const hasWorkout = day.workout && day.workout.type !== "rest";
         const strengthStatus = strengthDays[day.date.toDateString()];
-        const completed = day.workout?.status === "completed";
+        // Same itemState() the Plan screen uses (see lib/plan-ui.ts), so a
+        // deliberately skipped day reads as skipped here too instead of this
+        // strip re-deriving its own "missed" rule and painting a skip red.
+        const dayState =
+          hasWorkout && day.workout
+            ? itemState({ kind: "run", workout: day.workout as unknown as ApiWorkoutRow }, new Date(now))
+            : null;
+        const completed = dayState === "completed";
+        const missed = dayState === "missed";
         const isSelected = selectedDate && day.date.getDate() === selectedDate.getDate() && day.date.getMonth() === selectedDate.getMonth() && day.date.getFullYear() === selectedDate.getFullYear();
-        // Past planned (non-rest) workout that never got completed = missed
-        const dayEnd = new Date(day.date);
-        dayEnd.setHours(23, 59, 59, 999);
-        const missed = !!hasWorkout && !completed && dayEnd.getTime() < now && !day.isToday;
 
         // Today is always the inverted "ink + volt" cell, whether or not it's
         // the one currently selected — it's a calendar landmark, not a
@@ -592,8 +597,12 @@ function CalendarStrip({
                 .filter((wo) => wo.type !== "rest")
                 .slice(0, 3)
                 .map((wo) => {
-                  const woDone = wo.status === "completed";
-                  const woMissed = !woDone && dayEnd.getTime() < Date.now() && !day.isToday;
+                  const woState = itemState(
+                    { kind: "run", workout: wo as unknown as ApiWorkoutRow },
+                    new Date(now)
+                  );
+                  const woDone = woState === "completed";
+                  const woMissed = woState === "missed";
                   return (
                     <div
                       key={wo.id}
