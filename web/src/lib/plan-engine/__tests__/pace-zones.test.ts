@@ -2,9 +2,20 @@ import { describe, expect, it } from "vitest";
 import { formatPace, getPaceZones } from "../pace-zones";
 
 describe("getPaceZones", () => {
-  it("throws for non-positive VDOT", () => {
-    expect(() => getPaceZones(0)).toThrow();
-    expect(() => getPaceZones(-5)).toThrow();
+  // getPaceZones degrades gracefully instead of throwing for a non-positive
+  // VDOT (reachable from an extreme goal time that drives calculateVdot
+  // negative). The wizard blocks that input; this is defense in depth so a
+  // config that reaches generation another way still produces a plan.
+  it("degrades to a floor VDOT instead of throwing for non-positive VDOT", () => {
+    expect(() => getPaceZones(0)).not.toThrow();
+    expect(() => getPaceZones(-5)).not.toThrow();
+
+    const zeroZones = getPaceZones(0);
+    const negativeZones = getPaceZones(-5);
+    expect(zeroZones.E.targetPaceSecKm).toBeGreaterThan(0);
+    expect(negativeZones.E.targetPaceSecKm).toBeGreaterThan(0);
+    // Both non-positive inputs clamp to the same floor.
+    expect(zeroZones).toEqual(negativeZones);
   });
 
   it("returns all five zones", () => {

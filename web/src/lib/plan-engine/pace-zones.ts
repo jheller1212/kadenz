@@ -54,21 +54,28 @@ function zone(vdot: number, loFraction: number, hiFraction: number, zoneKey?: st
   };
 }
 
+// Lowest VDOT the Daniels equations stay well-behaved for. Below this, an
+// extreme goal time (see StepGoal's GOAL_TIME_RANGES.slow ceiling, which is
+// meant to stop this in the wizard) can drive vo2AtSpeed negative. The wizard
+// is the real fix; this floor exists so a config that reaches generation some
+// other way still produces a (very conservative) plan instead of throwing.
+const MIN_VDOT = 20;
+
 /**
  * Derive all five training pace zones from VDOT.
  *
  * @param vdot - Athlete's VDOT (ml/kg/min)
  */
 export function getPaceZones(vdot: number): PaceZones {
-  if (vdot <= 0) throw new Error("vdot must be positive");
+  const safeVdot = vdot > 0 ? Math.max(vdot, MIN_VDOT) : MIN_VDOT;
 
   return {
-    E: zone(vdot, 0.59, 0.75, "E"),
-    M: zone(vdot, 0.75, 0.84, "M"),
-    T: zone(vdot, 0.86, 0.88, "T"),
-    I: zone(vdot, 0.95, 1.0, "I"),
+    E: zone(safeVdot, 0.59, 0.75, "E"),
+    M: zone(safeVdot, 0.75, 0.84, "M"),
+    T: zone(safeVdot, 0.86, 0.88, "T"),
+    I: zone(safeVdot, 0.95, 1.0, "I"),
     // R zone: 105-120% VO2max (supra-maximal)
-    R: zone(vdot, 1.05, 1.2, "R"),
+    R: zone(safeVdot, 1.05, 1.2, "R"),
   };
 }
 

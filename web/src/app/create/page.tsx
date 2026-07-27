@@ -268,7 +268,11 @@ export default function CreatePlanPage() {
         return (
           raceDistance !== null &&
           goalTimeSeconds > 0 &&
-          goalTimeSeconds >= GOAL_TIME_RANGES[raceDistance].wr
+          goalTimeSeconds >= GOAL_TIME_RANGES[raceDistance].wr &&
+          // Upper bound: below GOAL_TIME_RANGES[distance].slow, the VDOT equation
+          // (vo2AtSpeed) goes negative and plan generation throws. Block it here,
+          // in the wizard, with a clear message, instead of failing on submit.
+          goalTimeSeconds <= GOAL_TIME_RANGES[raceDistance].slow
         );
       case "level":
         return runnerLevel !== null;
