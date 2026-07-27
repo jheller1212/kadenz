@@ -37,6 +37,69 @@ export const EXERCISE_VIDEOS: Record<string, string> = {
   sumo_squat: "GG92d1QZTZg", // T-Nation
   russian_twist: "FShbaqrGGu4", // Leap Fitness
   weighted_situp: "kZvSaq192cg", // LIVESTRONG
+  // Coverage sweep (verified 2026-07-27) — every remaining catalogue slug that
+  // had no video, filled in one pass. Each id was checked two ways: yt-dlp
+  // search + duration (android client) to confirm it's short-form, and the
+  // YouTube oEmbed endpoint to confirm the id resolves and the title/channel
+  // match the exercise. See videos.test.ts for the guard that keeps this in
+  // sync with EXERCISES going forward.
+  air_squat: "a_fb6Kz7FQg", // CrossFit
+  assisted_pull_up: "AsUBri1uYzo", // josh cowan
+  band_assisted_pull_up: "B_VkNQS5YLs", // NASM
+  band_clamshell: "m_ZPapmqeNM", // Openfit on BODi
+  band_deadlift: "obM6SBVa-MU", // YuryFit
+  band_external_rotation: "_UvmPNGtlPM", // AskDoctorJo
+  band_glute_bridge: "p7cFEtMC68g", // ChiroUp
+  band_lateral_walk: "M5uxEQH5BUM", // NASM
+  band_pull_apart: "smSSXITNpCI", // Rogue Fitness
+  band_row: "FDCEXPBI1F0", // Born Fitness
+  band_squat: "Eaqr79zvqIw", // Live Lean TV
+  band_squat_to_press: "s7UH5cFm9cM", // Fit To Hunt
+  barbell_back_squat: "-bJIpOq-LWk", // NASM
+  barbell_bench_press: "CayG6UYqL8g", // NASM
+  barbell_bulgarian_split_squat: "ZpfUdHtFGcM", // Optimum Whealth
+  barbell_floor_press: "YwLjxqEYg0w", // OPEX Fitness
+  barbell_hip_thrust_with_bench: "vGqkX4jsivI", // Laura Glisson NASM-CPT
+  barbell_reverse_lunge: "KZaCvzd5dQM", // Show Up Fitness
+  barbell_row: "bm0_q9bR_HA", // NASM
+  barbell_shoulder_press: "cGnhixvC8uA", // NASM
+  // closest verified match for "straight-leg deadlift" — same near-locked-knee
+  // hip hinge as a stiff-leg deadlift, no barbell-specific short video found
+  barbell_straight_leg_deadlift: "CN_7cz3P-1U", // Renaissance Periodization
+  cable_fly: "XNf6TBErGys", // NASM
+  cable_row: "0R9ZQd3aM6s", // NASM
+  calf_raise_machine: "SVqpe2df9Dc", // Sarah Malone
+  chest_press_machine: "lRo9zZ7EwpM", // NASM
+  chin_up: "qVztO-F-IwI", // Nuffield Health
+  clamshell: "oHjBwnfpcQs", // Live Lean TV
+  dumbbell_bench_press: "4_QuyfOCI5U", // NASM
+  face_pull: "eTCBSFlCJ_s", // NASM
+  farmers_carry: "8OtwXwrJizk", // PureGym
+  hip_abduction_machine: "xhz9HM9ZAlA", // Rachael Toohey
+  hip_adduction_machine: "sJ5Sup90Tws", // Never Been Stronger
+  hip_raise: "RR0oZhhUVWo", // Heartmybody Fitness
+  kettlebell_deadlift: "LnIMaf-XOpM", // NASM
+  kettlebell_row: "l5qelXL5nfs", // OPEX Fitness
+  kettlebell_squat: "MWHIs0zxkCU", // NASM
+  kettlebell_swing: "KKumMhxKapw", // NASM
+  lat_pulldown_machine: "JGeRYIZdojU", // PureGym
+  leg_curl_machine: "G5iP_YcDQdE", // NASM
+  leg_extension_machine: "4ZDm5EbiFI8", // PureGym
+  leg_press_machine: "cDGOn-yfKJA", // NASM
+  nordic_curl_negative: "ogeV4-tyhjs", // Luke Amaral
+  pike_push_up: "2b5t0Cu2nQI", // NASM
+  pull_up: "9yVGh3XbJ34", // NASM
+  seated_row_machine: "k0cTJCfxa0Y", // NASM
+  shoulder_press_machine: "GcY6TZxfS0k", // PureGym
+  side_lying_leg_raise: "DA4FVJH2PnU", // The Active Life
+  single_leg_calf_raise: "qPd73snQfUs", // Hospital for Special Surgery
+  single_leg_glute_bridge: "sVfp4LN9niA", // PureGym
+  standing_calf_raise: "qacGi_xmXxg", // Asphodel Fitness
+  step_down: "B3CjUyMouBA", // E3 Rehab Exercise Library
+  superman_from_floor: "LZoWdePF1NQ", // Live Lean TV
+  tibialis_raise: "lBCRdjdWiTI", // Balance In Motion
+  triceps_pushdown: "J65T1pUTsRc", // Ethan Salm
+  wall_sit: "cWTZ8Am1Ee0", // MedBridge
 };
 
 export function getVideoId(slug: string): string | null {
