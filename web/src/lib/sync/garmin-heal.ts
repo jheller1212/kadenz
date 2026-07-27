@@ -36,3 +36,16 @@ export function ourOrphanIds(
     .filter((w) => w.createdByKadenz && !trackedIds.has(w.garminWorkoutId))
     .map((w) => w.garminWorkoutId);
 }
+
+/**
+ * True when the worker's listing may not be the whole account: it returned
+ * as many rows as the page limit allowed, so anything past that page is
+ * invisible to this call. A workout absent from a partial page looks
+ * "untracked" for the same reason a workout absent from a full page does —
+ * there's no way to tell those two cases apart without listing further
+ * pages, so a caller MUST refuse to delete when this is true rather than
+ * treat a partial view as the complete account.
+ */
+export function isListingPossiblyPartial(count: number, limit: number): boolean {
+  return count >= limit;
+}

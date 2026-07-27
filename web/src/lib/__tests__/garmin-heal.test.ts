@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ourOrphanIds, rowsNeedingRepush } from "../sync/garmin-heal";
+import { isListingPossiblyPartial, ourOrphanIds, rowsNeedingRepush } from "../sync/garmin-heal";
 
 describe("rowsNeedingRepush", () => {
   it("flags rows whose Garmin workout no longer exists", () => {
@@ -38,5 +38,30 @@ describe("ourOrphanIds", () => {
       { garminWorkoutId: "2", createdByKadenz: false },
     ];
     expect(ourOrphanIds(onGarmin, new Set())).toEqual([]);
+  });
+
+  it("never flags a tracked id even when it is the only item on the account", () => {
+    // Guards the "active plan wiped out by a bad read" failure mode: a
+    // tracked id must survive being the sole entry on Garmin.
+    const onGarmin = [{ garminWorkoutId: "active-plan-workout", createdByKadenz: true }];
+    expect(ourOrphanIds(onGarmin, new Set(["active-plan-workout"]))).toEqual([]);
+  });
+});
+
+describe("isListingPossiblyPartial", () => {
+  it("flags a listing that came back exactly at the cap", () => {
+    expect(isListingPossiblyPartial(500, 500)).toBe(true);
+  });
+
+  it("flags a listing that somehow exceeds the cap", () => {
+    expect(isListingPossiblyPartial(501, 500)).toBe(true);
+  });
+
+  it("does not flag a listing under the cap", () => {
+    expect(isListingPossiblyPartial(499, 500)).toBe(false);
+  });
+
+  it("does not flag an empty account", () => {
+    expect(isListingPossiblyPartial(0, 500)).toBe(false);
   });
 });
