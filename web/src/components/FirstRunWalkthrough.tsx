@@ -16,6 +16,12 @@ interface Slide {
 // the plan reacts to logged runs (not the other way round), Kraft is a real
 // programme that tracks the running phase rather than a static list, and
 // readiness is computed daily rather than a vanity number.
+//
+// The readiness slide says "check-in" deliberately. computeReadiness() reads
+// self-reported sleep QUALITY (1-5), energy, soreness, illness/injury, pain
+// logs, RPE and run load. It does not read tracked sleep, resting heart rate
+// or HRV, none of which the app collects. Naming those here would promise a
+// wearable integration that does not exist.
 const SLIDES: Slide[] = [
   {
     icon: CalendarDays,
@@ -29,8 +35,8 @@ const SLIDES: Slide[] = [
   },
   {
     icon: HeartPulse,
-    title: "Readiness, every morning",
-    body: "Sleep, resting heart rate and your recent training load set a readiness score on Today, so you know whether to push or ease off before you start.",
+    title: "Readiness, from your check-in",
+    body: "Answer a few questions on how you slept and how you feel, and Kadenz combines that with your recent training load into a readiness score on Today, so you know whether to push or ease off.",
   },
 ];
 
