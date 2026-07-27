@@ -11,31 +11,35 @@ import { getActiveProfileId } from "@/lib/profiles";
 export async function GET(request: NextRequest) {
   const profileId = getActiveProfileId(request);
   try {
-    const rows = await db
-      .select()
-      .from(strengthExercises)
-      .orderBy(asc(strengthExercises.sortOrder));
+    // The catalogue and the athlete's set history are independent lookups —
+    // run them together instead of two serialised round trips.
+    const [rows, sets] = await Promise.all([
+      db
+        .select()
+        .from(strengthExercises)
+        .orderBy(asc(strengthExercises.sortOrder)),
 
-    // Newest-first logged sets; reduce to each exercise's latest session.
-    const sets = await db
-      .select({
-        exerciseId: strengthSets.exerciseId,
-        sessionId: strengthSets.sessionId,
-        date: strengthSessions.date,
-        weightKg: strengthSets.weightKg,
-        reps: strengthSets.reps,
-      })
-      .from(strengthSets)
-      .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
-      .where(
-        and(
-          isNotNull(strengthSets.reps),
-          profileId
-            ? eq(strengthSessions.profileId, profileId)
-            : isNull(strengthSessions.profileId)
+      // Newest-first logged sets; reduce to each exercise's latest session.
+      db
+        .select({
+          exerciseId: strengthSets.exerciseId,
+          sessionId: strengthSets.sessionId,
+          date: strengthSessions.date,
+          weightKg: strengthSets.weightKg,
+          reps: strengthSets.reps,
+        })
+        .from(strengthSets)
+        .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
+        .where(
+          and(
+            isNotNull(strengthSets.reps),
+            profileId
+              ? eq(strengthSessions.profileId, profileId)
+              : isNull(strengthSessions.profileId)
+          )
         )
-      )
-      .orderBy(desc(strengthSets.createdAt));
+        .orderBy(desc(strengthSets.createdAt)),
+    ]);
 
     const latest = new Map<
       string,

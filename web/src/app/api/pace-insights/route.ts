@@ -30,54 +30,92 @@ export async function GET() {
     }
 
     const paceZones = getPaceZones(activePlan.vdot);
+    const now = new Date();
 
-    // ── 2. Completed speed workouts (tempo + interval) ─────────────────────
-    const completedSpeedWorkouts = await db
-      .select({
-        id: workouts.id,
-        date: workouts.date,
-        type: workouts.type,
-        targetKm: workouts.targetKm,
-        status: workouts.status,
-      })
-      .from(workouts)
-      .where(
-        and(
-          eq(workouts.planId, activePlan.id),
-          eq(workouts.status, "completed"),
-          or(eq(workouts.type, "tempo"), eq(workouts.type, "interval"))
+    // ── 2-3. Completed speed (tempo+interval) and long workouts, plus the
+    // next upcoming speed workout and all-time PRs — none of these four
+    // depend on each other, only on the active plan (PRs not even on that),
+    // so they run as one batch instead of four serialised round trips.
+    const [completedSpeedWorkouts, completedLongWorkouts, nextSpeedRows, prRows] = await Promise.all([
+      db
+        .select({
+          id: workouts.id,
+          date: workouts.date,
+          type: workouts.type,
+          targetKm: workouts.targetKm,
+          status: workouts.status,
+        })
+        .from(workouts)
+        .where(
+          and(
+            eq(workouts.planId, activePlan.id),
+            eq(workouts.status, "completed"),
+            or(eq(workouts.type, "tempo"), eq(workouts.type, "interval"))
+          )
         )
-      )
-      .orderBy(asc(workouts.date));
+        .orderBy(asc(workouts.date)),
 
-    // ── 3. Completed long workouts ────────────────────────────────────────────
-    const completedLongWorkouts = await db
-      .select({
-        id: workouts.id,
-        date: workouts.date,
-        type: workouts.type,
-        targetKm: workouts.targetKm,
-        status: workouts.status,
-      })
-      .from(workouts)
-      .where(
-        and(
-          eq(workouts.planId, activePlan.id),
-          eq(workouts.status, "completed"),
-          eq(workouts.type, "long")
+      db
+        .select({
+          id: workouts.id,
+          date: workouts.date,
+          type: workouts.type,
+          targetKm: workouts.targetKm,
+          status: workouts.status,
+        })
+        .from(workouts)
+        .where(
+          and(
+            eq(workouts.planId, activePlan.id),
+            eq(workouts.status, "completed"),
+            eq(workouts.type, "long")
+          )
         )
-      )
-      .orderBy(asc(workouts.date));
+        .orderBy(asc(workouts.date)),
 
-    // ── 4. Fetch work blocks for all completed workouts ───────────────────────
+      db
+        .select({
+          id: workouts.id,
+          date: workouts.date,
+          type: workouts.type,
+          targetKm: workouts.targetKm,
+          dayOfWeek: workouts.dayOfWeek,
+        })
+        .from(workouts)
+        .where(
+          and(
+            eq(workouts.planId, activePlan.id),
+            eq(workouts.status, "planned"),
+            gte(workouts.date, now),
+            or(eq(workouts.type, "tempo"), eq(workouts.type, "interval"))
+          )
+        )
+        .orderBy(asc(workouts.date))
+        .limit(1),
+
+      db
+        .select({
+          id: personalRecords.id,
+          distance: personalRecords.distance,
+          timeSeconds: personalRecords.timeSeconds,
+          date: personalRecords.date,
+          source: personalRecords.source,
+        })
+        .from(personalRecords)
+        .orderBy(asc(personalRecords.distance)),
+    ]);
+    const nextSpeed = nextSpeedRows[0];
+
+    // ── 4-5. Work blocks + linked activities for all completed workouts —
+    // both depend only on the ids above, not on each other.
     const allCompletedIds = [
       ...completedSpeedWorkouts.map((w) => w.id),
       ...completedLongWorkouts.map((w) => w.id),
     ];
 
-    const workBlocks =
+    const [workBlocks, activityRows] = await Promise.all([
       allCompletedIds.length > 0
-        ? await db
+        ? db
             .select({
               workoutId: blocks.workoutId,
               type: blocks.type,
@@ -93,19 +131,18 @@ export async function GET() {
               )
             )
             .orderBy(asc(blocks.sortOrder))
-        : [];
+        : Promise.resolve([]),
 
-    // ── 5. Fetch activities for completed workouts ────────────────────────────
-    const activityRows =
       allCompletedIds.length > 0
-        ? await db
+        ? db
             .select({
               workoutId: activities.workoutId,
               avgPaceSecKm: activities.avgPaceSecKm,
             })
             .from(activities)
             .where(inArray(activities.workoutId, allCompletedIds))
-        : [];
+        : Promise.resolve([]),
+    ]);
 
     // Build lookup maps
     const blocksByWorkout = new Map<string, typeof workBlocks[number]>();
@@ -162,29 +199,7 @@ export async function GET() {
         ? allCompletedDates[0].toISOString()
         : new Date().toISOString();
 
-    // ── 9. Next upcoming speed workout ────────────────────────────────────────
-    const now = new Date();
-
-    const [nextSpeed] = await db
-      .select({
-        id: workouts.id,
-        date: workouts.date,
-        type: workouts.type,
-        targetKm: workouts.targetKm,
-        dayOfWeek: workouts.dayOfWeek,
-      })
-      .from(workouts)
-      .where(
-        and(
-          eq(workouts.planId, activePlan.id),
-          eq(workouts.status, "planned"),
-          gte(workouts.date, now),
-          or(eq(workouts.type, "tempo"), eq(workouts.type, "interval"))
-        )
-      )
-      .orderBy(asc(workouts.date))
-      .limit(1);
-
+    // ── 9. Next upcoming speed workout (fetched in the batch above) ───────────
     let nextSpeedWorkout: {
       date: string;
       dayLabel: string;
@@ -203,18 +218,7 @@ export async function GET() {
       };
     }
 
-    // ── 10. Personal records ──────────────────────────────────────────────────
-    const prRows = await db
-      .select({
-        id: personalRecords.id,
-        distance: personalRecords.distance,
-        timeSeconds: personalRecords.timeSeconds,
-        date: personalRecords.date,
-        source: personalRecords.source,
-      })
-      .from(personalRecords)
-      .orderBy(asc(personalRecords.distance));
-
+    // ── 10. Personal records (fetched in the batch above) ─────────────────────
     const raceTimes = prRows.map((pr) => ({
       id: pr.id,
       distance: pr.distance,

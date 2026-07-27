@@ -54,24 +54,46 @@ function fastestKmFromSplits(splitsJson: unknown): number | null {
 
 export async function GET() {
   try {
-    // Lifetime rows, scalar columns only — no splitsJson. This covers every
-    // stat except the 1K PR, over every activity ever logged, at a few
-    // hundred bytes per row instead of a couple KB.
-    const rows = await db
-      .select({
-        startDate: activities.startDate,
-        sportType: activities.sportType,
-        distanceKm: activities.distanceKm,
-        durationSeconds: activities.durationSeconds,
-        elevationGain: activities.elevationGain,
-        createdAt: activities.createdAt,
-        name: activities.name,
-        avgPaceSecKm: activities.avgPaceSecKm,
-        id: activities.id,
-        strengthSessionId: activities.strengthSessionId,
-      })
-      .from(activities)
-      .where(isNotNull(activities.startDate));
+    // Splits only for the windowed subset — the only consumer is the 1K PR
+    // below. Bounding this is what keeps the payload from growing forever.
+    const splitsCutoff = new Date();
+    splitsCutoff.setMonth(splitsCutoff.getMonth() - SPLITS_WINDOW_MONTHS);
+
+    // The lifetime scalar-only rows and the windowed splits rows don't depend
+    // on each other — fetch them together instead of two serialised round
+    // trips over the single DB connection.
+    const [rows, splitRows] = await Promise.all([
+      // Lifetime rows, scalar columns only — no splitsJson. This covers every
+      // stat except the 1K PR, over every activity ever logged, at a few
+      // hundred bytes per row instead of a couple KB.
+      db
+        .select({
+          startDate: activities.startDate,
+          sportType: activities.sportType,
+          distanceKm: activities.distanceKm,
+          durationSeconds: activities.durationSeconds,
+          elevationGain: activities.elevationGain,
+          createdAt: activities.createdAt,
+          name: activities.name,
+          avgPaceSecKm: activities.avgPaceSecKm,
+          id: activities.id,
+          strengthSessionId: activities.strengthSessionId,
+        })
+        .from(activities)
+        .where(isNotNull(activities.startDate)),
+
+      db
+        .select({
+          startDate: activities.startDate,
+          createdAt: activities.createdAt,
+          distanceKm: activities.distanceKm,
+          avgPaceSecKm: activities.avgPaceSecKm,
+          splitsJson: activities.splitsJson,
+          strengthSessionId: activities.strengthSessionId,
+        })
+        .from(activities)
+        .where(and(isNotNull(activities.startDate), gte(activities.startDate, splitsCutoff))),
+    ]);
 
     const runs = rows
       .filter(isRun)
@@ -85,21 +107,6 @@ export async function GET() {
       return Response.json({ hasData: false });
     }
 
-    // Splits only for the windowed subset — the only consumer is the 1K PR
-    // below. Bounding this is what keeps the payload from growing forever.
-    const splitsCutoff = new Date();
-    splitsCutoff.setMonth(splitsCutoff.getMonth() - SPLITS_WINDOW_MONTHS);
-    const splitRows = await db
-      .select({
-        startDate: activities.startDate,
-        createdAt: activities.createdAt,
-        distanceKm: activities.distanceKm,
-        avgPaceSecKm: activities.avgPaceSecKm,
-        splitsJson: activities.splitsJson,
-        strengthSessionId: activities.strengthSessionId,
-      })
-      .from(activities)
-      .where(and(isNotNull(activities.startDate), gte(activities.startDate, splitsCutoff)));
     const recentRuns = splitRows.filter(isRun);
 
     // ── Lifetime totals ──────────────────────────────────────────────────────

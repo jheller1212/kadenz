@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { db, activities, workouts, blocks, strengthSessions, deletedActivities, activityTrash } from "@/db";
+import { db, activities, workouts, strengthSessions, deletedActivities, activityTrash } from "@/db";
 import { eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
 import { garminTombstoneKey } from "@/lib/sync/garmin-activity-import";
@@ -200,7 +200,13 @@ export async function GET(
       return Response.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Fetch linked workout + blocks if present
+    // Strava's OAuth token doesn't depend on anything below — kick the DB
+    // read for it off now so it overlaps with the workout+blocks query
+    // instead of waiting behind it.
+    const tokenPromise = activity.stravaId ? getAccessToken() : null;
+
+    // Fetch linked workout + blocks if present, in one query (relational
+    // fetch) instead of two sequential round trips.
     let plannedWorkout: {
       id: string;
       type: string;
@@ -216,24 +222,17 @@ export async function GET(
     } | null = null;
 
     if (activity.workoutId) {
-      const [workout] = await db
-        .select()
-        .from(workouts)
-        .where(eq(workouts.id, activity.workoutId))
-        .limit(1);
+      const workout = await db.query.workouts.findFirst({
+        where: (w, { eq }) => eq(w.id, activity.workoutId!),
+        with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
+      });
 
       if (workout) {
-        const workoutBlocks = await db
-          .select()
-          .from(blocks)
-          .where(eq(blocks.workoutId, workout.id))
-          .orderBy(blocks.sortOrder);
-
         plannedWorkout = {
           id: workout.id,
           type: workout.type,
           title: workout.title,
-          blocks: workoutBlocks.map((b) => ({
+          blocks: workout.blocks.map((b) => ({
             type: b.type,
             ...(b.distanceKm != null ? { distanceKm: b.distanceKm } : {}),
             ...(b.durationMinutes != null
@@ -267,11 +266,12 @@ export async function GET(
           )
         : null;
 
-    // Fetch Strava streams and detailed activity in parallel (single token fetch)
+    // Fetch Strava streams and detailed activity in parallel (single token
+    // fetch, already in flight from tokenPromise above).
     let streams = null;
     let live = EMPTY_LIVE_DETAIL;
-    if (activity.stravaId) {
-      const token = await getAccessToken();
+    if (activity.stravaId && tokenPromise) {
+      const token = await tokenPromise;
       [streams, live] = await Promise.all([
         fetchStravaStreams(activity.stravaId, token),
         fetchStravaDetail(activity.stravaId, token),
