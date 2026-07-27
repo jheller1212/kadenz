@@ -10,6 +10,11 @@
 // separate tables) — it's a code-level shape shared by call sites that build
 // or sort lists mixing both.
 
+// Relative, not the "@/" alias: there is no vitest config in this repo, so the
+// alias does not resolve under the test runner and an aliased import here
+// breaks every test that touches this module.
+import { localDayKey } from "../app-time";
+
 export type SportKind = "run" | "strength";
 
 // Mirrors workoutStatusEnum / strengthSessions.status (both use the same
@@ -42,7 +47,12 @@ export function isPastDuePlanned(
   s: Pick<SessionIdentity, "status" | "date">,
   now: Date = new Date()
 ): boolean {
-  return s.status === "planned" && new Date(s.date) < now;
+  // Compared by CALENDAR DAY, not by instant. A workout is dated at midnight,
+  // so an instant comparison made today's session "past due" from 00:01 and
+  // the plan showed it as missed while the athlete still had all day to do it.
+  // localDayKey resolves both sides in the app's timezone, so this also cannot
+  // slip a day for a server running in UTC.
+  return s.status === "planned" && localDayKey(new Date(s.date)) < localDayKey(now);
 }
 
 // Stable date sort shared by every feed/candidate list that mixes runs and
