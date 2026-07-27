@@ -6,7 +6,11 @@ import { getActiveProfileId } from "@/lib/profiles";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
-import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
+import {
+  buildPlannedSession,
+  getStrengthPlanSettingsRow,
+  planDurationMinutesFromRow,
+} from "@/lib/strength/service";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -157,20 +161,33 @@ export async function POST(request: NextRequest) {
     // real custom-workout duration with a stock-template-based guess.
     const isCustom = data.title != null;
 
+    // Fetched once and handed to buildPlannedSession below (both branches)
+    // so it doesn't query strength_plan_settings a second time.
+    const settingsRow = await getStrengthPlanSettingsRow(profileId);
+
     let targetDurationMinutes: number;
     let plannedExercises: PlannedExercise[];
     if (isCustom) {
       targetDurationMinutes = data.targetDurationMinutes ?? template.targetDurationMinutes;
-      plannedExercises = (await buildPlannedSession(data.type, date, profileId)).exercises;
+      plannedExercises = (
+        await buildPlannedSession(data.type, date, profileId, undefined, [], settingsRow)
+      ).exercises;
     } else {
       // Honor the athlete's Kraft settings length (30/45/60 min) — an
       // explicit override wins, otherwise fall back to the saved
       // preference, and only then to the template's nominal length.
       const chosenMinutes =
         data.targetDurationMinutes ??
-        (await getPlanDurationMinutes(profileId)) ??
+        planDurationMinutesFromRow(settingsRow) ??
         template.targetDurationMinutes;
-      const built = await buildPlannedSession(data.type, date, profileId, chosenMinutes);
+      const built = await buildPlannedSession(
+        data.type,
+        date,
+        profileId,
+        chosenMinutes,
+        [],
+        settingsRow
+      );
       plannedExercises = built.exercises;
       // Store the plan's real estimate, not the nominal chosen number — this
       // is what makes the duration setting show the truth downstream.

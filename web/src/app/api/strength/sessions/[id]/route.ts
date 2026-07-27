@@ -2,7 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { eq, and, gte, lt, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, painLogs, activities, strengthExercises } from "@/db";
-import { buildPlannedSession, getPlanDurationMinutes } from "@/lib/strength/service";
+import {
+  buildPlannedSession,
+  getStrengthPlanSettingsRow,
+  planDurationMinutesFromRow,
+} from "@/lib/strength/service";
 import { clearsAutoScheduled, twinAbsorptionUpdate } from "@/lib/strength/reconcile";
 import { SESSION_TEMPLATES, EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
@@ -74,16 +78,20 @@ export async function GET(
     // (an output); feeding it back as the fit target shrinks the session a
     // little more on every read (trim-only fit) — a slow death-spiral that made
     // the shown duration drift. The setting is the stable input.
-    const fitMinutes = isCustom
-      ? undefined
-      : (await getPlanDurationMinutes(session.profileId)) ?? undefined;
+    // Fetched once and handed to buildPlannedSession below so it doesn't
+    // query strength_plan_settings a second time for the same profile —
+    // buildPlannedSession always needs ability/equipment/complaints from this
+    // row regardless of isCustom, only the duration-fit use is conditional.
+    const settingsRow = await getStrengthPlanSettingsRow(session.profileId);
+    const fitMinutes = isCustom ? undefined : planDurationMinutesFromRow(settingsRow);
     const { exercises: plannedExercises, estimatedDurationMinutes } =
       await buildPlannedSession(
         type,
         new Date(session.date),
         session.profileId,
         fitMinutes,
-        (session.exerciseOverrides as ExerciseOverride[] | null) ?? []
+        (session.exerciseOverrides as ExerciseOverride[] | null) ?? [],
+        settingsRow
       );
 
     // Self-heal: a session's targetDurationMinutes may still hold the
