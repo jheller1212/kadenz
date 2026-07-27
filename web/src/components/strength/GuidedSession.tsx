@@ -111,8 +111,13 @@ const GET_READY_SECONDS = 5;
 
 const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
 
-// Rest countdown ring (state-driven fill, see the render below).
-const REST_RING_R = 85;
+// Rest countdown ring (state-driven fill, see the render below). Sized down
+// from the original 200px board spec — the rest phase competes with the
+// weight/reps steppers and the Skip button for the same one-screen budget
+// (see the no-scroll requirement at the top of the render), so the ring gives
+// up some size before anything below it does.
+const REST_RING_D = 168;
+const REST_RING_R = 70;
 const REST_RING_C = 2 * Math.PI * REST_RING_R;
 
 // ── Audio (Web Speech + a tiny Web Audio beep), both best-effort ──────────────
@@ -969,7 +974,7 @@ export default function GuidedSession({
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pb-1">
+      <div className="flex items-center justify-between px-4 pb-0.5">
         <button type="button" onClick={() => { haptic("light"); setConfirmExit(true); }} style={{ touchAction: "manipulation" }} className="text-[15px] font-semibold text-text-2">
           Exit
         </button>
@@ -993,7 +998,7 @@ export default function GuidedSession({
         </div>
       </div>
 
-      <p className="px-4 text-center text-[13px] font-medium text-text-3">
+      <p className="px-4 text-center text-[11px] font-medium text-text-3">
         Exercise {exIndex + 1} of {exercises.length}
       </p>
 
@@ -1017,42 +1022,32 @@ export default function GuidedSession({
         <div className="mx-4 mt-2 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2 text-center text-[13px] font-medium text-danger">{error}</div>
       )}
 
-      <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-3 text-center">
+      <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-1.5 text-center">
         <h1
-          className={`text-[24px] font-extrabold leading-tight tracking-tight text-text-1 transition-opacity ${
+          className={`text-[21px] font-extrabold leading-tight tracking-tight text-text-1 transition-opacity ${
             timerHere?.kind === "rest" ? "opacity-50" : ""
           }`}
         >
           {ex.name}
         </h1>
-        <p className="mt-1 text-[14px] font-semibold text-text-2">
+        <p className="mt-0.5 text-[13px] font-semibold text-text-2">
           {allLogged ? "All sets done" : `Set ${nextSi + 1} of ${arr.length}`} · target {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps{ex.perSide ? " / side" : ""}
-        </p>
-        {ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0 && (
-          <p className="mt-1 text-[13px] font-semibold text-accent-fg">
-            {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}
-          </p>
-        )}
-        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-          {ex.flatGroundOnly && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>}
-          {ex.painGated && <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">Eased — pain gate</span>}
-          {getVideoId(ex.slug) && (
-            <button
-              type="button"
-              onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
-              style={{ touchAction: "manipulation" }}
-              className="press rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-accent-fg"
-            >
-              ▶ Watch demo
-            </button>
+          {ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0 && (
+            <span className="text-accent-fg"> · {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}</span>
           )}
-        </div>
+        </p>
+        {(ex.flatGroundOnly || ex.painGated) && (
+          <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
+            {ex.flatGroundOnly && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>}
+            {ex.painGated && <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">Eased — pain gate</span>}
+          </div>
+        )}
 
         {/* Swap + remove, 44×44 tap targets (sweaty-hands sizing) — only
             while this exercise has nothing logged yet (see hasLoggedSets on
             ExerciseActionsSheet and removeCurrentExercise's guard). */}
         {loggedSets.length === 0 && !EXERCISE_BY_SLUG[ex.slug]?.achillesRole && (
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-1.5 flex items-center gap-2">
             <button
               type="button"
               onClick={() => { haptic("light"); setActionsOpen(true); }}
@@ -1074,22 +1069,39 @@ export default function GuidedSession({
           </div>
         )}
 
-        {/* Previous performance of THIS exercise — prominent button + popup */}
-        {last && last.sets.length > 0 && (
-          <button
-            type="button"
-            onClick={() => { haptic("light"); setLastPerfOpen(true); }}
-            style={{ touchAction: "manipulation" }}
-            className="press mt-2.5 flex items-center gap-1.5 rounded-full bg-[#2563EB]/12 px-3 py-1.5 text-[12px] font-bold text-[#2563EB]"
-          >
-            <History className="h-3.5 w-3.5" strokeWidth={2.2} />
-            Last sets · {formatRecency(last.date)}
-          </button>
+        {/* Video demo + last-time performance, side by side — both are
+            reference info the athlete checks once and moves on from, so they
+            share one row instead of stacking (mid-set the controls below
+            matter more than either). */}
+        {(getVideoId(ex.slug) || (last && last.sets.length > 0)) && (
+          <div className="mt-1.5 flex items-center justify-center gap-1.5">
+            {getVideoId(ex.slug) && (
+              <button
+                type="button"
+                onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
+                style={{ touchAction: "manipulation" }}
+                className="press rounded-md bg-elevated px-2 py-1 text-[11px] font-bold text-accent-fg"
+              >
+                ▶ Watch demo
+              </button>
+            )}
+            {last && last.sets.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { haptic("light"); setLastPerfOpen(true); }}
+                style={{ touchAction: "manipulation" }}
+                className="press flex items-center gap-1.5 rounded-full bg-[#2563EB]/12 px-3 py-1 text-[12px] font-bold text-[#2563EB]"
+              >
+                <History className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Last sets · {formatRecency(last.date)}
+              </button>
+            )}
+          </div>
         )}
 
         {/* Preceding sets (weight · reps · time) */}
         {loggedSets.length > 0 && (
-          <div className="mt-3 w-full max-w-xs k-card p-2">
+          <div className="mt-2 w-full max-w-xs k-card p-2">
             {arr.map((s, i) =>
               s.logged ? (
                 <div key={i} className="flex items-center gap-2 px-2 py-1 text-[13px]">
@@ -1106,11 +1118,11 @@ export default function GuidedSession({
         )}
 
         {/* ── Main interaction, by timer phase ── */}
-        <div className="mt-5 w-full max-w-xs">
+        <div className="mt-3 w-full max-w-xs">
           {timerHere?.kind === "getready" ? (
             <div className="flex flex-col items-center">
               <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">Get ready</p>
-              <div className="mt-1 text-[64px] font-extrabold leading-none tabular-nums text-accent-fg">{restRemain}</div>
+              <div className="mt-1 text-[56px] font-extrabold leading-none tabular-nums text-accent-fg">{restRemain}</div>
               <p className="mt-1 text-[13px] text-text-3">Set {timerHere.setIndex + 1} starting…</p>
             </div>
           ) : timerHere?.kind === "rest" ? (
@@ -1118,29 +1130,28 @@ export default function GuidedSession({
               {/* Ring fill is driven by restPct (real countdown state), not a
                   CSS animation — legible with motion off, no reduced-motion
                   gating needed (see docs/MOTION.md). */}
-              <div className="relative flex h-[200px] w-[200px] items-center justify-center">
-                <svg width={200} height={200} viewBox="0 0 200 200" className="absolute inset-0 -rotate-90">
-                  <circle cx="100" cy="100" r={REST_RING_R} fill="none" stroke="var(--k-hairline)" strokeWidth="12" />
+              <div className="relative flex items-center justify-center" style={{ height: REST_RING_D, width: REST_RING_D }}>
+                <svg width={REST_RING_D} height={REST_RING_D} viewBox={`0 0 ${REST_RING_D} ${REST_RING_D}`} className="absolute inset-0 -rotate-90">
+                  <circle cx={REST_RING_D / 2} cy={REST_RING_D / 2} r={REST_RING_R} fill="none" stroke="var(--k-hairline)" strokeWidth="10" />
                   <circle
-                    cx="100"
-                    cy="100"
+                    cx={REST_RING_D / 2}
+                    cy={REST_RING_D / 2}
                     r={REST_RING_R}
                     fill="none"
                     stroke="var(--k-accent)"
-                    strokeWidth="12"
+                    strokeWidth="10"
                     strokeLinecap="round"
                     strokeDasharray={REST_RING_C}
                     strokeDashoffset={REST_RING_C * (1 - restPct / 100)}
                   />
                 </svg>
                 <div className="text-center">
-                  <div className="font-display text-[56px] leading-none text-text-1">{fmt(restRemain)}</div>
-                  <div className="mt-1 text-[11px] font-bold uppercase tracking-wide text-text-3">
+                  <div className="font-display text-[44px] leading-none text-text-1">{fmt(restRemain)}</div>
+                  <div className="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-text-3">
                     of {fmt(Math.round(timerHere.totalMs / 1000))} prescribed
                   </div>
                 </div>
               </div>
-              <p className="mt-2 text-[13px] text-text-3">Rest — log your set below</p>
               {editSet && (
                 <WeightReps
                   set={editSet}
@@ -1150,13 +1161,14 @@ export default function GuidedSession({
                   onAdjust={(f, d) => adjustSet(ex.slug, editIndex, f, d)}
                   onOpenAdjust={() => { haptic("light"); setAdjustOpen(editIndex); }}
                   onToggleKind={() => toggleSetKind(ex.slug, editIndex)}
+                  compact
                 />
               )}
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-2 gap-3">
                 <Button variant="secondary" size="md" full onClick={() => { adjustRest(-15); }}>−15s</Button>
                 <Button variant="secondary" size="md" full onClick={() => { adjustRest(15); }}>+15s</Button>
               </div>
-              <div className="mt-2">
+              <div className="mt-1.5">
                 <Button variant="ghost" size="md" full onClick={skipRest}>Skip rest →</Button>
               </div>
             </div>
@@ -1164,8 +1176,8 @@ export default function GuidedSession({
             <div className="flex flex-col items-center">
               {prefs.kraftSetTimer && (
                 <>
-                  <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">Set {timerHere.setIndex + 1} · time</p>
-                  <div className="font-display text-[56px] leading-none tabular-nums text-text-1">{fmt(setRunSec)}</div>
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-text-3">Set {timerHere.setIndex + 1} · time</p>
+                  <div className="font-display text-[44px] leading-none tabular-nums text-text-1">{fmt(setRunSec)}</div>
                 </>
               )}
               {editSet && (
@@ -1177,9 +1189,10 @@ export default function GuidedSession({
                   onAdjust={(f, d) => adjustSet(ex.slug, timerHere.setIndex, f, d)}
                   onOpenAdjust={() => { haptic("light"); setAdjustOpen(timerHere.setIndex); }}
                   onToggleKind={() => toggleSetKind(ex.slug, timerHere.setIndex)}
+                  compact
                 />
               )}
-              <div className="mt-5">
+              <div className="mt-3">
                 <Button variant="primary" size="lg" full onClick={doneSet}>Done — set {timerHere.setIndex + 1}</Button>
               </div>
             </div>
@@ -1189,7 +1202,10 @@ export default function GuidedSession({
               {!isLast && <Button variant="secondary" size="md" full onClick={() => goTo(exIndex + 1)}>Next exercise →</Button>}
             </div>
           ) : (
-            // Idle — ready to start the next set
+            // Idle — ready to start the next set. No separate "suggested
+            // weight" caption here: it's already shown in the accent-coloured
+            // subtitle above, and the "Last sets" pill covers the history —
+            // repeating both cost a line this screen doesn't have to spare.
             <div className="flex flex-col items-center">
               {editSet && (
                 <WeightReps
@@ -1200,25 +1216,23 @@ export default function GuidedSession({
                   onAdjust={(f, d) => adjustSet(ex.slug, nextSi, f, d)}
                   onOpenAdjust={() => { haptic("light"); setAdjustOpen(nextSi); }}
                   onToggleKind={() => toggleSetKind(ex.slug, nextSi)}
+                  compact
                 />
               )}
-              <div className="mt-5">
+              <div className="mt-3">
                 <Button variant="primary" size="lg" full onClick={() => beginSet(ex.slug, nextSi)}>Start set {nextSi + 1}</Button>
               </div>
-              {ex.suggestedWeightKg != null && loggedSets.length === 0 && (
-                <p className="mt-2 text-[12px] text-text-3">
-                  Suggested {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })} — carries from last time
-                  {ex.lastDate ? ` · ${formatRecency(ex.lastDate)}` : ""}
-                </p>
-              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Footer: dot nav + prev/next/finish */}
-      <div className="px-4 pb-2">
-        <div className="mb-3 flex justify-center gap-1.5">
+      {/* Footer: dot nav + prev/next/finish. No swipe hint here — the dots
+          plus Prev/Next already say "there's more than one exercise", and
+          this footer is exactly what has to stay reachable without
+          scrolling (see the no-scroll requirement above). */}
+      <div className="px-4 pb-1.5">
+        <div className="mb-2 flex justify-center gap-1.5">
           {exercises.map((e, i) => {
             const done = (work[e.slug] ?? []).every((s) => s.logged) && (work[e.slug] ?? []).length > 0;
             return (
@@ -1241,7 +1255,6 @@ export default function GuidedSession({
             <Button variant="secondary" onClick={() => goTo(exIndex + 1)} full>Next</Button>
           )}
         </div>
-        <p className="mt-1.5 text-center text-[11px] text-text-3">Swipe left/right to move between exercises</p>
       </div>
 
       {/* Paused overlay — unmistakable, tap anywhere (or Resume) to continue */}
@@ -1385,6 +1398,7 @@ function WeightReps({
   onAdjust,
   onOpenAdjust,
   onToggleKind,
+  compact,
 }: {
   set: WorkSet;
   perSide: boolean;
@@ -1396,6 +1410,10 @@ function WeightReps({
   onOpenAdjust?: () => void;
   /** Flip this set between warm-up and working (see toggleSetKind). */
   onToggleKind?: () => void;
+  /** Tighter surrounding margin for the guided-session no-scroll layout —
+   *  the steppers themselves stay 44×44 (sweaty-hands sizing is non-negotiable
+   *  even when the layout is under pressure). */
+  compact?: boolean;
 }) {
   const isWarmup = set.kind === "warmup";
   return (
@@ -1408,7 +1426,7 @@ function WeightReps({
           </span>
         </div>
       )}
-      <div className="mt-4 flex items-center justify-center gap-4">
+      <div className={`${compact ? "mt-2.5" : "mt-4"} flex items-center justify-center gap-4`}>
         <div className="flex items-center gap-2 rounded-[var(--radius-input)] bg-elevated p-1">
           <Stepper onClick={() => onAdjust("kg", -1)}><Minus className="h-5 w-5" strokeWidth={2.5} /></Stepper>
           <span className="w-[72px] text-center leading-none">
