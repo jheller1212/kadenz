@@ -27,10 +27,14 @@ const RETRY_CAP = 10;
 //   3. Garmin import: pull new watch activities (auto-tick planned workouts).
 //   4. Workout reminders: push notifications for sessions inside their lead
 //      window (when the athlete has opted in — see settings/reminders).
-//      NOTE: this only runs as often as this cron does. Vercel Hobby allows
-//      one cron job running once a day, so a reminder whose lead window opens
-//      and closes between two daily runs is missed entirely — this is a real
-//      gap, not a bug, until the schedule can run more often (Vercel Pro).
+//      The real, frequent dispatch now runs from /api/cron/reminders via a
+//      GitHub Actions schedule every 15 minutes (see that route and
+//      .github/workflows/reminders.yml for why it lives there instead of a
+//      second Vercel cron). Calling dispatchDueReminders here too is a cheap
+//      safety net, not the primary path: it's idempotent (claim-before-send,
+//      see dispatch.ts) and only catches sessions whose window happens to
+//      overlap this once-a-day run, or the rare day the GitHub workflow is
+//      broken end to end.
 
 export async function GET(request: NextRequest) {
   // Either the cron secret (Vercel scheduler) or a signed-in session — the
