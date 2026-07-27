@@ -66,7 +66,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
         ? eq(strengthPlanSettings.profileId, profileId)
         : isNull(strengthPlanSettings.profileId)
     );
-  if (!settings || !settings.active) return { created: 0 };
+  if (!settings || !settings.active) return { created: 0, shortWeeks: 0 };
 
   const complaints = ((settings.complaints ?? []) as Complaint[]).filter(Boolean);
   const rotation = rotationFor(settings.goal, settings.sessionsPerWeek, complaints);
@@ -218,6 +218,26 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     weekBudget
   );
 
+  // A week can legitimately place fewer sessions than its budget: the
+  // placement engine drops a slot rather than break a hard rule (heavy legs
+  // on/before a hard run day, race-day blackout). That's a real constraint,
+  // not a bug, but it must not go unnoticed — count it here from the same
+  // budget math the engine used, so the caller (plan creation) can tell the
+  // athlete honestly instead of quietly handing them a thin week.
+  const placedByWeek = new Map<string, number>();
+  for (const p of placements) {
+    const wk = weekKeyOf(p.key);
+    placedByWeek.set(wk, (placedByWeek.get(wk) ?? 0) + 1);
+  }
+  const weekKeysInStrip = [...new Set(strip.map((d) => weekKeyOf(d.key)))];
+  let shortWeeks = 0;
+  for (const wk of weekKeysInStrip) {
+    const already = sessionsByWeek.get(wk) ?? 0;
+    const budget = weekBudget(wk, rotation.length);
+    const target = Math.max(0, Math.min(budget, rotation.length) - already);
+    if ((placedByWeek.get(wk) ?? 0) < target) shortWeeks++;
+  }
+
   // Store the plan's REAL fitted estimate — not the nominal chosen length — so
   // Today/Kraft show the same duration the session actually is (a 45-min
   // setting whose fit only fills ~33 min must read 33, not 45). The duration
@@ -308,7 +328,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     }
   }
 
-  return { created };
+  return { created, shortWeeks };
 }
 
 /** Remove future auto-scheduled sessions the user never touched. */
@@ -400,8 +420,8 @@ export async function reconcileStrengthSchedule(profileId: string | null) {
   const t = timer("strength.reconcile");
   const { removed } = await pruneAutoSchedule(profileId);
   t.mark("prune");
-  const { created } = await ensureStrengthSchedule(profileId);
+  const { created, shortWeeks } = await ensureStrengthSchedule(profileId);
   t.mark("ensure");
-  t.done({ removed, created });
-  return { removed, created };
+  t.done({ removed, created, shortWeeks });
+  return { removed, created, shortWeeks };
 }

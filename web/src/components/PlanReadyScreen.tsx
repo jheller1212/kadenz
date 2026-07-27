@@ -16,6 +16,11 @@ export interface PlanReadySummary {
     active: boolean;
     sessionsPerWeek: number;
     mode?: "adapt" | "keep" | "new";
+    // Weeks where the re-fit couldn't place the full weekly count without
+    // breaking a hard rule (heavy legs on/before a hard run, race blackout).
+    // A real constraint, not a bug — but it must show up here, not be
+    // discovered later as a gap in the calendar.
+    shortWeeks?: number;
   } | null;
 }
 
@@ -135,9 +140,13 @@ export function PlanReadyScreen({
                 } a week, on the same days.`
               : strength.mode === "new"
                 ? "Your old strength schedule is cleared. Set up a new one from Manage Plan when you're ready."
-                : `Your strength plan is kept. Still ${strength.sessionsPerWeek} ${
-                    strength.sessionsPerWeek === 1 ? "session" : "sessions"
-                  } a week, re-fitted around your new run days.`}
+                : strength.shortWeeks
+                  ? `Your strength plan is kept, re-fitted around your new run days. ${strength.shortWeeks} ${
+                      strength.shortWeeks === 1 ? "week" : "weeks"
+                    } couldn't fit the full ${strength.sessionsPerWeek} without landing heavy legs on a hard run day — check Kraft and move a session by hand if you want it back to full.`
+                  : `Your strength plan is kept. Still ${strength.sessionsPerWeek} ${
+                      strength.sessionsPerWeek === 1 ? "session" : "sessions"
+                    } a week, re-fitted around your new run days.`}
           </motion.p>
         ) : null}
 
