@@ -7,6 +7,9 @@ This is what is left, why, and what only Jonas can do.
 
 ## 1. Needs Jonas, nobody else can do these
 
+Priority order: 1.1 is the only security item, do it first. 1.2 and 1.3 each
+leave a shipped feature inert until done.
+
 ### 1.1 Rotate the Neon database password (do this first)
 The production connection string was pasted into a chat session, so the
 password `neondb_owner` is considered exposed.
@@ -60,33 +63,43 @@ reconnecting is now safe and will sync the active plan only.
 
 ---
 
-## 2. In flight at the time of writing
+## 2. Status as of 2026-07-27 evening
 
-- **Objective readiness** (agent `objective-readiness`): pulling sleep,
-  resting heart rate and HRV into the readiness score. See section 3.1.
-- **Cloudflare Worker cron** (agent `cron-cloudflare`): see 1.3.
+Merged: #68 this doc, #69 Cloudflare Worker cron, #70 Garmin wellness into
+readiness, #71 profile soft delete, #72 doc correction. No open PRs.
 
-Check open PRs with `gh pr list`. Anything green should be merged.
+**Done already, do not redo:**
+- The Garmin worker is **deployed to Fly.io** with the new `/wellness` route.
+  Verified live: `/health` returns 200 and `/wellness` returns 422 rather than
+  404, so the route exists and is rejecting unauthenticated calls as intended.
+- The readiness maths, the `wellness_metrics` table and the daily pull are all
+  merged. Once the app has nights of data, the card starts using it.
+
+**The open items are exactly section 1.** Nothing is blocked on Claude.
 
 ---
 
 ## 3. Product work, ready to build
 
-### 3.1 Readiness from real physiology
-Today readiness uses: self-reported energy, sleep QUALITY 1-5, soreness,
-illness and injury, plus pain logs, RPE and 7-day volume against the prior
-3-week average. No physiological input at all.
+### 3.1 Readiness from real physiology (SHIPPED #70, deployed)
+Readiness previously used only self-report: energy, sleep QUALITY 1-5,
+soreness, illness and injury, plus pain logs, RPE and 7-day volume against the
+prior 3-week average. It now also uses the watch.
 
-Two sources exist and are unused:
+**Source: Garmin, not Intervals.icu.** `intervals-client.ts` turned out to be
+a stub where every method throws `NOT_IMPLEMENTED`, and no
+`INTERVALS_ICU_*` credentials exist in Vercel or any local env. It was never a
+real option, despite looking like one. The Garmin worker was already deployed
+and authenticated, so `/wellness` was added there instead, pulling sleep
+duration and resting HR from `garth.DailySleepData` and HRV from
+`garth.HRVData`.
 
-- `web/src/lib/sync/intervals-client.ts` already types weight, resting HR, HRV
-  and sleep from Intervals.icu. Imported nowhere. Check whether Jonas actually
-  has an account with data before building on it.
-- The Garmin worker authenticates via `garth`, which exposes daily sleep, HRV
-  status, resting heart rate, stress and Body Battery. The worker has no
-  wellness endpoints today, so this is real work in the Python service.
+Shipped: `wellness_metrics` table, a daily pull on the existing cron that
+backfills up to 60 nights of watch history, and `web/src/lib/physiology.ts`
+holding the baseline maths as pure tested functions.
 
-Design constraints that matter more than the plumbing:
+The design constraints below were the point of the exercise and still govern
+any change to it:
 
 - HRV means nothing in absolute terms. It signals only against the athlete's
   own rolling baseline, conventionally 7-day against 30 to 60 day. A single
@@ -99,6 +112,13 @@ Design constraints that matter more than the plumbing:
   signals. "HRV 18 percent below your baseline" beats "Readiness 62".
 - Device sleep DURATION and check-in sleep QUALITY are different things. Keep
   both.
+
+As built: a **21-night warm-up floor** (`MIN_BASELINE_NIGHTS`). Below it the
+physiological signal contributes exactly zero and the card says "Building your
+recovery baseline from the watch (N/21 days)" rather than inventing a verdict.
+Above it, a 7-day recent average runs against a 30 to 60 day baseline, and
+every adjustment carries a reason. The 60-night backfill means the warm-up may
+clear faster than three weeks from a standing start.
 
 ### 3.2 Apple Health
 HealthKit has no web API and a PWA cannot read it. The realistic bridges are a
@@ -235,3 +255,33 @@ Then check on the phone: Today shows achieved pace for a completed run, the
 Kraft session fits one screen, activity detail renders heart rate and pace
 charts (these had never worked before that day), and the plan hub counts
 actual distance.
+
+---
+
+## 7. Kraft rebuild, waiting on design
+
+Jonas is prompting Claude Design for two screens. Once they exist, the
+functional work behind them is known (evidence in section 4b):
+
+1. **Kraft hub.** 2-column programme grid over a standard set (Full Body,
+   Upper, Lower, Push, Pull). Duration and today's equipment visible on the
+   card before committing, because both already change what gets generated.
+   Custom workouts as their own section below.
+2. **Pre-start sheet.** Tap a programme, see the actual generated exercise
+   list with the live duration estimate, swap or reorder, override equipment
+   for this session only, then start. This is where the per-user generation
+   becomes visible instead of silent.
+
+Behind them, four changes:
+- Collapse the three Achilles cards into complaint-driven variants of the
+  standard five. The engine already reshapes sessions by complaint, so this is
+  mostly deleting top-level entries and letting the existing path run.
+- Wire `goal` into generation or drop it from the wizard. Collecting an input
+  and ignoring it is worse than not asking.
+- Per-session equipment override ("at the gym today"). `ACCESS_PRESETS` for
+  home, box and full gym already exist in `equipment.ts:53`.
+- Duration as a per-session choice, not only a profile setting. The fitting
+  logic in `duration-fit.ts` already accepts a target, so this is plumbing.
+
+Not yet designed and worth considering later: the set logger during an active
+session, which works but has had no design pass.
