@@ -5,12 +5,13 @@ import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
 import { getCurrentFitnessEstimate } from "@/lib/current-fitness";
-import { queuePlanWorkoutsSync, queueWorkoutEventDeletes } from "@/lib/sync/sync-manager";
+import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { queueGarminWindowSync, queueGarminWorkoutDeletes } from "@/lib/sync/garmin-sync";
+import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
+import { queueRetireDeletes, retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra", "custom"]),
@@ -160,23 +161,18 @@ export async function PUT(
       })
       .where(eq(plans.id, id));
 
-    // Capture the old workouts' calendar events before we drop them, so their
-    // now-stale events can be pruned from Google Calendar.
+    // Capture the old workouts' sync ids before we drop them, so their
+    // now-stale calendar events and watch entries can be pruned from both
+    // surfaces. The rows themselves are about to cascade-delete with the
+    // weeks below, so there's nothing left afterward to clear ids on.
     const oldWorkouts = await db
       .select({
-        workoutId: workouts.id,
+        id: workouts.id,
         gcalEventId: workouts.gcalEventId,
         garminWorkoutId: workouts.garminWorkoutId,
       })
       .from(workouts)
       .where(eq(workouts.planId, id));
-    const staleEvents = oldWorkouts
-      .filter((w) => !!w.gcalEventId)
-      .map((w) => ({ workoutId: w.workoutId, gcalEventId: w.gcalEventId! }));
-    const staleGarmin = oldWorkouts
-      .filter((w) => !!w.garminWorkoutId)
-      .map((w) => ({ workoutId: w.workoutId, garminWorkoutId: w.garminWorkoutId! }));
-
     // Replace the schedule: delete existing weeks (cascades workouts + blocks).
     await db.delete(weeks).where(eq(weeks.planId, id));
 
@@ -233,13 +229,19 @@ export async function PUT(
       await db.insert(blocks).values(blockValues);
     }
 
+    // Prune the old schedule's events/watch entries on both surfaces, then
+    // push the new ones. Awaited so the delete queue rows are durably
+    // written before the response returns — a frozen invocation used to be
+    // able to lose this outright (fire-and-forget, no `await`). Old and new
+    // workouts are different rows with different ids, so this can never
+    // race the new plan's pushes into deleting them.
+    await queueRetireDeletes(oldWorkouts).catch((err) =>
+      console.error("Failed to queue old schedule's sync deletes:", err)
+    );
+
     isConnected()
       .then((connected) => {
         if (connected) {
-          // Prune the old schedule's events, then create the new ones.
-          queueWorkoutEventDeletes(staleEvents).catch((err) =>
-            console.error("Failed to queue gcal event deletes:", err)
-          );
           queuePlanWorkoutsSync(id, "gcal").catch((err) =>
             console.error("Failed to queue gcal sync:", err)
           );
@@ -247,12 +249,7 @@ export async function PUT(
       })
       .catch(() => {});
 
-    // Garmin: prune old pushed workouts (whenever the worker is deployed —
-    // they'd otherwise go stale), then push the new 14-day window if enabled.
     if (garminClient.isConfigured()) {
-      queueGarminWorkoutDeletes(staleGarmin).catch((err) =>
-        console.error("Failed to queue Garmin workout deletes:", err)
-      );
       isGarminWorkoutSyncEnabled()
         .then((enabled) => {
           if (enabled) {
@@ -314,20 +311,13 @@ export async function DELETE(
       return Response.json({ error: "Plan not found" }, { status: 404 });
     }
 
-    // Remove any workouts this plan pushed to the watch (fire-and-forget).
-    if (garminClient.isConfigured()) {
-      db.select({ workoutId: workouts.id, garminWorkoutId: workouts.garminWorkoutId })
-        .from(workouts)
-        .where(eq(workouts.planId, id))
-        .then((rows) =>
-          queueGarminWorkoutDeletes(
-            rows
-              .filter((w) => !!w.garminWorkoutId)
-              .map((w) => ({ workoutId: w.workoutId, garminWorkoutId: w.garminWorkoutId! }))
-          )
-        )
-        .catch((err) => console.error("Failed to queue Garmin workout deletes:", err));
-    }
+    // Remove this plan's workouts from both the calendar and the watch.
+    // Awaited so the delete queue rows are durably written before the
+    // response returns instead of riding an unawaited promise a frozen
+    // invocation could drop (this used to only cover Garmin, never gcal).
+    await retirePlanSyncArtifacts(id).catch((err) =>
+      console.error("Failed to retire plan's sync artifacts:", err)
+    );
 
     return Response.json({ id: updated.id, status: "archived" });
   } catch (err) {

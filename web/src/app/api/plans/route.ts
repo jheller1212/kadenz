@@ -10,6 +10,7 @@ import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
+import { retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
 import { pruneAutoSchedule, reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { timer } from "@/lib/timing";
 
@@ -126,11 +127,28 @@ export async function POST(request: NextRequest) {
 
   try {
     // Archive all existing active plans
-    await db
+    const archivedPlans = await db
       .update(plans)
       .set({ status: "archived", updatedAt: new Date() })
-      .where(eq(plans.status, "active"));
+      .where(eq(plans.status, "active"))
+      .returning({ id: plans.id });
     t.mark("archiveActive");
+
+    // Prune the archived plan(s)' pushed workouts from both the calendar and
+    // the watch — this is the main cause of the duplicate-workout bug: an
+    // archive with no cleanup left the old plan's events/watch entries in
+    // place while the new plan pushed its own on top. Awaited so the queue
+    // rows are durably written before the response returns (a frozen
+    // invocation can no longer lose them); the actual network deletes still
+    // flush in the background, same as before. Old and new workouts never
+    // share an id, so this can't race the new plan's pushes into deleting
+    // the wrong thing.
+    for (const p of archivedPlans) {
+      await retirePlanSyncArtifacts(p.id).catch((err) =>
+        console.error("Failed to retire old plan's sync artifacts:", err)
+      );
+    }
+    t.mark("retireOldPlan");
 
     // Insert plan
     const [insertedPlan] = await db
