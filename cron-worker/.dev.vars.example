@@ -1,0 +1,1 @@
+CRON_SECRET=paste-the-same-value-used-in-the-vercel-and-github-secrets
