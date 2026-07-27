@@ -923,3 +923,73 @@ describe("generatePlan — currentFitnessVdot biases goal-time paces", () => {
     expect(plan.vdot).toBe(goalOnly.vdot);
   });
 });
+
+// ── Race day always lands on the configured race date ───────────────────────
+//
+// A race less than 4 weeks out used to be padded to a 28-day plan (a hardcoded
+// `Math.max(4, ...)` floor on totalWeeks), which pushed the generated "race"
+// workout weeks past the athlete's actual race date. This is the regression
+// guard: for any daysToRace, exactly one workout must carry type "race" and
+// its date must equal config.raceDate, full stop.
+
+function isoDateOnly(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+describe("generatePlan — race day is pinned to the configured race date", () => {
+  const daysOut = [7, 10, 14, 21, 28, 60];
+
+  it.each(daysOut)("race day matches config.raceDate exactly (%d days out)", (days) => {
+    const startDate = makeDate(0); // Monday
+    const raceDate = new Date(startDate);
+    raceDate.setUTCDate(raceDate.getUTCDate() + days);
+
+    const plan = generatePlan({ ...fiveKConfig, startDate, raceDate });
+
+    const raceWorkouts = plan.weeks
+      .flatMap((w) => w.workouts)
+      .filter((w) => w.type === "race");
+
+    expect(raceWorkouts).toHaveLength(1);
+    expect(isoDateOnly(raceWorkouts[0].date)).toBe(isoDateOnly(raceDate));
+  });
+
+  it("does not pad short plans (<4 weeks worth of days) to a 4-week floor", () => {
+    // 10 days out from a Monday start should NOT become a 28-day plan.
+    const startDate = makeDate(0);
+    const raceDate = new Date(startDate);
+    raceDate.setUTCDate(raceDate.getUTCDate() + 10);
+
+    const plan = generatePlan({ ...fiveKConfig, startDate, raceDate });
+    expect(plan.planLengthWeeks).toBeLessThan(4);
+  });
+
+  it("a short plan still tapers into race day instead of stopping mid-base", () => {
+    const startDate = makeDate(0);
+    const raceDate = new Date(startDate);
+    raceDate.setUTCDate(raceDate.getUTCDate() + 10);
+
+    const plan = generatePlan({ ...fiveKConfig, startDate, raceDate });
+    const raceWeek = plan.weeks[plan.weeks.length - 1];
+    expect(raceWeek.phase).toBe("taper");
+    expect(raceWeek.type).toBe("race");
+  });
+
+  it("holds the invariant when the plan start is mid-week (partial first week)", () => {
+    // Wednesday start, race 10 days later — exercises resolveWeekOneAnchor's
+    // partial-first-week path together with the short-plan race pin.
+    const wednesday = new Date(makeDate(0));
+    wednesday.setUTCDate(wednesday.getUTCDate() + 2); // Mon + 2 = Wed
+    const raceDate = new Date(wednesday);
+    raceDate.setUTCDate(raceDate.getUTCDate() + 10);
+
+    const plan = generatePlan({ ...fiveKConfig, startDate: wednesday, raceDate });
+
+    const raceWorkouts = plan.weeks
+      .flatMap((w) => w.workouts)
+      .filter((w) => w.type === "race");
+
+    expect(raceWorkouts).toHaveLength(1);
+    expect(isoDateOnly(raceWorkouts[0].date)).toBe(isoDateOnly(raceDate));
+  });
+});

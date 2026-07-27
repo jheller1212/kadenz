@@ -31,7 +31,7 @@ export function getGoalTimeWarning(raceDistance: RaceDistance | null, totalSecon
     return "That's an elite-level time. This app is designed for recreational runners, pacing may not suit sub-elite athletes.";
   }
   if (totalSeconds > range.slow) {
-    return `That's quite slow for a ${label}. Consider walking intervals or a run/walk plan instead.`;
+    return `That's too slow for a ${label} to build a training plan around. Consider walking intervals or a run/walk plan instead, or enter a faster goal time.`;
   }
   return null;
 }

@@ -156,23 +156,34 @@ function raceLabel(d: string): string {
  * Returns array of WeekPhase, one per week (1-indexed access via [i-1]).
  */
 function buildPhaseMap(totalWeeks: number): WeekPhase[] {
-  const taperWeeks = Math.max(1, Math.round(totalWeeks * 0.1));
+  if (totalWeeks <= 0) return [];
 
   if (totalWeeks <= 9) {
-    // Short plans: minimal base (1 week), jump to build quickly
-    const baseWeeks = 1;
-    const peakWeeks = Math.max(1, Math.round(totalWeeks * 0.15));
-    const buildWeeks = totalWeeks - baseWeeks - peakWeeks - taperWeeks;
+    // Short plans: built backward from race day, so the taper (and, budget
+    // permitting, a peak week) always sit directly before it. The previous
+    // version built forward (base, build, peak, taper) and then sliced the
+    // array down to totalWeeks — for very short plans (1-2 weeks) that cut
+    // the taper off the END instead of trimming base/build off the front,
+    // so the shortest plans went straight from "base" into race day.
+    const taperWeeks = Math.min(totalWeeks, Math.max(1, Math.round(totalWeeks * 0.1)));
+    const afterTaper = totalWeeks - taperWeeks;
+    const peakWeeks = afterTaper > 0
+      ? Math.min(afterTaper, Math.max(1, Math.round(totalWeeks * 0.15)))
+      : 0;
+    const afterPeak = afterTaper - peakWeeks;
+    const baseWeeks = Math.min(afterPeak, 1);
+    const buildWeeks = afterPeak - baseWeeks;
+
     const phases: WeekPhase[] = [];
     for (let i = 0; i < baseWeeks; i++) phases.push("base");
     for (let i = 0; i < buildWeeks; i++) phases.push("build");
     for (let i = 0; i < peakWeeks; i++) phases.push("peak");
     for (let i = 0; i < taperWeeks; i++) phases.push("taper");
-    while (phases.length < totalWeeks) phases.splice(phases.length - taperWeeks, 0, "build");
-    return phases.slice(0, totalWeeks);
+    return phases;
   }
 
   // Standard plans (10+ weeks)
+  const taperWeeks = Math.max(1, Math.round(totalWeeks * 0.1));
   const peakWeeks = Math.max(1, Math.round(totalWeeks * 0.2));
   const buildWeeks = Math.max(1, Math.round(totalWeeks * 0.4));
   const baseWeeks = totalWeeks - buildWeeks - peakWeeks - taperWeeks;
@@ -1096,8 +1107,13 @@ function buildWeek(
         break;
       }
       case "race": {
+        // Pin race day to the athlete's actual race date rather than trusting
+        // week/day-offset arithmetic to land on it. totalWeeks is derived from
+        // config.raceDate already, so in the normal case these agree — but a
+        // future change to that arithmetic must never be able to silently move
+        // race day again, so the two are never allowed to disagree.
         workouts.push(
-          buildRaceWorkout(dow, date, config, paces, sortOrder++)
+          buildRaceWorkout(dow, config.raceDate ?? date, config, paces, sortOrder++)
         );
         break;
       }
@@ -1217,7 +1233,12 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   const daysToRace = Math.round(
     (raceDate.getTime() - planStartMonday.getTime()) / msPerDay
   );
-  const totalWeeks = Math.max(4, Math.floor(daysToRace / 7) + 1);
+  // No arbitrary floor: a race 7-27 days out is a legitimately short plan, not
+  // a 4-week one. Padding totalWeeks used to push the last (race) week weeks
+  // past the real race date, since race day is placed inside whichever week
+  // buildWeek treats as the final one. buildPhaseMap below still guarantees a
+  // taper directly before race day even when totalWeeks is very small.
+  const totalWeeks = Math.max(1, Math.floor(daysToRace / 7) + 1);
 
   // Build phase map
   const phases = buildPhaseMap(totalWeeks);
