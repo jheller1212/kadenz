@@ -326,3 +326,110 @@ describe("weekBudgetFor", () => {
     expect(weekBudgetFor(undefined, 3)).toBe(3);
   });
 });
+
+// ── Regression: Jonas's live configuration ───────────────────────────────────
+// Reported from production: a 13-week half marathon plan with runs on every
+// weekday (Mon-Fri), strength set to 4 sessions/week on Mon-Fri. "Fit it
+// around the new plan" produced 2 sessions total, both in week 1, and zero
+// for the remaining 12 weeks. The root cause was that the DB route calling
+// this (POST /api/plans) fired reconcileStrengthSchedule() without awaiting
+// it — a serverless invocation is free to freeze right after the response is
+// sent, and the reconcile inserts one row per placement in calendar order, so
+// a freeze mid-loop stops after the first couple of rows. That's fixed at the
+// route by awaiting the call; this test instead locks down the pure planner
+// half of the bug surface: given the exact rotation/availability/run-day
+// shape from his account, top-up must place sessions across the WHOLE plan,
+// not just the opening days of week 1.
+describe("computeTopUpPlacements — 13-week plan, runs on every weekday", () => {
+  const rotation: StrengthSessionType[] = ["lower", "full_body", "lower", "upper"];
+  const availableDays = [1, 2, 3, 4, 5]; // Mon-Fri, matches the strength settings
+
+  // Week type per phase, mirroring a real half-marathon plan generated for
+  // this configuration (base -> build -> peak -> taper/race, deload every
+  // 4th week).
+  const weekPlan: { type: string; phase: string; runTypes: (string | null)[] }[] = [
+    { type: "normal", phase: "base", runTypes: ["easy", "easy", "easy", "easy", "long", null, null] },
+    { type: "normal", phase: "base", runTypes: ["easy", "easy", "easy", "easy", "long", null, null] },
+    { type: "normal", phase: "base", runTypes: ["easy", "easy", "easy", "easy", "long", null, null] },
+    { type: "deload", phase: "base", runTypes: ["easy", "easy", "easy", "easy", "long", null, null] },
+    { type: "normal", phase: "build", runTypes: ["tempo", "easy", "interval", "easy", "long", null, null] },
+    { type: "normal", phase: "build", runTypes: ["tempo", "easy", "interval", "easy", "long", null, null] },
+    { type: "normal", phase: "build", runTypes: ["tempo", "easy", "interval", "easy", "long", null, null] },
+    { type: "deload", phase: "build", runTypes: ["tempo", "easy", "interval", "easy", "long", null, null] },
+    { type: "normal", phase: "build", runTypes: ["tempo", "easy", "interval", "easy", "long", null, null] },
+    { type: "normal", phase: "peak", runTypes: ["interval", "tempo", "easy", "easy", "long", null, null] },
+    { type: "normal", phase: "peak", runTypes: ["interval", "tempo", "easy", "easy", "long", null, null] },
+    { type: "deload", phase: "peak", runTypes: ["interval", "tempo", "easy", "easy", "long", null, null] },
+    { type: "race", phase: "taper", runTypes: ["easy", "easy", "easy", null, "race", null, null] },
+  ];
+
+  function buildStrip(): (PlacementDay & { weekKey: string })[] {
+    const strip: (PlacementDay & { weekKey: string })[] = [];
+    let monday = dateFromDayKey("2026-07-27");
+    for (const w of weekPlan) {
+      const weekKey = weekKeyOf(monday.toISOString().slice(0, 10));
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(monday);
+        d.setUTCDate(d.getUTCDate() + i);
+        const key = d.toISOString().slice(0, 10);
+        const runType = w.runTypes[i];
+        const nextRunType = i < 6 ? w.runTypes[i + 1] : null; // approx, ignores week boundary
+        strip.push({
+          key,
+          weekKey,
+          dow: d.getUTCDay(),
+          runType,
+          nextDayRunType: nextRunType,
+          taken: false,
+        });
+      }
+      monday = new Date(monday);
+      monday.setUTCDate(monday.getUTCDate() + 7);
+    }
+    return strip;
+  }
+
+  it("places sessions across every non-race week, not just week 1", () => {
+    const strip = buildStrip();
+    // weekKey ("Monday" date string) -> {type, phase}, one entry per week in
+    // weekPlan, walking the same Mondays buildStrip used.
+    const weekTypeByKey = new Map<string, { type: string; phase: string }>();
+    let monday = dateFromDayKey("2026-07-27");
+    for (const w of weekPlan) {
+      weekTypeByKey.set(weekKeyOf(monday.toISOString().slice(0, 10)), w);
+      monday = new Date(monday);
+      monday.setUTCDate(monday.getUTCDate() + 7);
+    }
+
+    const placements = computeTopUpPlacements(
+      strip,
+      rotation,
+      availableDays,
+      new Map(), // nothing pre-existing — a fresh top-up over the whole plan
+      (weekKey, rotationLength) => weekBudgetFor(weekTypeByKey.get(weekKey), rotationLength)
+    );
+
+    const byWeek = new Map<string, number>();
+    for (const p of placements) {
+      const wk = weekKeyOf(p.key);
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + 1);
+    }
+
+    const weekKeys = [...weekTypeByKey.keys()];
+    // Every week except the zero-budget race week must carry at least one
+    // session — this is the exact regression: production showed 2 total,
+    // both in week 1, and 0 in weeks 2-13.
+    for (let i = 0; i < weekKeys.length - 1; i++) {
+      expect(byWeek.get(weekKeys[i]) ?? 0).toBeGreaterThan(0);
+    }
+    // Race week carries none — that's the intended taper-to-zero, not a bug.
+    expect(byWeek.get(weekKeys[weekKeys.length - 1]) ?? 0).toBe(0);
+
+    // The plan should land close to its configured 4/week on the weeks that
+    // don't back off for deload/peak/taper (weeks 1-3, 5-7, 9-10 here).
+    expect(byWeek.get(weekKeys[0])).toBeGreaterThanOrEqual(3);
+
+    const total = placements.length;
+    expect(total).toBeGreaterThan(20); // nowhere near the production total of 2
+  });
+});

@@ -274,26 +274,36 @@ export async function POST(request: NextRequest) {
       active: boolean;
       sessionsPerWeek: number;
       mode: "adapt" | "keep" | "new";
+      shortWeeks?: number;
     } | null = null;
-    // The reconcile itself is fire-and-forget: it prunes and re-creates strength
-    // sessions across the whole plan, and awaiting it put all of that on the
-    // critical path of the request the athlete is staring at a progress bar for.
-    // Nothing in the response depends on its result — the reveal copy only needs
-    // sessionsPerWeek — so the plan returns as soon as it exists.
+    // This used to be fire-and-forget to keep the reconcile off the critical
+    // path — but it inserts sessions one at a time across the whole plan
+    // (a 13-week block is 50+ sequential awaited inserts), and a serverless
+    // invocation is free to freeze the moment the response above is sent.
+    // A freeze mid-loop left exactly two rows written and the remaining
+    // twelve weeks silently empty, with nothing in the UI to say so. Await it
+    // like every other caller of these two functions already does — a plan
+    // create is a rare, already-multi-second action, so the extra latency
+    // here is the honest trade, not a bug to route around.
     // "keep" leaves the existing schedule untouched; "new" leaves it alone here
     // because the athlete is about to replace it from strength setup. Only
     // "adapt" re-fits the sessions around the new run days.
+    let shortWeeks = 0;
     if (data.strengthMode === "adapt") {
-      reconcileStrengthSchedule(null).catch((err) =>
-        console.error("Failed to reconcile strength schedule:", err)
-      );
+      try {
+        ({ shortWeeks } = await reconcileStrengthSchedule(null));
+      } catch (err) {
+        console.error("Failed to reconcile strength schedule:", err);
+      }
     } else if (data.strengthMode === "new") {
       // The athlete is replacing the schedule from strength setup, so the old
       // auto-scheduled sessions must go — otherwise they linger against a plan
       // that no longer exists. Completed sessions are never touched.
-      pruneAutoSchedule(null).catch((err) =>
-        console.error("Failed to prune strength schedule:", err)
-      );
+      try {
+        await pruneAutoSchedule(null);
+      } catch (err) {
+        console.error("Failed to prune strength schedule:", err);
+      }
     }
     try {
       const [settings] = await db
@@ -305,6 +315,8 @@ export async function POST(request: NextRequest) {
           active: settings.active,
           sessionsPerWeek: settings.sessionsPerWeek,
           mode: data.strengthMode,
+          // Only meaningful for "adapt" — "keep"/"new" don't run the placer.
+          shortWeeks: data.strengthMode === "adapt" ? shortWeeks : 0,
         };
       }
     } catch (err) {
