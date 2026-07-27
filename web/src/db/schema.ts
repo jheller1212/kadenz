@@ -135,6 +135,11 @@ export const syncStatusEnum = pgEnum("sync_status", [
   "processing",
   "completed",
   "failed",
+  // Never attempted, deliberately retired: the job's plan was archived, or
+  // its entity row no longer exists, before a worker ever picked it up.
+  // Kept distinct from "failed" (which means an attempt was made and erred)
+  // so the outbox history stays honest about what actually happened.
+  "cancelled",
 ]);
 
 // ── Tables ───────────────────────────────────────────────────────────────────

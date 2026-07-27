@@ -11,6 +11,19 @@ const PUBLIC_API_ROUTES: string[] = [
   "/api/strava/webhook",
 ];
 
+// Maintenance/reconcile routes that document (and implement) CRON_SECRET
+// bearer auth as an alternative to a session cookie, same as /api/cron/*.
+// An explicit allowlist rather than a prefix match: widening what gets the
+// CRON_SECRET exemption should always be a deliberate one-line edit here,
+// never an accident of where a new route file happens to live. Each route
+// re-verifies the same header itself — this only lets it through the gate.
+const CRON_AUTHENTICATED_ROUTES: string[] = [
+  "/api/sync/reconcile-garmin",
+  "/api/sync/reconcile-archived-plans",
+  "/api/sync/reconcile-gcal-outbox",
+  "/api/garmin/reconcile",
+];
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
@@ -24,8 +37,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   // Vercel cron invocations authenticate with CRON_SECRET, not a session.
   // The route re-verifies the same header; this just lets it through the gate.
-  if (pathname.startsWith("/api/cron/")) {
+  if (pathname.startsWith("/api/cron/") || CRON_AUTHENTICATED_ROUTES.includes(pathname)) {
     const secret = process.env.CRON_SECRET;
+    // Fail closed: an unset or empty CRON_SECRET must never grant access,
+    // even if a caller sends a literal "Bearer " header with nothing after it.
     if (secret && request.headers.get("authorization") === `Bearer ${secret}`) {
       return NextResponse.next();
     }

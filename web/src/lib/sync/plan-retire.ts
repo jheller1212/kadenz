@@ -5,7 +5,7 @@
 // and the "delete a plan" path call, so neither can forget one surface.
 
 import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
-import { db, plans, workouts } from "@/db";
+import { db, plans, workouts, syncOutbox } from "@/db";
 import { queueWorkoutEventDeletes } from "./sync-manager";
 import { isConnected } from "./gcal-client";
 import { queueGarminWorkoutDeletes } from "./garmin-sync";
@@ -33,6 +33,14 @@ export interface RetireResult {
  * of a bare unawaited promise that a serverless freeze can silently drop.
  */
 export async function queueRetireDeletes(rows: RetireCandidateWorkout[]): Promise<RetireResult> {
+  // A workout being retired may still have an earlier pending create/update
+  // job sitting in the outbox (e.g. queued before the plan was archived, or
+  // from before this retire path existed). Left pending, reconnecting a
+  // currently-broken integration later would push it right back — the exact
+  // pile this exists to prevent. Cancel those before queueing the deletes
+  // below, so a job that's about to be dead-on-arrival never gets the chance.
+  await cancelPendingOutboxForWorkouts(rows.map((r) => r.id));
+
   const { gcalDeletes, garminDeletes } = buildRetireDeleteBatch(rows);
 
   let gcalQueued = 0;
@@ -59,6 +67,11 @@ export async function queueRetireDeletes(rows: RetireCandidateWorkout[]): Promis
  * (regenerate-in-place) should use queueRetireDeletes directly.
  */
 export async function retirePlanSyncArtifacts(planId: string): Promise<RetireResult> {
+  // Every workout on the plan, NOT just the ones with a stored surface id.
+  // A workout whose gcal/garmin create job never ran (e.g. queued while the
+  // calendar integration was down) has no id yet, but the pending job for it
+  // must still be cancelled here — otherwise it's exactly the kind of stale
+  // job that piles up and floods the calendar the moment sync comes back.
   const rows = await db
     .select({
       id: workouts.id,
@@ -66,19 +79,14 @@ export async function retirePlanSyncArtifacts(planId: string): Promise<RetireRes
       garminWorkoutId: workouts.garminWorkoutId,
     })
     .from(workouts)
-    .where(
-      and(
-        eq(workouts.planId, planId),
-        or(isNotNull(workouts.gcalEventId), isNotNull(workouts.garminWorkoutId))
-      )
-    );
+    .where(eq(workouts.planId, planId));
 
   if (rows.length === 0) return { gcalQueued: 0, garminQueued: 0 };
 
   // Clear first (mirrors skip-week): the delete jobs below carry the ids they
   // need in their payload, so clearing early just means nothing else — a
   // concurrent move, another retire — can read these ids as still live while
-  // the deletes are in flight.
+  // the deletes are in flight. A no-op for rows that had no id to begin with.
   await db
     .update(workouts)
     .set({ gcalEventId: null, garminWorkoutId: null })
@@ -159,4 +167,27 @@ async function selectArchivedPlanArtifactRows(): Promise<
         or(isNotNull(workouts.gcalEventId), isNotNull(workouts.garminWorkoutId))
       )
     );
+}
+
+/**
+ * Cancel any still-PENDING outbox job (either surface) for the given workout
+ * ids. Moves them to the "cancelled" terminal status rather than deleting the
+ * rows, so the outbox keeps an auditable record of what got swept and why.
+ * A job already "processing"/"completed"/"failed" is left alone — this only
+ * ever intercepts work that hasn't been attempted yet.
+ */
+async function cancelPendingOutboxForWorkouts(workoutIds: string[]): Promise<number> {
+  if (workoutIds.length === 0) return 0;
+  const cancelled = await db
+    .update(syncOutbox)
+    .set({ status: "cancelled", processedAt: new Date() })
+    .where(
+      and(
+        eq(syncOutbox.entityType, "workout"),
+        inArray(syncOutbox.entityId, workoutIds),
+        eq(syncOutbox.status, "pending")
+      )
+    )
+    .returning({ id: syncOutbox.id });
+  return cancelled.length;
 }
