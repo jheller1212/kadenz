@@ -24,6 +24,12 @@ const WorkoutPatchSchema = z.object({
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
     .nullable()
     .optional(),
+  // Escape hatch for the "edited" flag itself: a plan regenerate preserves
+  // any hand-tuned workout (see regenerate-merge.ts), so without this an
+  // override could never go away again. Only clearing (false) is accepted —
+  // the flag can only ever be *set* as a side effect of an actual km/pace
+  // override below, never asserted true directly by the client.
+  edited: z.literal(false).optional(),
 }).strict();
 
 // ── PATCH /api/plans/[id]/workouts/[workoutId] ────────────────────────────────

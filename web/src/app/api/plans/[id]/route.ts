@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { and, eq, ne, notInArray } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, not, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
@@ -74,11 +74,16 @@ export async function GET(
 
 // ── PUT /api/plans/[id] — regenerate the plan in place ───────────────────────
 // Keeps the same plan id (stays the "current" plan) and swaps in freshly
-// generated weeks/workouts/blocks — but only for workouts still "planned".
-// A completed, skipped or missed workout (and the week it's in) is exempt
-// from deletion entirely: its status, actualKm, actualDurationSeconds, rpe
-// and its link to any backing activities row all survive untouched. See
-// regenerate-merge.ts for the full model and why.
+// generated weeks/workouts/blocks — but only for workouts still "planned"
+// AND untouched by the athlete. A completed, skipped or missed workout (and
+// the week it's in) is exempt from deletion entirely: its status, actualKm,
+// actualDurationSeconds, rpe and its link to any backing activities row all
+// survive untouched. So is a still-"planned" workout the athlete hand-tuned
+// (edited=true, a distance/pace override) or gave a specific start time
+// (timeOfDay set) — same reasoning the strength side already applies via
+// clearsAutoScheduled(): touching a field the scheduler doesn't own adopts
+// the row and takes it out of the auto-managed pool, regardless of status.
+// See regenerate-merge.ts for the full model and why.
 
 export async function PUT(
   request: NextRequest,
@@ -164,9 +169,18 @@ export async function PUT(
       })
       .where(eq(plans.id, id));
 
-    // A completed/skipped/missed workout is real history and a plan edit must
-    // never destroy it (see regenerate-merge.ts). Find those rows first —
-    // they and the week they live in are exempt from everything below.
+    // A completed/skipped/missed workout is real history, and a still-planned
+    // workout the athlete hand-tuned (edited=true) or gave a start time
+    // (timeOfDay set) is a deliberate override — a plan edit must never
+    // destroy either (see regenerate-merge.ts). Find those rows first — they
+    // and the week they live in are exempt from everything below. Mirrors
+    // isPreservedWorkout() in regenerate-merge.ts (kept as SQL here for
+    // efficiency instead of fetching every workout to filter in JS).
+    const untouchedPlanned = and(
+      eq(workouts.status, "planned"),
+      eq(workouts.edited, false),
+      isNull(workouts.timeOfDay)
+    );
     const preservedWorkouts = await db
       .select({
         id: workouts.id,
@@ -176,13 +190,24 @@ export async function PUT(
       })
       .from(workouts)
       .innerJoin(weeks, eq(workouts.weekId, weeks.id))
-      .where(and(eq(workouts.planId, id), ne(workouts.status, "planned")));
+      .where(
+        and(
+          eq(workouts.planId, id),
+          // Derived from untouchedPlanned rather than restated, so the two can
+          // never drift apart. Spelling the inverse out by hand meant a future
+          // change to what counts as "touched" could update one and not the
+          // other, and a workout preserved by one predicate but deleted by the
+          // other loses its calendar event or gains a duplicate.
+          not(untouchedPlanned!)
+        )
+      );
 
-    // Capture the old *planned* workouts' sync ids before we drop them, so
-    // their now-stale calendar events and watch entries can be pruned from
-    // both surfaces. Preserved workouts are excluded on purpose: their rows
-    // (and thus their gcalEventId/garminWorkoutId) are never deleted, so
-    // their events must never be queued for deletion either.
+    // Capture the old, about-to-be-deleted workouts' sync ids before we drop
+    // them, so their now-stale calendar events and watch entries can be
+    // pruned from both surfaces. Preserved workouts (history, or a hand
+    // edit/time the athlete set) are excluded on purpose: their rows (and
+    // thus their gcalEventId/garminWorkoutId) are never deleted, so their
+    // events must never be queued for deletion either.
     const oldPlannedWorkouts = await db
       .select({
         id: workouts.id,
@@ -190,15 +215,13 @@ export async function PUT(
         garminWorkoutId: workouts.garminWorkoutId,
       })
       .from(workouts)
-      .where(and(eq(workouts.planId, id), eq(workouts.status, "planned")));
+      .where(and(eq(workouts.planId, id), untouchedPlanned));
 
-    // Replace the schedule, but only the "planned" part of it: delete
-    // planned workouts (cascades their blocks) and drop this straight to the
-    // still-planned rows, leaving completed/skipped/missed workouts and
-    // their weeks untouched.
-    await db
-      .delete(workouts)
-      .where(and(eq(workouts.planId, id), eq(workouts.status, "planned")));
+    // Replace the schedule, but only the part of it the athlete never
+    // touched: delete untouched planned workouts (cascades their blocks),
+    // leaving completed/skipped/missed workouts and any hand-edited or
+    // timed workout (still "planned", but adopted by the athlete) alone.
+    await db.delete(workouts).where(and(eq(workouts.planId, id), untouchedPlanned));
 
     // A week is only deleted once every workout it had was "planned" (i.e.
     // it's now empty). A week holding preserved history is kept in place —

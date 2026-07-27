@@ -201,8 +201,11 @@ function EditPlanInner() {
       />
       <div className="flex flex-col gap-5 px-4 pb-[calc(env(safe-area-inset-bottom)+152px)]">
         <p className="text-[13px] text-text-3">
-          Changing these only regenerates workouts still marked planned. Anything completed,
-          skipped or missed keeps its result and stays exactly where it is.
+          Changing these only regenerates workouts you haven&apos;t touched yet. Anything
+          completed, skipped or missed keeps its result, and anything you&apos;ve hand-tuned
+          (a distance, pace or start time) keeps your change, too. Both stay exactly where
+          they are. Reset a hand-tuned workout from its own screen if you want the new
+          plan to take over there.
         </p>
 
         {/* Race distance */}
