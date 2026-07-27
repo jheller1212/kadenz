@@ -1,10 +1,20 @@
 import { db, activities } from "@/db";
-import { isNotNull } from "drizzle-orm";
+import { and, gte, isNotNull } from "drizzle-orm";
 
 // ── GET /api/performance ──────────────────────────────────────────────────────
 // Lifetime running stats, personal records, and achievement badges derived from
 // recorded activities ("Performance" tab). Runs only — strength
 // sessions carry no distance and are excluded.
+//
+// splitsJson (per-km splits) is a per-run 1-2KB blob and the only thing here
+// that grows unbounded over years of training. Everything else this route
+// computes — totals, monthly rollups, streaks, badges, and the 5K/10K/half/
+// marathon PRs — reads only avgPaceSecKm and distanceKm, both tiny scalar
+// columns, so those stay true lifetime figures over ALL activities. Only the
+// "fastest 1K" PR needs splitsJson (there's no per-km column to fall back on),
+// so that one query is windowed to the last SPLITS_WINDOW_MONTHS — meaning a
+// 1K PR older than the window won't surface. The UI must say so.
+const SPLITS_WINDOW_MONTHS = 18;
 
 interface RawSplit {
   paceSecKm?: number;
@@ -44,9 +54,10 @@ function fastestKmFromSplits(splitsJson: unknown): number | null {
 
 export async function GET() {
   try {
+    // Lifetime rows, scalar columns only — no splitsJson. This covers every
+    // stat except the 1K PR, over every activity ever logged, at a few
+    // hundred bytes per row instead of a couple KB.
     const rows = await db
-      // Best efforts are computed from per-km splits, so those are needed —
-      // but laps, route polylines and AI insight text never were.
       .select({
         startDate: activities.startDate,
         sportType: activities.sportType,
@@ -56,7 +67,6 @@ export async function GET() {
         createdAt: activities.createdAt,
         name: activities.name,
         avgPaceSecKm: activities.avgPaceSecKm,
-        splitsJson: activities.splitsJson,
         id: activities.id,
         strengthSessionId: activities.strengthSessionId,
       })
@@ -74,6 +84,23 @@ export async function GET() {
     if (runs.length === 0) {
       return Response.json({ hasData: false });
     }
+
+    // Splits only for the windowed subset — the only consumer is the 1K PR
+    // below. Bounding this is what keeps the payload from growing forever.
+    const splitsCutoff = new Date();
+    splitsCutoff.setMonth(splitsCutoff.getMonth() - SPLITS_WINDOW_MONTHS);
+    const splitRows = await db
+      .select({
+        startDate: activities.startDate,
+        createdAt: activities.createdAt,
+        distanceKm: activities.distanceKm,
+        avgPaceSecKm: activities.avgPaceSecKm,
+        splitsJson: activities.splitsJson,
+        strengthSessionId: activities.strengthSessionId,
+      })
+      .from(activities)
+      .where(and(isNotNull(activities.startDate), gte(activities.startDate, splitsCutoff)));
+    const recentRuns = splitRows.filter(isRun);
 
     // ── Lifetime totals ──────────────────────────────────────────────────────
     const totalKm = runs.reduce((s, r) => s + (r.distanceKm ?? 0), 0);
@@ -117,9 +144,11 @@ export async function GET() {
     // pace over a run at least that long, applied to the target distance.
     const records = RACE_DISTANCES.map(({ key, label, km }) => {
       if (key === "1k") {
-        // Fastest single km across all runs (from splits, else short-run pace).
+        // Fastest single km within the splits window (from splits, else
+        // short-run pace) — see SPLITS_WINDOW_MONTHS above. `windowed: true`
+        // tells the UI this isn't necessarily the lifetime best.
         let best: { pace: number; date: string } | null = null;
-        for (const r of runs) {
+        for (const r of recentRuns) {
           const fromSplit = fastestKmFromSplits(r.splitsJson);
           const cand =
             fromSplit ??
@@ -132,8 +161,8 @@ export async function GET() {
           }
         }
         return best
-          ? { key, label, timeSeconds: best.pace, paceSecKm: best.pace, date: best.date }
-          : { key, label, timeSeconds: null, paceSecKm: null, date: null };
+          ? { key, label, timeSeconds: best.pace, paceSecKm: best.pace, date: best.date, windowed: true }
+          : { key, label, timeSeconds: null, paceSecKm: null, date: null, windowed: true };
       }
       let best: { pace: number; date: string } | null = null;
       for (const r of runs) {
@@ -203,6 +232,7 @@ export async function GET() {
 
     return Response.json({
       hasData: true,
+      splitsWindowMonths: SPLITS_WINDOW_MONTHS,
       totals: {
         runCount: runs.length,
         totalKm: Math.round(totalKm * 10) / 10,

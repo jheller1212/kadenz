@@ -89,6 +89,7 @@ interface PerfRecord {
   timeSeconds: number | null;
   paceSecKm: number | null;
   date: string | null;
+  windowed?: boolean;
 }
 interface PerfBadge {
   category: string;
@@ -112,6 +113,7 @@ interface Performance {
   records?: PerfRecord[];
   monthly?: { label: string; km: number }[];
   badges?: PerfBadge[];
+  splitsWindowMonths?: number;
 }
 
 function fmtDuration(totalSeconds: number): string {
@@ -897,6 +899,10 @@ export default function StatsPage() {
                 </div>
                 <p className="mt-3 text-[11px] leading-snug text-text-3">
                   Projected from your best sustained pace over each distance.
+                  {" "}5K, 10K, half and marathon are lifetime bests.
+                  {perf.records.some((r) => r.key === "1k" && r.windowed) && (
+                    <> The 1K figure only looks at the last {perf.splitsWindowMonths ?? 18} months.</>
+                  )}
                 </p>
               </section>
             )}
