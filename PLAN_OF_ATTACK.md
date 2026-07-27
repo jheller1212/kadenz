@@ -121,12 +121,14 @@ doing if Jonas actually switches to miles.
 
 ## 4. Known gaps, deliberately left
 
-- **Custom workout templates are dormant.** Full CRUD API exists
-  (`customWorkoutTemplates`, `customWorkoutSlots`), nothing in the app
-  references it. Not broken, unshipped.
-- **`DELETE /api/profiles` cascades a household member's entire training
-  history** with no confirmation, because there is no UI caller yet. Add a
-  confirmation before anyone wires a button to it.
+- **Custom workout templates are shipped, not dormant.** An earlier version of
+  this document claimed they were unused. That was wrong. `useCustomWorkouts`
+  renders a Custom section on the Kraft picker with edit, delete and start
+  (`web/src/app/strength/page.tsx:196` and `:1003`), backed by
+  `CustomWorkoutBuilder`.
+- **`DELETE /api/profiles`** now soft deletes behind a name confirmation
+  token, and refuses to remove the profile the caller is currently using.
+  Resolved, kept here so nobody re-adds a hard delete.
 - **Stats plan payload** trimmed from 101KB to 67KB by dropping blocks. The
   remaining pattern (`GET /api/plans` then `GET /api/plans/[id]` independently
   on Today, stats and rearrange) was left alone: no client cache exists and
@@ -134,6 +136,50 @@ doing if Jonas actually switches to miles.
 - **Dumbbell scaling in the Kraft hub** now matches exercise history. If a
   fourth surface ever needs volume, use `sessionVolume()` in
   `web/src/lib/strength/volume.ts`. Do not write a new sum.
+
+---
+
+## 4b. Kraft, how it really works and what is Jonas-shaped
+
+Established by reading `origin/main`, because the page looks more hardcoded
+than it is and that misreading has already caused one wrong claim.
+
+**It is generated, not canned.** The picker shows 6 fixed programme cards from
+`TYPE_META` (`web/src/app/strength/page.tsx:107`) plus saved customs. Tapping
+one calls `POST /api/strength/sessions`, which runs `buildSessionPlan()`
+(`web/src/lib/strength/session.ts:133`) over the 99 exercises defined in
+`web/src/lib/strength/program.ts:15` and seeded into `strength_exercises`.
+
+**Onboarding already drives it.** `strength_plan_settings`, written by the
+wizard at `/strength/setup`, feeds generation per profile:
+- `equipment` resolves which variant fills each slot and drops accessories the
+  athlete cannot perform (`session.ts:107-122`)
+- `complaints` inject targeted work (`session.ts:81-88`)
+- `ability` scales sets and rest
+- `bodyweightKg` and `sex` seed cold-start loads
+- `durationMinutes` is genuinely enforced by `duration-fit.ts`, which trims or
+  grows the list to fit, and a live estimate renders from `estimate.ts`
+
+So exercises, loads and length are already per-user. The session *types* are
+not.
+
+**What is actually Jonas-shaped:**
+- Three of the six cards are Achilles rehab (`upper_achilles`,
+  `lower_achilles`, `achilles`). A user without that injury sees three dead
+  cards. Achilles should reshape Upper/Lower/Full Body as a complaint, which
+  is what every other complaint already does, not occupy top-level slots.
+- `goal` (running focus versus all round) is collected by the wizard and never
+  read by generation. Dead input: wire it or drop it.
+- No per-session equipment override. `ACCESS_PRESETS` for home, box and full
+  gym exist in `equipment.ts:53`, but equipment is a persisted profile setting
+  only, so a gym day or travel means editing your profile.
+- Duration is a profile setting, not a per-session choice.
+
+**Planned shape:** a 2-column programme grid over a standard set (Full Body,
+Upper, Lower, Push, Pull), with duration and today's-equipment visible on the
+card before committing, a pre-start sheet showing the generated exercise list
+with the live estimate and a session-only equipment override, then the
+existing set logger.
 
 ---
 
