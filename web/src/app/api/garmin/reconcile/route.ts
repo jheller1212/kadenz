@@ -1,6 +1,7 @@
 import { db, workouts, strengthSessions } from "@/db";
 import { isNotNull } from "drizzle-orm";
 import { garminClient } from "@/lib/sync/garmin-client";
+import { validateSessionCookie } from "@/lib/session";
 
 // ── POST /api/garmin/reconcile ───────────────────────────────────────────────
 // Removes leftovers Kadenz itself created on Garmin: duplicates from the old
@@ -11,12 +12,25 @@ import { garminClient } from "@/lib/sync/garmin-client";
 // "safe to delete" — only workouts carrying the Kadenz tag are ever removed,
 // and the caller must pass {"confirm": true} to delete anything at all.
 // Without it the route reports what it would do and changes nothing.
+//
+// This is destructive, so it checks auth itself rather than relying solely
+// on the proxy gating every /api/* path — belt and suspenders, in case that
+// matching ever changes. Same CRON_SECRET-or-owner-session rule as the other
+// reconcile routes.
 
 // Deleting is one Garmin round-trip each; cap per call so the function always
 // returns. The response reports what is left so it can simply be run again.
 const MAX_DELETES_PER_RUN = 20;
 
 export async function POST(request: Request) {
+  const secret = process.env.CRON_SECRET;
+  const fromCron =
+    Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
+  const fromOwner = await validateSessionCookie(request.headers.get("cookie"));
+  if (!fromCron && !fromOwner) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin worker not configured" }, { status: 503 });
   }
