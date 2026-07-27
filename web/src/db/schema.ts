@@ -689,6 +689,52 @@ export const customWorkoutSlots = pgTable(
   (t) => [index("custom_workout_slots_template_id_idx").on(t.templateId)]
 );
 
+// ── Push reminders ────────────────────────────────────────────────────────────
+
+// One row per subscribed device (a single athlete can have phone + desktop
+// both opted in). `endpoint` is unique per browser/device install — the
+// primary key web-push itself uses to address a subscription, so it's also
+// the natural de-dupe key when the same device re-subscribes.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// Singleton settings row (single-athlete app, same convention as
+// strength_plan_settings / the localStorage UserSettings mirror pattern).
+// Lives in the DB — not just localStorage — because the cron reads it
+// server-side with no browser involved.
+export const reminderSettings = pgTable("reminder_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  enabled: boolean("enabled").notNull().default(false),
+  // Minutes before a workout's time_of_day to send the push.
+  leadMinutes: integer("lead_minutes").notNull().default(30),
+  // Used for workouts with a null time_of_day — never midnight (see the
+  // time_of_day column comment on `workouts`).
+  defaultTimeOfDay: text("default_time_of_day").notNull().default("07:00"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// One row per workout a reminder was actually sent for. The unique
+// workout_id is the idempotency guard: the cron can run as often as it wants
+// and re-runs are a no-op because the insert conflicts and the workout is
+// simply skipped (see lib/reminders/dispatch.ts).
+export const sentReminders = pgTable("sent_reminders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workoutId: uuid("workout_id")
+    .notNull()
+    .unique()
+    .references(() => workouts.id, { onDelete: "cascade" }),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Relations ─────────────────────────────────────────────────────────────────
 
 export const plansRelations = relations(plans, ({ many }) => ({

@@ -13,6 +13,7 @@ import {
   declineLocationPrimer,
   declineNotificationsPrimer,
 } from "@/lib/permissions";
+import { subscribeToPush } from "@/lib/reminders/subscribe-client";
 
 const STATUS_LABEL: Record<UserSettings["locationPermission"], string> = {
   unset: "Not asked yet",
@@ -95,7 +96,11 @@ export default function PermissionsSettingsPage() {
             body="A schedule change to today's session, or a sync that's stopped pulling in your runs. Nothing else, and you can turn it off again here."
             allowLabel="Allow notifications"
             onAllow={async () => {
-              await requestNotificationPermission();
+              const allowed = await requestNotificationPermission();
+              // Grabbing the push subscription right away (rather than
+              // waiting for the athlete to separately flip on reminders)
+              // means the device is ready the moment they do.
+              if (allowed) void subscribeToPush();
               setPrimer(null);
               refresh();
             }}

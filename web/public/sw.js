@@ -98,3 +98,42 @@ self.addEventListener("fetch", (event) => {
   // Everything else (API calls, cross-origin): network only — personal data
   // must never be served stale from a cache.
 });
+
+// ── Push notifications (workout reminders) ──────────────────────────────────
+// The payload is plain JSON sent by lib/reminders/push.ts. This handler only
+// runs at all on platforms that deliver web push to an installed PWA — see
+// the reminders settings page copy for which those are.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    /* non-JSON payload — fall back to defaults below */
+  }
+  const title = data.title || "Kadenz";
+  const options = {
+    body: data.body || "",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: "kadenz-reminder",
+    data: { url: data.url || "/" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Tapping the notification focuses an existing tab if one's open, otherwise
+// opens a new one at the reminder's target URL.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
+  );
+});

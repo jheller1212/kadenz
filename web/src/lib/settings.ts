@@ -94,6 +94,16 @@ export interface UserSettings {
   locationPermission: "unset" | "allowed" | "declined";
   /** Same contract as locationPermission, for the Notification API. */
   notificationsPermission: "unset" | "allowed" | "declined";
+
+  // ── Workout reminders ─────────────────────────────────────────────────────
+  /** Local mirror of the server-side reminder toggle (authoritative copy
+   * lives in the DB via /api/reminders/settings so the cron can read it —
+   * same pattern as garminSyncWorkouts). */
+  remindersEnabled: boolean;
+  /** Minutes before a workout's time to send the reminder push. */
+  reminderLeadMinutes: number;
+  /** "HH:mm" fallback start time for workouts with no time_of_day set. */
+  reminderDefaultTime: string;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -134,6 +144,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
   onboardingSeen: false,
   locationPermission: "unset",
   notificationsPermission: "unset",
+  // Conservative default: never start pushing at someone who never asked.
+  remindersEnabled: false,
+  reminderLeadMinutes: 30,
+  reminderDefaultTime: "07:00",
 };
 
 /** Peak WebAudio gain (and speech volume) per cue-volume level. */
