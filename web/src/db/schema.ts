@@ -151,6 +151,11 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   color: text("color"),
+  // Soft-delete flag. "Remove person" flips this to false instead of dropping
+  // the row, so it can never cascade away the strength sessions/check-ins/
+  // custom workouts a cascading FK delete would otherwise take with it. Every
+  // list/lookup query below filters on this.
+  active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
