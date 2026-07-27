@@ -85,14 +85,25 @@ export function weekKeyOf(dayKey: string): string {
 
 /**
  * A session the reconcile prune may delete: created by the scheduler, never
- * hand-edited, still just "planned", and not in the past. Completed sessions
- * and anything the user touched are permanent.
+ * hand-edited, still just "planned", not in the past, and carrying no logged
+ * sets or pain check-ins. `hasLoggedData` is supplied by the caller (a DB
+ * lookup) rather than queried here, so this stays a pure, DB-free predicate —
+ * but it's load-bearing: a session an athlete has started logging looks
+ * identical to an untouched one on every other field (logging a set doesn't
+ * flip status, and clearing autoScheduled on first log is a belt-and-braces
+ * second line of defence, not something this predicate may assume). Completed
+ * sessions and anything the user hand-touched are permanent regardless.
  */
 export function isPrunable(
-  s: { date: Date; status: string; autoScheduled: boolean },
+  s: { date: Date; status: string; autoScheduled: boolean; hasLoggedData: boolean },
   today: Date
 ): boolean {
-  return s.autoScheduled && s.status === "planned" && s.date.getTime() >= today.getTime();
+  return (
+    s.autoScheduled &&
+    s.status === "planned" &&
+    !s.hasLoggedData &&
+    s.date.getTime() >= today.getTime()
+  );
 }
 
 /**

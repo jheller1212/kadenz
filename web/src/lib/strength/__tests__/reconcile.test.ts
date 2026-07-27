@@ -36,25 +36,55 @@ describe("isPrunable", () => {
   const past = dateFromDayKey("2026-07-10");
 
   it("selects future planned auto-scheduled sessions", () => {
-    expect(isPrunable({ date: future, status: "planned", autoScheduled: true }, today)).toBe(true);
+    expect(
+      isPrunable({ date: future, status: "planned", autoScheduled: true, hasLoggedData: false }, today)
+    ).toBe(true);
   });
 
   it("keeps today's session in scope (date >= today)", () => {
-    expect(isPrunable({ date: today, status: "planned", autoScheduled: true }, today)).toBe(true);
+    expect(
+      isPrunable({ date: today, status: "planned", autoScheduled: true, hasLoggedData: false }, today)
+    ).toBe(true);
   });
 
   it("never prunes past sessions", () => {
-    expect(isPrunable({ date: past, status: "planned", autoScheduled: true }, today)).toBe(false);
+    expect(
+      isPrunable({ date: past, status: "planned", autoScheduled: true, hasLoggedData: false }, today)
+    ).toBe(false);
   });
 
   it("never prunes completed / skipped / missed sessions", () => {
     for (const status of ["completed", "skipped", "missed"]) {
-      expect(isPrunable({ date: future, status, autoScheduled: true }, today)).toBe(false);
+      expect(
+        isPrunable({ date: future, status, autoScheduled: true, hasLoggedData: false }, today)
+      ).toBe(false);
     }
   });
 
   it("never prunes hand-touched sessions (autoScheduled=false)", () => {
-    expect(isPrunable({ date: future, status: "planned", autoScheduled: false }, today)).toBe(false);
+    expect(
+      isPrunable({ date: future, status: "planned", autoScheduled: false, hasLoggedData: false }, today)
+    ).toBe(false);
+  });
+
+  // ── The destructive-delete bug this predicate exists to close ──────────────
+  it("never prunes a session with logged sets, even if status/autoScheduled still look untouched", () => {
+    // A session an athlete has started logging sets on can still read
+    // status="planned", autoScheduled=true — logging a set never flips
+    // either flag directly. hasLoggedData is the caller-supplied fact that
+    // closes that gap; without it this would wrongly return true.
+    expect(
+      isPrunable({ date: today, status: "planned", autoScheduled: true, hasLoggedData: true }, today)
+    ).toBe(false);
+    expect(
+      isPrunable({ date: future, status: "planned", autoScheduled: true, hasLoggedData: true }, today)
+    ).toBe(false);
+  });
+
+  it("still prunes a genuinely untouched future auto-scheduled session", () => {
+    expect(
+      isPrunable({ date: future, status: "planned", autoScheduled: true, hasLoggedData: false }, today)
+    ).toBe(true);
   });
 });
 
@@ -95,7 +125,12 @@ describe("twinAbsorptionUpdate", () => {
 
   it("a skipped twin is never prunable, same as before", () => {
     const today = dateFromDayKey("2026-07-18");
-    const twin = { date: dateFromDayKey("2026-07-18"), status: "skipped", autoScheduled: true };
+    const twin = {
+      date: dateFromDayKey("2026-07-18"),
+      status: "skipped",
+      autoScheduled: true,
+      hasLoggedData: false,
+    };
     expect(isPrunable(twin, today)).toBe(false);
   });
 });

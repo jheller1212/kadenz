@@ -1,5 +1,14 @@
 import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
-import { db, plans, strengthPlanSettings, strengthSessions, weeks, workouts } from "@/db";
+import {
+  db,
+  plans,
+  strengthPlanSettings,
+  strengthSessions,
+  strengthSets,
+  painLogs,
+  weeks,
+  workouts,
+} from "@/db";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
@@ -324,11 +333,44 @@ export async function pruneAutoSchedule(profileId: string | null) {
           : isNull(strengthSessions.profileId)
       )
     );
+  // A session can be logged into (sets, pain check-ins) without ever flipping
+  // status off "planned" or clearing autoScheduled — the sets route also now
+  // clears autoScheduled on first log, but this query is the backstop that
+  // makes the invariant hold even if some future write path forgets to.
+  // Never hard-delete anything an athlete has actually put data into.
+  const candidateIds = candidates.map((s) => s.id);
+  const idsWithData = new Set<string>();
+  if (candidateIds.length > 0) {
+    const [setRows, painRows] = await Promise.all([
+      db
+        .selectDistinct({ sessionId: strengthSets.sessionId })
+        .from(strengthSets)
+        .where(inArray(strengthSets.sessionId, candidateIds)),
+      db
+        .selectDistinct({ sessionId: painLogs.sessionId })
+        .from(painLogs)
+        .where(inArray(painLogs.sessionId, candidateIds)),
+    ]);
+    for (const r of setRows) idsWithData.add(r.sessionId);
+    for (const r of painRows) idsWithData.add(r.sessionId);
+  }
+
   // The selection contract lives in one tested predicate: future + planned +
-  // auto-scheduled only; completed and hand-touched sessions are permanent.
-  const future = candidates.filter((s) => isPrunable(s, today));
+  // auto-scheduled + no logged data only; completed and hand-touched sessions
+  // are permanent.
+  const future = candidates.filter((s) =>
+    isPrunable({ ...s, hasLoggedData: idsWithData.has(s.id) }, today)
+  );
   if (future.length === 0) return { removed: 0 };
 
+  // Hard delete, deliberately, not the twin-absorption "mark skipped" pattern:
+  // `future` is now, by the guard above, restricted to sessions with no logged
+  // sets, no pain check-ins, and no hand edits (autoScheduled still true means
+  // the sessions PATCH route's clearsAutoScheduled never fired). There is
+  // nothing on these rows an athlete has ever seen or produced — unlike a
+  // twin, which by definition already carries the other session's real
+  // history — so there's nothing here that needs a surviving trace.
+  //
   // Calendar events and watch workouts must go with their rows or they
   // linger forever on services the user can't clean up from here.
   for (const s of future) {
