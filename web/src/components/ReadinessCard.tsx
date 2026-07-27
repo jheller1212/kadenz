@@ -39,6 +39,21 @@ export function ReadinessCard() {
 
   if (!data) return null;
 
+  // No check-in AND nothing else adjusted the score means there is zero
+  // evidence behind it — BASE alone, dressed up as a number. Don't render a
+  // score/band/advice for a constant; ask for the one input that would make
+  // it real instead.
+  if (!data.hasCheckIn && data.reasons.length === 0) {
+    return (
+      <div className="k-card p-4">
+        <p className="text-[15px] font-bold text-text-1">Readiness</p>
+        <p className="mt-0.5 text-[13px] leading-snug text-text-2">
+          Log today&apos;s check-in below to see how ready you are to train.
+        </p>
+      </div>
+    );
+  }
+
   const meta = BAND_META[data.band];
   const R = 20;
   const C = 2 * Math.PI * R;

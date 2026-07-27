@@ -38,6 +38,8 @@ import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { PermissionPrimer } from "@/components/PermissionPrimer";
 import { FirstRunWalkthrough } from "@/components/FirstRunWalkthrough";
+import { ReadinessCard } from "@/components/ReadinessCard";
+import { WellnessCheckIn } from "@/components/WellnessCheckIn";
 import { haptic } from "@/lib/haptics";
 import { readCache, writeCache } from "@/lib/client-cache";
 import { mutateWithQueue, installQueueFlush } from "@/lib/offline-queue";
@@ -1786,6 +1788,18 @@ export default function Home() {
           )}
         </div>
 
+        {/* Readiness — advice about how to approach today's session, so it
+            sits right above the workout it's advising on. Only meaningful
+            for today (it's computed from the last 30h of check-in/load, not
+            a browsable-week concept), and the card itself stays silent
+            until /api/readiness resolves, so it never bumps layout with a
+            loading flash. */}
+        {viewingToday && (
+          <div className="px-5">
+            <ReadinessCard />
+          </div>
+        )}
+
         {/* Main Workout Card */}
         <div className="px-5 flex flex-col gap-3">
           {isRestDay && !strengthDays[(selectedDate ?? new Date()).toDateString()] ? (
@@ -1801,6 +1815,11 @@ export default function Home() {
             return sess ? <StrengthTodayCard key={sess.id} initial={sess} onStatusChange={applyStrengthStatus} /> : null;
           })()}
         </div>
+
+        {/* Check-in feeding the readiness score above — collapsed by
+            default so it doesn't compete with the workout for space.
+            (Own mx-5 margin, matching the px-5 siblings above.) */}
+        {viewingToday && <WellnessCheckIn />}
 
         {/* Week Overview */}
         <div className="px-5">
