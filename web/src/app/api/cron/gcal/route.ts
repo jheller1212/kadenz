@@ -13,6 +13,7 @@ import {
 } from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
+import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 
 // Failed jobs get one retry per cron run until this hard cap.
 const RETRY_CAP = 10;
@@ -24,6 +25,12 @@ const RETRY_CAP = 10;
 //   2. Garmin push: roll the 14-day workout window forward + drain the garmin
 //      outbox (when the worker is configured and the toggle is on).
 //   3. Garmin import: pull new watch activities (auto-tick planned workouts).
+//   4. Workout reminders: push notifications for sessions inside their lead
+//      window (when the athlete has opted in — see settings/reminders).
+//      NOTE: this only runs as often as this cron does. Vercel Hobby allows
+//      one cron job running once a day, so a reminder whose lead window opens
+//      and closes between two daily runs is missed entirely — this is a real
+//      gap, not a bug, until the schedule can run more often (Vercel Pro).
 
 export async function GET(request: NextRequest) {
   // Either the cron secret (Vercel scheduler) or a signed-in session — the
@@ -85,6 +92,13 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("Garmin cron import error:", err);
     out.garminImportError = "import failed";
+  }
+
+  try {
+    out.reminders = await dispatchDueReminders();
+  } catch (err) {
+    console.error("Reminder dispatch error:", err);
+    out.remindersError = "dispatch failed";
   }
 
   return Response.json(out);

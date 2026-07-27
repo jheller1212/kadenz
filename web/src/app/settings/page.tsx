@@ -32,6 +32,7 @@ import {
   LogOut,
   Download,
   ShieldCheck,
+  Bell,
 } from "lucide-react";
 import pkg from "../../../package.json";
 
@@ -157,6 +158,7 @@ function EditProfileSheet({
 const PREFERENCE_ROWS = [
   { href: "/settings/workouts", label: "Workouts", icon: ClipboardList },
   { href: "/settings/recording", label: "Recording", icon: Radio },
+  { href: "/settings/reminders", label: "Reminders", icon: Bell },
   { href: "/settings/kraft", label: "Kraft", icon: Dumbbell },
   { href: "/settings/units", label: "Units", icon: Ruler },
   { href: "/settings/hr-zones", label: "Heart Rate Zones", icon: Heart },

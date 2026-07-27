@@ -47,3 +47,40 @@ export function localWeekRange(d: Date = new Date()): { weekStart: Date; weekEnd
 export function isSameLocalDay(a: Date, b: Date = new Date()): boolean {
   return localDayKey(a) === localDayKey(b);
 }
+
+/**
+ * Offset (in minutes) of `timeZone`'s wall clock ahead of UTC at `instant`.
+ * The standard "format then re-parse as UTC" trick — Intl gives no direct
+ * offset accessor, only formatted local fields.
+ */
+function tzOffsetMinutes(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  // Midnight can format as hour "24" in en-US — normalize to 0.
+  const hour = get("hour") % 24;
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+  return (asUtc - instant.getTime()) / 60000;
+}
+
+/**
+ * Converts a local wall-clock date + "HH:mm" in the app's timezone to the
+ * UTC instant it represents. Used to turn a workout's (date, time_of_day)
+ * pair into a real point in time for reminder scheduling — DST-safe.
+ */
+export function zonedTimeToUtc(dateKey: string, timeOfDay: string, timeZone: string = APP_TZ): Date {
+  // First pass treats the wall-clock fields as if they were UTC, purely to
+  // get an instant in the right neighbourhood so the offset lookup below
+  // resolves the correct DST state.
+  const guess = new Date(`${dateKey}T${timeOfDay}:00.000Z`);
+  const offsetMinutes = tzOffsetMinutes(guess, timeZone);
+  return new Date(guess.getTime() - offsetMinutes * 60000);
+}
