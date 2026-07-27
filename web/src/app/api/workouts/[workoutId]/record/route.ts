@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, activities, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { completesOnRecord } from "@/lib/workout-record";
 
 // ── POST /api/workouts/[workoutId]/record ─────────────────────────────────────
 // A guided phone run finished with GPS: persist it as an activity (route +
@@ -75,11 +76,18 @@ export async function POST(
       })
       .returning({ id: activities.id });
 
-    // Mark the workout complete with what we actually did.
+    // Save what we actually did. For every workout EXCEPT a race, GPS data is
+    // the result — mark it complete here. A race is different: the client
+    // still needs the deliberate result-logging step (RaceResultSheet →
+    // POST .../race-result), because GPS elapsed time isn't necessarily the
+    // official gun/chip time, and closing the race-intent plan is that
+    // endpoint's job. Marking "completed" here would let the athlete dismiss
+    // that sheet with a race that's server-side done but has no
+    // raceFinishSeconds and a plan that never closed.
     await db
       .update(workouts)
       .set({
-        status: "completed",
+        ...(completesOnRecord(workout.type) ? { status: "completed" as const } : {}),
         actualKm: data.distanceKm,
         actualDurationSeconds: data.durationSeconds,
         updatedAt: new Date(),
