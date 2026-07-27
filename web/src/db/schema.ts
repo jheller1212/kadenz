@@ -727,16 +727,38 @@ export const reminderSettings = pgTable("reminder_settings", {
     .defaultNow(),
 });
 
-// One row per workout a reminder was actually sent for. The unique
-// workout_id is the idempotency guard: the cron can run as often as it wants
-// and re-runs are a no-op because the insert conflicts and the workout is
-// simply skipped (see lib/reminders/dispatch.ts).
+// One row per workout a reminder was ever claimed for. The unique workout_id
+// is the concurrency guard: two overlapping cron runs racing the same
+// workout, one gets the row, the other gets zero rows back and moves on —
+// never a second push. `status` records the outcome of the most recent
+// attempt so a transient failure (network blip, 5xx) can be retried by a
+// later run while the workout hasn't started yet, without ever re-sending a
+// reminder that already got through (see lib/reminders/retry.ts).
+export const reminderSendStatusEnum = pgEnum("reminder_send_status", [
+  // Claimed, push attempt in flight (or the process died mid-attempt — see
+  // the stale-claim handling in retry.ts, which treats an old-enough
+  // "pending" the same as "failed" rather than leaking the claim forever).
+  "pending",
+  // Delivered to at least one subscription. Terminal — never retried.
+  "sent",
+  // Every attempted subscription errored, but not with a definitive
+  // "gone" response — worth trying again inside the reminder window.
+  "failed",
+  // Every attempted subscription came back 404/410 (push.ts's `expired`).
+  // Those subscriptions get removed by dispatch.ts same as before; the
+  // claim itself is terminal since nothing was reachable.
+  "permanent",
+]);
+
 export const sentReminders = pgTable("sent_reminders", {
   id: uuid("id").primaryKey().defaultRandom(),
   workoutId: uuid("workout_id")
     .notNull()
     .unique()
     .references(() => workouts.id, { onDelete: "cascade" }),
+  status: reminderSendStatusEnum("status").notNull().default("sent"),
+  attempts: integer("attempts").notNull().default(1),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull().defaultNow(),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

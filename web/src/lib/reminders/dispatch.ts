@@ -1,12 +1,17 @@
 // DB/push I/O side of workout reminders — called from the cron route. The
 // actual "is this due" decision lives in due.ts (pure, unit-tested); this
-// module fetches candidates, sends, and persists the send so re-runs are
-// no-ops.
+// module fetches candidates, sends, and persists the outcome. A workout is
+// claimed (sent_reminders row) before the push attempt so two overlapping
+// cron runs never send twice, but the claim now records success/failure —
+// see retry.ts for the pure "should this claim be retried" rule — so a
+// transient push failure gets another attempt on a later run instead of
+// permanently swallowing the reminder.
 
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db, workouts, sentReminders } from "@/db";
 import { localDayKey } from "@/lib/app-time";
 import { selectDueReminders, type ReminderCandidate } from "./due";
+import { isRetryEligible, type SentReminderRow } from "./retry";
 import { loadReminderConfig } from "./settings";
 import { listSubscriptions, removeExpiredSubscriptions } from "./subscriptions";
 import { sendPush } from "./push";
@@ -71,23 +76,71 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
   let errors = 0;
   const deadEndpoints = new Set<string>();
 
+  // Existing claims for these workouts, so a prior transient failure can be
+  // told apart from "never attempted" without racing the claim itself.
+  const existingRows =
+    due.length === 0
+      ? []
+      : await db
+          .select({
+            workoutId: sentReminders.workoutId,
+            status: sentReminders.status,
+            attempts: sentReminders.attempts,
+            lastAttemptAt: sentReminders.lastAttemptAt,
+          })
+          .from(sentReminders)
+          .where(
+            inArray(
+              sentReminders.workoutId,
+              due.map((d) => d.workoutId)
+            )
+          );
+  const existingByWorkoutId = new Map(existingRows.map((r) => [r.workoutId, r]));
+
   for (const reminder of due) {
     if (subscriptions.length === 0) {
-      // Nothing to deliver to — deliberately don't claim the workout, so a
-      // subscription added later in the same window can still catch it.
+      // Nothing to deliver to — deliberately don't claim (or re-claim) the
+      // workout, so a subscription added later in the same window can still
+      // catch it, and a claimed-but-failed row keeps its attempt count
+      // untouched instead of burning through the cap for nothing.
       skippedNoSubscription += 1;
       continue;
     }
 
-    // Claim first. The unique constraint on sent_reminders.workout_id means
-    // a second cron run (or an overlapping invocation) racing this one gets
-    // zero rows back and simply moves on — never a second push.
-    const claimed = await db
-      .insert(sentReminders)
-      .values({ workoutId: reminder.workoutId })
-      .onConflictDoNothing()
-      .returning({ id: sentReminders.id });
-    if (claimed.length === 0) continue;
+    const existing = existingRows.length > 0 ? existingByWorkoutId.get(reminder.workoutId) : undefined;
+
+    let claimedId: string | undefined;
+    if (!existing) {
+      // First attempt. The unique constraint on sent_reminders.workout_id
+      // means a second cron run (or an overlapping invocation) racing this
+      // one gets zero rows back and simply moves on — never a second push.
+      const claimed = await db
+        .insert(sentReminders)
+        .values({ workoutId: reminder.workoutId, status: "pending", attempts: 1 })
+        .onConflictDoNothing()
+        .returning({ id: sentReminders.id });
+      if (claimed.length === 0) continue;
+      claimedId = claimed[0].id;
+    } else {
+      const row: SentReminderRow = existing;
+      if (!isRetryEligible(row, now, reminder.scheduledAt)) continue;
+      // Re-claim atomically: flip status to "pending" conditioned on the
+      // state we just read still holding. A racing run's UPDATE matches
+      // zero rows once this one lands, so only one process ever sends.
+      const reclaimed = await db
+        .update(sentReminders)
+        .set({ status: "pending", attempts: row.attempts + 1, lastAttemptAt: now })
+        .where(
+          and(
+            eq(sentReminders.workoutId, reminder.workoutId),
+            eq(sentReminders.status, row.status),
+            eq(sentReminders.attempts, row.attempts)
+          )
+        )
+        .returning({ id: sentReminders.id });
+      if (reclaimed.length === 0) continue;
+      claimedId = reclaimed[0].id;
+    }
 
     const payload = {
       title: "Workout reminder",
@@ -96,6 +149,7 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
     };
 
     let anySucceeded = false;
+    let anyTransientError = false;
     for (const sub of subscriptions) {
       const result = await sendPush(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
@@ -103,10 +157,23 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
       );
       if (result.ok) anySucceeded = true;
       else if (result.expired) deadEndpoints.add(sub.endpoint);
-      else errors += 1;
+      else {
+        anyTransientError = true;
+        errors += 1;
+      }
     }
+
+    // Reached at least one device: done, forever — a stale desktop
+    // subscription failing must never cause a resend to a phone that
+    // already got the notification.
+    const finalStatus = anySucceeded ? "sent" : anyTransientError ? "failed" : "permanent";
+    await db
+      .update(sentReminders)
+      .set({ status: finalStatus, lastAttemptAt: now })
+      .where(eq(sentReminders.id, claimedId!));
+
     if (anySucceeded) sent += 1;
-    else errors += 1;
+    else if (!anyTransientError) errors += 1; // permanent: every subscription was expired
   }
 
   if (deadEndpoints.size > 0) {

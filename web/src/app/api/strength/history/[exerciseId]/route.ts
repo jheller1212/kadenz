@@ -100,8 +100,9 @@ export async function GET(
     // PR detection (lib/strength/pr.ts): the catalogue's startWeightKg tells
     // us this exercise is bodyweight; the catalogue's dumbbells count (not
     // persisted on strength_exercises) scales the volume figure for
-    // two-dumbbell lifts. No setType tag exists yet on strength_sets, so
-    // every logged set is treated as a working set (see pr.ts module note).
+    // two-dumbbell lifts. strength_sets.kind is the setType tag (mapped to
+    // PrSet.setType just below) so warm-up sets are excluded; anything else
+    // is treated as a working set (see pr.ts module note).
     const catalogueEntry = EXERCISE_BY_SLUG[exercise.slug];
     const profile = {
       bodyweight: exercise.startWeightKg == null,
