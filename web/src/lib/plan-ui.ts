@@ -7,6 +7,7 @@
 
 import type { WorkoutType } from "@/lib/plan-engine/types";
 import { WORKOUT_COLORS, STRENGTH_COLOR } from "@/lib/workout-colors";
+import { isCompletedSession, isPastDuePlanned, type SessionStatus } from "@/lib/training/session";
 
 export const STRENGTH_BLUE = STRENGTH_COLOR.solid;
 
@@ -107,22 +108,134 @@ export function weekRangeLabel(monday: Date): string {
   return `${fmt(monday)} - ${fmt(addDays(monday, 6))}`;
 }
 
+// ── Phase pips ─────────────────────────────────────────────────────────────
+// Every week already carries its training phase (base/build/peak/taper —
+// see plan-engine/plan-generator.ts buildPhaseMap and week-skip.ts, which
+// both key off it). This distills that per-week data into the block
+// structure the aurora header shows: one pip per phase actually present in
+// the plan, plus a one-line "peak week in N / taper after" summary.
+
+export type WeekPhase = "base" | "build" | "peak" | "taper";
+
+export interface PhasePip {
+  phase: WeekPhase;
+  /** "current" = the phase the active week sits in (or the closest one for
+   * plans without a resolved current week); "done" = fully behind us;
+   * "next" = the phase immediately after current; "later" = further out. */
+  state: "done" | "current" | "next" | "later";
+}
+
+export interface PhaseSummary {
+  pips: PhasePip[];
+  /** e.g. "Peak week in 3 · taper after", "Peak week · taper next",
+   * "Taper week", or null when the plan has no phase data at all. */
+  line: string | null;
+}
+
+/**
+ * Reduce a plan's per-week phases into the ordered block sequence (base,
+ * build, peak, taper — only the phases the plan actually uses, short plans
+ * may compress base to nothing) and locate the active block relative to
+ * `currentWeekNumber`.
+ */
+export function phaseSummary(
+  weeks: ApiWeekRow[],
+  currentWeekNumber: number | null
+): PhaseSummary {
+  const known = weeks.filter(
+    (w): w is ApiWeekRow & { phase: WeekPhase } => w.phase != null
+  );
+  if (known.length === 0) return { pips: [], line: null };
+
+  // Ordered, de-duplicated list of phase blocks as they occur in the plan.
+  const order: WeekPhase[] = [];
+  for (const w of known) {
+    if (order[order.length - 1] !== w.phase) order.push(w.phase);
+  }
+
+  const activeWeek =
+    known.find((w) => w.weekNumber === currentWeekNumber) ?? known[0];
+  const activeIndex = order.indexOf(activeWeek.phase);
+
+  const pips: PhasePip[] = order.map((phase, i) => ({
+    phase,
+    state:
+      i < activeIndex ? "done" : i === activeIndex ? "current" : i === activeIndex + 1 ? "next" : "later",
+  }));
+
+  // Peak/taper are the moments worth calling out; base/build progress is
+  // already visible from the pips themselves.
+  const hasTaper = order.includes("taper");
+  let line: string | null = null;
+  if (activeWeek.phase === "peak") {
+    line = hasTaper ? "Peak week · taper next" : "Peak week";
+  } else if (activeWeek.phase === "taper") {
+    line = "Taper week";
+  } else {
+    const nextPeak = known.find(
+      (w) => w.phase === "peak" && w.weekNumber > activeWeek.weekNumber
+    );
+    if (nextPeak) {
+      const weeksAway = nextPeak.weekNumber - activeWeek.weekNumber;
+      line = hasTaper
+        ? `Peak week in ${weeksAway} · taper after`
+        : `Peak week in ${weeksAway}`;
+    }
+  }
+
+  return { pips, line };
+}
+
 /** "25m - 35m" duration window around a strength session's target. */
 export function durationWindow(minutes: number): string {
   return `${Math.max(minutes - 5, 5)}m - ${minutes + 5}m`;
 }
 
-/** One-line spec for a run or strength item: "Easy Run · 10km". */
-export function itemSpec(item:
+// ── Item status vocabulary ────────────────────────────────────────────────
+// A run workout and a strength session share the same status enum under the
+// hood (see lib/training/session.ts) — this reuses that single source of
+// truth rather than re-deriving completed/past-due rules here, so a
+// cancelled ("skipped", from Manage Plan's "Skip a week") or simply
+// past-due-and-never-done ("missed") item never renders identically to an
+// ordinary still-open one.
+
+export type ItemState = "completed" | "skipped" | "missed" | "planned";
+
+type DaySpecItem =
   | { kind: "run"; workout: ApiWorkoutRow }
-  | { kind: "strength"; session: StrengthSessionRow }
-): string {
-  if (item.kind === "strength") {
-    const d = item.session.targetDurationMinutes;
-    return d ? `${item.session.title} · ${durationWindow(d)}` : item.session.title;
-  }
-  const w = item.workout;
-  if (w.targetKm != null) return `${w.title} · ${w.targetKm}km`;
-  if (w.targetDurationMinutes != null) return `${w.title} · ${w.targetDurationMinutes}m`;
-  return w.title;
+  | { kind: "strength"; session: StrengthSessionRow };
+
+function specStatus(item: DaySpecItem): { status: SessionStatus; date: string } {
+  return item.kind === "strength"
+    ? { status: item.session.status as SessionStatus, date: item.session.date }
+    : { status: item.workout.status as SessionStatus, date: item.workout.date };
+}
+
+export function itemState(item: DaySpecItem, now: Date = new Date()): ItemState {
+  const { status, date } = specStatus(item);
+  if (isCompletedSession({ status })) return "completed";
+  if (status === "skipped") return "skipped";
+  if (status === "missed") return "missed";
+  if (isPastDuePlanned({ status, date }, now)) return "missed";
+  return "planned";
+}
+
+/** One-line spec for a run or strength item: "Easy Run · 10km". Skipped and
+ * missed items get an explicit suffix — the title/distance alone reads
+ * identically to a still-open planned item otherwise. */
+export function itemSpec(item: DaySpecItem, state?: ItemState): string {
+  const base = (() => {
+    if (item.kind === "strength") {
+      const d = item.session.targetDurationMinutes;
+      return d ? `${item.session.title} · ${durationWindow(d)}` : item.session.title;
+    }
+    const w = item.workout;
+    if (w.targetKm != null) return `${w.title} · ${w.targetKm}km`;
+    if (w.targetDurationMinutes != null) return `${w.title} · ${w.targetDurationMinutes}m`;
+    return w.title;
+  })();
+  const resolved = state ?? itemState(item);
+  if (resolved === "skipped") return `${base} · Skipped`;
+  if (resolved === "missed") return `${base} · Missed`;
+  return base;
 }

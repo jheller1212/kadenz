@@ -23,14 +23,23 @@ import {
   runSpine,
   STRENGTH_SPINE,
   STRENGTH_BLUE,
+  phaseSummary,
   type ApiPlanRow,
   type ApiWorkoutRow,
   type StrengthSessionRow,
+  type WeekPhase,
   mondayOf,
   addDays,
   sameDay,
   durationWindow,
 } from "@/lib/plan-ui";
+
+const PHASE_LABEL: Record<WeekPhase, string> = {
+  base: "Base",
+  build: "Build",
+  peak: "Peak",
+  taper: "Taper",
+};
 
 const RACE_LABEL: Record<string, string> = {
   "5k": "5K",
@@ -276,8 +285,19 @@ export default function PlanOverviewPage() {
   const daysToRace = raceDateObj
     ? Math.max(0, Math.round((raceDateObj.getTime() - now.getTime()) / 86_400_000))
     : null;
+
+  // Real phase data (base/build/peak/taper) lives on every week row — see
+  // plan-ui.ts phaseSummary. Get-fit/maintain plans never reach peak/taper,
+  // so they fall back to the old weeks-left framing.
+  const phases = useMemo(
+    () => (plan ? phaseSummary(plan.weeks, weekNum) : { pips: [], line: null }),
+    [plan, weekNum]
+  );
+  const currentPhase = plan?.weeks.find((w) => w.weekNumber === weekNum)?.phase ?? null;
+
   const phaseLine =
-    plan?.intent && plan.intent !== "race"
+    phases.line ??
+    (plan?.intent && plan.intent !== "race"
       ? totalWeeks - weekNum > 0
         ? `${totalWeeks - weekNum} week${totalWeeks - weekNum === 1 ? "" : "s"} left`
         : "Final week"
@@ -285,7 +305,7 @@ export default function PlanOverviewPage() {
       ? daysToRace > 0
         ? `${daysToRace} day${daysToRace === 1 ? "" : "s"} to ${RACE_LABEL[plan!.raceDistance] ?? "race day"}`
         : "Race week"
-      : null;
+      : null);
 
   // ── Complete / untick ───────────────────────────────────────────────────────
 
@@ -456,7 +476,11 @@ export default function PlanOverviewPage() {
           style={{ background: "var(--k-sig-aurora)" }}
         >
           <p className="text-[10px] font-extrabold uppercase tracking-widest opacity-70">
-            {plan.intent && plan.intent !== "race" ? plan.intent.replace("_", " ") : "Training week"}
+            {currentPhase
+              ? `Block · ${PHASE_LABEL[currentPhase]}`
+              : plan.intent && plan.intent !== "race"
+              ? plan.intent.replace("_", " ")
+              : "Training week"}
           </p>
           <p className="mt-1 font-display text-[38px] leading-[0.9]">
             {displayDistance(weekKm, 0)}
@@ -464,22 +488,44 @@ export default function PlanOverviewPage() {
               {distanceUnitLabel().toUpperCase()} PLANNED
             </span>
           </p>
-          {dayRows.length > 0 && (
+          {/* One pip per training block (base/build/peak/taper) the plan
+              actually uses, not per day — the day rows below already show
+              day-by-day completion via their checkmarks. */}
+          {phases.pips.length > 0 ? (
             <div className="mt-3.5 flex gap-1">
-              {dayRows.map((d, i) => (
+              {phases.pips.map((p, i) => (
                 <div
                   key={i}
                   className="h-1.5 flex-1 rounded-full"
                   style={{
-                    background: !d.item
-                      ? "rgba(11,11,15,0.13)"
-                      : d.item && itemStatus(d.item) === "completed"
-                      ? "#0B0B0F"
-                      : "rgba(11,11,15,0.33)",
+                    background:
+                      p.state === "done" || p.state === "current"
+                        ? "#0B0B0F"
+                        : p.state === "next"
+                        ? "rgba(11,11,15,0.33)"
+                        : "rgba(11,11,15,0.13)",
                   }}
                 />
               ))}
             </div>
+          ) : (
+            dayRows.length > 0 && (
+              <div className="mt-3.5 flex gap-1">
+                {dayRows.map((d, i) => (
+                  <div
+                    key={i}
+                    className="h-1.5 flex-1 rounded-full"
+                    style={{
+                      background: !d.item
+                        ? "rgba(11,11,15,0.13)"
+                        : d.item && itemStatus(d.item) === "completed"
+                        ? "#0B0B0F"
+                        : "rgba(11,11,15,0.33)",
+                    }}
+                  />
+                ))}
+              </div>
+            )
           )}
           {phaseLine && <p className="mt-2 text-xs font-bold">{phaseLine}</p>}
         </section>
