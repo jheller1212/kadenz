@@ -10,7 +10,11 @@ This is what is left, why, and what only Jonas can do.
 Priority order: 1.1 is the only security item, do it first. 1.2 and 1.3 each
 leave a shipped feature inert until done.
 
-### 1.1 Rotate the Neon database password (do this first)
+### 1.1 Rotate the Neon database password (STILL OPEN, needs a browser)
+`neonctl` credentials on this machine have expired and re-auth needs an
+interactive browser OAuth, so this could not be automated. Run
+`! npx neonctl auth` yourself, then the steps below.
+
 The production connection string was pasted into a chat session, so the
 password `neondb_owner` is considered exposed.
 
@@ -37,7 +41,7 @@ suspend means keeping compute continuously alive, which is roughly 240
 compute-hours a month for an 8 hour window against a free budget of about 192.
 It would bill or throttle. Upgrading Neon is the honest fix.
 
-### 1.3 Deploy the Cloudflare Worker cron
+### 1.3 Cloudflare Worker cron (DONE, deployed and verified)
 GitHub Actions does not honour sub-hourly schedules on this repo. Observed 3
 runs against a configured every-15-minutes, with gaps of 67 minutes, 2h46m and
 1h50m. GitHub documents `schedule` as best effort.
@@ -45,11 +49,10 @@ runs against a configured every-15-minutes, with gaps of 67 minutes, 2h46m and
 This means **workout reminders currently fire late or not at all**, and the
 sync-drain safety net is equally unreliable. A Cloudflare Worker replaces it.
 
-    npx wrangler login
-    npx wrangler secret put CRON_SECRET
-    npx wrangler deploy
-
-See the Worker's own README for the exact directory and verification steps.
+Deployed as `kadenz-cron`, schedule `*/5 * * * *`, verified registered. The
+account had never used Workers, so a `kadenz.workers.dev` subdomain had to be
+created first (API error 10063 blocks every cron trigger until one exists).
+The Worker itself sets `workers_dev = false` and serves nothing there.
 
 ### 1.4 Add Kadenz to the iOS home screen
 Web push on iOS only works for an installed PWA (iOS 16.4+). A normal Safari
@@ -285,3 +288,48 @@ Behind them, four changes:
 
 Not yet designed and worth considering later: the set logger during an active
 session, which works but has had no design pass.
+
+---
+
+## 8. Incident 2026-07-27: stale checkout deployed to production
+
+**What happened.** Running `vercel --prod` from
+`/Users/jonasheller/GitHub/kadenz/web` deployed the SHARED CHECKOUT, which was
+sitting on branch `verify23` at an old commit, straight to production. For
+roughly ten minutes the alias served code that predated the day's work: the
+homepage stayed up, but `/api/cron/*` and everything else added that day
+returned 404.
+
+**Why it is worth recording.** This is the exact trap already written down in
+the process notes above ("never read `~/GitHub/kadenz/web/src`, the shared
+checkout is on a stale branch"). The note said do not READ from it. It did not
+say do not DEPLOY from it, and so the same stale-checkout hazard bit twice in
+one day through a door nobody had thought to close.
+
+**Fix applied.** Merged a pending PR to main, which triggered Vercel's git
+integration to build and promote the real main. Recovery confirmed by polling
+`/api/cron/reminders` until it returned 200.
+
+**Rule going forward.** Never run `vercel --prod` by hand. Production deploys
+come from a push to main via the git integration, which builds a known commit.
+If a manual deploy is ever genuinely needed, run it from a worktree that has
+just been reset to `origin/main`, and verify `git log --oneline -1` first.
+
+### CRON_SECRET was rotated the same evening
+
+`vercel env pull` returned a value that the running app rejected with 401,
+while GitHub Actions was getting 200 with its own copy. The real value could
+not be read from anywhere, so rather than guess, a fresh 48 character secret
+was generated and set in all three places that hold it:
+
+- Vercel production env (`CRON_SECRET`)
+- GitHub Actions repo secret (`gh secret set CRON_SECRET`)
+- Cloudflare Worker secret (`wrangler secret put CRON_SECRET`)
+
+Verified afterwards: direct call returns 200, a dispatched GitHub Actions run
+succeeded, and the Worker holds the same value.
+
+**Left deliberately:** the Preview and Development Vercel environments still
+hold the OLD `CRON_SECRET`. Production is what every cron caller targets, so
+this is harmless, but if a preview deployment is ever pointed at a cron caller
+it will 401 until those are updated too.
