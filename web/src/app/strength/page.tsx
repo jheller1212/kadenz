@@ -163,8 +163,14 @@ export default function StrengthPage() {
   const [painError, setPainError] = useState<string | null>(null);
 
   // Kraft hub stat row — real aggregates only (sessions/wk, weekly volume);
-  // no invented "load delta" tile, see /api/strength/summary.
-  const [hubStats, setHubStats] = useState<{ sessionsPerWeek: number | null; volumeKg: number | null } | null>(null);
+  // no invented "load delta" tile, see /api/strength/summary. volumeKg and
+  // bodyweightReps are two separate figures, not blended into one number —
+  // kg and reps aren't the same unit (see lib/strength/volume.ts).
+  const [hubStats, setHubStats] = useState<{
+    sessionsPerWeek: number | null;
+    volumeKg: number | null;
+    bodyweightReps: number | null;
+  } | null>(null);
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
   // Today's scheduled strength session(s), surfaced at the top of the picker so
   // the planned workout is one tap away and manual types stay below it.
@@ -876,8 +882,13 @@ export default function StrengthPage() {
             );
           })()}
 
-          {/* Stat row — real aggregates only; no invented numbers */}
-          {(hubStats?.sessionsPerWeek != null || hubStats?.volumeKg != null) && (
+          {/* Stat row — real aggregates only; no invented numbers. Loaded
+              volume (kg) and bodyweight work (reps) are two separate tiles,
+              not summed into one figure — they're not the same unit (see
+              lib/strength/volume.ts). */}
+          {(hubStats?.sessionsPerWeek != null ||
+            hubStats?.volumeKg != null ||
+            hubStats?.bodyweightReps != null) && (
             <div className="mb-5 flex gap-2.5">
               {hubStats.sessionsPerWeek != null && (
                 <div className="flex-1 k-card p-3.5">
@@ -898,6 +909,16 @@ export default function StrengthPage() {
                     </span>
                   </p>
                   <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-text-3">Volume · 7d</p>
+                </div>
+              )}
+              {hubStats.bodyweightReps != null && (
+                <div className="flex-1 k-card p-3.5">
+                  <p className="font-display text-[26px] leading-none text-text-1">
+                    {hubStats.bodyweightReps}
+                  </p>
+                  <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-text-3">
+                    Bodyweight reps · 7d
+                  </p>
                 </div>
               )}
             </div>
