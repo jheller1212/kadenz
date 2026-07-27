@@ -27,6 +27,7 @@ import { workoutColor, STRENGTH_COLOR } from "@/lib/workout-colors";
 import { WeeklyStrengthPlan } from "@/components/strength/WeeklyStrengthPlan";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
+import { completedDistanceKm } from "@/lib/training/distance";
 import {
   type ApiPlanRow,
   type ApiWeekRow,
@@ -353,13 +354,15 @@ export default function PlanHubPage() {
         return m !== null && m <= now && now < addDays(m, 7);
       })?.weekNumber ?? null;
     const totalKm = plan.weeks.reduce((sum, w) => sum + (w.targetKm ?? 0), 0);
-    // Distance done so far: target km of the runs already ticked complete.
+    // Distance done so far: the recorded distance of each completed run,
+    // falling back to its target only when nothing was recorded. Matches
+    // Today's mileage ring and Insights — see lib/training/distance.ts.
     const completedKm = plan.weeks.reduce(
       (sum, w) =>
         sum +
         w.workouts
           .filter((x) => x.status === "completed" && x.type !== "rest")
-          .reduce((s, x) => s + (x.targetKm ?? 0), 0),
+          .reduce((s, x) => s + completedDistanceKm(x), 0),
       0
     );
     return { completedWeeks, currentWeekNumber, totalKm, completedKm };

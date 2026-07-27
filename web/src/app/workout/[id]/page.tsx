@@ -15,6 +15,7 @@ import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel, actualPaceSecKm } from "@/lib/units";
+import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
 import { WorkoutCelebration } from "@/components/WorkoutCelebration";
@@ -1311,7 +1312,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
     <>
     <main className="min-h-dvh bg-bg">
       <NavBar
-        title={workout.title}
+        title={displayWorkoutTitle(workout, settings.units)}
         large={false}
         left={<BackButton />}
         right={
@@ -1376,7 +1377,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                 </span>
               </div>
               <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">
-                {workout.title}
+                {displayWorkoutTitle(workout, settings.units)}
                 {workout.edited && (
                   <span className="ml-2 align-middle rounded-md bg-elevated px-2 py-0.5 text-[11px] font-bold text-text-3">Edited</span>
                 )}
@@ -1751,7 +1752,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
         {guiding && (
           <GuidedRun
             workoutId={workout.id}
-            title={workout.title}
+            title={displayWorkoutTitle(workout, settings.units)}
             blocks={workout.blocks}
             useMiles={useMiles}
             resumeFrom={resuming ? resumeSnap : null}
@@ -1833,7 +1834,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
 
     {postRace && (
       <PostRaceScreen
-        title={workout.title}
+        title={displayWorkoutTitle(workout, settings.units)}
         finishSeconds={postRace.finishSeconds}
         distanceKm={postRace.distanceKm}
         feel={postRace.feel}

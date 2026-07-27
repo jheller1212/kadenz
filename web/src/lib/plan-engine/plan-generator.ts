@@ -510,6 +510,16 @@ function raceBlocks(
 }
 
 // ── Workout builders ─────────────────────────────────────────────────────────
+//
+// The `title` these builders write is always in km, generated once and
+// stored — it never changes when the athlete later switches units, and this
+// generator has no per-user unit to write it in anyway (units live in
+// localStorage only). It's the correct source of truth for consumers with no
+// unit context of their own: Google Calendar, the Garmin workout label, the
+// push reminder body. In-app screens instead reformat it at render time via
+// lib/plan-engine/workout-title.ts's displayWorkoutTitle(), which reads the
+// live unit setting — do not "fix" the km baked in here, that would just
+// move which surface is wrong.
 
 /** Estimate duration (minutes) from distance and target pace */
 function estimateDuration(distanceKm: number, targetPaceSecKm: number): number {

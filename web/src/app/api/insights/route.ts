@@ -1,5 +1,6 @@
 import { db, plans, weeks, workouts } from "@/db";
 import { localWeekRange, localWeekdayIndex } from "@/lib/app-time";
+import { completedDistanceKm } from "@/lib/training/distance";
 import { eq } from "drizzle-orm";
 import { workoutColor } from "@/lib/workout-colors";
 
@@ -96,7 +97,7 @@ export async function GET() {
         const plannedKm = planned.reduce((s, w) => s + (w.targetKm ?? 0), 0);
         const completedKm = planned
           .filter((w) => w.status === "completed")
-          .reduce((s, w) => s + (w.actualKm ?? w.targetKm ?? 0), 0);
+          .reduce((s, w) => s + completedDistanceKm(w), 0);
         const pct = plannedKm > 0 ? Math.round((completedKm / plannedKm) * 100) : 0;
         mileageByType.push({
           type,
