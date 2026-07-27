@@ -1,6 +1,8 @@
 import { asc, gt } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 import { db, activities } from "@/db";
 import { csvRow } from "@/lib/csv";
+import { getActiveProfileId } from "@/lib/profiles";
 
 // ── GET /api/export/activities ────────────────────────────────────────────────
 // Streams every logged activity as CSV. Paginated by a keyset cursor on `id`
@@ -21,12 +23,26 @@ const HEADER = [
   "elevation_gain_m",
 ];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const encoder = new TextEncoder();
+
+  // Strava is the owner's device, so a guest profile sees no activities at all
+  // in the app (see api/activities/route.ts, which returns [] for a guest).
+  // The export has to honour the same rule: without this it streamed every
+  // activity to whoever asked, handing a household guest the owner's entire
+  // run history that the app itself never shows them. Scoping by a column is
+  // not possible here because `activities` has no profile_id; ownership is the
+  // rule itself, so a guest gets a header-only file.
+  const isGuest = getActiveProfileId(request) != null;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       controller.enqueue(encoder.encode(csvRow(HEADER) + "\n"));
+
+      if (isGuest) {
+        controller.close();
+        return;
+      }
 
       let cursor: string | null = null;
       try {
