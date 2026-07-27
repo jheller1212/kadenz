@@ -598,6 +598,39 @@ export const wellnessLogs = pgTable(
   ]
 );
 
+// Device-sourced overnight physiology, one row per calendar day (owner
+// only — a household guest has no watch feeding this). Deliberately
+// separate from wellnessLogs: that table is the athlete's own subjective
+// check-in (sleep QUALITY, energy, soreness); this is what the watch
+// measured (sleep DURATION, resting HR, HRV). Neither should overwrite the
+// other — the readiness combine step reads both.
+export const wellnessMetrics = pgTable(
+  "wellness_metrics",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Midnight UTC of the calendar day this overnight reading belongs to
+    // (Garmin's calendarDate), same normalize-to-midnight convention as
+    // wellnessLogs.date so the two can be joined by day.
+    date: timestamp("date", { withTimezone: true }).notNull(),
+    sleepSeconds: integer("sleep_seconds"),
+    restingHr: integer("resting_hr"),
+    hrvLastNightAvg: integer("hrv_last_night_avg"),
+    // Kept for reference only — readiness computes its own rolling baseline
+    // from the history of hrvLastNightAvg rather than trusting this, but
+    // it's useful context on the wellness screen and free to store.
+    hrvWeeklyAvg: integer("hrv_weekly_avg"),
+    hrvStatus: text("hrv_status"),
+    source: text("source").notNull().default("garmin"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("wellness_metrics_date_uq").on(t.date)]
+);
+
 export const painLogs = pgTable(
   "pain_logs",
   {

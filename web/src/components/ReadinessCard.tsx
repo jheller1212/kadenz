@@ -13,6 +13,7 @@ interface Readiness {
   reasons: { label: string; delta: number }[];
   hasCheckIn: boolean;
   advice: string;
+  physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
 }
 
 const BAND_META: Record<Readiness["band"], { label: string; color: string }> = {
@@ -83,6 +84,13 @@ export function ReadinessCard() {
           {!data.hasCheckIn && (
             <p className="mt-1 text-[12px] text-text-3">
               Log today&apos;s check-in below for an accurate score.
+            </p>
+          )}
+          {data.physiologyWarmup && (
+            <p className="mt-1 text-[12px] text-text-3">
+              Building your recovery baseline from the watch (
+              {data.physiologyWarmup.daysCollected}/{data.physiologyWarmup.daysNeeded} days) —
+              sleep and HRV will factor in once it&apos;s ready.
             </p>
           )}
         </div>

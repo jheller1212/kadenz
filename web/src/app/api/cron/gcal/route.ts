@@ -13,6 +13,7 @@ import {
 } from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
+import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 
 // Failed jobs get one retry per cron run until this hard cap.
@@ -25,6 +26,9 @@ const RETRY_CAP = 10;
 //   2. Garmin push: roll the 14-day workout window forward + drain the garmin
 //      outbox (when the worker is configured and the toggle is on).
 //   3. Garmin import: pull new watch activities (auto-tick planned workouts).
+//   3b. Garmin wellness: pull overnight sleep/resting-HR/HRV for readiness
+//      (see lib/sync/wellness-sync.ts) — read-only on Garmin's side, same as
+//      activity import, so it runs whenever the worker is configured.
 //   4. Workout reminders: push notifications for sessions inside their lead
 //      window (when the athlete has opted in — see settings/reminders).
 //      The real, frequent dispatch now runs from /api/cron/reminders via a
@@ -96,6 +100,13 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("Garmin cron import error:", err);
     out.garminImportError = "import failed";
+  }
+
+  try {
+    out.wellnessSync = await runWellnessSync();
+  } catch (err) {
+    console.error("Garmin wellness sync error:", err);
+    out.wellnessSyncError = "sync failed";
   }
 
   try {

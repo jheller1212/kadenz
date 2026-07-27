@@ -3,7 +3,7 @@
 Thin FastAPI service bridging Kadenz and Garmin Connect (via [garth](https://github.com/matin/garth)):
 
 - **Push**: structured running workouts and strength workouts, scheduled to a date
-- **Pull**: activity list + activity detail with normalized km splits
+- **Pull**: activity list + activity detail with normalized km splits, plus daily wellness (sleep, resting HR, HRV)
 
 All inbound requests require `Authorization: Bearer <WORKER_TOKEN>`.
 
@@ -14,6 +14,7 @@ All inbound requests require `Authorization: Bearer <WORKER_TOKEN>`.
 | GET | `/health` | Liveness (no auth) |
 | GET | `/activities?since=<ISO>&limit=<n>` | List activities, newest first (`limit` 1-200, default 20) |
 | GET | `/activities/{garminId}` | Activity detail incl. `splits` + `lapCount` |
+| GET | `/wellness?date=<YYYY-MM-DD>` | Overnight sleep, resting HR and HRV for one calendar day (null fields, not 404, when the watch has no data for that day) |
 | POST | `/workouts` | Create + schedule a structured running workout |
 | POST | `/strength-workouts` | Create + schedule a strength workout |
 | PATCH | `/workouts/{id}` | Reschedule a workout |
@@ -42,6 +43,22 @@ Error contract: `502 {"detail": "Garmin API error: ..."}` for Garmin failures; `
 ```
 
 `kind`: `run` (running, treadmill_running, trail_running), `strength` (strength_training, indoor_cardio), else `other`. `avgPaceSecPerKm` is only derived for runs. Splits: `[{"distanceKm": 1.0, "durationSeconds": 290.0, "avgHr": 148.0, "avgPaceSecPerKm": 290}]` (empty array if unavailable).
+
+### Wellness response
+
+```json
+GET /wellness?date=2026-07-26
+{
+  "date": "2026-07-26",
+  "sleepSeconds": 25200,
+  "restingHr": 47,
+  "hrvLastNightAvg": 42,
+  "hrvWeeklyAvg": 45,
+  "hrvStatus": "BALANCED"
+}
+```
+
+`hrvWeeklyAvg`/`hrvStatus` are Garmin's own on-device summary, kept for reference — Kadenz computes its own rolling baseline from a history of `hrvLastNightAvg` rather than trusting them (see `web/src/lib/physiology.ts`).
 
 ### Strength workout request
 
