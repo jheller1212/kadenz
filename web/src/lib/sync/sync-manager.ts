@@ -95,12 +95,16 @@ export async function queueWorkoutEventDeletes(
 
 export async function queuePlanWorkoutsSync(
   planId: string,
-  target: "gcal" | "garmin" = "gcal"
+  target: "gcal" | "garmin" = "gcal",
+  // Optional explicit set of workout ids to push (e.g. after a regenerate
+  // that preserved some workouts untouched — those must not be re-queued as
+  // a "create", which would push a duplicate event). Undefined keeps the
+  // original behavior of pushing every workout on the plan.
+  workoutIds?: string[]
 ): Promise<void> {
-  const planWorkouts = await db
-    .select({ id: workouts.id })
-    .from(workouts)
-    .where(eq(workouts.planId, planId));
+  const planWorkouts = workoutIds
+    ? workoutIds.map((wid) => ({ id: wid }))
+    : await db.select({ id: workouts.id }).from(workouts).where(eq(workouts.planId, planId));
 
   if (planWorkouts.length === 0) return;
 

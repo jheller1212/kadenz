@@ -201,7 +201,8 @@ function EditPlanInner() {
       />
       <div className="flex flex-col gap-5 px-4 pb-[calc(env(safe-area-inset-bottom)+152px)]">
         <p className="text-[13px] text-text-3">
-          Changing these regenerates the schedule in place — completed runs stay in your history.
+          Changing these only regenerates workouts still marked planned. Anything completed,
+          skipped or missed keeps its result and stays exactly where it is.
         </p>
 
         {/* Race distance */}

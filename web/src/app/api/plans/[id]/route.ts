@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";
 import type { PlanConfig } from "@/lib/plan-engine/types";
+import { planRegenerateMerge } from "@/lib/plan-engine/regenerate-merge";
 import { getCurrentFitnessEstimate } from "@/lib/current-fitness";
 import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
@@ -73,9 +74,11 @@ export async function GET(
 
 // ── PUT /api/plans/[id] — regenerate the plan in place ───────────────────────
 // Keeps the same plan id (stays the "current" plan) and swaps in freshly
-// generated weeks/workouts/blocks. Note: completed activities keep their data
-// (their workout link becomes null via ON DELETE SET NULL), and any stale
-// calendar events from the previous schedule are not pruned here.
+// generated weeks/workouts/blocks — but only for workouts still "planned".
+// A completed, skipped or missed workout (and the week it's in) is exempt
+// from deletion entirely: its status, actualKm, actualDurationSeconds, rpe
+// and its link to any backing activities row all survive untouched. See
+// regenerate-merge.ts for the full model and why.
 
 export async function PUT(
   request: NextRequest,
@@ -161,47 +164,112 @@ export async function PUT(
       })
       .where(eq(plans.id, id));
 
-    // Capture the old workouts' sync ids before we drop them, so their
-    // now-stale calendar events and watch entries can be pruned from both
-    // surfaces. The rows themselves are about to cascade-delete with the
-    // weeks below, so there's nothing left afterward to clear ids on.
-    const oldWorkouts = await db
+    // A completed/skipped/missed workout is real history and a plan edit must
+    // never destroy it (see regenerate-merge.ts). Find those rows first —
+    // they and the week they live in are exempt from everything below.
+    const preservedWorkouts = await db
+      .select({
+        id: workouts.id,
+        weekId: workouts.weekId,
+        weekNumber: weeks.weekNumber,
+        date: workouts.date,
+      })
+      .from(workouts)
+      .innerJoin(weeks, eq(workouts.weekId, weeks.id))
+      .where(and(eq(workouts.planId, id), ne(workouts.status, "planned")));
+
+    // Capture the old *planned* workouts' sync ids before we drop them, so
+    // their now-stale calendar events and watch entries can be pruned from
+    // both surfaces. Preserved workouts are excluded on purpose: their rows
+    // (and thus their gcalEventId/garminWorkoutId) are never deleted, so
+    // their events must never be queued for deletion either.
+    const oldPlannedWorkouts = await db
       .select({
         id: workouts.id,
         gcalEventId: workouts.gcalEventId,
         garminWorkoutId: workouts.garminWorkoutId,
       })
       .from(workouts)
-      .where(eq(workouts.planId, id));
-    // Replace the schedule: delete existing weeks (cascades workouts + blocks).
-    await db.delete(weeks).where(eq(weeks.planId, id));
+      .where(and(eq(workouts.planId, id), eq(workouts.status, "planned")));
 
-    const weekValues = generated.weeks.map((week) => ({
-      planId: id,
-      weekNumber: week.weekNumber,
-      phase: week.phase,
-      type: week.type,
-      targetKm: week.targetKm,
-    }));
-    const insertedWeeks = await db.insert(weeks).values(weekValues).returning();
-    const weekIdMap = new Map<number, string>();
-    for (const w of insertedWeeks) weekIdMap.set(w.weekNumber, w.id);
+    // Replace the schedule, but only the "planned" part of it: delete
+    // planned workouts (cascades their blocks) and drop this straight to the
+    // still-planned rows, leaving completed/skipped/missed workouts and
+    // their weeks untouched.
+    await db
+      .delete(workouts)
+      .where(and(eq(workouts.planId, id), eq(workouts.status, "planned")));
 
-    const workoutValues = generated.weeks.flatMap((week) =>
-      week.workouts.map((workout) => ({
-        weekId: weekIdMap.get(week.weekNumber)!,
-        planId: id,
-        dayOfWeek: workout.dayOfWeek,
-        date: workout.date,
-        type: workout.type,
-        title: workout.title,
-        description: workout.description ?? null,
-        targetKm: workout.targetKm ?? null,
-        targetDurationMinutes: workout.targetDurationMinutes ?? null,
-        sortOrder: workout.sortOrder,
-      }))
+    // A week is only deleted once every workout it had was "planned" (i.e.
+    // it's now empty). A week holding preserved history is kept in place —
+    // deleting it would cascade the preserved workout away with it.
+    const merge = planRegenerateMerge(
+      preservedWorkouts,
+      generated.weeks.map((week) => week.weekNumber)
     );
-    const insertedWorkouts = await db.insert(workouts).values(workoutValues).returning();
+
+    if (merge.retainedWeekNumbers.size > 0) {
+      await db
+        .delete(weeks)
+        .where(
+          and(
+            eq(weeks.planId, id),
+            notInArray(weeks.weekNumber, [...merge.retainedWeekNumbers])
+          )
+        );
+    } else {
+      await db.delete(weeks).where(eq(weeks.planId, id));
+    }
+
+    // Map every week number the new schedule needs to a week id: retained
+    // weeks already have one (they survived the delete above), the rest get
+    // a fresh row.
+    const weekIdMap = new Map<number, string>();
+    if (merge.retainedWeekNumbers.size > 0) {
+      const retainedWeeks = await db
+        .select({ id: weeks.id, weekNumber: weeks.weekNumber })
+        .from(weeks)
+        .where(eq(weeks.planId, id));
+      for (const w of retainedWeeks) weekIdMap.set(w.weekNumber, w.id);
+    }
+
+    const weekValues = generated.weeks
+      .filter((week) => merge.weekNumbersToInsert.includes(week.weekNumber))
+      .map((week) => ({
+        planId: id,
+        weekNumber: week.weekNumber,
+        phase: week.phase,
+        type: week.type,
+        targetKm: week.targetKm,
+      }));
+    if (weekValues.length > 0) {
+      const insertedWeeks = await db.insert(weeks).values(weekValues).returning();
+      for (const w of insertedWeeks) weekIdMap.set(w.weekNumber, w.id);
+    }
+
+    // Drop any generated workout that would land on the same calendar date
+    // as a preserved one — the athlete already has a real workout that day,
+    // a freshly planned one must not double-book it.
+    const workoutValues = generated.weeks.flatMap((week) =>
+      week.workouts
+        .filter((workout) =>
+          merge.keepGeneratedWorkout({ weekNumber: week.weekNumber, date: workout.date })
+        )
+        .map((workout) => ({
+          weekId: weekIdMap.get(week.weekNumber)!,
+          planId: id,
+          dayOfWeek: workout.dayOfWeek,
+          date: workout.date,
+          type: workout.type,
+          title: workout.title,
+          description: workout.description ?? null,
+          targetKm: workout.targetKm ?? null,
+          targetDurationMinutes: workout.targetDurationMinutes ?? null,
+          sortOrder: workout.sortOrder,
+        }))
+    );
+    const insertedWorkouts =
+      workoutValues.length > 0 ? await db.insert(workouts).values(workoutValues).returning() : [];
 
     const workoutIdMap = new Map<string, string>();
     for (const wo of insertedWorkouts) {
@@ -209,42 +277,56 @@ export async function PUT(
     }
 
     const blockValues = generated.weeks.flatMap((week) =>
-      week.workouts.flatMap((workout) =>
-        workout.blocks.map((block) => ({
-          workoutId: workoutIdMap.get(`${weekIdMap.get(week.weekNumber)!}:${workout.sortOrder}`)!,
-          sortOrder: block.sortOrder,
-          type: block.type,
-          durationMinutes: block.durationMinutes ?? null,
-          distanceKm: block.distanceKm ?? null,
-          targetPaceSecKm: block.targetPaceSecKm ?? null,
-          minPaceSecKm: block.minPaceSecKm ?? null,
-          maxPaceSecKm: block.maxPaceSecKm ?? null,
-          reps: block.reps ?? null,
-          repDistanceKm: block.repDistanceKm ?? null,
-          repRestSeconds: block.repRestSeconds ?? null,
-        }))
-      )
+      week.workouts
+        .filter((workout) =>
+          merge.keepGeneratedWorkout({ weekNumber: week.weekNumber, date: workout.date })
+        )
+        .flatMap((workout) =>
+          workout.blocks.map((block) => ({
+            workoutId: workoutIdMap.get(
+              `${weekIdMap.get(week.weekNumber)!}:${workout.sortOrder}`
+            )!,
+            sortOrder: block.sortOrder,
+            type: block.type,
+            durationMinutes: block.durationMinutes ?? null,
+            distanceKm: block.distanceKm ?? null,
+            targetPaceSecKm: block.targetPaceSecKm ?? null,
+            minPaceSecKm: block.minPaceSecKm ?? null,
+            maxPaceSecKm: block.maxPaceSecKm ?? null,
+            reps: block.reps ?? null,
+            repDistanceKm: block.repDistanceKm ?? null,
+            repRestSeconds: block.repRestSeconds ?? null,
+          }))
+        )
     );
     if (blockValues.length > 0) {
       await db.insert(blocks).values(blockValues);
     }
 
-    // Prune the old schedule's events/watch entries on both surfaces, then
-    // push the new ones. Awaited so the delete queue rows are durably
-    // written before the response returns — a frozen invocation used to be
-    // able to lose this outright (fire-and-forget, no `await`). Old and new
-    // workouts are different rows with different ids, so this can never
-    // race the new plan's pushes into deleting them.
-    await queueRetireDeletes(oldWorkouts).catch((err) =>
+    // Prune the old, now-deleted planned workouts' events/watch entries on
+    // both surfaces, then push the new ones. Awaited so the delete queue
+    // rows are durably written before the response returns — a frozen
+    // invocation used to be able to lose this outright (fire-and-forget, no
+    // `await`). Old and new workouts are different rows with different ids,
+    // so this can never race the new plan's pushes into deleting them.
+    // Preserved workouts are deliberately excluded — their rows and ids
+    // never changed, so their calendar/watch events must stay put.
+    await queueRetireDeletes(oldPlannedWorkouts).catch((err) =>
       console.error("Failed to queue old schedule's sync deletes:", err)
     );
 
     isConnected()
       .then((connected) => {
         if (connected) {
-          queuePlanWorkoutsSync(id, "gcal").catch((err) =>
-            console.error("Failed to queue gcal sync:", err)
-          );
+          // Only push the freshly inserted workouts — a preserved workout
+          // already has (or never had) its own event and must not be
+          // re-queued as a "create", which would push a duplicate event and
+          // overwrite the id of the one already on the calendar.
+          queuePlanWorkoutsSync(
+            id,
+            "gcal",
+            insertedWorkouts.map((wo) => wo.id)
+          ).catch((err) => console.error("Failed to queue gcal sync:", err));
         }
       })
       .catch(() => {});
