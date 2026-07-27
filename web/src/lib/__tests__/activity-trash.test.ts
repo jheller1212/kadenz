@@ -22,6 +22,12 @@ const baseRow: ActivityRow = {
   polyline: null,
   aiInsight: null,
   aiInsightGeneratedAt: null,
+  bestEffortsJson: null,
+  cadenceSpm: null,
+  calories: null,
+  deviceName: null,
+  gearName: null,
+  streamsJson: null,
   createdAt: new Date("2026-07-10T18:00:00.000Z"),
 };
 

@@ -31,13 +31,15 @@ interface RawLap {
   max_heartrate?: number;
 }
 
-interface StravaStreams {
-  distance?: { data: number[] };
-  heartrate?: { data: number[] };
-  velocity_smooth?: { data: number[] };
-  altitude?: { data: number[] };
-  latlng?: { data: [number, number][] };
-  time?: { data: number[] };
+// Strava's streams endpoint returns an ARRAY of { type, data } objects (one
+// per requested key), not an object keyed by type — a pre-existing parsing
+// bug here (Object.entries on the array elements, which have no `.data`
+// property under their `type`/`data` keys themselves) meant this always
+// silently returned null and streams never rendered. Fixed alongside adding
+// the cache, since caching a permanently-null value has no value.
+interface StravaStreamEntry {
+  type: "distance" | "heartrate" | "velocity_smooth" | "altitude" | "latlng" | "time";
+  data: number[] | [number, number][];
 }
 
 interface StravaDetailedActivity {
@@ -88,24 +90,33 @@ function parseLaps(raw: unknown) {
   }));
 }
 
-async function fetchStravaStreams(stravaId: string, token: string) {
+// Shape stored in `activities.streams_json` and returned to the client —
+// same fields fetchStravaStreams parses off the live Strava response.
+interface ParsedStreams {
+  distance: number[];
+  time: number[];
+  heartrate?: number[];
+  velocity?: number[];
+  altitude?: number[];
+  latlng?: [number, number][];
+}
+
+async function fetchStravaStreams(
+  stravaId: string,
+  token: string
+): Promise<ParsedStreams | null> {
   try {
     const res = await fetch(
       `${STRAVA_API}/activities/${stravaId}/streams?keys=heartrate,velocity_smooth,altitude,latlng,distance,time&resolution=medium`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) return null;
-    const data: StravaStreams[] = await res.json();
-    // Strava returns an array of stream objects keyed by `type`
+    const data: StravaStreamEntry[] = await res.json();
+    // Strava returns an array of { type, data } stream objects, keyed off
+    // `type` here so the lookups below stay by name.
     const map: Record<string, unknown[]> = {};
     for (const stream of data) {
-      const entries = Object.entries(stream) as [
-        string,
-        { data: unknown[] }
-      ][];
-      for (const [key, val] of entries) {
-        if (val?.data) map[key] = val.data;
-      }
+      if (stream?.type && stream?.data) map[stream.type] = stream.data;
     }
     const timeData = map["time"] as number[] | undefined;
     if (!timeData) return null;
@@ -200,10 +211,20 @@ export async function GET(
       return Response.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Strava's OAuth token doesn't depend on anything below — kick the DB
-    // read for it off now so it overlaps with the workout+blocks query
-    // instead of waiting behind it.
-    const tokenPromise = activity.stravaId ? getAccessToken() : null;
+    // Everything Strava-sourced is cached on the row once synced (see below),
+    // so most views need no token at all — only fetch/refresh one when this
+    // row still has something missing, and kick it off now so it overlaps
+    // with the workout+blocks query below instead of waiting behind it.
+    const cachedStreams = activity.streamsJson as ParsedStreams | null;
+    const needsLive =
+      !activity.polyline ||
+      activity.bestEffortsJson == null ||
+      activity.cadenceSpm == null ||
+      activity.calories == null ||
+      activity.deviceName == null ||
+      activity.gearName == null ||
+      cachedStreams == null;
+    const tokenPromise = needsLive && activity.stravaId ? getAccessToken() : null;
 
     // Fetch linked workout + blocks if present, in one query (relational
     // fetch) instead of two sequential round trips.
@@ -266,30 +287,42 @@ export async function GET(
           )
         : null;
 
-    // Fetch Strava streams and detailed activity in parallel (single token
-    // fetch, already in flight from tokenPromise above).
-    let streams = null;
+    // Nothing about a finished activity changes after it syncs, so a live
+    // call only happens for whatever this row is still missing (populated at
+    // import, or backfilled here for older rows) — same backfill-on-read
+    // pattern the polyline established. needsLive/tokenPromise from above.
+    let streams: ParsedStreams | null = cachedStreams;
     let live = EMPTY_LIVE_DETAIL;
-    if (activity.stravaId && tokenPromise) {
+    if (needsLive && activity.stravaId && tokenPromise) {
       const token = await tokenPromise;
-      [streams, live] = await Promise.all([
-        fetchStravaStreams(activity.stravaId, token),
+      const [liveStreams, liveDetail] = await Promise.all([
+        cachedStreams ? Promise.resolve(null) : fetchStravaStreams(activity.stravaId, token),
         fetchStravaDetail(activity.stravaId, token),
       ]);
-    }
+      live = liveDetail;
+      if (liveStreams) streams = liveStreams;
 
-    // Back-fill the polyline for rows imported before it was stored — cached
-    // once so the map hero survives Strava being unreachable.
-    if (!activity.polyline && live.polyline) {
-      try {
-        await db
-          .update(activities)
-          .set({ polyline: live.polyline })
-          .where(eq(activities.id, activity.id));
-      } catch (err) {
-        console.error("Failed to cache activity polyline:", err);
+      // Back-fill whatever this row was still missing — cached once so the
+      // screen survives Strava being unreachable, and never refetched again.
+      const patch: Partial<typeof activities.$inferInsert> = {};
+      if (!activity.polyline && live.polyline) patch.polyline = live.polyline;
+      if (activity.bestEffortsJson == null) patch.bestEffortsJson = live.bestEfforts;
+      if (activity.cadenceSpm == null) patch.cadenceSpm = live.cadenceSpm;
+      if (activity.calories == null) patch.calories = live.calories;
+      if (activity.deviceName == null) patch.deviceName = live.deviceName;
+      if (activity.gearName == null) patch.gearName = live.gearName;
+      if (!cachedStreams && liveStreams) patch.streamsJson = liveStreams;
+      if (Object.keys(patch).length > 0) {
+        try {
+          await db.update(activities).set(patch).where(eq(activities.id, activity.id));
+        } catch (err) {
+          console.error("Failed to cache activity detail:", err);
+        }
       }
     }
+
+    const bestEfforts =
+      (activity.bestEffortsJson as StravaLiveDetail["bestEfforts"] | null) ?? live.bestEfforts;
 
     return Response.json({
       id: activity.id,
@@ -309,15 +342,15 @@ export async function GET(
       avgHr: activity.avgHr ?? null,
       maxHr: activity.maxHr ?? null,
       polyline: activity.polyline ?? live.polyline,
-      cadenceSpm: live.cadenceSpm,
-      calories: live.calories,
-      deviceName: live.deviceName,
-      gearName: live.gearName,
+      cadenceSpm: activity.cadenceSpm ?? live.cadenceSpm,
+      calories: activity.calories ?? live.calories,
+      deviceName: activity.deviceName ?? live.deviceName,
+      gearName: activity.gearName ?? live.gearName,
       aiInsight: activity.aiInsight ?? null,
       splits,
       laps,
       streams,
-      bestEfforts: live.bestEfforts,
+      bestEfforts,
       plannedWorkout,
     });
   } catch (err) {
