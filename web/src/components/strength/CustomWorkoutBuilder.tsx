@@ -338,7 +338,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                     type="button"
                     aria-label="Remove exercise"
                     onClick={() => removeSlot(slot.key)}
-                    className="press flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"
+                    className="press flex h-11 w-11 items-center justify-center rounded-lg bg-elevated"
                   >
                     <Trash2 className="h-4 w-4 text-danger" strokeWidth={1.9} />
                   </button>
@@ -409,7 +409,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
           <button
             type="button"
             onClick={() => { haptic("light"); setEquipmentStep(true); }}
-            className="press text-center text-[13px] font-semibold text-accent-fg"
+            className="press flex min-h-11 w-full items-center justify-center rounded-[var(--radius-input)] text-center text-[13px] font-semibold text-accent-fg"
           >
             Equipment: {equipment.length ? EQUIPMENT_OPTIONS.filter((o) => equipment.includes(o.key)).map((o) => o.label).join(", ") : "bodyweight only"} — change
           </button>

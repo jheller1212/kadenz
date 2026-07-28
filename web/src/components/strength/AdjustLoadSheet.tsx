@@ -70,7 +70,7 @@ export function AdjustLoadSheet({ open, onClose, weightKg, previousWeightKg, dum
                   setChoice(active ? null : r.value);
                 }}
                 style={{ touchAction: "manipulation" }}
-                className={`press rounded-full px-4 py-2 text-[13px] font-bold transition-colors ${
+                className={`press inline-flex min-h-11 items-center justify-center rounded-full px-4 text-[13px] font-bold transition-colors ${
                   active ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
                 }`}
               >
