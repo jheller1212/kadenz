@@ -348,7 +348,7 @@ export default function ManagePlanPage() {
 
   function sharePlan() {
     if (!plan) return;
-    const text = `${plan.name} — ends ${formatDate(plan.raceDate)}`;
+    const text = `${plan.name} · ends ${formatDate(plan.raceDate)}`;
     const nav = navigator as unknown as { share?: (d: { title: string; text: string }) => Promise<void> };
     if (nav.share) nav.share({ title: plan.name, text }).catch(() => {});
     else haptic("light");

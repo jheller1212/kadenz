@@ -1437,7 +1437,7 @@ export function resolveSlotVariant(
 export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   upper: {
     type: "upper",
-    title: "Upper — Kraft",
+    title: "Upper · Kraft",
     targetDurationMinutes: 40,
     effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
@@ -1451,7 +1451,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   },
   lower: {
     type: "lower",
-    title: "Lower — Kraft",
+    title: "Lower · Kraft",
     targetDurationMinutes: 35,
     effortNote: "1-2 reps in reserve on the last set of each exercise",
     slots: [
@@ -1484,7 +1484,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   },
   upper_achilles: {
     type: "upper_achilles",
-    title: "Upper + Achilles — Kraft",
+    title: "Upper + Achilles · Kraft",
     targetDurationMinutes: 50,
     effortNote: "1-2 reps in reserve on upper; explosive step-ups at 6 reps only",
     slots: [
@@ -1501,7 +1501,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   },
   achilles: {
     type: "achilles",
-    title: "Achilles — Kraft",
+    title: "Achilles · Kraft",
     targetDurationMinutes: 20,
     effortNote: "Explosive at 6 reps only; HSR at 2x/week only",
     slots: [
@@ -1516,7 +1516,7 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
   },
   lower_achilles: {
     type: "lower_achilles",
-    title: "Lower + Achilles — Kraft",
+    title: "Lower + Achilles · Kraft",
     targetDurationMinutes: 50,
     effortNote: "1-2 reps in reserve on lower/upper; explosive at 6 reps only",
     slots: [

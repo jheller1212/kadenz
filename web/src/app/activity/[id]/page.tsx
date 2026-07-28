@@ -387,10 +387,10 @@ function ShareButton({ activity }: { activity: ActivityDetail }) {
     });
     // Strength has no distance/pace — share duration (+ avg HR) instead.
     const text = isStrength
-      ? `${activity.name} — ${formatDuration(activity.durationSeconds)}${
+      ? `${activity.name} · ${formatDuration(activity.durationSeconds)}${
           activity.avgHr ? `, avg HR ${activity.avgHr}` : ""
         } · ${dateStr}`
-      : `${activity.name} — ${displayDistance(activity.distanceKm, 2).toFixed(2)} ${distanceUnitLabel()} in ${formatDuration(activity.durationSeconds)} (${formatPace(displayPace(activity.avgPaceSecKm))}${paceUnitLabel()}) · ${dateStr}`;
+      : `${activity.name} · ${displayDistance(activity.distanceKm, 2).toFixed(2)} ${distanceUnitLabel()} in ${formatDuration(activity.durationSeconds)} (${formatPace(displayPace(activity.avgPaceSecKm))}${paceUnitLabel()}) · ${dateStr}`;
     const url = window.location.href;
 
     if (navigator.share) {

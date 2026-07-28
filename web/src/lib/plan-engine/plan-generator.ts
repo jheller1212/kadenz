@@ -654,7 +654,7 @@ function buildRaceWorkout(
     dayOfWeek,
     date,
     type: "race",
-    title: `Race Day — ${planDistanceLabel(config)}`,
+    title: `Race Day · ${planDistanceLabel(config)}`,
     description: `Goal time: ${formatTime(config.goalTimeSeconds)}. Trust your training.`,
     targetKm: distKm,
     targetDurationMinutes: Math.round(config.goalTimeSeconds / 60),
@@ -1275,7 +1275,7 @@ export function generatePlan(config: PlanConfig): GeneratedPlan {
   }
 
   // Plan name
-  const name = `${planDistanceLabel(config)} — ${formatTime(config.goalTimeSeconds)} Goal`;
+  const name = `${planDistanceLabel(config)} · ${formatTime(config.goalTimeSeconds)} Goal`;
 
   return {
     name,
@@ -1409,7 +1409,7 @@ export function generateSteadyPlan(config: PlanConfig): GeneratedPlan {
   }
 
   const goalTimeSeconds = Math.round(predictRaceTime(vdot, RACE_DISTANCES_M["10k"]));
-  const name = intent === "maintain" ? `Maintain — ${weeks} weeks` : `Get Fit — ${weeks} weeks`;
+  const name = intent === "maintain" ? `Maintain · ${weeks} weeks` : `Get Fit · ${weeks} weeks`;
 
   return {
     name,
@@ -1567,7 +1567,7 @@ export function generateReturnPlan(config: PlanConfig): GeneratedPlan {
   const goalTimeSeconds = Math.round(predictRaceTime(vdot, RACE_DISTANCES_M["10k"]));
 
   return {
-    name: `Return to Running — ${weeks} weeks`,
+    name: `Return to Running · ${weeks} weeks`,
     intent: "return",
     raceDistance: "10k",
     goalTimeSeconds,

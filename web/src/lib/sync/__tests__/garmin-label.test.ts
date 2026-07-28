@@ -20,12 +20,12 @@ describe("garminLabel", () => {
     expect(garminLabel("Easy Run 10km", { weekNumber: 3 })).toBe("W3 · Easy Run 10km");
   });
   it("appends a metric", () => {
-    expect(garminLabel("Upper — Kraft", { weekNumber: 2, metric: "30 min" })).toBe(
-      "W2 · Upper — Kraft · 30 min"
+    expect(garminLabel("Upper · Kraft", { weekNumber: 2, metric: "30 min" })).toBe(
+      "W2 · Upper · Kraft · 30 min"
     );
   });
   it("omits the week when absent (standalone block)", () => {
-    expect(garminLabel("Upper — Kraft", { metric: "30 min" })).toBe("Upper — Kraft · 30 min");
+    expect(garminLabel("Upper · Kraft", { metric: "30 min" })).toBe("Upper · Kraft · 30 min");
     expect(garminLabel("Easy Run 10km")).toBe("Easy Run 10km");
   });
 });

@@ -164,7 +164,7 @@ function buildEventDescription(workout: WorkoutEventInput): string {
     }
   }
 
-  lines.push("", "— Kadenz");
+  lines.push("", "Kadenz");
   return lines.join("\n");
 }
 
@@ -290,10 +290,10 @@ function buildStrengthDescription(session: StrengthEventInput): string {
         ex.suggestedWeightKg != null
           ? ` @ ${formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}`
           : "";
-      lines.push(`  • ${ex.name} — ${ex.prescription}${load}`);
+      lines.push(`  • ${ex.name} · ${ex.prescription}${load}`);
     }
   }
-  lines.push("", "— Kadenz · Kraft");
+  lines.push("", "Kadenz · Kraft");
   return lines.join("\n");
 }
 

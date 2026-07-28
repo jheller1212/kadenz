@@ -58,7 +58,7 @@ export async function POST(
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
 
-  // Same "W3 · Upper — Kraft · 30 min" label the background sync uses, so a
+  // Same "W3 · Upper · Kraft · 30 min" label the background sync uses, so a
   // manual send and an auto-sync produce the identical Garmin name (and update
   // the same workout in place — no duplicate).
   const [activePlan] = await db

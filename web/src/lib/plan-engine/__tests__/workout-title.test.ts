@@ -62,8 +62,8 @@ describe("displayWorkoutTitle", () => {
 
   it("leaves race and rest titles alone", () => {
     expect(
-      displayWorkoutTitle({ type: "race", title: "Race Day — 10K" }, "miles")
-    ).toBe("Race Day — 10K");
+      displayWorkoutTitle({ type: "race", title: "Race Day · 10K" }, "miles")
+    ).toBe("Race Day · 10K");
     expect(
       displayWorkoutTitle({ type: "rest", title: "Rest Day" }, "miles")
     ).toBe("Rest Day");
