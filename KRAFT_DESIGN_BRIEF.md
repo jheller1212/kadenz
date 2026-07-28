@@ -8,7 +8,7 @@ shipped code, so the design lands on data that actually exists.
 
 ## The prompt
 
-Design two mobile screens for **Kadenz**, a training app for runners who also
+Design three mobile screens for **Kadenz**, a training app for runners who also
 lift. Mobile-first, target 390px wide, one-handed use. The app is a dark-themed
 PWA installed on a phone. There is a fixed bottom navigation bar with five
 tabs: Today, Plan, Kraft, Activities, Stats. These screens live under the
@@ -83,20 +83,55 @@ relationship between the two should be visually obvious.
 
 **D. A clear primary action** to start the session.
 
+### Screen 3: Add exercise (inside the custom workout builder)
+
+Reached from the custom workout builder when the user adds an exercise. It
+picks from an inventory of **99 exercises**, so scrolling the whole list is the
+current problem and the reason this screen is being redesigned.
+
+Contents:
+
+**A. Search field, pinned at the top** so it stays reachable while results
+scroll. Filters by exercise name as the user types.
+
+**B. Muscle group filter chips.** Use these seven groups, not the raw data:
+Legs, Calves and shins, Back, Chest, Shoulders, Arms, Core. The underlying data
+has thirteen overlapping labels including some that match only one exercise, so
+the groups above are the deliberate simplification. Roughly a third of the
+inventory falls under Legs and a sixth under Back, so the groups are uneven and
+the design should not assume equal weight.
+
+**C. Results list.** Each row: exercise name, the muscle it trains, and the
+equipment it needs. Some exercises show the user's last used weight and how
+often they have done it, so design a row that can carry that without breaking
+when it is absent, which is the case for any exercise they have never done.
+
+**D. Sorting** already exists on this screen and must survive. It should sit
+alongside the filter without the two competing for attention.
+
+**E. Empty state** when a search matches nothing, with a one-tap way to clear
+the search and filter together.
+
+Search and filter combine, so the design needs to show both active at once and
+make clearing either one obvious.
+
 ### Constraints
 
 - **No em dashes anywhere in the copy.** Use commas, colons or full stops.
 - Do not invent metrics, charts or scores. If a number is not named above, the
   app does not have it.
 - Do not design the in-session set logger. That is a separate existing screen.
+- On Screen 3, do not invent exercise imagery or illustrations. There are 99
+  exercises and no artwork exists for them.
 - Never reference or resemble another training app by name.
 - Keep copy short and plain. These are read standing up, not sitting down.
 - Assume the exercise list can be as short as 4 rows or as long as 12.
 
 ### What I want back
 
-Both screens, in dark and light, including the three states of the top section
-on Screen 1 and the empty state for custom workouts. Call out anything you
+All three screens, in dark and light, including the three states of the top
+section on Screen 1, and the empty states for custom workouts and for a search
+that matches nothing. Call out anything you
 think is wrong with this structure rather than only executing it.
 
 ---
