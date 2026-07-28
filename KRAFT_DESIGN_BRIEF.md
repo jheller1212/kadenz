@@ -86,7 +86,7 @@ relationship between the two should be visually obvious.
 ### Screen 3: Add exercise (inside the custom workout builder)
 
 Reached from the custom workout builder when the user adds an exercise. It
-picks from an inventory of **99 exercises**, so scrolling the whole list is the
+picks from an inventory of **88 exercises**, so scrolling the whole list is the
 current problem and the reason this screen is being redesigned.
 
 Contents:
@@ -94,12 +94,22 @@ Contents:
 **A. Search field, pinned at the top** so it stays reachable while results
 scroll. Filters by exercise name as the user types.
 
-**B. Muscle group filter chips.** Use these seven groups, not the raw data:
-Legs, Calves and shins, Back, Chest, Shoulders, Arms, Core. The underlying data
-has thirteen overlapping labels including some that match only one exercise, so
-the groups above are the deliberate simplification. Roughly a third of the
-inventory falls under Legs and a sixth under Back, so the groups are uneven and
-the design should not assume equal weight.
+**B. Muscle group filter chips.** Ten groups, each with at least five
+exercises behind it:
+
+Quads, Hamstrings, Glutes, Calves and shins, Chest, Back, Shoulders, Biceps,
+Triceps, Core.
+
+The groups are uneven by design, because the inventory is. Glutes, Core and
+Shoulders each have around 30 exercises while Calves and shins has 8 and Chest
+has 9. Ten chips will not fit one row at 390px, so the design has to solve for
+that: a wrapping two-row set, a horizontally scrolling row, or a compact
+expandable control. Say which you chose and why.
+
+An exercise can belong to several groups, since most compound lifts train more
+than one muscle. A chip therefore filters rather than partitions, and the same
+exercise legitimately appears under multiple chips. Make sure that does not
+read as a bug.
 
 **C. Results list.** Each row: exercise name, the muscle it trains, and the
 equipment it needs. Some exercises show the user's last used weight and how
