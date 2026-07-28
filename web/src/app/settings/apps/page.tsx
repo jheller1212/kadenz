@@ -8,6 +8,7 @@ import { SettingsSubpage } from "@/components/ui/SettingsSubpage";
 import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings } from "@/lib/settings";
+import { formatSyncResult, formatRateLimitedResult } from "@/lib/sync/strava-sync-result";
 import { AlertCircle, Watch } from "lucide-react";
 
 // ── Integration connection rows (moved from /settings) ──────────────────────
@@ -45,57 +46,58 @@ function StravaConnection() {
   interface BackfillResult {
     inserted?: number;
     alreadySynced?: number;
+    refreshed?: number;
     oldest?: string | null;
     remaining?: number;
     rateLimited?: boolean;
     done?: boolean;
   }
 
+  // Plain Sync also repairs: it re-pulls the last 30 days from Strava so an
+  // edit made there (a fixed title, a corrected distance) lands in Kadenz,
+  // not just brand-new activities. Full history stays insert-only — refreshing
+  // a year of activities one-by-one against Strava's shared rate limit is too
+  // expensive to run by default; an athlete who needs an old activity fixed
+  // can ask for it directly via `since`, which isn't wired up in the UI yet.
   async function runSync(opts?: { full?: boolean }) {
     setSyncing(true);
     setError(null);
     setSyncResult(null);
     try {
       let totalInserted = 0;
+      let totalRefreshed = 0;
       let dup = 0;
       let oldestSeen: string | null = null;
       let rateLimited = false;
+      const body: Record<string, boolean> = opts?.full ? { full: true } : { refresh: true };
       // Full history imports in chunks (the server caps per-invocation work to
       // respect Strava's shared app quota) — loop until done.
       for (let pass = 0; pass < 25; pass++) {
         const res = await apiFetch("/api/strava/backfill", {
           method: "POST",
-          ...(opts?.full
-            ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full: true }) }
-            : {}),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error("Sync failed");
         const data = (await res.json().catch(() => null)) as BackfillResult | null;
         totalInserted += data?.inserted ?? 0;
+        totalRefreshed += data?.refreshed ?? 0;
         dup = data?.alreadySynced ?? dup;
         if (data?.oldest) oldestSeen = data.oldest;
         if (data?.rateLimited) {
           rateLimited = true;
           break;
         }
-        if (!opts?.full || data?.done !== false) break;
+        if (data?.done !== false) break;
         setSyncResult(`Importing history… ${totalInserted} so far (${data?.remaining ?? "?"} to go)`);
       }
       haptic("success");
-      const oldest = oldestSeen
-        ? ` · history back to ${new Date(oldestSeen).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
-        : "";
-      if (rateLimited) {
-        setSyncResult(
-          `Imported ${totalInserted}. Strava's rate limit reached, run again in ~15 minutes to continue where it left off.`
-        );
-      } else {
-        setSyncResult(
-          totalInserted === 0
-            ? `Up to date, no new activities${dup ? ` (${dup} already synced)` : ""}${oldest}.`
-            : `Synced ${totalInserted} new ${totalInserted === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}${oldest}.`
-        );
-      }
+      const tally = { inserted: totalInserted, refreshed: totalRefreshed, alreadySynced: dup, oldest: oldestSeen };
+      setSyncResult(
+        rateLimited
+          ? formatRateLimitedResult(tally, Boolean(opts?.full))
+          : formatSyncResult(tally, Boolean(opts?.full))
+      );
     } catch {
       haptic("warning");
       setError("Sync failed. Try again later.");
@@ -142,8 +144,14 @@ function StravaConnection() {
 
       {status === "connected" && (
         <div className="mt-3 flex items-center gap-2">
-          <Button variant="secondary" size="sm" busy={syncing} onClick={() => runSync()}>
-            Sync now
+          <Button
+            variant="secondary"
+            size="sm"
+            busy={syncing}
+            onClick={() => runSync()}
+            data-testid="strava-sync-button"
+          >
+            Sync last 30 days
           </Button>
           <Button variant="danger" size="sm" busy={disconnecting} onClick={handleDisconnect}>
             Disconnect
@@ -156,13 +164,14 @@ function StravaConnection() {
           disabled={syncing}
           onClick={() => runSync({ full: true })}
           className="press mt-2 text-left text-[13px] font-semibold text-accent-fg disabled:opacity-50"
+          data-testid="strava-sync-full-button"
         >
           Sync entire history
         </button>
       )}
 
       {syncResult && !error && (
-        <p className="mt-2 text-[12px] text-text-3">{syncResult}</p>
+        <p className="mt-2 text-[12px] text-text-3" data-testid="strava-sync-result">{syncResult}</p>
       )}
       {error && (
         <p className="mt-2 flex items-center gap-1.5 text-[12px] text-danger">
