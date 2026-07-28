@@ -177,6 +177,12 @@ export async function queueGarminWindowSync(planId?: string): Promise<number> {
  * Queue upcoming strength sessions for the watch. Same 14-day rolling window
  * as runs — the worker turns each planned exercise into a Garmin strength
  * step with sets, reps and load.
+ *
+ * Only sessions that belong to the ongoing plan (watchEligible — see
+ * schema.ts) are swept here. A Kraft-picker "Start" or custom-workout
+ * quick-start session must never reach the watch on its own; it only gets
+ * there via the athlete's explicit "Send to watch" control, which is a
+ * one-shot direct push (POST /sessions/[id]/garmin), not this queue.
  */
 export async function queueGarminStrengthWindowSync(): Promise<number> {
   const now = new Date();
@@ -195,6 +201,7 @@ export async function queueGarminStrengthWindowSync(): Promise<number> {
         lte(strengthSessions.date, windowEnd),
         eq(strengthSessions.status, "planned"),
         isNull(strengthSessions.garminWorkoutId),
+        eq(strengthSessions.watchEligible, true),
         // Owner only — a household member's sessions aren't on this watch.
         isNull(strengthSessions.profileId)
       )
@@ -224,7 +231,19 @@ export async function queueGarminStrengthWindowSync(): Promise<number> {
   return upcoming.length;
 }
 
-/** Re-push a strength session after its date or contents changed. */
+/**
+ * Re-push a strength session after its date or contents changed.
+ *
+ * Self-gating on two different things depending on whether it's already on
+ * the watch:
+ *   - already pushed (garminWorkoutId set, whether that happened via the
+ *     plan window sync or the athlete's explicit "Send to watch") → always
+ *     keep it in sync, regardless of watchEligible — once it's on the wrist
+ *     it must not go stale;
+ *   - not pushed yet → only push it if it's watchEligible (part of the
+ *     ongoing plan). A Kraft-picker ad-hoc session must never get its first
+ *     push from this path — see schema.ts strengthSessions.watchEligible.
+ */
 export async function queueGarminStrengthMove(sessionId: string): Promise<void> {
   if (!garminClient.isConfigured()) return;
 
@@ -234,6 +253,7 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
       date: strengthSessions.date,
       status: strengthSessions.status,
       profileId: strengthSessions.profileId,
+      watchEligible: strengthSessions.watchEligible,
     })
     .from(strengthSessions)
     .where(eq(strengthSessions.id, sessionId))
@@ -241,6 +261,7 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
   if (!row || row.profileId !== null) return;
 
   if (!row.garminWorkoutId) {
+    if (!row.watchEligible) return;
     if (!(await isGarminWorkoutSyncEnabled())) return;
     if (row.status !== "planned") return;
     const windowEnd = new Date();

@@ -494,6 +494,16 @@ export const strengthSessions = pgTable(
     garminWorkoutId: text("garmin_workout_id"),
     // Created by the weekly scheduler (safe to prune when settings change).
     autoScheduled: boolean("auto_scheduled").notNull().default(false),
+    // True only for sessions that belong to the ongoing plan: created by the
+    // weekly scheduler (autoScheduled) or deliberately placed onto a date from
+    // Plan > Rearrange. Governs automatic Garmin delivery — see
+    // lib/sync/garmin-sync.ts queueGarminStrengthMove/queueGarminStrengthWindowSync.
+    // A Kraft-picker "Start" or custom-workout quick-start session is NOT
+    // watch-eligible: it only reaches the watch if the athlete taps the
+    // explicit "Send to watch" control (POST /sessions/[id]/garmin), which
+    // never needs this flag because a stored garminWorkoutId is itself proof
+    // of deliberate delivery.
+    watchEligible: boolean("watch_eligible").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     // Hand edits to this session's exercise list, layered onto the
     // template-derived plan at read time (see lib/strength/session.ts
