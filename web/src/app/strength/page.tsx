@@ -69,6 +69,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { COMPLAINT_SHORT_LABELS, type Complaint, type Equipment } from "@/lib/strength/types";
 import { formatLoad, stepWeight } from "@/lib/strength/weights";
 import { ACCESS_PRESETS, ACCESS_LEVELS, type GymAccess } from "@/lib/strength/equipment";
+import { needsStrengthSetupPrompt } from "@/lib/strength/setup-prompt";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
 
@@ -183,6 +184,15 @@ export default function StrengthPage() {
   const [startType, setStartType] = useState<SessionType | null>(null);
   const [startDuration, setStartDuration] = useState<30 | 45 | 60 | null>(null);
   const [startAccess, setStartAccess] = useState<GymAccess | null>(null);
+  // "This session only" override actually applied to the session now in the
+  // overview, for display near the title — see issue: the pre-start sheet's
+  // choice used to vanish with nothing confirming it took effect. Only set
+  // when a fresh session was created with an override (an adopted
+  // already-planned session keeps its own committed plan, see pickType).
+  const [appliedOverride, setAppliedOverride] = useState<{
+    durationMinutes?: number;
+    accessLabel?: string;
+  } | null>(null);
 
   const [summary, setSummary] = useState<GuidedFinishSummary | null>(null);
   const [painLogged, setPainLogged] = useState(false);
@@ -212,6 +222,10 @@ export default function StrengthPage() {
   // rehab tracking — it only makes sense (and only appears) for the areas they
   // actually flagged; no complaints → no prompt.
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  // Whether the Kraft setup prompt should show on the picker — null until the
+  // plan-settings fetch resolves, so we never flash the prompt before we
+  // actually know (see needsStrengthSetupPrompt).
+  const [showSetupPrompt, setShowSetupPrompt] = useState<boolean | null>(null);
   // Saved in-progress guided session (accidental exits / reloads are resumable).
   const [resumeSnap, setResumeSnap] = useState<GuidedSnapshot | null>(null);
   const [resume, setResume] = useState<{
@@ -256,13 +270,16 @@ export default function StrengthPage() {
     };
   }, []);
 
-  // Load reported complaints — gates the post-session pain check-in.
+  // Load plan settings — gates the post-session pain check-in (complaints)
+  // and the Kraft setup prompt (no row yet → equipment/ability unfiltered).
   useEffect(() => {
     let alive = true;
     apiFetch("/api/strength/plan-settings")
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => {
-        if (alive && s && Array.isArray(s.complaints)) setComplaints(s.complaints as Complaint[]);
+        if (!alive) return;
+        if (s && Array.isArray(s.complaints)) setComplaints(s.complaints as Complaint[]);
+        setShowSetupPrompt(needsStrengthSetupPrompt(s));
       })
       .catch(() => {});
     return () => {
@@ -398,6 +415,7 @@ export default function StrengthPage() {
     fromDeepLinkRef.current = opts?.deepLink ?? false;
     try {
       adHocIdRef.current = null; // an existing planned session, never ad-hoc
+      setAppliedOverride(null); // no per-session override on an already-existing session
       const detailRes = await apiFetch(`/api/strength/sessions/${sessionId}`);
       if (!detailRes.ok) {
         setError("Couldn't load the session. Try again.");
@@ -437,11 +455,16 @@ export default function StrengthPage() {
   // before the screen the athlete needs to reorder from. Show the overview
   // shell (skeleton) immediately, the same way the deep-link path already
   // does, so the tap feels instant and the real content fills in as it loads.
-  async function pickType(type: SessionType, start?: SessionStartOptions) {
+  async function pickType(
+    type: SessionType,
+    start?: SessionStartOptions,
+    startDisplay?: { durationMinutes?: number; accessLabel?: string }
+  ) {
     setBusy(true);
     setError(null);
     fromDeepLinkRef.current = false; // picker-started → Back returns to picker
     setPhase("overview"); // shell now, session fills in below
+    setAppliedOverride(null); // cleared until we know a fresh session actually used it
     try {
       let sessionId: string | null = null;
       adHocIdRef.current = null;
@@ -501,6 +524,9 @@ export default function StrengthPage() {
         setSession(detail);
         setExercises(detail.plannedExercises);
         setSortMode("custom");
+        if (startDisplay && (startDisplay.durationMinutes != null || startDisplay.accessLabel != null)) {
+          setAppliedOverride(startDisplay);
+        }
         return;
       }
 
@@ -563,6 +589,7 @@ export default function StrengthPage() {
     setBusy(true);
     setError(null);
     fromDeepLinkRef.current = false; // picker-started → Back returns to picker
+    setAppliedOverride(null); // custom workouts don't go through the length/equipment sheet
     try {
       const res = await apiFetch("/api/strength/sessions", {
         method: "POST",
@@ -970,6 +997,20 @@ export default function StrengthPage() {
               : "Select a workout or create a custom one to get started."}
           </p>
 
+          {/* No strength_plan_settings row yet — sessions use unfiltered
+              equipment and no ability adjustment (see service.ts
+              derivePlanSettingsForLoads). One line, not a modal or gate: an
+              athlete who wants to lift now still can. */}
+          {showSetupPrompt && (
+            <TransitionLink
+              href="/strength/setup"
+              className="press mt-3 flex items-center justify-between gap-2 rounded-[var(--radius-input)] bg-accent/10 px-3.5 py-2.5 text-[13px] font-semibold text-accent-fg"
+            >
+              <span>Set up equipment, injuries and session length for better sessions</span>
+              <ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} />
+            </TransitionLink>
+          )}
+
           {error && (
             <div className="mt-3 rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">
               {error}
@@ -1124,6 +1165,7 @@ export default function StrengthPage() {
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
+                  aria-pressed={startDuration == null}
                   onClick={() => { haptic("light"); setStartDuration(null); }}
                   className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                     startDuration == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1135,6 +1177,7 @@ export default function StrengthPage() {
                   <button
                     key={m}
                     type="button"
+                    aria-pressed={startDuration === m}
                     onClick={() => { haptic("light"); setStartDuration(m); }}
                     className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                       startDuration === m ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1151,6 +1194,7 @@ export default function StrengthPage() {
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
+                  aria-pressed={startAccess == null}
                   onClick={() => { haptic("light"); setStartAccess(null); }}
                   className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                     startAccess == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1162,6 +1206,7 @@ export default function StrengthPage() {
                   <button
                     key={level}
                     type="button"
+                    aria-pressed={startAccess === level}
                     onClick={() => { haptic("light"); setStartAccess(level); }}
                     className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                       startAccess === level ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1179,12 +1224,21 @@ export default function StrengthPage() {
                   full
                   onClick={() => {
                     const t = startType;
+                    const duration = startDuration;
+                    const access = startAccess;
                     setStartType(null);
                     if (!t) return;
-                    pickType(t, {
-                      durationOverrideMinutes: startDuration ?? undefined,
-                      equipmentOverride: startAccess ? ACCESS_PRESETS[startAccess].equipment : undefined,
-                    });
+                    pickType(
+                      t,
+                      {
+                        durationOverrideMinutes: duration ?? undefined,
+                        equipmentOverride: access ? ACCESS_PRESETS[access].equipment : undefined,
+                      },
+                      {
+                        durationMinutes: duration ?? undefined,
+                        accessLabel: access ? ACCESS_PRESETS[access].label : undefined,
+                      }
+                    );
                   }}
                 >
                   Start
@@ -1398,6 +1452,20 @@ export default function StrengthPage() {
         <div className="px-4 pb-tabbar">
           <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-text-3">Session setup</p>
           <h1 className="mt-1 text-[22px] font-extrabold tracking-tight text-text-1">{session.title}</h1>
+
+          {/* Confirms the pre-start sheet's "this session only" choice actually
+              applied — it used to vanish here with nothing to show for it.
+              Only shown when an override is actually set (see appliedOverride). */}
+          {appliedOverride && (appliedOverride.durationMinutes != null || appliedOverride.accessLabel != null) && (
+            <p className="mt-1 text-[13px] font-semibold text-accent-fg">
+              {[
+                appliedOverride.durationMinutes != null ? `${appliedOverride.durationMinutes} min today` : null,
+                appliedOverride.accessLabel != null ? `${appliedOverride.accessLabel} today` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
 
           <div className="mt-3 flex gap-2.5">
             <div className="flex-1 k-card p-3.5">
