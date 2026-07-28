@@ -4,6 +4,7 @@ import type {
   ExerciseDef,
   SessionTemplate,
   SlotVariant,
+  StrengthCategory,
   StrengthSessionType,
   TemplateSlot,
 } from "./types";
@@ -1597,6 +1598,63 @@ export const TARGETED_WORK: Partial<
     sessionTypes: ["lower", "full_body"],
   },
 };
+
+// ── Growth candidates (see duration-fit.ts) ──────────────────────────────────
+// Which exercise categories "complement" a given session type when
+// duration-fit needs to introduce a brand-new exercise instead of piling
+// more sets onto what's already there. full_body already draws its own
+// template from all three, so it stays open to all three when growing too;
+// upper/lower stay within their own category — a longer Upper day should not
+// start adding squats. achilles/upper_achilles/lower_achilles are the
+// historic dedicated-rehab types (see the comment above sessionTemplateFor)
+// and are intentionally absent: nothing "complements" a rehab session, and
+// they're no longer offered on the picker.
+const CATEGORIES_FOR_SESSION_TYPE: Partial<Record<StrengthSessionType, StrengthCategory[]>> = {
+  upper: ["upper"],
+  lower: ["lower"],
+  full_body: ["upper", "lower", "full_body"],
+};
+
+// Complaint-targeted exercises (TARGETED_WORK above) have their own
+// prescribed dose and are only ever added when the athlete reported that
+// specific complaint — they must never double as generic filler for an
+// athlete who didn't.
+const TARGETED_WORK_SLUGS = new Set(
+  Object.values(TARGETED_WORK).map((t) => t!.slug)
+);
+
+/**
+ * Extra exercises duration-fit.ts may introduce when a session has budget
+ * left after its own exercises reach a sensible working volume (see
+ * MAX_SETS_WORKING there): exercises that suit the session's own type (see
+ * CATEGORIES_FOR_SESSION_TYPE) and that the athlete can actually perform.
+ *
+ * `equipment: null` (no equipment info yet, unconfigured Kraft settings)
+ * falls back to bodyweight-only candidates — the safe default every other
+ * unconfigured-equipment path in this file already uses, rather than
+ * offering an exercise that turns out to need kit the athlete never
+ * confirmed they have.
+ *
+ * Excludes Achilles-role exercises (that work is rehab with its own
+ * prescribed dose, never generic filler) and complaint-targeted exercises
+ * (see TARGETED_WORK_SLUGS above). Order is the catalogue's own order —
+ * duration-fit.ts breaks ties by muscle-group balance, not by this order.
+ */
+export function growthCandidatesFor(
+  type: StrengthSessionType,
+  equipment: Equipment[] | null
+): ExerciseDef[] {
+  const categories = CATEGORIES_FOR_SESSION_TYPE[type];
+  if (!categories) return [];
+  return EXERCISES.filter((ex) => {
+    if (!categories.includes(ex.category)) return false;
+    if (ex.achillesRole) return false;
+    if (TARGETED_WORK_SLUGS.has(ex.slug)) return false;
+    const needs = ex.equipment ?? [];
+    if (equipment == null) return needs.length === 0;
+    return needs.every((e) => equipment.includes(e));
+  });
+}
 
 const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
   "achilles",

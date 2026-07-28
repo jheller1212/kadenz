@@ -1,5 +1,6 @@
 import {
   EXERCISE_BY_SLUG,
+  growthCandidatesFor,
   hsrPrescriptionForWeek,
   isHsrExercise,
   resolveSlotVariant,
@@ -62,6 +63,9 @@ export interface PlannedExercise {
   priority: "primary" | "accessory" | "achilles" | "targeted";
   /** True only for the week-based HSR calf raises — never duration-trimmed. */
   setsLocked: boolean;
+  /** ExerciseDef.primaryMuscle — carried through so duration-fit can balance
+   *  newly-added exercises across muscle groups (see pickComplementaryCandidate). */
+  primaryMuscle?: string;
 }
 
 export interface BuildSessionOptions {
@@ -273,6 +277,7 @@ export function buildSessionPlan(
       painGated,
       priority,
       setsLocked: isHsrExercise(resolved.slug),
+      primaryMuscle: ex.primaryMuscle,
     };
   })
     // A remaining "accessory" slot whose resolved exercise still needs kit
@@ -290,10 +295,49 @@ export function buildSessionPlan(
 
   if (opts.targetDurationMinutes == null) return plan;
 
+  // Extra exercises growth can reach for once the plan is at a sensible
+  // working volume but still has budget left (see duration-fit.ts) — already
+  // filtered to this session type + this athlete's equipment, and never
+  // duplicating an exercise the plan already has.
+  const candidates: PlannedExercise[] = growthCandidatesFor(type, equipmentAvailable)
+    .filter((ex) => !plan.some((p) => p.slug === ex.slug))
+    .map((ex) => {
+      const history = historyBySlug[ex.slug] ?? [];
+      const sets = ex.defaultSets ?? 3;
+      const repLow = ex.repLow ?? 8;
+      const repHigh = ex.repHigh ?? 12;
+      const restSeconds = opts.restSecondsOverride ?? 90;
+      const progression = suggestProgression(ex, history, lifterProfile);
+      return {
+        slug: ex.slug,
+        name: ex.name,
+        category: ex.category,
+        equipmentNote: ex.equipmentNote,
+        tempoNote: ex.tempoNote,
+        flatGroundOnly: ex.flatGroundOnly ?? false,
+        perSide: false,
+        dumbbells: ex.dumbbells,
+        holdNote: ex.holdNote,
+        sets,
+        repLow,
+        repHigh,
+        restSeconds,
+        prescription: repRangeLabel(sets, repLow, repHigh),
+        suggestedWeightKg: progression.suggestedWeightKg,
+        lastWeightKg: progression.currentWeightKg,
+        lastDate: history[0]?.date.toISOString() ?? null,
+        progression,
+        painGated: false,
+        priority: "accessory",
+        setsLocked: false,
+        primaryMuscle: ex.primaryMuscle,
+      };
+    });
+
   // Reshape the plan so its estimate actually reflects the chosen session
   // length (see duration-fit.ts) — otherwise the setting is stored/displayed
   // but never consumed, and 30/45/60 min all produce the same workout.
-  const { exercises: fitted } = fitSessionToDuration(plan, opts.targetDurationMinutes);
+  const { exercises: fitted } = fitSessionToDuration(plan, opts.targetDurationMinutes, candidates);
   return fitted.map((ex) => ({
     ...ex,
     // HSR label stays as-is (locked); everything else's label follows sets.
