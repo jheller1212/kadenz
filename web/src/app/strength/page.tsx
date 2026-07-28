@@ -1322,7 +1322,10 @@ export default function StrengthPage() {
     );
     // Group the add sheet by primary muscle (metadata lives in the code
     // catalogue; the DB rows carry the last-used numbers).
-    const MUSCLE_ORDER = ["Shoulders", "Chest", "Back", "Arms", "Quads", "Hamstrings", "Glutes", "Calves & Achilles", "Core", "Other"];
+    // "Arms" split into "Biceps"/"Triceps" as raw primaryMuscle values (see
+    // program.ts) — kept both here so this unrelated add-exercise sheet
+    // doesn't regress to sorting them ahead of every other group.
+    const MUSCLE_ORDER = ["Shoulders", "Chest", "Back", "Biceps", "Triceps", "Quads", "Hamstrings", "Glutes", "Calves & Achilles", "Core", "Other"];
     const addGroups = new Map<string, ExerciseCatalogRow[]>();
     for (const row of addable) {
       const muscle = EXERCISES.find((e) => e.slug === row.slug)?.primaryMuscle ?? "Other";

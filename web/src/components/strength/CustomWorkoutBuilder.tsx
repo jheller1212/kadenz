@@ -15,6 +15,7 @@ import {
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableItem } from "@/components/strength/SortableItem";
 import { SortChips } from "@/components/strength/SortChips";
+import { ExercisePicker } from "@/components/strength/ExercisePicker";
 import { sortExerciseList, type ExerciseSortMode } from "@/lib/strength/sort";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
@@ -22,10 +23,8 @@ import { haptic } from "@/lib/haptics";
 import { apiFetch } from "@/lib/api";
 import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
-import { getVideoId } from "@/lib/strength/videos";
 import { formatWeightKg } from "@/lib/units";
 import { snapToLevel } from "@/lib/strength/weights";
-import { formatRecency } from "@/lib/recency";
 import { VideoSheet } from "@/components/strength/VideoSheet";
 import type { Equipment, ExerciseDef } from "@/lib/strength/types";
 import {
@@ -53,20 +52,6 @@ interface Props {
   /** Prefill when editing a saved template (rename, add/remove/tune slots). */
   initial?: { name: string; slots: Array<{ exerciseSlug: string; sets: number; repLow: number; repHigh: number; weightKg?: number | null; restSeconds: number }> } | null;
 }
-
-// Picker groups by the lift's primary muscle (falls back to "Other").
-const MUSCLE_ORDER = [
-  "Shoulders",
-  "Chest",
-  "Back",
-  "Arms",
-  "Quads",
-  "Hamstrings",
-  "Glutes",
-  "Calves & Achilles",
-  "Core",
-  "Other",
-];
 
 let draftKey = 0;
 
@@ -253,20 +238,10 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
     }
   }
 
-  const grouped = useMemo(() => {
+  // Available iff every required item is on hand (empty = bodyweight).
+  const availableExercises = useMemo(() => {
     const have = new Set(equipment);
-    const g = new Map<string, ExerciseDef[]>();
-    for (const ex of EXERCISES) {
-      // Available iff every required item is on hand (empty = bodyweight).
-      if ((ex.equipment ?? []).some((e) => !have.has(e))) continue;
-      const key = ex.primaryMuscle ?? "Other";
-      const list = g.get(key) ?? [];
-      list.push(ex);
-      g.set(key, list);
-    }
-    return [...g.entries()].sort(
-      (a, b) => MUSCLE_ORDER.indexOf(a[0]) - MUSCLE_ORDER.indexOf(b[0])
-    );
+    return EXERCISES.filter((ex) => !(ex.equipment ?? []).some((e) => !have.has(e)));
   }, [equipment]);
 
   return (
@@ -458,58 +433,14 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
         )}
       </Sheet>
 
-      <Sheet open={pickerOpen} onClose={() => setPickerOpen(false)} title="Add exercise">
-        <div className="max-h-[60dvh] overflow-y-auto px-4 pb-6">
-          {grouped.map(([muscle, list]) => (
-            <div key={muscle} className="mb-4">
-              <p className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-text-3">
-                {muscle}
-              </p>
-              <div className="flex flex-col gap-1.5">
-                {list.map((ex) => (
-                  <div
-                    key={ex.slug}
-                    className="flex items-center rounded-[var(--radius-input)] bg-elevated"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => addExercise(ex)}
-                      className="press min-w-0 flex-1 px-3.5 py-2.5 text-left"
-                    >
-                      <span className="block text-[15px] font-semibold text-text-1">{ex.name}</span>
-                      {lastUsed[ex.slug] && (
-                        <span className="block text-[12px] text-text-3">
-                          Last:{" "}
-                          {lastUsed[ex.slug].weightKg != null ? `${formatWeightKg(lastUsed[ex.slug].weightKg!)} × ` : ""}
-                          {lastUsed[ex.slug].repLow === lastUsed[ex.slug].repHigh
-                            ? lastUsed[ex.slug].repLow
-                            : `${lastUsed[ex.slug].repLow}–${lastUsed[ex.slug].repHigh}`}
-                          {lastUsed[ex.slug].date ? ` · ${formatRecency(lastUsed[ex.slug].date!)}` : ""}
-                        </span>
-                      )}
-                      {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
-                        <span className="block text-[12px] text-text-3">
-                          also {ex.secondaryMuscles.join(", ").toLowerCase()}
-                        </span>
-                      )}
-                    </button>
-                    {getVideoId(ex.slug) && (
-                      <button
-                        type="button"
-                        aria-label={`Watch ${ex.name} demo`}
-                        onClick={() => { haptic("light"); setVideoSlug(ex.slug); }}
-                        className="press px-3 py-2.5 text-[13px] font-bold text-accent-fg"
-                      >
-                        ▶
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Sheet>
+      <ExercisePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        exercises={availableExercises}
+        lastUsed={lastUsed}
+        onSelect={addExercise}
+        onWatchVideo={setVideoSlug}
+      />
 
       <VideoSheet
         slug={videoSlug}

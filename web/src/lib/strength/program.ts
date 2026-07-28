@@ -70,8 +70,12 @@ export const EXERCISES: ExerciseDef[] = [
   {
     slug: "curl_to_press",
     equipment: ["dumbbell"],
-    primaryMuscle: "Arms",
-    secondaryMuscles: ["Shoulders"],
+    // Genuinely a two-muscle move: the curl trains biceps, the press extends
+    // through triceps and shoulders. Anchored on Biceps (the named-first
+    // half of the movement) with Triceps carried as a secondary so it still
+    // surfaces under a Triceps filter, just ranked behind pure triceps work.
+    primaryMuscle: "Biceps",
+    secondaryMuscles: ["Triceps", "Shoulders"],
     name: "Curl to press",
     category: "upper",
     defaultSets: 3,
@@ -442,7 +446,7 @@ export const EXERCISES: ExerciseDef[] = [
   {
     slug: "bicep_curl",
     equipment: ["dumbbell"],
-    primaryMuscle: "Arms",
+    primaryMuscle: "Biceps",
     name: "Biceps curl",
     category: "upper",
     tempoNote: "No swing — elbows pinned to your sides",
@@ -454,7 +458,7 @@ export const EXERCISES: ExerciseDef[] = [
   {
     slug: "hammer_curl",
     equipment: ["dumbbell"],
-    primaryMuscle: "Arms",
+    primaryMuscle: "Biceps",
     secondaryMuscles: ["Forearms"],
     name: "Hammer curl",
     category: "upper",
@@ -467,7 +471,7 @@ export const EXERCISES: ExerciseDef[] = [
   {
     slug: "overhead_triceps_extension",
     equipment: ["dumbbell"],
-    primaryMuscle: "Arms",
+    primaryMuscle: "Triceps",
     name: "Overhead triceps extension",
     category: "upper",
     equipmentNote: "Both hands on one dumbbell behind the head",
@@ -482,7 +486,7 @@ export const EXERCISES: ExerciseDef[] = [
   {
     slug: "triceps_kickback",
     equipment: ["dumbbell"],
-    primaryMuscle: "Arms",
+    primaryMuscle: "Triceps",
     name: "Triceps kickback",
     category: "upper",
     equipmentNote: "Hinge forward, support on a chair if needed",
@@ -1198,7 +1202,7 @@ export const EXERCISES: ExerciseDef[] = [
   {
     slug: "triceps_pushdown",
     equipment: ["machine"],
-    primaryMuscle: "Arms",
+    primaryMuscle: "Triceps",
     name: "Triceps pushdown",
     category: "upper",
     equipmentNote: "Cable stack, rope or straight bar, elbows pinned to your sides",
