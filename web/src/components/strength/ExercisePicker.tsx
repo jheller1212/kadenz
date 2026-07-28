@@ -153,7 +153,7 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
                 type="button"
                 aria-pressed={on}
                 onClick={() => { haptic("light"); setGroup(on ? null : g); }}
-                className={`press shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-bold ${
+                className={`press inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-[12px] font-bold ${
                   on ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
                 }`}
               >
@@ -165,7 +165,7 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
             <button
               type="button"
               onClick={() => { haptic("light"); clearFilters(); }}
-              className="press shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-bold text-accent-fg"
+              className="press inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-[12px] font-bold text-accent-fg"
             >
               Clear
             </button>
