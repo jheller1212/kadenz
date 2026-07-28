@@ -1304,7 +1304,7 @@ function LinkActivitySheet({
     <Sheet open={!!activity} onClose={onClose} title="Link this activity">
       <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto px-1 pb-2">
         <p className="text-[13px] text-text-3">
-          Attach this recorded activity — with its HR — to a planned session, so it counts toward your plan.
+          Attach this recorded activity (with its HR) to a planned session, so it counts toward your plan.
         </p>
 
         {loading ? (
@@ -1427,7 +1427,7 @@ function AddActivitySheet({
         setFormError("Couldn't save the activity.");
       }
     } catch {
-      setFormError("Network error — couldn't save.");
+      setFormError("Network error. Couldn't save.");
     } finally {
       setSaving(false);
     }

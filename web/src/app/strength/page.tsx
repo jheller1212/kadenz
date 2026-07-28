@@ -355,10 +355,10 @@ export default function StrengthPage() {
         setPainLogged(true);
       } else {
         haptic("warning");
-        setPainError("Couldn't save — try again.");
+        setPainError("Couldn't save. Try again.");
       }
     } catch {
-      setPainError("Couldn't save — try again.");
+      setPainError("Couldn't save. Try again.");
     } finally {
       setPainSaving(false);
     }
@@ -410,7 +410,7 @@ export default function StrengthPage() {
       setExercises(detail.plannedExercises);
       setSortMode("custom");
     } catch {
-      setError("Network error — couldn't load the session.");
+      setError("Network error. Couldn't load the session.");
       fromDeepLinkRef.current = false;
       setPhase("picker");
     } finally {
@@ -515,7 +515,7 @@ export default function StrengthPage() {
       setExercises(detail.plannedExercises);
       setSortMode("custom");
     } catch {
-      setError("Network error — couldn't start the session.");
+      setError("Network error. Couldn't start the session.");
       setPhase("picker");
     } finally {
       setBusy(false);
@@ -621,7 +621,7 @@ export default function StrengthPage() {
       setSortMode("custom");
       setPhase("overview");
     } catch {
-      setError("Network error — couldn't start the session.");
+      setError("Network error. Couldn't start the session.");
     } finally {
       setBusy(false);
     }
@@ -1236,7 +1236,7 @@ export default function StrengthPage() {
             <div className="mt-6 rounded-[var(--radius-input)] bg-elevated p-4 text-left">
               <p className="text-[13px] font-semibold text-text-2">
                 {painLogged
-                  ? "Pain logged — thanks."
+                  ? "Pain logged, thanks."
                   : `Any ${complaints
                       .map((c) => COMPLAINT_SHORT_LABELS[c])
                       .join(" / ")} pain right now? (0 = none, 10 = worst)`}
@@ -1373,7 +1373,7 @@ export default function StrengthPage() {
                 onClick={sendToWatch}
                 disabled={watchSend === "sending"}
                 aria-label={watchSend === "sent" ? "Sent to watch" : "Send to watch"}
-                title={watchSend === "sent" ? "Sent — start it on your watch" : "Send to watch"}
+                title={watchSend === "sent" ? "Sent, start it on your watch" : "Send to watch"}
                 style={{ touchAction: "manipulation" }}
                 className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors disabled:opacity-60 ${
                   watchSend === "sent"
@@ -1490,7 +1490,7 @@ export default function StrengthPage() {
                     )}
                     {ex.painGated && (
                       <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">
-                        Eased — pain gate
+                        Eased (pain gate)
                       </span>
                     )}
                     {ex.progression.action === "increase" && (

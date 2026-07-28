@@ -121,14 +121,14 @@ export default function StrengthSessionPage({
         body: JSON.stringify({ exerciseOverrides: next }),
       });
       if (!res.ok) {
-        setActionsError("Couldn't save that change — try again.");
+        setActionsError("Couldn't save that change. Try again.");
         return;
       }
       const fresh = await apiFetch(`/api/strength/sessions/${id}`);
       if (fresh.ok) setSession(await fresh.json());
       haptic("success");
     } catch {
-      setActionsError("Network error — couldn't save that change.");
+      setActionsError("Network error. Couldn't save that change.");
     } finally {
       setActionsBusy(false);
       setActionsSlug(null);

@@ -136,7 +136,7 @@ export function WarmupPlayer({ routine, onClose }: { routine: Routine; onClose: 
               <Check className="h-8 w-8 text-on-accent" strokeWidth={2.6} />
             </div>
             <h2 className="mt-4 text-[26px] font-extrabold tracking-tight text-text-1">Warm-up done</h2>
-            <p className="mt-1 text-[14px] text-text-2">Nicely done — go get your run.</p>
+            <p className="mt-1 text-[14px] text-text-2">Nicely done, go get your run.</p>
           </div>
         ) : (
           <AnimatePresence mode="wait">

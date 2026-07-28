@@ -89,8 +89,8 @@ export function ReadinessCard() {
           {data.physiologyWarmup && (
             <p className="mt-1 text-[12px] text-text-3">
               Building your recovery baseline from the watch (
-              {data.physiologyWarmup.daysCollected}/{data.physiologyWarmup.daysNeeded} days) —
-              sleep and HRV will factor in once it&apos;s ready.
+              {data.physiologyWarmup.daysCollected}/{data.physiologyWarmup.daysNeeded} days).
+              Sleep and HRV will factor in once it&apos;s ready.
             </p>
           )}
         </div>

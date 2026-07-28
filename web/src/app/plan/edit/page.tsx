@@ -160,7 +160,7 @@ function EditPlanInner() {
         setError(body?.error ?? "Couldn't update the plan.");
       }
     } catch {
-      setError("Network error — couldn't update the plan.");
+      setError("Network error. Couldn't update the plan.");
     } finally {
       setSaving(false);
     }
@@ -488,7 +488,7 @@ function EditPlanInner() {
                     />
                   </div>
                   <p className="text-[12px] leading-relaxed text-text-3">
-                    0 = no limit. Easy-run min is a floor — runs grow above it to hit weekly volume.
+                    0 = no limit. Easy-run min is a floor: runs grow above it to hit weekly volume.
                   </p>
                 </div>
               </motion.div>

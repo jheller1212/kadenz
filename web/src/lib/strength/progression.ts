@@ -89,7 +89,7 @@ export function suggestProgression(
       action: "hold",
       currentWeightKg: current,
       suggestedWeightKg: start,
-      reason: "No logged history yet — start at the prescribed weight.",
+      reason: "No logged history yet, start at the prescribed weight.",
       atCeiling: false,
     };
   }
@@ -101,7 +101,7 @@ export function suggestProgression(
       action: "decrease",
       currentWeightKg: current,
       suggestedWeightKg: suggested,
-      reason: `Reps dropped below ${repLow} on two sessions in a row — drop one level.`,
+      reason: `Reps dropped below ${repLow} on two sessions in a row, drop one level.`,
       atCeiling,
     };
   }
@@ -114,7 +114,7 @@ export function suggestProgression(
         action: "hold",
         currentWeightKg: current,
         suggestedWeightKg: current,
-        reason: `All sets at ${repHigh} reps — hold once more before bumping (slow progressor).`,
+        reason: `All sets at ${repHigh} reps, hold once more before bumping (slow progressor).`,
         atCeiling,
       };
     }
@@ -132,7 +132,7 @@ export function suggestProgression(
       action: "increase",
       currentWeightKg: current,
       suggestedWeightKg: suggested,
-      reason: `All sets reached ${repHigh} reps — add one level.`,
+      reason: `All sets reached ${repHigh} reps, add one level.`,
       atCeiling,
     };
   }
@@ -169,7 +169,7 @@ export function evaluatePainGate(logs: PainLogInput[]): PainGateResult {
   if (highScore) {
     return {
       triggered: true,
-      reason: `Reported pain ${highScore.score}/10 — consider dropping one level on calf work next session.`,
+      reason: `Reported pain ${highScore.score}/10, consider dropping one level on calf work next session.`,
     };
   }
   const didNotSettle = logs.find(
@@ -179,7 +179,7 @@ export function evaluatePainGate(logs: PainLogInput[]): PainGateResult {
     return {
       triggered: true,
       reason:
-        "Load didn't settle within 24 h — consider dropping one level on calf work next session.",
+        "Load didn't settle within 24 h, consider dropping one level on calf work next session.",
     };
   }
   return { triggered: false, reason: null };

@@ -540,7 +540,7 @@ function buildEasyWorkout(
     date,
     type: "easy",
     title: `Easy Run ${distanceKm}km`,
-    description: "Easy, conversational pace — you should be able to chat the whole way.",
+    description: "Easy, conversational pace: you should be able to chat the whole way.",
     targetKm: distanceKm,
     targetDurationMinutes: estimateDuration(distanceKm, paces.E.targetPaceSecKm),
     sortOrder,
@@ -586,7 +586,7 @@ function buildTempoWorkout(
     date,
     type: "tempo",
     title: `Tempo Run ${workKm}km`,
-    description: `Warm up 1.5 km easy, then ${workKm} km comfortably hard — the fastest pace you could hold for about an hour — then 1 km easy to finish.`,
+    description: `Warm up 1.5 km easy, then ${workKm} km comfortably hard (the fastest pace you could hold for about an hour), then 1 km easy to finish.`,
     targetKm: totalKm,
     targetDurationMinutes:
       estimateDuration(1.5, paces.E.targetPaceSecKm) +
@@ -1483,8 +1483,8 @@ function buildReturnWorkout(
   const continuous = walk === 0;
   const title = continuous ? `Easy Run ${run} min` : `Run/Walk ${run}/${walk} × ${reps}`;
   const description = continuous
-    ? `Continuous easy run — ${run} min at a relaxed, conversational pace. Stop and walk if anything hurts.`
-    : `${reps} × (${run} min easy run, ${walk} min walk). Keep the runs relaxed — stop and walk if you feel pain. No single session is worth a setback.`;
+    ? `Continuous easy run: ${run} min at a relaxed, conversational pace. Stop and walk if anything hurts.`
+    : `${reps} × (${run} min easy run, ${walk} min walk). Keep the runs relaxed, stop and walk if you feel pain. No single session is worth a setback.`;
   return {
     dayOfWeek,
     date,

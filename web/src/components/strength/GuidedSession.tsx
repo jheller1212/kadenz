@@ -551,7 +551,7 @@ export default function GuidedSession({
         setPendingWrites(queuedCountFor(session.id));
         // Neither sent nor parked — the server refused it outright. Say so;
         // silence here is what lost sets in the first place.
-        if (!r.ok && !r.offline) setError("Couldn't save that set — check your connection.");
+        if (!r.ok && !r.offline) setError("Couldn't save that set. Check your connection.");
         // PR moment: only for a live, online save — a queued write hasn't
         // been compared against history yet (that happens on the server),
         // so there is nothing to celebrate until it actually lands.
@@ -862,7 +862,7 @@ export default function GuidedSession({
       setConfirmExit(false);
       onDiscard();
     } catch {
-      setError("Network error — couldn't discard the workout.");
+      setError("Network error. Couldn't discard the workout.");
       setDiscarding(false);
       setConfirmExit(false);
     }
@@ -912,7 +912,7 @@ export default function GuidedSession({
       }
       onFinish({ setsLogged, totalSets, durationMinutes });
     } catch {
-      setError("Network error — couldn't finish the session.");
+      setError("Network error. Couldn't finish the session.");
       setFinishing(false);
     }
   }
@@ -954,7 +954,7 @@ export default function GuidedSession({
       {/* Queued set writes — reassure rather than alarm; they replay on reconnect */}
       {pendingWrites > 0 && (
         <div className="mx-4 mb-1 rounded-full bg-elevated px-3 py-1 text-center text-[11px] font-semibold text-text-2">
-          Saving {pendingWrites} set{pendingWrites === 1 ? "" : "s"} — will sync when back online
+          Saving {pendingWrites} set{pendingWrites === 1 ? "" : "s"}, will sync when back online
         </div>
       )}
 
@@ -1024,7 +1024,7 @@ export default function GuidedSession({
         {(ex.flatGroundOnly || ex.painGated) && (
           <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
             {ex.flatGroundOnly && <span className="rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">⚠ Flat ground only</span>}
-            {ex.painGated && <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">Eased — pain gate</span>}
+            {ex.painGated && <span className="rounded-md bg-danger/15 px-2 py-0.5 text-[11px] font-bold text-danger">Eased (pain gate)</span>}
           </div>
         )}
 
@@ -1178,7 +1178,7 @@ export default function GuidedSession({
                 />
               )}
               <div className="mt-3">
-                <Button variant="primary" size="lg" full onClick={doneSet}>Done — set {timerHere.setIndex + 1}</Button>
+                <Button variant="primary" size="lg" full onClick={doneSet}>Done, set {timerHere.setIndex + 1}</Button>
               </div>
             </div>
           ) : allLogged ? (
@@ -1343,7 +1343,7 @@ export default function GuidedSession({
               onExit(Object.values(workRef.current).flat().filter((s) => s.logged).length);
             }}
           >
-            Minimize — resume later
+            Minimize, resume later
           </Button>
           <Button variant="secondary" size="lg" full busy={finishing} onClick={() => { setConfirmExit(false); finish(); }}>
             Save &amp; end workout

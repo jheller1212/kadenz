@@ -62,7 +62,7 @@ const GOALS: Array<{ key: Goal; title: string; sub: string }> = [
   {
     key: "running_focus",
     title: "Running Focus",
-    sub: "Complement your running with legs, core and Achilles work — minimal upper body.",
+    sub: "Complement your running with legs, core and Achilles work, minimal upper body.",
   },
   {
     key: "all_round",
@@ -98,7 +98,7 @@ const WARMUP_OPTIONS: Array<{ key: boolean; title: string; sub: string }> = [
   {
     key: false,
     title: "Don't suggest anything",
-    sub: "I'll warm up my own way — you can still mark any set as a warm-up by hand",
+    sub: "I'll warm up my own way, you can still mark any set as a warm-up by hand",
   },
 ];
 
@@ -312,11 +312,11 @@ export default function StrengthSetupPage() {
     },
     duration: {
       title: "How long should your strength workouts be?",
-      sub: "Pick a default length — you can always run a longer or shorter session on the day.",
+      sub: "Pick a default length, you can always run a longer or shorter session on the day.",
     },
     frequency: {
       title: "How many strength sessions per week?",
-      sub: "More isn't always best. At most one more than you currently do — you can add sessions later.",
+      sub: "More isn't always best. At most one more than you currently do, you can add sessions later.",
     },
     ability: {
       title: "How would you rate your strength ability?",
@@ -324,27 +324,27 @@ export default function StrengthSetupPage() {
     },
     sex: {
       title: "What's your sex?",
-      sub: "Used only to set a sensible, safe starting weight for new exercises — optional.",
+      sub: "Used only to set a sensible, safe starting weight for new exercises. Optional.",
     },
     bodyweight: {
       title: "What's your bodyweight?",
-      sub: "Helps us pick a starting weight for new exercises instead of a one-size-fits-all default. Optional — you can skip this.",
+      sub: "Helps us pick a starting weight for new exercises instead of a one-size-fits-all default. Optional, you can skip this.",
     },
     complaints: {
       title: "Any current or recurring running complaints?",
-      sub: "Select any that apply — this only shapes which exercises you get, not whether you can continue setup. This isn't medical advice, and persistent or worsening pain deserves a physio or doctor, not just this app.",
+      sub: "Select any that apply. This only shapes which exercises you get, not whether you can continue setup. This isn't medical advice, and persistent or worsening pain deserves a physio or doctor, not just this app.",
     },
     days: {
       title: "Which days are you free to train on?",
-      sub: `Select every day that works, spaced through the week — at least ${Math.max(frequency, 1)} to continue.`,
+      sub: `Select every day that works, spaced through the week. At least ${Math.max(frequency, 1)} to continue.`,
     },
     equipment: {
       title: "Where do you train?",
-      sub: "Pick the closest match — it ticks the equipment below for you, and every tick stays yours to change.",
+      sub: "Pick the closest match, it ticks the equipment below for you, and every tick stays yours to change.",
     },
     warmup: {
       title: "Suggested warm-up sets?",
-      sub: "Just about whether Kadenz suggests a ramp for you — you can change this any time in Kraft settings.",
+      sub: "Just about whether Kadenz suggests a ramp for you, you can change this any time in Kraft settings.",
     },
   };
 
@@ -471,7 +471,7 @@ export default function StrengthSetupPage() {
                     onClick={() => { markInteracted(); setBodyweightKg(""); }}
                     className="press mt-3 w-full rounded-xl bg-elevated py-2.5 text-[13px] font-semibold text-text-2"
                   >
-                    Skip — use standard starting weights
+                    Skip, use standard starting weights
                   </button>
                 </div>
               )}
@@ -482,7 +482,7 @@ export default function StrengthSetupPage() {
                     selected={complaints.length === 0}
                     onSelect={() => { markInteracted(); setComplaints([]); }}
                     title="None / nothing bothering me"
-                    sub="The normal answer — most runners pick this"
+                    sub="The normal answer, most runners pick this"
                   />
                   {COMPLAINT_OPTIONS.map((c) => (
                     <OptionCard
@@ -528,7 +528,7 @@ export default function StrengthSetupPage() {
                   <p className="mt-3 text-[12px] leading-snug text-text-3">
                     {activeAccess
                       ? ACCESS_PRESETS[activeAccess].blurb
-                      : "Hand-picked below — doesn't match one of the presets above."}
+                      : "Hand-picked below, doesn't match one of the presets above."}
                     {" "}Unlocks {exerciseCountForEquipment(equipment)} of the {EXERCISES.length} exercises in Kraft.
                   </p>
 

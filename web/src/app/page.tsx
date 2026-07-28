@@ -1361,7 +1361,7 @@ function PlanFinishedCTA({
           message={
             raceWorkoutId
               ? `${planName ?? "Your plan"} is done. Log how ${distanceUnitLabel() === "mi" ? "the race" : "it"} went to close it out.`
-              : `${planName ?? "Your plan"} is done — ${distanceLabel} across ${runs} run${runs === 1 ? "" : "s"}.`
+              : `${planName ?? "Your plan"} is done: ${distanceLabel} across ${runs} run${runs === 1 ? "" : "s"}.`
           }
           action={
             raceWorkoutId ? (

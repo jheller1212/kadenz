@@ -42,7 +42,7 @@ export default function RPEPage() {
           <h2 className="text-[17px] font-bold text-text-1">Rate of Perceived Exertion</h2>
           <p className="mt-2 text-[14px] leading-relaxed text-text-2">
             RPE is a way to measure workout intensity based on how hard the effort <em>feels</em> rather than
-            hitting specific pace numbers. It&apos;s especially useful when conditions vary — heat, hills, fatigue,
+            hitting specific pace numbers. It&apos;s especially useful when conditions vary: heat, hills, fatigue,
             or altitude can all affect your pace without changing the actual training stimulus.
           </p>
           <p className="mt-2 text-[14px] leading-relaxed text-text-2">
@@ -84,7 +84,7 @@ export default function RPEPage() {
               },
               {
                 title: "Hilly terrain",
-                desc: "Pace varies on hills but RPE stays constant — effort matters more than splits.",
+                desc: "Pace varies on hills but RPE stays constant: effort matters more than splits.",
               },
               {
                 title: "Coming back from injury or illness",
@@ -96,7 +96,7 @@ export default function RPEPage() {
               },
               {
                 title: "Easy runs",
-                desc: "Many runners go too fast on easy days. RPE 3-4 keeps you honest — truly easy should feel easy.",
+                desc: "Many runners go too fast on easy days. RPE 3-4 keeps you honest: truly easy should feel easy.",
               },
             ].map(({ title, desc }) => (
               <div key={title}>

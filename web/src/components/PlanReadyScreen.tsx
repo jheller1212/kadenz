@@ -143,7 +143,7 @@ export function PlanReadyScreen({
                 : strength.shortWeeks
                   ? `Your strength plan is kept, re-fitted around your new run days. ${strength.shortWeeks} ${
                       strength.shortWeeks === 1 ? "week" : "weeks"
-                    } couldn't fit the full ${strength.sessionsPerWeek} without landing heavy legs on a hard run day — check Kraft and move a session by hand if you want it back to full.`
+                    } couldn't fit the full ${strength.sessionsPerWeek} without landing heavy legs on a hard run day. Check Kraft and move a session by hand if you want it back to full.`
                   : `Your strength plan is kept. Still ${strength.sessionsPerWeek} ${
                       strength.sessionsPerWeek === 1 ? "session" : "sessions"
                     } a week, re-fitted around your new run days.`}

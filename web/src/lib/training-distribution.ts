@@ -73,11 +73,11 @@ export interface Classification {
 const DETAIL: Record<DistributionType, Omit<Classification, "type">> = {
   polarized: {
     label: "Polarized",
-    description: "Mostly easy with a hard minority and little in between — the classic ~80/20 split.",
+    description: "Mostly easy with a hard minority and little in between: the classic ~80/20 split.",
   },
   pyramidal: {
     label: "Pyramidal",
-    description: "Most time easy, less moderate, least hard — a descending pyramid.",
+    description: "Most time easy, less moderate, least hard: a descending pyramid.",
   },
   threshold: {
     label: "Threshold",
@@ -85,11 +85,11 @@ const DETAIL: Record<DistributionType, Omit<Classification, "type">> = {
   },
   base: {
     label: "Base",
-    description: "Almost all easy volume — aerobic base building, very little intensity.",
+    description: "Almost all easy volume: aerobic base building, very little intensity.",
   },
   hiit: {
     label: "High-intensity",
-    description: "High-intensity work dominates — a lot of time above threshold.",
+    description: "High-intensity work dominates: a lot of time above threshold.",
   },
   unique: {
     label: "Mixed",

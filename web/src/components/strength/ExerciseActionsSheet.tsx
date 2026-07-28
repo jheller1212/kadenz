@@ -49,7 +49,7 @@ export function ExerciseActionsSheet({
       <div className="flex flex-col gap-3 px-4 pb-6">
         {hasLoggedSets ? (
           <p className="text-[13px] text-text-3">
-            Already logged in this session — it can&apos;t be exchanged. Nothing done so far is affected.
+            Already logged in this session, it can&apos;t be exchanged. Nothing done so far is affected.
           </p>
         ) : candidates.length === 0 ? (
           <EmptyState

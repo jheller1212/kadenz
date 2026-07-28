@@ -124,7 +124,7 @@ const VERDICTS: Record<
 > = {
   on_point: { title: "Pace on Point", color: "#22c55e", rgb: "34,197,94", Icon: CheckCircle2 },
   ahead: { title: "Ahead of the Pack", color: "#60A5FA", rgb: "96,165,250", Icon: TrendingUp },
-  review: { title: "Let's Review Your Pace", color: "#FFB547", rgb: "255,181,71", Icon: AlertTriangle },
+  review: { title: "Review Your Pace", color: "#FFB547", rgb: "255,181,71", Icon: AlertTriangle },
   variable: { title: "Variable Pace Detected", color: "#C084FC", rgb: "192,132,252", Icon: Activity },
 };
 
@@ -552,7 +552,7 @@ function RaceTimeSheet({
         setError(body?.error ?? "Couldn't save the time.");
       }
     } catch {
-      setError("Network error — couldn't save the time.");
+      setError("Network error. Couldn't save the time.");
     } finally {
       setSaving(false);
     }
@@ -783,11 +783,11 @@ export default function PaceInsightsPage() {
                 <ul className="flex flex-col gap-2 text-[13px] text-text-2 list-none">
                   <li>
                     <span className="font-semibold" style={{ color: workoutTypeColor.tempo }}>Tempo runs</span>
-                    {" "}— Sustained effort at a comfortably hard pace, typically 20–40 minutes.
+                    {": "}Sustained effort at a comfortably hard pace, typically 20–40 minutes.
                   </li>
                   <li>
                     <span className="font-semibold" style={{ color: workoutTypeColor.interval }}>Interval runs</span>
-                    {" "}— Repeated hard efforts with recovery jogs in between to build speed and VO2 max.
+                    {": "}Repeated hard efforts with recovery jogs in between to build speed and VO2 max.
                   </li>
                 </ul>
               </ExpandableSection>
