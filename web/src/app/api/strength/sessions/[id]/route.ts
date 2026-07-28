@@ -278,7 +278,11 @@ export async function PATCH(
             .catch((err) => console.error("Failed to queue twin calendar cleanup:", err));
         }
         // Same reasoning as the calendar event: a Garmin workout push for the
-        // twin has to be cancelled explicitly, it doesn't follow the row.
+        // twin has to be cancelled explicitly, it doesn't follow the row. The
+        // stored id is cleared in the same update below so the row doesn't
+        // keep pointing at a watch workout we just queued for deletion — an
+        // uncleared id there would look, to the self-heal resync, like a
+        // legitimate push that needs repair rather than a deliberate removal.
         if (twin.garminWorkoutId) {
           queueGarminStrengthDelete(twin.id, twin.garminWorkoutId).catch((err) =>
             console.error("Failed to queue twin Garmin cleanup:", err)
@@ -286,7 +290,10 @@ export async function PATCH(
         }
         await db
           .update(strengthSessions)
-          .set(twinAbsorptionUpdate(new Date()))
+          .set({
+            ...twinAbsorptionUpdate(new Date()),
+            ...(twin.garminWorkoutId ? { garminWorkoutId: null } : {}),
+          })
           .where(eq(strengthSessions.id, twin.id));
       }
     }
@@ -295,13 +302,34 @@ export async function PATCH(
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
-    if (updates.date || updates.status) {
-      // Garmin is independent of Google Calendar: push to the watch whenever a
-      // session changes (the queue self-gates on Garmin being configured), so a
-      // reschedule/tick reaches the calendar immediately even without GCal.
-      queueGarminStrengthMove(id).catch((err) =>
-        console.error("Failed to queue Garmin strength update:", err)
-      );
+    if (updates.date || updates.status || updates.exerciseOverrides) {
+      // A completed session comes OFF the watch rather than being updated in
+      // place: the plan no longer has anything due there, and a "planned"
+      // entry that's actually already done is exactly the stale-is-worse-
+      // than-missing case — either the athlete logged it in-app (the watch
+      // copy is now pure noise) or they did it on the watch directly (Garmin
+      // already reflects that on the device; this push-side copy is inert).
+      if (updates.status === "completed" && updated?.garminWorkoutId) {
+        const garminWorkoutId = updated.garminWorkoutId;
+        queueGarminStrengthDelete(id, garminWorkoutId).catch((err) =>
+          console.error("Failed to queue Garmin strength delete on completion:", err)
+        );
+        // Clear it now, not just after the queued job runs — otherwise a
+        // second edit before the job drains would see a stale id and try to
+        // "update" a workout that's already been queued for deletion.
+        await db
+          .update(strengthSessions)
+          .set({ garminWorkoutId: null })
+          .where(eq(strengthSessions.id, id));
+      } else {
+        // Garmin is independent of Google Calendar: push to the watch whenever a
+        // session changes (the queue self-gates on Garmin being configured), so a
+        // reschedule/tick/exercise-swap reaches the watch immediately even
+        // without GCal.
+        queueGarminStrengthMove(id).catch((err) =>
+          console.error("Failed to queue Garmin strength update:", err)
+        );
+      }
       isConnected()
         .then((connected) => {
           if (connected) {

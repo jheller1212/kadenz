@@ -93,6 +93,28 @@ export function isPrunable(
 }
 
 /**
+ * A stale ad-hoc session: a Kraft-picker "Start" or custom-workout
+ * quick-start (never watchEligible — see schema.ts) whose day has fully
+ * passed with nothing ever logged against it and no completion/skip. These
+ * are throwaway trial sessions, not training history — unlike a missed PLAN
+ * day (autoScheduled or deliberately added via Plan > Rearrange), which
+ * stays forever so adherence views can show it as "missed". Deliberately
+ * restricted to STRICTLY past days (never today) so a session someone is
+ * mid-workout on, or means to finish later today, is never swept.
+ */
+export function isStaleAdhoc(
+  s: { date: Date; status: string; watchEligible: boolean; hasLoggedData: boolean },
+  today: Date
+): boolean {
+  return (
+    !s.watchEligible &&
+    s.status === "planned" &&
+    !s.hasLoggedData &&
+    s.date.getTime() < today.getTime()
+  );
+}
+
+/**
  * When completing a session absorbs a same-day planned "twin" of the same
  * type (see PATCH /api/strength/sessions/[id]), the twin's sets and pain
  * logs move onto the completed session, but the twin row itself is never

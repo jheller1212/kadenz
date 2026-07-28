@@ -997,7 +997,15 @@ function PlanPageInner() {
       const res = await apiFetch("/api/strength/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: addType, date: addDate.toISOString(), force: true }),
+        body: JSON.stringify({
+          type: addType,
+          date: addDate.toISOString(),
+          force: true,
+          // Deliberately scheduling this session onto the plan (unlike a
+          // Kraft-picker trial start) — reaches the watch the same way the
+          // weekly scheduler's own placements do. See CreateSchema.addToPlan.
+          addToPlan: true,
+        }),
       });
       if (res.ok) {
         haptic("success");

@@ -24,6 +24,13 @@ const CreateSchema = z.object({
   date: z.string().datetime(),
   planId: z.string().uuid().optional(),
   force: z.boolean().optional(),
+  // Explicit intent, not inferred: true only from Plan > Rearrange's "add a
+  // session to this day" flow, which is deliberately building the schedule
+  // (same category as the weekly scheduler's own placements). A Kraft-picker
+  // "Start" or custom-workout quick-start never sends this — those are
+  // ad-hoc trial sessions and must not reach the watch on their own (see
+  // schema.ts strengthSessions.watchEligible and garmin-sync.ts).
+  addToPlan: z.boolean().optional(),
   // Custom-workout sessions override the stock template's display fields so
   // history and calendar fan-out show the template name, not "Full Body".
   title: z.string().trim().min(1).max(120).optional(),
@@ -237,12 +244,15 @@ export async function POST(request: NextRequest) {
         title: data.title ?? template.title,
         targetDurationMinutes,
         status: "planned",
+        watchEligible: data.addToPlan === true,
       })
       .returning();
 
     // Fan out to the watch and (if connected) Google Calendar. Owner sessions
-    // only. Garmin is independent of GCal — the queue self-gates on Garmin
-    // config — so a new Kraft session reaches the watch immediately.
+    // only. queueGarminStrengthMove is safe to call unconditionally — it
+    // self-gates on watchEligible, so a Kraft-picker/custom-workout ad-hoc
+    // session (addToPlan not set) is a no-op here and only ever reaches the
+    // watch via the athlete's explicit "Send to watch" control.
     if (!profileId) {
       queueGarminStrengthMove(session.id).catch((err) =>
         console.error("Failed to queue Garmin strength push:", err)

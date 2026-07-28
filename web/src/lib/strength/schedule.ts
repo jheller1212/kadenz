@@ -22,6 +22,7 @@ import {
   weekBudgetFor,
   dateFromDayKey,
   isPrunable,
+  isStaleAdhoc,
   weekKeyOf,
 } from "./reconcile";
 import type { Complaint, StrengthSessionType } from "./types";
@@ -272,6 +273,9 @@ export async function ensureStrengthSchedule(profileId: string | null) {
         status: "planned",
         targetDurationMinutes: await estimatedMinutesFor(placement.type, day.date),
         autoScheduled: true,
+        // Scheduler placements are always part of the plan — eligible for
+        // automatic Garmin delivery (see schema.ts watchEligible).
+        watchEligible: true,
       })
       .onConflictDoNothing()
       .returning({ id: strengthSessions.id });
@@ -408,6 +412,80 @@ export async function pruneAutoSchedule(profileId: string | null) {
     .delete(strengthSessions)
     .where(inArray(strengthSessions.id, future.map((s) => s.id)));
   return { removed: future.length };
+}
+
+/**
+ * Sweep abandoned Kraft-picker/custom-workout ad-hoc sessions: not part of
+ * the plan (never watchEligible), still "planned", nothing ever logged, and
+ * their day has fully passed. These are throwaway trial starts the athlete
+ * opened and then closed the tab/app on instead of using the in-app Back
+ * button (the only client-side cleanup path — see strength/page.tsx
+ * backToPicker/handleDiscardGuided) — this is the server-side backstop that
+ * catches every exit path, not just that one.
+ *
+ * Deliberately global (every profile, not just the owner): DB clutter from
+ * an abandoned guest session matters too, even though only the owner's rows
+ * can ever carry a garminWorkoutId to begin with (see garmin-sync.ts —
+ * every push path filters to profileId === null).
+ *
+ * Restricted to strictly past days so nothing mid-workout, or meant to be
+ * finished later today, is ever touched — see isStaleAdhoc.
+ */
+export async function pruneStaleAdhocSessions(): Promise<{ removed: number }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const candidates = await db
+    .select({
+      id: strengthSessions.id,
+      gcalEventId: strengthSessions.gcalEventId,
+      garminWorkoutId: strengthSessions.garminWorkoutId,
+      date: strengthSessions.date,
+      status: strengthSessions.status,
+      watchEligible: strengthSessions.watchEligible,
+    })
+    .from(strengthSessions)
+    .where(and(eq(strengthSessions.watchEligible, false), lte(strengthSessions.date, today)));
+
+  if (candidates.length === 0) return { removed: 0 };
+
+  const candidateIds = candidates.map((s) => s.id);
+  const [setRows, painRows] = await Promise.all([
+    db
+      .selectDistinct({ sessionId: strengthSets.sessionId })
+      .from(strengthSets)
+      .where(inArray(strengthSets.sessionId, candidateIds)),
+    db
+      .selectDistinct({ sessionId: painLogs.sessionId })
+      .from(painLogs)
+      .where(inArray(painLogs.sessionId, candidateIds)),
+  ]);
+  const idsWithData = new Set<string>();
+  for (const r of setRows) idsWithData.add(r.sessionId);
+  for (const r of painRows) idsWithData.add(r.sessionId);
+
+  const stale = candidates.filter((s) =>
+    isStaleAdhoc({ ...s, hasLoggedData: idsWithData.has(s.id) }, today)
+  );
+  if (stale.length === 0) return { removed: 0 };
+
+  // Nothing logged, nothing an athlete has meaningfully seen survive on
+  // these rows — hard delete is safe, same reasoning as pruneAutoSchedule.
+  for (const s of stale) {
+    if (s.gcalEventId) {
+      await queueStrengthSessionSync(s.id, "delete", "gcal", {
+        gcalEventId: s.gcalEventId,
+      }).catch(() => {});
+    }
+    if (s.garminWorkoutId) {
+      await queueGarminStrengthDelete(s.id, s.garminWorkoutId).catch(() => {});
+    }
+  }
+
+  await db
+    .delete(strengthSessions)
+    .where(inArray(strengthSessions.id, stale.map((s) => s.id)));
+  return { removed: stale.length };
 }
 
 /**

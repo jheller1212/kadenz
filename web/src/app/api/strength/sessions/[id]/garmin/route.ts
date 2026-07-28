@@ -50,12 +50,21 @@ export async function POST(
       date: strengthSessions.date,
       targetDurationMinutes: strengthSessions.targetDurationMinutes,
       garminWorkoutId: strengthSessions.garminWorkoutId,
+      profileId: strengthSessions.profileId,
     })
     .from(strengthSessions)
     .where(eq(strengthSessions.id, id));
 
   if (!session) {
     return Response.json({ error: "Session not found" }, { status: 404 });
+  }
+
+  // A household guest's session must never reach the owner's watch — every
+  // other Garmin path (queueGarminStrengthMove, queueGarminStrengthWindowSync)
+  // already filters to profileId === null; this explicit-send route talks to
+  // Garmin directly and was missing the same check.
+  if (session.profileId !== null) {
+    return Response.json({ error: "This session can't be sent to the watch." }, { status: 403 });
   }
 
   // Same "W3 · Upper · Kraft · 30 min" label the background sync uses, so a

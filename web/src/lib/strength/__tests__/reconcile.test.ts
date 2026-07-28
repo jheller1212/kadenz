@@ -4,6 +4,7 @@ import {
   computeTopUpPlacements,
   dateFromDayKey,
   isPrunable,
+  isStaleAdhoc,
   twinAbsorptionUpdate,
   weekKeyOf,
   weekBudgetFor,
@@ -85,6 +86,67 @@ describe("isPrunable", () => {
     expect(
       isPrunable({ date: future, status: "planned", autoScheduled: true, hasLoggedData: false }, today)
     ).toBe(true);
+  });
+});
+
+// ── Stale ad-hoc sweep selection ────────────────────────────────────────────
+
+describe("isStaleAdhoc", () => {
+  const today = dateFromDayKey("2026-07-18");
+  const yesterday = dateFromDayKey("2026-07-17");
+  const future = dateFromDayKey("2026-07-20");
+
+  it("selects a past, untouched, non-plan session", () => {
+    expect(
+      isStaleAdhoc(
+        { date: yesterday, status: "planned", watchEligible: false, hasLoggedData: false },
+        today
+      )
+    ).toBe(true);
+  });
+
+  it("never touches today's session — might still be mid-workout", () => {
+    expect(
+      isStaleAdhoc(
+        { date: today, status: "planned", watchEligible: false, hasLoggedData: false },
+        today
+      )
+    ).toBe(false);
+  });
+
+  it("never touches a future session", () => {
+    expect(
+      isStaleAdhoc(
+        { date: future, status: "planned", watchEligible: false, hasLoggedData: false },
+        today
+      )
+    ).toBe(false);
+  });
+
+  it("never touches a watchEligible (plan) session, even if past and untouched — that's a missed training day, not a throwaway", () => {
+    expect(
+      isStaleAdhoc(
+        { date: yesterday, status: "planned", watchEligible: true, hasLoggedData: false },
+        today
+      )
+    ).toBe(false);
+  });
+
+  it("never touches a session with logged data", () => {
+    expect(
+      isStaleAdhoc(
+        { date: yesterday, status: "planned", watchEligible: false, hasLoggedData: true },
+        today
+      )
+    ).toBe(false);
+  });
+
+  it("never touches completed / skipped / missed sessions", () => {
+    for (const status of ["completed", "skipped", "missed"]) {
+      expect(
+        isStaleAdhoc({ date: yesterday, status, watchEligible: false, hasLoggedData: false }, today)
+      ).toBe(false);
+    }
   });
 });
 

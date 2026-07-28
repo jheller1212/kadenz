@@ -37,6 +37,12 @@ export async function POST(
           date: toDate(sess.date)!,
           createdAt: toDate(sess.createdAt) ?? new Date(),
           updatedAt: new Date(),
+          // Trashing already queued deletion of the old calendar event and
+          // watch workout (see sessions/[id]/trash/route.ts) — restoring the
+          // same ids here would leave the row pointing at entities that no
+          // longer exist. The normal push paths recreate them if eligible.
+          gcalEventId: null,
+          garminWorkoutId: null,
         } as typeof strengthSessions.$inferInsert)
         .onConflictDoNothing();
       if (sets.length > 0) {

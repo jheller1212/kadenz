@@ -15,6 +15,7 @@ import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
 import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
+import { pruneStaleAdhocSessions } from "@/lib/strength/schedule";
 
 // Failed jobs get one retry per cron run until this hard cap.
 const RETRY_CAP = 10;
@@ -89,6 +90,17 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("Garmin cron sync error:", err);
     out.garminError = "sync failed";
+  }
+
+  try {
+    // Abandoned Kraft-picker/custom-workout ad-hoc sessions (opened, never
+    // started or logged, day now past) — DB hygiene independent of whether
+    // Garmin is configured, since these can exist without ever having
+    // reached the watch. See lib/strength/schedule.ts pruneStaleAdhocSessions.
+    out.strengthAdhocPruned = await pruneStaleAdhocSessions();
+  } catch (err) {
+    console.error("Stale ad-hoc strength session prune error:", err);
+    out.strengthAdhocPruneError = "prune failed";
   }
 
   try {
