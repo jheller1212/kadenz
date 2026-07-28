@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { fitSessionToDuration, type DurationFitExercise } from "../duration-fit";
 import { buildSessionPlan, estimateSessionMinutes } from "../session";
-import { STRENGTH_SESSION_TYPES } from "../types";
+import { EXERCISE_BY_SLUG } from "../program";
+import { STRENGTH_SESSION_TYPES, type Equipment, type StrengthSessionType } from "../types";
 
 // ── Unit tests for the pure fitter ──────────────────────────────────────────
 
@@ -125,8 +126,19 @@ describe("buildSessionPlan duration fitting (per type × per duration)", () => {
       for (const { minutes, plan, estimate } of results) {
         it(`fits within budget at ${minutes} min (estimate <= target, not absurdly under)`, () => {
           expect(estimate).toBeLessThanOrEqual(minutes);
-          // ~20% tolerance: the choice should be felt, not just "not too long".
-          expect(estimate).toBeGreaterThanOrEqual(Math.floor(minutes * 0.8));
+          // ~20% tolerance: the choice should be felt, not just "not too long"
+          // -- except the dedicated "achilles" type, whose every exercise is
+          // achilles-role rehab work with its own prescribed dose (see
+          // MAX_SETS_TARGETED_ACHILLES in duration-fit.ts). It has no
+          // primary/accessory work to bump and, being a historic-only type no
+          // longer offered on the picker (see program.ts sessionTemplateFor),
+          // it has no "complements the session type" category to draw new
+          // exercises from either -- padding it out to fill a longer duration
+          // would mean over-dosing rehab work just to hit a number, which is
+          // exactly the bug this module now guards against.
+          if (type !== "achilles") {
+            expect(estimate).toBeGreaterThanOrEqual(Math.floor(minutes * 0.8));
+          }
         });
 
         it(`keeps every achilles/rehab exercise present at ${minutes} min`, () => {
@@ -151,6 +163,10 @@ describe("buildSessionPlan duration fitting (per type × per duration)", () => {
       }
 
       it("total prescribed work is monotonically increasing across 30 < 45 < 60", () => {
+        // "achilles" is exempt for the same reason as the tolerance-floor
+        // check above -- its rehab dose caps out well before 45/60 min can
+        // be felt, by design.
+        if (type === "achilles") return;
         const [d30, d45, d60] = results;
         expect(d45.estimate).toBeGreaterThan(d30.estimate);
         expect(d60.estimate).toBeGreaterThan(d45.estimate);
@@ -169,4 +185,137 @@ describe("buildSessionPlan duration fitting (per type × per duration)", () => {
       });
     });
   }
+});
+
+// ── Growth introducing new exercises (the "longer session = mostly Achilles
+// work" bug and its fix) ────────────────────────────────────────────────────
+
+const ACHILLES_ROLE_SLUGS = new Set(
+  Object.values(EXERCISE_BY_SLUG)
+    .filter((e) => e.achillesRole)
+    .map((e) => e.slug)
+);
+
+const PICKER_TYPES: StrengthSessionType[] = ["full_body", "upper", "lower"];
+const FULL_EQUIPMENT: Equipment[] = [
+  "dumbbell",
+  "barbell",
+  "bench",
+  "chair",
+  "box",
+  "kettlebell",
+  "pullup_bar",
+  "band",
+  "machine",
+];
+
+describe("growth introduces new complementary exercises, not just more Achilles sets", () => {
+  for (const type of PICKER_TYPES) {
+    describe(type, () => {
+      it("never introduces achilles-role work for an athlete with no complaints, at any duration", () => {
+        for (const minutes of [30, 45, 60] as const) {
+          const plan = buildSessionPlan(type, {
+            targetDurationMinutes: minutes,
+            equipment: FULL_EQUIPMENT,
+          });
+          for (const p of plan) {
+            expect(ACHILLES_ROLE_SLUGS.has(p.slug)).toBe(false);
+          }
+        }
+      });
+
+      it("a 60-min session has at least as many distinct exercises as a 30-min session", () => {
+        const short = buildSessionPlan(type, { targetDurationMinutes: 30, equipment: FULL_EQUIPMENT });
+        const long = buildSessionPlan(type, { targetDurationMinutes: 60, equipment: FULL_EQUIPMENT });
+        expect(long.length).toBeGreaterThanOrEqual(short.length);
+      });
+
+      it("stays within the equipment the athlete actually has", () => {
+        const equipment: Equipment[] = ["dumbbell"];
+        const plan = buildSessionPlan(type, { targetDurationMinutes: 60, equipment });
+        for (const p of plan) {
+          const needs = EXERCISE_BY_SLUG[p.slug]?.equipment ?? [];
+          expect(needs.every((e) => equipment.includes(e))).toBe(true);
+        }
+      });
+    });
+  }
+
+  it("at least one picker type gains a genuinely new (not just bigger) exercise from 30 to 60 min", () => {
+    const gainedNewExercise = PICKER_TYPES.some((type) => {
+      const short = buildSessionPlan(type, { targetDurationMinutes: 30, equipment: FULL_EQUIPMENT });
+      const long = buildSessionPlan(type, { targetDurationMinutes: 60, equipment: FULL_EQUIPMENT });
+      const shortSlugs = new Set(short.map((p) => p.slug));
+      return long.some((p) => !shortSlugs.has(p.slug));
+    });
+    expect(gainedNewExercise).toBe(true);
+  });
+
+  it("an athlete with the achilles complaint: achilles work reaches its dose but isn't the majority of what a longer session adds", () => {
+    for (const type of PICKER_TYPES) {
+      const short = buildSessionPlan(type, {
+        targetDurationMinutes: 30,
+        equipment: FULL_EQUIPMENT,
+        complaints: ["achilles"],
+      });
+      const long = buildSessionPlan(type, {
+        targetDurationMinutes: 60,
+        equipment: FULL_EQUIPMENT,
+        complaints: ["achilles"],
+      });
+
+      // HSR-locked sets are untouched by duration at all.
+      for (const slug of ["straight_knee_calf_raise", "bent_knee_calf_raise"]) {
+        const s = short.find((p) => p.slug === slug);
+        const l = long.find((p) => p.slug === slug);
+        if (s && l) expect(l.sets).toBe(s.sets);
+      }
+
+      const addedSets = (slug: string) => {
+        const s = short.find((p) => p.slug === slug)?.sets ?? 0;
+        const l = long.find((p) => p.slug === slug)?.sets ?? 0;
+        return Math.max(0, l - s);
+      };
+      const addedNewExercises = long.filter((p) => !short.some((sp) => sp.slug === p.slug));
+
+      let achillesAdded = 0;
+      let nonAchillesAdded = 0;
+      for (const p of long) {
+        const setsAdded = addedSets(p.slug);
+        if (ACHILLES_ROLE_SLUGS.has(p.slug)) achillesAdded += setsAdded;
+        else if (!short.some((sp) => sp.slug === p.slug)) nonAchillesAdded += p.sets; // whole new exercise
+        else nonAchillesAdded += setsAdded;
+      }
+
+      // Achilles-role work is present at its (capped) dose...
+      expect(long.some((p) => ACHILLES_ROLE_SLUGS.has(p.slug))).toBe(true);
+      // ...but growth spent most of the extra budget elsewhere.
+      expect(achillesAdded).toBeLessThan(nonAchillesAdded);
+      // And the extra budget bought real variety, not just bigger achilles sets.
+      expect(addedNewExercises.some((p) => !ACHILLES_ROLE_SLUGS.has(p.slug))).toBe(true);
+    }
+  });
+});
+
+describe("growth prefers a complementary muscle group over piling onto what's already there", () => {
+  it("a press-heavy plan reaches for the pulling candidate over a second pressing candidate", () => {
+    // Two presses already planned (Chest, Shoulders); offered a Chest
+    // candidate and a Back candidate at the same set count -- Back is less
+    // represented (0 vs 2), so it must be picked first.
+    const plan = [
+      ex({ slug: "bench", priority: "primary", sets: 6, primaryMuscle: "Chest" }), // already at the hard cap, so growth must add something new to fill the floor
+      ex({ slug: "ohp", priority: "primary", sets: 6, primaryMuscle: "Shoulders" }),
+    ];
+    const candidates = [
+      ex({ slug: "extra_chest", priority: "accessory", sets: 3, primaryMuscle: "Chest" }),
+      ex({ slug: "row", priority: "accessory", sets: 3, primaryMuscle: "Back" }),
+    ];
+    const { exercises } = fitSessionToDuration(plan, 30, candidates);
+    const addedSlugs = exercises.map((e) => e.slug);
+    expect(addedSlugs).toContain("row");
+    // Back is added before (or without) a second Chest exercise.
+    if (addedSlugs.includes("extra_chest")) {
+      expect(addedSlugs.indexOf("row")).toBeLessThan(addedSlugs.indexOf("extra_chest"));
+    }
+  });
 });
