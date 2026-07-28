@@ -123,7 +123,7 @@ export function validateStrengthPlacement(params: {
       violations.push({
         code: "achilles_before_hard_run",
         severity: "error",
-        message: `Lower + Achilles sits the day before a ${hardNextDay.type} run — move it so the calves are fresh for the hard session.`,
+        message: `Lower + Achilles sits the day before a ${hardNextDay.type} run. Move it so the calves are fresh for the hard session.`,
       });
     }
   }
@@ -136,7 +136,7 @@ export function validateStrengthPlacement(params: {
         code: "explosive_with_interval",
         severity: "error",
         message:
-          "Explosive Achilles work and interval running shouldn't share a day — separate them.",
+          "Explosive Achilles work and interval running shouldn't share a day. Separate them.",
       });
     }
   }
@@ -149,7 +149,7 @@ export function validateStrengthPlacement(params: {
         code: "lower_with_long_run",
         severity: "warn",
         message:
-          "Lower strength shares a day with your long run — heavy legs. Allowed, but consider spacing them.",
+          "Lower strength shares a day with your long run: heavy legs. Allowed, but consider spacing them.",
       });
     }
   }

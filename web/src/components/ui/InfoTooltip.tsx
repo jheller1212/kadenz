@@ -55,7 +55,7 @@ export function InfoTooltip({
                 {items.map((it) => (
                   <span key={it.term}>
                     <b className="font-bold text-text-1">{it.term}</b>
-                    <span className="text-text-2"> — {it.def}</span>
+                    <span className="text-text-2">: {it.def}</span>
                   </span>
                 ))}
               </span>

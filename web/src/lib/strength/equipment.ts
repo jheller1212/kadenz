@@ -59,12 +59,12 @@ export const ACCESS_PRESETS: Record<
 > = {
   home: {
     label: "Home or bodyweight",
-    blurb: "No equipment ticked — bodyweight work only.",
+    blurb: "No equipment ticked, bodyweight work only.",
     equipment: [],
   },
   box: {
     label: "CrossFit or Hyrox box",
-    blurb: "Free weights, boxes, bands, benches and pull-up bars — no machines.",
+    blurb: "Free weights, boxes, bands, benches and pull-up bars, no machines.",
     equipment: ["dumbbell", "barbell", "bench", "kettlebell", "pullup_bar", "band", "box", "chair"],
   },
   full_gym: {

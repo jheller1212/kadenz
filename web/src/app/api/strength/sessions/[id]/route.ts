@@ -202,7 +202,7 @@ export async function PATCH(
     const loggedSlugs = new Set(logged.map((l) => l.slug));
     if (updates.exerciseOverrides.some((ov) => loggedSlugs.has(ov.slug))) {
       return Response.json(
-        { error: "That exercise already has sets logged this session — it can't be exchanged or removed." },
+        { error: "That exercise already has sets logged this session. It can't be exchanged or removed." },
         { status: 409 }
       );
     }

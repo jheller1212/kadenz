@@ -80,7 +80,7 @@ export function OfflineBanner() {
       className="flex items-center justify-center gap-2 bg-elevated px-4 py-2 text-[12px] font-semibold text-text-2 animate-fade-in"
     >
       <WifiOff size={13} />
-      Offline — showing your last synced data
+      Offline, showing your last synced data
     </div>
   );
 }

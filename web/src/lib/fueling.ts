@@ -39,18 +39,18 @@ export function fuelingAdvice(durationMinutes: number, type: string): FuelingAdv
 
   const tips: string[] = [];
   if (carbsPerHour === 0) {
-    tips.push("Water is usually enough at this length — fuel only if you feel low.");
+    tips.push("Water is usually enough at this length. Fuel only if you feel low.");
   } else {
     tips.push(`Aim for about ${carbsPerHour} g of carbs per hour (gels, chews, or a sports drink).`);
   }
-  tips.push(`Sip ~${hydrationMlPerHour} ml of fluid per hour — more in the heat.`);
+  tips.push(`Sip ~${hydrationMlPerHour} ml of fluid per hour, more in the heat.`);
   if (d >= 120) {
-    tips.push("Start fuelling early — in the first 30–45 min, don't wait until you're empty.");
+    tips.push("Start fuelling early, in the first 30–45 min, don't wait until you're empty.");
   }
 
   const showChecklist = type === "race";
   if (showChecklist) {
-    tips.push("Nothing new on race day — only gels and foods you've practised in training.");
+    tips.push("Nothing new on race day: only gels and foods you've practised in training.");
   }
 
   return { durationMinutes: d, carbsPerHour, totalCarbsG, hydrationMlPerHour, tips, showChecklist };

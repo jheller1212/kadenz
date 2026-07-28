@@ -232,7 +232,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
       });
       onClose();
     } catch {
-      setError("Couldn't save — try again.");
+      setError("Couldn't save. Try again.");
     } finally {
       setBusy(false);
     }
@@ -254,7 +254,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
         {equipmentStep ? (
           <div className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6">
             <p className="text-[13px] text-text-3">
-              Pick everything you can easily use — bodyweight moves are always
+              Pick everything you can easily use. Bodyweight moves are always
               included. You can change this anytime.
             </p>
             <div className="flex flex-col gap-2">
@@ -411,7 +411,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
             onClick={() => { haptic("light"); setEquipmentStep(true); }}
             className="press flex min-h-11 w-full items-center justify-center rounded-[var(--radius-input)] text-center text-[13px] font-semibold text-accent-fg"
           >
-            Equipment: {equipment.length ? EQUIPMENT_OPTIONS.filter((o) => equipment.includes(o.key)).map((o) => o.label).join(", ") : "bodyweight only"} — change
+            Equipment: {equipment.length ? EQUIPMENT_OPTIONS.filter((o) => equipment.includes(o.key)).map((o) => o.label).join(", ") : "bodyweight only"} · Change
           </button>
 
           {slots.length > 0 && (

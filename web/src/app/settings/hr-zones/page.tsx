@@ -17,7 +17,7 @@ const ZONES = [
   { name: "Zone 2: Endurance", desc: "Comfortable effort that burns fat and builds endurance.", color: "#3B82F6" },
   { name: "Zone 3: Tempo", desc: "Challenging but sustainable. Improves aerobic fitness and muscle strength.", color: "#22C55E" },
   { name: "Zone 4: Threshold", desc: "Hard effort. Builds speed and power while training your body to tolerate lactic acid.", color: "#F2A113" },
-  { name: "Zone 5: Anaerobic", desc: "Maximum effort. Pushes your body to its limit — best kept for short bursts.", color: "#E0402E" },
+  { name: "Zone 5: Anaerobic", desc: "Maximum effort. Pushes your body to its limit, best kept for short bursts.", color: "#E0402E" },
 ];
 
 const DEFAULT_PCTS = [0.75, 0.82, 0.86, 0.91];
@@ -143,7 +143,7 @@ export default function HrZonesPage() {
       <div className="px-4">
         <p className="mt-2 text-[14px] leading-relaxed text-text-2">
           Heart rate zones indicate how much training load a run puts on your
-          body. By default they&apos;re estimated from your age — set your resting
+          body. By default they&apos;re estimated from your age. Set your resting
           HR to refine the defaults with the heart-rate reserve (Karvonen)
           method, or adjust any boundary to match what you know from testing
           or your watch.

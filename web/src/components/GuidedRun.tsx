@@ -661,8 +661,8 @@ export function GuidedRun({
             // pace is sec/km: bigger = slower. Above max → too slow; below min → too fast.
             speak(
               pace > (step.maxPaceSecKm ?? 0)
-                ? "A little quicker — you're behind pace."
-                : "Ease back — you're ahead of pace."
+                ? "A little quicker. You're behind pace."
+                : "Ease back. You're ahead of pace."
             );
             beep(600, 90);
           }
@@ -794,7 +794,7 @@ export function GuidedRun({
             <button
               onClick={minimize}
               className="press flex h-9 w-9 items-center justify-center rounded-full bg-elevated"
-              aria-label="Minimize — keep running in the background"
+              aria-label="Minimize, keep running in the background"
               title="Minimize"
             >
               <ChevronDown className="h-5 w-5 text-text-2" strokeWidth={2} />

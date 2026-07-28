@@ -143,7 +143,7 @@ export function PlanAdjustmentTray({
         </div>
 
         {error && (
-          <p className="mt-2 text-[12px] text-danger">Couldn&apos;t apply that — try again.</p>
+          <p className="mt-2 text-[12px] text-danger">Couldn&apos;t apply that. Try again.</p>
         )}
 
         <div className="mt-3.5 flex gap-2">

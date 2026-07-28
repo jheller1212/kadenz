@@ -67,9 +67,9 @@ function band(score: number): ReadinessBand {
 }
 
 const ADVICE: Record<ReadinessBand, string> = {
-  ready: "Green light — train as planned.",
+  ready: "Green light. Train as planned.",
   easy: "Take today's paces 10–15 s/km easier, or trim a rep.",
-  rest: "Recovery is part of the plan — swap today for rest or a short easy run.",
+  rest: "Recovery is part of the plan. Swap today for rest or a short easy run.",
 };
 
 export function computeReadiness(input: ReadinessInput): ReadinessResult {

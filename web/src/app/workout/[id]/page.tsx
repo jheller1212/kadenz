@@ -139,9 +139,9 @@ function getCoachingTip(type: string, targetKm?: number | null, maxPace?: number
         targetKm && targetKm > 20 ? "Consider carrying water and fuel for this one." : "Focus on time on feet, not speed."
       }`;
     case "tempo":
-      return "Comfortably hard — you should be able to speak in short sentences but not hold a full conversation. Stay controlled and resist going too fast early.";
+      return "Comfortably hard: you should be able to speak in short sentences but not hold a full conversation. Stay controlled and resist going too fast early.";
     case "interval":
-      return "Push hard during the work intervals, then recover fully between reps. The rest is important — don't cut it short. Quality over quantity.";
+      return "Push hard during the work intervals, then recover fully between reps. The rest is important, don't cut it short. Quality over quantity.";
     case "race":
       return "Race day! Trust your training. Start conservatively and negative-split if you can. You've earned this.";
     default:
@@ -295,13 +295,13 @@ function EditWorkoutSheet({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setErr(data?.error ?? "Couldn't save the changes — try again.");
+        setErr(data?.error ?? "Couldn't save the changes. Try again.");
         return;
       }
       haptic("success");
       onSaved();
     } catch {
-      setErr("Couldn't save the changes — try again.");
+      setErr("Couldn't save the changes. Try again.");
     } finally {
       setSaving(false);
     }
@@ -324,13 +324,13 @@ function EditWorkoutSheet({
         body: JSON.stringify({ edited: false }),
       });
       if (!res.ok) {
-        setErr("Couldn't reset this workout — try again.");
+        setErr("Couldn't reset this workout. Try again.");
         return;
       }
       haptic("success");
       onSaved();
     } catch {
-      setErr("Couldn't reset this workout — try again.");
+      setErr("Couldn't reset this workout. Try again.");
     } finally {
       setResetting(false);
     }
@@ -372,7 +372,7 @@ function EditWorkoutSheet({
 
         {!canEditDistance && (
           <p className="rounded-[var(--radius-input)] bg-elevated px-3.5 py-2.5 text-[13px] text-text-3">
-            This session&apos;s distance comes from its intervals — adjust the pace instead.
+            This session&apos;s distance comes from its intervals. Adjust the pace instead.
           </p>
         )}
 
@@ -601,10 +601,10 @@ function AddTimeSheet({
         haptic("success");
         onSaved(value);
       } else {
-        setErr("Couldn't save the time — try again.");
+        setErr("Couldn't save the time. Try again.");
       }
     } catch {
-      setErr("Couldn't save the time — try again.");
+      setErr("Couldn't save the time. Try again.");
     } finally {
       setSaving(false);
     }
@@ -627,7 +627,7 @@ function AddTimeSheet({
             ? " "
             : gcalConnected
             ? "This will also update your Google Calendar event."
-            : "Saved here only — connect Google Calendar in Settings to sync it there too."}
+            : "Saved here only. Connect Google Calendar in Settings to sync it there too."}
         </p>
         {err && (
           <p className="rounded-[var(--radius-input)] bg-danger/10 px-3.5 py-2.5 text-[13px] font-medium text-danger">{err}</p>
@@ -808,7 +808,7 @@ function PostRaceScreen({
 
         {planClosed && (
           <p className="mt-4 text-[13px] leading-relaxed text-text-3">
-            This plan has nothing left to give you — it stays in your history exactly as it ran.
+            This plan has nothing left to give you. It stays in your history exactly as it ran.
           </p>
         )}
 
@@ -1550,8 +1550,8 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                             const unit = paceUnitLabel(settings.units);
                             return <span className="font-normal text-text-2">
                               {mode === "treadmill"
-                                ? ` — no faster than ${displaySpeed(block.minPaceSecKm, settings.units).toFixed(1)} ${speedUnitLabel(settings.units)}`
-                                : ` — no faster than ${formatPace(block.minPaceSecKm, useMiles)}${unit}`
+                                ? `, no faster than ${displaySpeed(block.minPaceSecKm, settings.units).toFixed(1)} ${speedUnitLabel(settings.units)}`
+                                : `, no faster than ${formatPace(block.minPaceSecKm, useMiles)}${unit}`
                               }
                             </span>;
                           }
@@ -1622,7 +1622,7 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
                 <SkipForward className="h-4 w-4 text-text-2" strokeWidth={2} />
               </span>
               <p className="text-[13px] font-semibold text-text-2">
-                Skipped — won&apos;t count as missed
+                Skipped, won&apos;t count as missed
               </p>
             </div>
             <Button variant="secondary" size="sm" onClick={handleUnskip}>

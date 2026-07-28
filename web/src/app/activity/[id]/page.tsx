@@ -1076,7 +1076,7 @@ function LinkActivitySection({ activityId, onLinked }: { activityId: string; onL
       setOpen(false);
       onLinked();
     } catch {
-      setErr("Couldn't link — try again.");
+      setErr("Couldn't link. Try again.");
     } finally {
       setBusy(false);
     }

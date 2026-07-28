@@ -26,7 +26,7 @@ export default function UnitsSettingsPage() {
     <SettingsSubpage title="Units of Measure">
       {settings && (
         <>
-          <ListGroup header="Plan Display Unit" footer="Used for distances and paces everywhere in the app — Today, plan, activities, stats and insights. Plan setup inputs stay in kilometres.">
+          <ListGroup header="Plan Display Unit" footer="Used for distances and paces everywhere in the app: Today, plan, activities, stats and insights. Plan setup inputs stay in kilometres.">
             <RadioRow
               title="Kilometres"
               selected={settings.units === "km"}

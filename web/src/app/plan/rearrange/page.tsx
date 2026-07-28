@@ -1461,8 +1461,8 @@ function PlanPageInner() {
                 {movePicker.kind === "run"
                   ? movePicker.workout.title
                   : strengthMeta(movePicker.session.type).label}
-              </span>{" "}
-              — pick a new day.
+              </span>
+              : pick a new day.
             </p>
             <div className="grid grid-cols-7 gap-1.5">
               {movePickerDays.map((d, i) => {

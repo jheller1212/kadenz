@@ -87,12 +87,12 @@ function StravaConnection() {
         : "";
       if (rateLimited) {
         setSyncResult(
-          `Imported ${totalInserted} — Strava's rate limit reached. Run again in ~15 minutes to continue where it left off.`
+          `Imported ${totalInserted}. Strava's rate limit reached, run again in ~15 minutes to continue where it left off.`
         );
       } else {
         setSyncResult(
           totalInserted === 0
-            ? `Up to date — no new activities${dup ? ` (${dup} already synced)` : ""}${oldest}.`
+            ? `Up to date, no new activities${dup ? ` (${dup} already synced)` : ""}${oldest}.`
             : `Synced ${totalInserted} new ${totalInserted === 1 ? "activity" : "activities"}${dup ? ` · ${dup} already synced` : ""}${oldest}.`
         );
       }
@@ -340,7 +340,7 @@ function GarminConnection() {
         : status === "healthy"
           ? "Connected"
           : status === "auth_dead"
-            ? "Garmin session expired — reconnect on the worker"
+            ? "Garmin session expired, reconnect on the worker"
             : "Worker unreachable";
 
   return (

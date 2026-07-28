@@ -107,14 +107,14 @@ export async function PATCH(
         // session to scale — interval sessions keep their rep structure.
         if (plainWork.length === 0) {
           return Response.json(
-            { error: "This session's distance comes from its intervals — adjust pace instead." },
+            { error: "This session's distance comes from its intervals. Adjust pace instead." },
             { status: 422 }
           );
         }
         const minKm = Math.round((fixedKm + 0.2 * plainWork.length) * 10) / 10;
         if (rest.targetKm < minKm) {
           return Response.json(
-            { error: `Too short — warm-up and cool-down alone need ${minKm} km.`, minKm },
+            { error: `Too short: warm-up and cool-down alone need ${minKm} km.`, minKm },
             { status: 422 }
           );
         }
@@ -150,7 +150,7 @@ export async function PATCH(
         const minPace = paceFields.length ? Math.min(...paceFields) : null;
         if (minPace != null && minPace + paceOffsetSecKm < 120) {
           return Response.json(
-            { error: "That would push paces under 2:00/km — pick a smaller adjustment." },
+            { error: "That would push paces under 2:00/km. Pick a smaller adjustment." },
             { status: 422 }
           );
         }
