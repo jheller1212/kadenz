@@ -4,6 +4,7 @@ import { db, activities, deletedActivities } from "@/db";
 import {
   getAccessToken,
   processActivity,
+  updateActivity,
   type StravaActivity,
 } from "@/lib/sync/strava-client";
 
@@ -19,9 +20,17 @@ const MAX_NEW_PER_RUN = 80;
 export async function POST(request: NextRequest) {
   // Parse optional `since` param (ISO date string or Unix epoch seconds)
   let sinceEpoch: number;
+  // `refresh: true` repairs already-imported activities instead of skipping
+  // them — the manual fix for an edit that happened before update-webhook
+  // handling existed (or for one the athlete just wants re-pulled). Same
+  // field rules as the live webhook: see updateActivity() for what follows
+  // Strava and what's protected. Deliberately opt-in — this never runs on
+  // its own, only when explicitly requested.
+  let refresh = false;
 
   try {
     const body = await request.json().catch(() => ({}));
+    refresh = body.refresh === true;
     if (body.full === true) {
       sinceEpoch = 1; // everything the athlete ever recorded
     } else if (body.since) {
@@ -95,36 +104,58 @@ export async function POST(request: NextRequest) {
         .from(activities)
         .where(inArray(activities.stravaId, fetchedIds))
     : [];
-  const known = new Set(existing.map((e) => e.stravaId));
-  // Tombstoned (user-deleted) activities are treated as already handled.
+  const knownActivityIds = new Set(existing.map((e) => e.stravaId));
+  // Tombstoned (user-deleted) activities are treated as already handled —
+  // `refresh` never touches these, they stay gone regardless.
   const tombstones = fetchedIds.length
     ? await db
         .select({ stravaId: deletedActivities.stravaId })
         .from(deletedActivities)
         .where(inArray(deletedActivities.stravaId, fetchedIds))
     : [];
-  for (const t of tombstones) known.add(t.stravaId);
+  const tombstoneIds = new Set(tombstones.map((t) => t.stravaId));
+  const known = new Set([...knownActivityIds, ...tombstoneIds]);
 
   let inserted = 0;
   let alreadySynced = 0;
   let skippedTypes = 0;
+  let refreshed = 0;
   let processedNew = 0;
   let rateLimited = false;
   let remaining = 0;
   const errors: Array<{ id: number; error: string }> = [];
 
+  // Anything that costs a Strava API round-trip this run — a new import or,
+  // in refresh mode, a re-fetch of a known activity. Bounded the same way as
+  // plain new-activity backfill (see MAX_NEW_PER_RUN) so a `refresh: true,
+  // full: true` request can't blow the invocation's time budget or the
+  // shared Strava rate limit; the client loops via `remaining` like it
+  // already does for new activities.
+  const needsRefresh = (id: string) => refresh && knownActivityIds.has(id);
+
   for (let i = 0; i < stravaActivities.length; i++) {
     const activity = stravaActivities[i];
-    const isKnown = known.has(String(activity.id));
-    if (!isKnown && processedNew >= MAX_NEW_PER_RUN) {
+    const id = String(activity.id);
+    const isKnown = known.has(id);
+    const willCallApi = !isKnown || needsRefresh(id);
+    if (willCallApi && processedNew >= MAX_NEW_PER_RUN) {
       // Chunk boundary: count what's left so the client knows to loop.
-      remaining = stravaActivities.slice(i).filter((a) => !known.has(String(a.id))).length;
+      remaining = stravaActivities
+        .slice(i)
+        .filter((a) => !known.has(String(a.id)) || needsRefresh(String(a.id))).length;
       break;
     }
     try {
       if (isKnown) {
-        alreadySynced++;
-        continue; // idempotent anyway, but skip the API round-trips
+        if (needsRefresh(id)) {
+          processedNew++;
+          const result = await updateActivity(activity.id);
+          if (result === "updated") refreshed++;
+          else alreadySynced++; // not_found / trashed — nothing to refresh
+        } else {
+          alreadySynced++; // idempotent anyway, but skip the API round-trip
+        }
+        continue;
       }
       processedNew++;
       const result = await processActivity(activity.id);
@@ -137,7 +168,9 @@ export async function POST(request: NextRequest) {
         // Strava quota exhausted — stop politely; everything done so far is
         // stored, a later run resumes via the duplicate pre-check.
         rateLimited = true;
-        remaining = stravaActivities.slice(i).filter((a) => !known.has(String(a.id))).length;
+        remaining = stravaActivities
+          .slice(i)
+          .filter((a) => !known.has(String(a.id)) || needsRefresh(String(a.id))).length;
         break;
       }
       errors.push({ id: activity.id, error: message });
@@ -161,6 +194,7 @@ export async function POST(request: NextRequest) {
     inserted,
     alreadySynced,
     skippedTypes,
+    refreshed,
     remaining,
     rateLimited,
     done: remaining === 0 && !rateLimited,

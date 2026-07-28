@@ -1,9 +1,18 @@
-import { db, syncOutbox, activities, workouts, plans, strengthSessions, deletedActivities } from "@/db";
+import { db, syncOutbox, activities, workouts, plans, strengthSessions, deletedActivities, activityTrash } from "@/db";
 import { eq, and, gte, lte, ne, isNull, inArray } from "drizzle-orm";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isDuplicateActivity } from "./garmin-import";
 import { pickWorkoutMatch } from "./workout-match";
+import { rowToPayload } from "@/lib/activity-trash";
+import {
+  isRunActivity,
+  isStrengthActivity,
+  commonStravaFields,
+  runStravaFields,
+  stravaUpdateFields,
+  type StravaActivity,
+} from "./strava-activity-fields";
 
 // A Strava activity must be at least this long to auto-complete ("lock") a
 // planned strength session — guards against accidental / trivial recordings.
@@ -317,55 +326,9 @@ export async function getAccessToken(): Promise<string> {
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 
-export interface StravaActivity {
-  id: number;
-  name: string;
-  type: string;
-  sport_type: string;
-  distance: number; // meters
-  moving_time: number; // seconds
-  elapsed_time: number; // seconds
-  start_date: string; // ISO
-  start_date_local: string; // ISO
-  average_speed: number; // m/s
-  max_speed: number; // m/s
-  total_elevation_gain?: number;
-  elev_high?: number;
-  average_heartrate?: number;
-  max_heartrate?: number;
-  // Strava reports running cadence in strides/min (one leg) — ×2 for spm.
-  average_cadence?: number;
-  calories?: number;
-  device_name?: string;
-  gear?: { id: string; name: string };
-  map?: { summary_polyline?: string };
-  best_efforts?: Array<{
-    name: string;
-    distance: number;
-    elapsed_time: number;
-    moving_time: number;
-  }>;
-  splits_metric?: Array<{
-    distance: number;
-    elapsed_time: number;
-    moving_time: number;
-    average_speed: number;
-    average_heartrate?: number;
-    pace_zone: number;
-    split: number;
-  }>;
-  laps?: Array<{
-    id: number;
-    name: string;
-    distance: number;
-    elapsed_time: number;
-    moving_time: number;
-    average_speed: number;
-    average_heartrate?: number;
-    max_heartrate?: number;
-    lap_index: number;
-  }>;
-}
+// Re-exported for existing callers (e.g. the backfill route) — the type now
+// lives in strava-activity-fields.ts alongside the pure field mapping.
+export type { StravaActivity };
 
 export async function fetchActivity(
   activityId: number
@@ -435,9 +398,6 @@ export async function findMatchingWorkout(
   return pickWorkoutMatch(candidates, linkedIds, activity.distance / 1000);
 }
 
-// Strava sport types we treat as a strength/lifting session.
-const STRENGTH_SPORT_TYPES = new Set(["WeightTraining", "Workout", "Crossfit", "HIIT"]);
-
 /**
  * Match a Strava strength activity to a strength session on the same day that
  * isn't already backed by a recorded activity. Prefers planned/incomplete
@@ -501,13 +461,11 @@ export async function processActivity(activityId: number): Promise<ProcessResult
   if (existing) return "duplicate";
 
   const activity = await fetchActivity(activityId);
-  const sportType = activity.sport_type || activity.type;
-  const isRun = activity.sport_type === "Run" || activity.type === "Run";
-  const isStrength = STRENGTH_SPORT_TYPES.has(sportType);
+  const isRun = isRunActivity(activity);
+  const isStrength = isStrengthActivity(activity);
   if (!isRun && !isStrength) return "skipped";
 
-  const avgHr = activity.average_heartrate ? Math.round(activity.average_heartrate) : null;
-  const maxHr = activity.max_heartrate ? Math.round(activity.max_heartrate) : null;
+  const common = commonStravaFields(activity);
 
   // Cross-source dedup: the same physical run/session may already have
   // arrived via the Garmin worker (a watch that uploads to both is the
@@ -528,13 +486,8 @@ export async function processActivity(activityId: number): Promise<ProcessResult
       : null;
     await db.insert(activities).values({
       strengthSessionId,
-      sportType,
       stravaId: String(activityId),
-      name: activity.name,
-      startDate: new Date(activity.start_date),
-      durationSeconds: activity.moving_time,
-      avgHr,
-      maxHr,
+      ...common,
     });
     if (strengthSessionId) {
       // Grab the calendar event id before we clear it, so we can remove the
@@ -572,45 +525,19 @@ export async function processActivity(activityId: number): Promise<ProcessResult
   }
 
   // ── Run: existing behaviour ────────────────────────────────────────────────
-  const distanceKm = activity.distance / 1000;
-  const avgPaceSecKm =
-    activity.average_speed > 0
-      ? Math.round(1000 / activity.average_speed)
-      : null;
-
+  const run = runStravaFields(activity);
   const workoutId = await findMatchingWorkout(activity);
 
-  // Insert activity record
+  // Insert activity record. sportType is normalized to the literal "Run"
+  // here (not activity.sport_type, e.g. "TrailRun") — existing behaviour,
+  // kept as-is so the feed's type badge doesn't change for already-synced
+  // athletes.
   await db.insert(activities).values({
     workoutId,
-    sportType: "Run",
     stravaId: String(activityId),
-    name: activity.name,
-    startDate: new Date(activity.start_date),
-    distanceKm,
-    durationSeconds: activity.moving_time,
-    avgPaceSecKm,
-    avgHr: activity.average_heartrate
-      ? Math.round(activity.average_heartrate)
-      : null,
-    maxHr: activity.max_heartrate
-      ? Math.round(activity.max_heartrate)
-      : null,
-    elevationGain: activity.total_elevation_gain ?? null,
-    maxElevation: activity.elev_high ?? null,
-    splitsJson: activity.splits_metric ?? null,
-    lapsJson: activity.laps ?? null,
-    polyline: activity.map?.summary_polyline || null,
-    // Cached for the detail view — free here since `activity` is already the
-    // full Strava detail payload (fetchActivity), not the summary list one.
-    bestEffortsJson: activity.best_efforts ?? null,
-    cadenceSpm:
-      activity.average_cadence != null && activity.average_cadence > 0
-        ? Math.round(activity.average_cadence * 2)
-        : null,
-    calories: activity.calories != null ? Math.round(activity.calories) : null,
-    deviceName: activity.device_name ?? null,
-    gearName: activity.gear?.name ?? null,
+    ...common,
+    sportType: "Run",
+    ...run,
   });
 
   // If matched to a workout, mark it completed
@@ -619,11 +546,128 @@ export async function processActivity(activityId: number): Promise<ProcessResult
       .update(workouts)
       .set({
         status: "completed",
-        actualKm: distanceKm,
+        actualKm: run.distanceKm,
         stravaActivityId: String(activityId),
         updatedAt: new Date(),
       })
       .where(eq(workouts.id, workoutId));
   }
   return "stored";
+}
+
+// ── Strava "update" events ───────────────────────────────────────────────────
+// Strava sends an "update" event for title/description edits, distance or
+// duration corrections (including a cropped activity), and sport-type
+// changes. This refreshes the already-stored row with the latest Strava data
+// — it never inserts. That keeps the surface an unauthenticated webhook caller
+// can affect the same as before: it can change data on a row Kadenz already
+// decided to import, never make a new one appear.
+
+export type UpdateResult = "updated" | "not_found" | "trashed" | "not_tracked";
+
+export async function updateActivity(activityId: number): Promise<UpdateResult> {
+  // Trashed/tombstoned locally — the athlete removed it from Kadenz, so a
+  // Strava-side edit must not bring it back. (Belt and suspenders: a trashed
+  // row is also gone from `activities`, so the lookup below would miss it
+  // anyway — this just makes the "do not resurrect" rule explicit and
+  // independent of that.)
+  const [tombstone] = await db
+    .select({ stravaId: deletedActivities.stravaId })
+    .from(deletedActivities)
+    .where(eq(deletedActivities.stravaId, String(activityId)))
+    .limit(1);
+  if (tombstone) return "trashed";
+
+  // Unknown id: either never imported (filtered out by sport type at create —
+  // e.g. a Ride, which processActivity deliberately "skipped" and never
+  // stored) or an update racing ahead of its own not-yet-finished create
+  // (both webhook handlers run async and unordered — see webhook/route.ts).
+  // Either way, an update must never be the thing that creates a row; that
+  // decision belongs to the "create" path only.
+  const [existing] = await db
+    .select({ id: activities.id })
+    .from(activities)
+    .where(eq(activities.stravaId, String(activityId)))
+    .limit(1);
+  if (!existing) return "not_found";
+
+  const activity = await fetchActivity(activityId);
+  const isRun = isRunActivity(activity);
+
+  // Strava's own type change is honoured on the row (sportType always
+  // follows), but a type change never touches workoutId/strengthSessionId or
+  // re-runs matching, and never mutates the linked workout/strength session's
+  // status or actualKm. Example: a Run edited to a Walk on Strava stays
+  // linked to whatever planned workout it completed — silently unlinking a
+  // planned workout because Strava relabeled the activity would be a worse
+  // surprise than the stale link. If that link is now wrong, the athlete
+  // fixes it by hand from the activity detail view (existing UI, unchanged).
+  //
+  // Distance/pace/elevation/splits/laps/etc. only refresh while the activity
+  // is still classified as a Run (matches what create() stores for a Run in
+  // the first place). If Strava reclassifies a stored Run away from Run, or a
+  // stored strength session's type changes, those run-only fields simply keep
+  // their last-synced values rather than guessing at new ones — deliberate,
+  // not an oversight.
+  const fields = stravaUpdateFields(activity);
+  const patch = isRun
+    ? fields
+    : {
+        sportType: fields.sportType,
+        name: fields.name,
+        startDate: fields.startDate,
+        durationSeconds: fields.durationSeconds,
+        avgHr: fields.avgHr,
+        maxHr: fields.maxHr,
+      };
+
+  await db
+    .update(activities)
+    .set(patch)
+    .where(eq(activities.stravaId, String(activityId)));
+
+  return "updated";
+}
+
+// ── Strava "delete" events ───────────────────────────────────────────────────
+// A hard delete on our side would destroy data because an unauthenticated
+// webhook caller said so. Soft-delete into the same trash the manual "delete
+// activity" UI already uses (recoverable for 30 days) — the honest middle
+// ground: the activity disappears from the feed like the athlete asked, but
+// nothing is actually destroyed and a mistaken Strava-side delete (or a
+// bulk-delete-then-regret) is recoverable exactly like a manual one.
+
+// "not_found" covers both "never imported" and "already trashed" (manually,
+// or by an earlier delivery of this same webhook event — Strava retries) —
+// both look identical from here: no row in `activities` for this Strava id.
+export type DeleteResult = "trashed" | "not_found";
+
+export async function deleteStravaActivity(activityId: number): Promise<DeleteResult> {
+  const stravaId = String(activityId);
+  const [activity] = await db.select().from(activities).where(eq(activities.stravaId, stravaId));
+  // Nothing to do: never imported, or already trashed (manually, or by an
+  // earlier delivery of this same event — Strava retries webhooks).
+  if (!activity) return "not_found";
+
+  await db
+    .insert(activityTrash)
+    .values({ id: activity.id, payload: rowToPayload(activity) })
+    .onConflictDoNothing();
+
+  if (activity.workoutId) {
+    await db
+      .update(workouts)
+      .set({ status: "planned", actualKm: null, stravaActivityId: null, updatedAt: new Date() })
+      .where(eq(workouts.id, activity.workoutId));
+  }
+  if (activity.strengthSessionId) {
+    await db
+      .update(strengthSessions)
+      .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
+      .where(eq(strengthSessions.id, activity.strengthSessionId));
+  }
+  await db.insert(deletedActivities).values({ stravaId }).onConflictDoNothing();
+  await db.delete(activities).where(eq(activities.id, activity.id));
+
+  return "trashed";
 }

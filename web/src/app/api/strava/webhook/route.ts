@@ -1,5 +1,10 @@
 import { type NextRequest } from "next/server";
-import { processActivity, loadSubscription } from "@/lib/sync/strava-client";
+import {
+  processActivity,
+  updateActivity,
+  deleteStravaActivity,
+  loadSubscription,
+} from "@/lib/sync/strava-client";
 
 // ── GET: Webhook subscription verification ──────────────────────────────────
 
@@ -46,12 +51,33 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Unknown subscription" }, { status: 403 });
   }
 
-  // Only process new activities
-  if (event.object_type === "activity" && event.aspect_type === "create") {
-    // Process async — respond to Strava quickly (must reply within 2s)
-    processActivity(event.object_id).catch((err) => {
+  // `object_type: "athlete"` events (e.g. deauthorization) are not handled —
+  // nothing here reads or writes anything on athlete de-auth.
+  //
+  // All three activity aspects are processed. Strava's "update" event fires
+  // for a title/description edit, a distance/duration correction (including
+  // a cropped activity), a sport-type change, and a privacy flip — Strava
+  // doesn't distinguish which changed, so every "update" triggers the same
+  // full refetch-and-refresh. See updateActivity() for exactly which columns
+  // follow Strava and which never change (the workout/strength-session link,
+  // AI insight, everything Kadenz itself set).
+  if (event.object_type === "activity") {
+    // Process async — respond to Strava quickly (must reply within 2s).
+    // Fire-and-forget means events aren't ordered against each other: an
+    // "update" can in principle reach us before its own "create" has
+    // finished. updateActivity() treats an unknown id as a no-op rather than
+    // creating a row, so that race just drops the update (rare in practice —
+    // a title edit requires the athlete to act after the upload already
+    // completed) instead of ever inventing data. See strava-client.ts.
+    const handler =
+      event.aspect_type === "create"
+        ? processActivity
+        : event.aspect_type === "update"
+          ? updateActivity
+          : deleteStravaActivity;
+    handler(event.object_id).catch((err) => {
       console.error(
-        `Failed to process Strava activity ${event.object_id}:`,
+        `Failed to process Strava ${event.aspect_type} for activity ${event.object_id}:`,
         err
       );
     });
