@@ -252,7 +252,10 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
         title={equipmentStep ? "What do you have?" : initial ? "Edit workout" : "New custom workout"}
       >
         {equipmentStep ? (
-          <div className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6">
+          <div
+            className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6"
+            data-testid="custom-workout-equipment-step"
+          >
             <p className="text-[13px] text-text-3">
               Pick everything you can easily use. Bodyweight moves are always
               included. You can change this anytime.
@@ -284,7 +287,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
                 );
               })}
             </div>
-            <Button full onClick={confirmEquipment}>
+            <Button full data-testid="custom-workout-equipment-continue" onClick={confirmEquipment}>
               Continue
             </Button>
           </div>
@@ -292,6 +295,7 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
         <div className="flex max-h-[70dvh] flex-col gap-4 overflow-y-auto px-4 pb-6">
           <input
             type="text"
+            data-testid="custom-workout-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Workout name"
@@ -316,7 +320,12 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
             const ex = EXERCISES.find((e) => e.slug === slot.exerciseSlug);
             const isOpen = expanded === slot.key;
             return (
-              <SortableItem key={slot.key} id={slot.key} className="k-card p-3.5">
+              <SortableItem
+                key={slot.key}
+                id={slot.key}
+                data-testid={`custom-workout-slot-${slot.exerciseSlug}`}
+                className="k-card p-3.5"
+              >
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -401,7 +410,12 @@ export function CustomWorkoutBuilder({ open, onClose, onSave, initial }: Props) 
             </SortableContext>
           </DndContext>
 
-          <Button variant="secondary" full onClick={() => setPickerOpen(true)}>
+          <Button
+            variant="secondary"
+            full
+            data-testid="custom-workout-add-exercise"
+            onClick={() => setPickerOpen(true)}
+          >
             <Plus className="h-4 w-4" strokeWidth={2.2} />
             Add exercise
           </Button>

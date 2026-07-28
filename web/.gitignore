@@ -42,3 +42,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# e2e (Playwright) — local-only Postgres data dir and minted test session
+/e2e/.pgdata/
+/e2e/.auth/
+/playwright-report/
+/test-results/

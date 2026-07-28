@@ -18,6 +18,7 @@ interface Props {
   type?: "button" | "submit";
   className?: string;
   "aria-label"?: string;
+  "data-testid"?: string;
 }
 
 /* v2: primary is "lit" via the accent gradient; secondary is a card surface
@@ -56,6 +57,7 @@ export function Button({
       type={type}
       disabled={disabled || busy}
       aria-label={aria["aria-label"]}
+      data-testid={aria["data-testid"]}
       whileTap={{ scale: disabled || busy ? 1 : 0.96 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
       onClick={() => {

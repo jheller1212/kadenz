@@ -27,6 +27,7 @@ export function BottomNav({ active }: Props) {
     <nav
       className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[430px]"
       aria-label="Main navigation"
+      data-testid="bottom-nav"
     >
       {/* Blurred glass on an absolute child, not the fixed element itself. */}
       <div className="absolute inset-0 material hairline-t" />
@@ -43,6 +44,7 @@ export function BottomNav({ active }: Props) {
               buzz
               aria-label={label}
               aria-current={isActive ? "page" : undefined}
+              data-testid={`nav-tab-${id}`}
               className="relative flex flex-1 flex-col items-center gap-0.5 pt-2 pb-1.5"
             >
               <motion.span
