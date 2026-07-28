@@ -4,8 +4,13 @@ import { EXERCISES } from "../lib/strength/program";
 // ── Strength exercise seeder ──────────────────────────────────────────────────
 // Idempotent: upserts each exercise by its stable `slug`. Run with:
 //   npm run seed:strength
+//
+// seedStrengthExercises is exported so the e2e local-DB seed (web/e2e/seed.ts)
+// can reuse this exact catalogue instead of hand-duplicating it — the two
+// seeders drifting apart is exactly the "one concept, several places" bug
+// shape this app keeps tripping on.
 
-async function seed() {
+export async function seedStrengthExercises(): Promise<number> {
   const rows = EXERCISES.map((e, i) => ({
     slug: e.slug,
     name: e.name,
@@ -43,12 +48,21 @@ async function seed() {
       });
   }
 
-  console.log(`Seeded ${rows.length} strength exercises.`);
+  return rows.length;
 }
 
-seed()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error("Strength seed failed:", err);
-    process.exit(1);
-  });
+// Only run as a CLI script (`npm run seed:strength`), never on import — the
+// e2e seed (web/e2e/seed.ts) imports seedStrengthExercises and must not
+// trigger a second process.exit() as a side effect of loading this module.
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  seedStrengthExercises()
+    .then((count) => {
+      console.log(`Seeded ${count} strength exercises.`);
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error("Strength seed failed:", err);
+      process.exit(1);
+    });
+}

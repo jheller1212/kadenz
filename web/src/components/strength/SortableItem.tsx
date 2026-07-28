@@ -12,10 +12,12 @@ export function SortableItem({
   id,
   className,
   children,
+  "data-testid": testId,
 }: {
   id: string;
   className?: string;
   children: ReactNode;
+  "data-testid"?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
@@ -24,6 +26,7 @@ export function SortableItem({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      data-testid={testId}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,

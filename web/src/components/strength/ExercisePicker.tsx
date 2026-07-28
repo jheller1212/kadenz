@@ -100,7 +100,11 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
   function renderExercise(ex: ExerciseDef) {
     const last = lastUsed[ex.slug];
     return (
-      <div key={ex.slug} className="flex items-center rounded-[var(--radius-input)] bg-elevated">
+      <div
+        key={ex.slug}
+        data-testid={`exercise-picker-result-${ex.slug}`}
+        className="flex items-center rounded-[var(--radius-input)] bg-elevated"
+      >
         <button
           type="button"
           onClick={() => onSelect(ex)}
@@ -141,6 +145,7 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search exercises"
           aria-label="Search exercises"
+          data-testid="exercise-picker-search"
           className="w-full shrink-0 rounded-[var(--radius-input)] bg-elevated px-3.5 py-3 text-[16px] font-medium text-text-1 placeholder:text-text-3 outline-none"
         />
 
@@ -152,6 +157,7 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
                 key={g}
                 type="button"
                 aria-pressed={on}
+                data-testid={`exercise-picker-chip-${g}`}
                 onClick={() => { haptic("light"); setGroup(on ? null : g); }}
                 className={`press inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-[12px] font-bold ${
                   on ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -164,6 +170,7 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
           {hasFilter && (
             <button
               type="button"
+              data-testid="exercise-picker-clear"
               onClick={() => { haptic("light"); clearFilters(); }}
               className="press inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-[12px] font-bold text-accent-fg"
             >
@@ -172,9 +179,9 @@ export function ExercisePicker({ open, onClose, exercises, lastUsed, onSelect, o
           )}
         </div>
 
-        <div className="overflow-y-auto">
+        <div className="overflow-y-auto" data-testid="exercise-picker-results">
           {resultCount === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="flex flex-col items-center gap-3 py-10 text-center" data-testid="exercise-picker-empty">
               <p className="text-[13px] text-text-3">No exercises match.</p>
               <button
                 type="button"

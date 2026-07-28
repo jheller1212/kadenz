@@ -1049,7 +1049,7 @@ export default function StrengthPage() {
           <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-[0.14em] text-text-3">
             Programme
           </p>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2" data-testid="kraft-programme-list">
             {PICKER_TYPES.map((t) => {
               const meta = TYPE_META[t];
               const Icon = meta.icon;
@@ -1061,6 +1061,7 @@ export default function StrengthPage() {
                 <motion.button
                   key={t}
                   type="button"
+                  data-testid={`kraft-programme-card-${t}`}
                   disabled={busy}
                   onClick={() => {
                     setStartType(t);
@@ -1126,7 +1127,12 @@ export default function StrengthPage() {
                   </button>
                 </div>
               ))}
-              <Button variant="secondary" full onClick={() => setCustomBuilderOpen(true)}>
+              <Button
+                variant="secondary"
+                full
+                data-testid="kraft-create-custom-workout"
+                onClick={() => setCustomBuilderOpen(true)}
+              >
                 <Plus className="h-4 w-4" strokeWidth={2.2} />
                 Create custom workout
               </Button>
@@ -1162,10 +1168,11 @@ export default function StrengthPage() {
               <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">
                 Length today
               </p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5" data-testid="kraft-duration-chips">
                 <button
                   type="button"
                   aria-pressed={startDuration == null}
+                  data-testid="kraft-duration-usual"
                   onClick={() => { haptic("light"); setStartDuration(null); }}
                   className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                     startDuration == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1178,6 +1185,7 @@ export default function StrengthPage() {
                     key={m}
                     type="button"
                     aria-pressed={startDuration === m}
+                    data-testid={`kraft-duration-${m}`}
                     onClick={() => { haptic("light"); setStartDuration(m); }}
                     className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                       startDuration === m ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1191,10 +1199,11 @@ export default function StrengthPage() {
               <p className="mb-2 mt-5 text-[12px] font-bold uppercase tracking-wide text-text-3">
                 Equipment today
               </p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5" data-testid="kraft-equipment-chips">
                 <button
                   type="button"
                   aria-pressed={startAccess == null}
+                  data-testid="kraft-equipment-usual"
                   onClick={() => { haptic("light"); setStartAccess(null); }}
                   className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                     startAccess == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1207,6 +1216,7 @@ export default function StrengthPage() {
                     key={level}
                     type="button"
                     aria-pressed={startAccess === level}
+                    data-testid={`kraft-equipment-${level}`}
                     onClick={() => { haptic("light"); setStartAccess(level); }}
                     className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
                       startAccess === level ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
@@ -1222,6 +1232,7 @@ export default function StrengthPage() {
                   variant="primary"
                   size="lg"
                   full
+                  data-testid="kraft-start-session"
                   onClick={() => {
                     const t = startType;
                     const duration = startDuration;
@@ -1346,6 +1357,7 @@ export default function StrengthPage() {
               type="button"
               onClick={overviewBack}
               aria-label="Back"
+              data-testid="kraft-overview-back"
               style={{ touchAction: "manipulation" }}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-elevated text-text-1"
             >
@@ -1414,6 +1426,7 @@ export default function StrengthPage() {
               type="button"
               onClick={overviewBack}
               aria-label="Back"
+              data-testid="kraft-overview-back"
               style={{ touchAction: "manipulation" }}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-elevated text-text-1"
             >
@@ -1468,11 +1481,11 @@ export default function StrengthPage() {
           )}
 
           <div className="mt-3 flex gap-2.5">
-            <div className="flex-1 k-card p-3.5">
+            <div className="flex-1 k-card p-3.5" data-testid="kraft-overview-exercise-count">
               <p className="font-display text-[24px] leading-none text-text-1">{exercises.length}</p>
               <p className="mt-1.5 text-[9.5px] font-bold uppercase tracking-wide text-text-3">Exercises</p>
             </div>
-            <div className="flex-1 k-card p-3.5">
+            <div className="flex-1 k-card p-3.5" data-testid="kraft-overview-estimate">
               <p className="font-display text-[24px] leading-none text-text-1">
                 {liveEstimate}
                 <span className="text-[12px] font-sans font-semibold text-text-3">min</span>
@@ -1528,6 +1541,7 @@ export default function StrengthPage() {
               <SortableItem
                 key={ex.slug}
                 id={ex.slug}
+                data-testid={`kraft-exercise-${ex.slug}`}
                 className={`flex items-start gap-3 rounded-[var(--radius-card)] p-3.5 ${
                   isRehab ? "bg-warn/10 ring-1 ring-inset ring-warn/30" : "k-card"
                 }`}

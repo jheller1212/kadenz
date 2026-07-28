@@ -46,7 +46,7 @@ export function ReadinessCard() {
   // it real instead.
   if (!data.hasCheckIn && data.reasons.length === 0) {
     return (
-      <div className="k-card p-4">
+      <div className="k-card p-4" data-testid="readiness-card">
         <p className="text-[15px] font-bold text-text-1">Readiness</p>
         <p className="mt-0.5 text-[13px] leading-snug text-text-2">
           Log today&apos;s check-in below to see how ready you are to train.
@@ -60,7 +60,7 @@ export function ReadinessCard() {
   const C = 2 * Math.PI * R;
 
   return (
-    <div className="k-card p-4">
+    <div className="k-card p-4" data-testid="readiness-card">
       <div className="flex items-center gap-4">
         <div className="relative h-14 w-14 shrink-0">
           <svg width="56" height="56" viewBox="0 0 56 56" className="-rotate-90">
@@ -72,12 +72,15 @@ export function ReadinessCard() {
               style={{ transition: "stroke-dashoffset 0.6s var(--ease-ios)" }}
             />
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold tabular-nums text-text-1">
+          <span
+            className="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold tabular-nums text-text-1"
+            data-testid="readiness-score"
+          >
             {data.score}
           </span>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-bold" style={{ color: meta.color }}>
+          <p className="text-[15px] font-bold" style={{ color: meta.color }} data-testid="readiness-band">
             {meta.label}
           </p>
           <p className="mt-0.5 text-[13px] leading-snug text-text-2">{data.advice}</p>
@@ -87,7 +90,7 @@ export function ReadinessCard() {
             </p>
           )}
           {data.physiologyWarmup && (
-            <p className="mt-1 text-[12px] text-text-3">
+            <p className="mt-1 text-[12px] text-text-3" data-testid="readiness-physiology-warmup">
               Building your recovery baseline from the watch (
               {data.physiologyWarmup.daysCollected}/{data.physiologyWarmup.daysNeeded} days).
               Sleep and HRV will factor in once it&apos;s ready.
