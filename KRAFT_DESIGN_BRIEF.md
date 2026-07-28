@@ -71,10 +71,10 @@ session only, does not change the user's saved default. Make that scoping
 legible without a paragraph of explanation.
 
 **C. Equipment for this session.** Three presets, again for this session only:
-- "Home or bodyweight" — no equipment
-- "CrossFit or Hyrox box" — free weights, boxes, bands, benches, pull-up bars,
+- "Home or bodyweight": no equipment
+- "CrossFit or Hyrox box": free weights, boxes, bands, benches, pull-up bars,
   no machines
-- "Full gym" — everything a box has, plus machines
+- "Full gym": everything a box has, plus machines
 
 Below the presets, the individual equipment remains editable: Dumbbells, Chair,
 Box / step, Bench, Barbell, Kettlebell, Pull-up bar, Resistance band, Machines.
@@ -131,8 +131,8 @@ make clearing either one obvious.
 
 All three screens, in dark and light, including the three states of the top
 section on Screen 1, and the empty states for custom workouts and for a search
-that matches nothing. Call out anything you
-think is wrong with this structure rather than only executing it.
+that matches nothing. Call out anything you think is wrong with this structure
+rather than only executing it.
 
 ---
 
