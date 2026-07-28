@@ -43,7 +43,7 @@ describe("generateSteadyPlan", () => {
     expect(plan.weeks).toHaveLength(8);
     expect(plan.weeks.every((w) => w.type !== "race")).toBe(true);
     expect(workoutTypes(plan).includes("race")).toBe(false);
-    expect(plan.name).toBe("Get Fit — 8 weeks");
+    expect(plan.name).toBe("Get Fit · 8 weeks");
 
     // Non-deload weeks never jump more than ~10% over the previous non-deload.
     const normals = plan.weeks.filter((w) => w.type === "normal").map((w) => w.targetKm);
@@ -63,7 +63,7 @@ describe("generateSteadyPlan", () => {
     const normals = plan.weeks.filter((w) => w.type === "normal").map((w) => w.targetKm);
     // All non-deload weeks target the same volume.
     expect(new Set(normals).size).toBe(1);
-    expect(plan.name).toBe("Maintain — 8 weeks");
+    expect(plan.name).toBe("Maintain · 8 weeks");
   });
 
   it("raceDate is the plan end (last Sunday), after start", () => {
@@ -82,7 +82,7 @@ describe("generateReturnPlan", () => {
     const plan = generateReturnPlan({ ...base, intent: "return", planLengthWeeks: 8 });
     expect(plan.intent).toBe("return");
     expect(plan.weeks).toHaveLength(8);
-    expect(plan.name).toBe("Return to Running — 8 weeks");
+    expect(plan.name).toBe("Return to Running · 8 weeks");
     expect(workoutTypes(plan).includes("race")).toBe(false);
 
     // Week 1 has at least one run/walk session; final week has a continuous run.

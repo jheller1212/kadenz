@@ -535,7 +535,7 @@ async function processGarminStrengthJob(
   if (exercises.length === 0) return;
 
   // Week-prefix + duration so the watch list reads like the plan:
-  // "W3 · Upper — Kraft · 30 min". Week comes from the active running plan the
+  // "W3 · Upper · Kraft · 30 min". Week comes from the active running plan the
   // strength schedule follows; standalone blocks (no plan) just omit it.
   const [activePlan] = await db
     .select({
