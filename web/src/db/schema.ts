@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   index,
   uniqueIndex,
@@ -337,10 +337,20 @@ export const activities = pgTable(
     // Strava sport_type ("Run", "WeightTraining", "Workout", …) — drives the
     // unified feed's type badge and run-vs-strength matching.
     sportType: text("sport_type"),
+    // Retained for compatibility while readers migrate to provider/externalId
+    // below (see src/lib/activity-provider.ts) — do not add new readers of
+    // these two columns, and do not drop them until the eventual cleanup
+    // pass (docs/DUPLICATION.md: one concept, computed in one place).
     stravaId: text("strava_id").unique(),
     // Garmin activity id for watch-recorded activities imported via the
     // garmin-worker (stravaId stays null for those).
     garminId: text("garmin_id").unique(),
+    // Generic replacement for stravaId/garminId so a new source (Apple
+    // Health, Health Connect, ...) never needs its own column. Written
+    // alongside the legacy column on every write path; both are populated
+    // in parallel until readers have fully migrated.
+    provider: text("provider"),
+    externalId: text("external_id"),
     name: text("name"),
     distanceKm: real("distance_km"),
     durationSeconds: integer("duration_seconds"),
@@ -379,6 +389,13 @@ export const activities = pgTable(
     index("activities_workout_id_idx").on(t.workoutId),
     index("activities_strava_id_idx").on(t.stravaId),
     index("activities_strength_session_id_idx").on(t.strengthSessionId),
+    // Partial: manually created activities have neither field set, and
+    // Postgres never treats NULL as colliding with NULL in a unique index —
+    // see drizzle/0050_activity_provider_external_id.sql for the full
+    // reasoning behind the WHERE clause.
+    uniqueIndex("activities_provider_external_id_uq")
+      .on(t.provider, t.externalId)
+      .where(sql`${t.provider} is not null and ${t.externalId} is not null`),
   ]
 );
 

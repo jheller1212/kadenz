@@ -341,7 +341,11 @@ export async function GET(
     return Response.json({
       id: activity.id,
       stravaId: activity.stravaId ?? "",
-      source: activity.stravaId ? "strava" : activity.garminId ? "garmin" : "manual",
+      // provider is dual-written alongside stravaId/garminId on every import
+      // (see src/lib/activity-provider.ts) — a plain "which provider is
+      // this" classification reads cleaner from it than chaining the two
+      // legacy id columns.
+      source: activity.provider ?? (activity.stravaId ? "strava" : activity.garminId ? "garmin" : "manual"),
       // The planned workout's title when it's linked, else what the device
       // called it — "Run" for everything erased strength sessions and names.
       name: plannedWorkout?.title ?? activity.name ?? "Run",

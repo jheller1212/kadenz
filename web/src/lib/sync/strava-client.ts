@@ -14,6 +14,7 @@ import {
   stravaUpdateFields,
   type StravaActivity,
 } from "./strava-activity-fields";
+import { buildProviderExternalId } from "@/lib/activity-provider";
 
 // A Strava activity must be at least this long to auto-complete ("lock") a
 // planned strength session — guards against accidental / trivial recordings.
@@ -518,6 +519,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
     await db.insert(activities).values({
       strengthSessionId,
       stravaId: String(activityId),
+      ...buildProviderExternalId("strava", activityId),
       ...common,
     });
     if (strengthSessionId) {
@@ -566,6 +568,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
   await db.insert(activities).values({
     workoutId,
     stravaId: String(activityId),
+    ...buildProviderExternalId("strava", activityId),
     ...common,
     sportType: "Run",
     ...run,
