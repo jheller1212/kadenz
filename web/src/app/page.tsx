@@ -38,6 +38,7 @@ import { loadSettings, saveSettings } from "@/lib/settings";
 import { requestLocationPermission, declineLocationPrimer } from "@/lib/permissions";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
+import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
 import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { PermissionPrimer } from "@/components/PermissionPrimer";
@@ -730,7 +731,7 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
 
   return (
     <motion.button
-      onClick={() => router.push(`/workout/${workout.id}`)}
+      onClick={() => router.push(workoutUrl(workout.id))}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 450, damping: 32 }}
       className="w-full overflow-hidden k-card text-left"
@@ -1196,7 +1197,7 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
 
   return (
     <motion.button
-      onClick={() => router.push(`/strength/session/${session.id}`)}
+      onClick={() => router.push(strengthSessionUrl(session.id))}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 450, damping: 32 }}
       className="w-full overflow-hidden k-card text-left"
@@ -1365,7 +1366,7 @@ function PlanFinishedCTA({
           }
           action={
             raceWorkoutId ? (
-              <TransitionLink href={`/workout/${raceWorkoutId}`}>
+              <TransitionLink href={workoutUrl(raceWorkoutId)}>
                 <Button variant="primary">Log race result</Button>
               </TransitionLink>
             ) : (
@@ -2106,7 +2107,7 @@ function CelebrationSheet({
             className="flex-1"
             onClick={() => {
               onClose();
-              window.location.href = `/workout/${workout.id}`;
+              window.location.href = workoutUrl(workout.id);
             }}
           >
             View workout

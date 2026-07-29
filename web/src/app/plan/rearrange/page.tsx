@@ -42,6 +42,7 @@ import { predictRaceTime, RACE_DISTANCES_M } from "@/lib/plan-engine/vdot";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import { haptic } from "@/lib/haptics";
+import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
 import type {
   GeneratedPlan,
   GeneratedWeek,
@@ -1134,10 +1135,10 @@ function PlanPageInner() {
       ? new Date(detailSheet.session.date)
       : null;
   const detailHref =
-    detailSheet?.kind === "run"
-      ? `/workout/${detailSheet.workout.id}`
+    detailSheet?.kind === "run" && detailSheet.workout.id
+      ? workoutUrl(detailSheet.workout.id)
       : detailSheet?.kind === "strength"
-      ? `/strength/session/${detailSheet.session.id}`
+      ? strengthSessionUrl(detailSheet.session.id)
       : "#";
   const detailStatus =
     detailSheet?.kind === "run"

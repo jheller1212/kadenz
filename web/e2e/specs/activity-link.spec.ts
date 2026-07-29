@@ -25,7 +25,7 @@ test.describe("Linking an activity to a strength session", () => {
     ).find((a) => a.durationSeconds === 1800 && a.avgHr === 128);
     expect(seeded, "seeded unlinked activity not found — check e2e/seed.ts").toBeTruthy();
 
-    await page.goto(`/activity/${seeded!.id}`);
+    await page.goto(`/activity?id=${seeded!.id}`);
 
     // Reset to a known unlinked state before asserting anything — a previous
     // run of this same test may have left it linked.
