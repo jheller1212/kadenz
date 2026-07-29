@@ -1,31 +1,47 @@
 import { expect, type Page } from "@playwright/test";
+import { and, gte, inArray, lte } from "drizzle-orm";
+import { E2E_DATABASE_URL } from "./env";
+import { db, strengthSessions, strengthSets } from "../src/db/index";
+
+// db is a lazy singleton (see src/db/index.ts) that only reads this on the
+// first real query, so setting it at import time is safe — same pattern as
+// e2e/seed.ts and kraft-unfinished-session.spec.ts.
+process.env.DATABASE_URL = process.env.DATABASE_URL ?? E2E_DATABASE_URL;
 
 /**
- * Removes every planned strength session dated today, through the app's own
- * API (same cookie, no back door).
+ * Removes every strength session dated today, straight from the local e2e
+ * database.
  *
- * The seed deliberately contains no planned strength session for today, so
- * anything found here was created by a spec that started an ad-hoc session.
- * Specs share one database (see README), and a leftover session is not inert:
- * the Kraft picker adopts an existing planned session of the same type instead
- * of creating one, so a single leaked session makes every later "start a fresh
- * session" step silently reuse the old plan. Call this before and after any
- * spec that starts sessions.
+ * The seed deliberately creates no strength session for today, so anything
+ * found here was left behind by a spec. Specs share one database (see README)
+ * and a leftover session is not inert: the Kraft picker adopts an existing
+ * planned session of the same type instead of creating one, so a single leaked
+ * session makes every later "start a fresh session" step silently reuse the old
+ * plan, with the old plan's duration. Call this before and after any spec that
+ * starts sessions.
+ *
+ * Deliberately not done through the app's API: the list endpoint is scoped to
+ * the active profile cookie, which is only set once a page has loaded, so an
+ * API-based cleanup running before the first navigation cannot see every
+ * session a previous spec left behind. A test precondition needs to be
+ * unconditional, and this is local throwaway data by construction (see
+ * e2e/env.ts).
  */
-export async function clearTodaysStrengthSessions(page: Page) {
+export async function clearTodaysStrengthSessions() {
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const dayEnd = new Date();
   dayEnd.setHours(23, 59, 59, 999);
 
-  const res = await page.request.get(
-    `/api/strength/sessions?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`
-  );
-  if (!res.ok()) return;
-  const todays = (await res.json()) as Array<{ id: string; status: string }>;
-  for (const s of todays) {
-    if (s.status === "planned") await page.request.delete(`/api/strength/sessions/${s.id}`);
-  }
+  const todays = await db
+    .select({ id: strengthSessions.id })
+    .from(strengthSessions)
+    .where(and(gte(strengthSessions.date, dayStart), lte(strengthSessions.date, dayEnd)));
+  if (todays.length === 0) return;
+
+  const ids = todays.map((s) => s.id);
+  await db.delete(strengthSets).where(inArray(strengthSets.sessionId, ids));
+  await db.delete(strengthSessions).where(inArray(strengthSessions.id, ids));
 }
 
 /** Opens the custom workout builder's exercise picker, clicking through the
