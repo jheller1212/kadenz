@@ -68,8 +68,9 @@ describe("Strava OAuth callback", () => {
     expect(setCookie).not.toContain("authenticated");
   });
 
-  it("treats an allowlisted athlete who is not the first entry as a different user", async () => {
+  it("treats a second allowlisted athlete as a different user", async () => {
     process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = `${OWNER_ATHLETE},456`;
+    process.env.KADENZ_OWNER_STRAVA_ID = String(OWNER_ATHLETE);
     exchangeCode.mockResolvedValue({ athlete_id: 456, access_token: "x" });
     resolveUserForLogin.mockResolvedValue("33333333-3333-4333-8333-333333333333");
 
@@ -78,5 +79,20 @@ describe("Strava OAuth callback", () => {
     expect(resolveUserForLogin).toHaveBeenCalledWith(
       expect.objectContaining({ providerAccountId: "456", isOwner: false })
     );
+    delete process.env.KADENZ_OWNER_STRAVA_ID;
+  });
+
+  it("refuses the login rather than guessing when the owner is ambiguous", async () => {
+    // Two allowlisted athletes and no KADENZ_OWNER_STRAVA_ID. Picking one
+    // would hand whoever it picked a session over all of the owner's data.
+    process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = `${OWNER_ATHLETE},456`;
+    exchangeCode.mockResolvedValue({ athlete_id: OWNER_ATHLETE, access_token: "x" });
+
+    const res = await GET(fakeRequest("abc"));
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    expect(resolveUserForLogin).not.toHaveBeenCalled();
+    expect(saveTokens).not.toHaveBeenCalled();
   });
 });

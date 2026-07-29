@@ -42,12 +42,26 @@ export async function GET(request: NextRequest) {
 
   const athleteId = String(tokens.athlete_id);
 
+  // Null means the configuration does not say which account owns the existing
+  // data and it cannot be inferred. Refuse rather than guess: guessing wrong
+  // gives this login a session over every row in the database.
+  const ownerAthleteId = ownerStravaAthleteId();
+  if (ownerAthleteId === null) {
+    console.error(
+      "Cannot tell which Strava account owns Kadenz's data. Set KADENZ_OWNER_STRAVA_ID."
+    );
+    return NextResponse.json(
+      { error: "Kadenz is misconfigured and cannot complete this login." },
+      { status: 500 }
+    );
+  }
+
   let userId: string;
   try {
     userId = await resolveUserForLogin({
       provider: "strava",
       providerAccountId: athleteId,
-      isOwner: athleteId === ownerStravaAthleteId(),
+      isOwner: athleteId === ownerAthleteId,
     });
   } catch (err) {
     console.error("Failed to resolve Strava user:", err);
