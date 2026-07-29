@@ -12,6 +12,30 @@
 //   • migration error  → log + exit 0 (site still ships; schema stays as-is)
 // The worst case is that new schema-dependent features stay dormant until the
 // migration succeeds — never a regression from today's state.
+//
+// ── If you are writing a migration, three behaviours to design around ────────
+//
+// 1. A failed statement ABANDONS THE REST OF ITS FILE. The loop below catches
+//    per file, not per statement, so statement 40 failing means statements 41
+//    onward never run — on this deploy and on every deploy after, since the
+//    same statement fails again next time. A file that migrates many tables
+//    therefore leaves every table after the failure untouched. Put any
+//    statement that can legitimately fail LAST, or make it swallow its own
+//    error (DO $$ … EXCEPTION WHEN … THEN RAISE WARNING … END $$), so it
+//    cannot take the rest of the file down with it.
+//
+// 2. Each statement runs on its own, with NO SURROUNDING TRANSACTION, against
+//    a live database. The cron sync and the Strava and Garmin webhooks keep
+//    writing throughout. Anything that reasons about the current contents of a
+//    table has a window in which new rows can appear. Adding a NOT NULL
+//    column is the classic case: set the DEFAULT before backfilling, never
+//    after, or a row inserted between the backfill and the SET NOT NULL
+//    arrives null and fails the constraint (see 0052).
+//
+// 3. The build stays green either way. Nothing here surfaces a failed
+//    migration except these logs, so a half-applied file is invisible unless
+//    someone reads the build output. Assume nobody will. That is the reason
+//    for points 1 and 2 rather than a promise to check afterwards.
 
 import postgres from "postgres";
 import { readFileSync, readdirSync } from "node:fs";
