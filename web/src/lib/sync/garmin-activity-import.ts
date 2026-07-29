@@ -20,6 +20,7 @@ import {
 } from "./strava-client";
 import { isConnected as isGcalConnected } from "./gcal-client";
 import { queueStrengthSessionSync } from "./sync-manager";
+import { buildProviderExternalId } from "@/lib/activity-provider";
 
 const MIN_STRENGTH_MATCH_SECONDS = 5 * 60; // same guard as the Strava path
 const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
@@ -77,6 +78,7 @@ async function importRun(act: GarminActivity, startDate: Date): Promise<void> {
   await db.insert(activities).values({
     workoutId,
     garminId: act.garminId,
+    ...buildProviderExternalId("garmin", act.garminId),
     sportType: "Run",
     name: act.name,
     startDate,
@@ -111,6 +113,7 @@ async function importStrength(act: GarminActivity, startDate: Date): Promise<voi
   await db.insert(activities).values({
     strengthSessionId,
     garminId: act.garminId,
+    ...buildProviderExternalId("garmin", act.garminId),
     sportType: act.activityType || "WeightTraining",
     name: act.name,
     startDate,

@@ -8,6 +8,8 @@ const baseRow: ActivityRow = {
   sportType: "Run",
   stravaId: "9876543210",
   garminId: null,
+  provider: "strava",
+  externalId: "9876543210",
   name: "Evening run",
   distanceKm: 10.42,
   durationSeconds: 3125,
@@ -66,6 +68,8 @@ describe("payloadToRow", () => {
       ...baseRow,
       stravaId: null,
       garminId: "garmin-123",
+      provider: "garmin",
+      externalId: "garmin-123",
       startDate: null,
     };
     const row = payloadToRow(JSON.parse(JSON.stringify(rowToPayload(original))));
