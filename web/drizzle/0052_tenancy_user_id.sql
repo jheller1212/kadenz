@@ -15,6 +15,17 @@
 -- attributes every new row to the owner is exactly the wrong behaviour once
 -- a second user exists, so it must not survive past Phase 3.
 --
+-- Statement order per table is deliberate: ADD COLUMN, SET DEFAULT, backfill,
+-- SET NOT NULL. The default has to exist BEFORE the backfill runs. The
+-- migration runner applies each statement on its own, with no surrounding
+-- transaction, and Kadenz's cron sync and its Strava and Garmin webhooks do
+-- not pause for a Vercel build. With the default set last, a row inserted in
+-- the gap between the backfill and the default would land with a null
+-- user_id, SET NOT NULL would fail, and the runner would abandon every table
+-- after that one, leaving them untenanted while the build still went green.
+-- With the default set first there is no such gap: anything written during
+-- the migration gets the owner automatically.
+--
 -- Left untouched on purpose: users, user_identities (identity tables, not
 -- tenanted data), strength_exercises (a shared catalogue, nobody's data), and
 -- strength_sets / pain_logs / custom_workout_slots (each reachable only
@@ -36,9 +47,9 @@ END $$;
 -- plans
 ALTER TABLE "plans" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "plans" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "plans" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "plans" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "plans" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -55,9 +66,9 @@ CREATE INDEX IF NOT EXISTS "plans_user_id_idx" ON "plans" ("user_id");
 -- weeks
 ALTER TABLE "weeks" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "weeks" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "weeks" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "weeks" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "weeks" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -74,9 +85,9 @@ CREATE INDEX IF NOT EXISTS "weeks_user_id_idx" ON "weeks" ("user_id");
 -- workouts
 ALTER TABLE "workouts" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "workouts" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "workouts" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "workouts" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "workouts" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -93,9 +104,9 @@ CREATE INDEX IF NOT EXISTS "workouts_user_id_idx" ON "workouts" ("user_id");
 -- blocks
 ALTER TABLE "blocks" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "blocks" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "blocks" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "blocks" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "blocks" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -112,9 +123,9 @@ CREATE INDEX IF NOT EXISTS "blocks_user_id_idx" ON "blocks" ("user_id");
 -- activities
 ALTER TABLE "activities" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "activities" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "activities" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "activities" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "activities" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -131,9 +142,9 @@ CREATE INDEX IF NOT EXISTS "activities_user_id_idx" ON "activities" ("user_id");
 -- deleted_activities
 ALTER TABLE "deleted_activities" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "deleted_activities" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "deleted_activities" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "deleted_activities" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "deleted_activities" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -150,9 +161,9 @@ CREATE INDEX IF NOT EXISTS "deleted_activities_user_id_idx" ON "deleted_activiti
 -- activity_trash
 ALTER TABLE "activity_trash" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "activity_trash" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "activity_trash" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "activity_trash" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "activity_trash" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -169,9 +180,9 @@ CREATE INDEX IF NOT EXISTS "activity_trash_user_id_idx" ON "activity_trash" ("us
 -- personal_records
 ALTER TABLE "personal_records" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "personal_records" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "personal_records" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "personal_records" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "personal_records" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -188,9 +199,9 @@ CREATE INDEX IF NOT EXISTS "personal_records_user_id_idx" ON "personal_records" 
 -- sync_outbox
 ALTER TABLE "sync_outbox" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "sync_outbox" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "sync_outbox" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "sync_outbox" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "sync_outbox" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -207,9 +218,9 @@ CREATE INDEX IF NOT EXISTS "sync_outbox_user_id_idx" ON "sync_outbox" ("user_id"
 -- wellness_metrics
 ALTER TABLE "wellness_metrics" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "wellness_metrics" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "wellness_metrics" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "wellness_metrics" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "wellness_metrics" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -226,9 +237,9 @@ CREATE INDEX IF NOT EXISTS "wellness_metrics_user_id_idx" ON "wellness_metrics" 
 -- push_subscriptions
 ALTER TABLE "push_subscriptions" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "push_subscriptions" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "push_subscriptions" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "push_subscriptions" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "push_subscriptions" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -246,9 +257,9 @@ CREATE INDEX IF NOT EXISTS "push_subscriptions_user_id_idx" ON "push_subscriptio
 -- file, not here, because it is the one statement that can legitimately fail)
 ALTER TABLE "reminder_settings" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "reminder_settings" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "reminder_settings" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "reminder_settings" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "reminder_settings" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -263,9 +274,9 @@ END $$;
 -- sent_reminders
 ALTER TABLE "sent_reminders" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "sent_reminders" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "sent_reminders" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "sent_reminders" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "sent_reminders" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -282,9 +293,9 @@ CREATE INDEX IF NOT EXISTS "sent_reminders_user_id_idx" ON "sent_reminders" ("us
 -- strength_sessions
 ALTER TABLE "strength_sessions" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "strength_sessions" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "strength_sessions" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "strength_sessions" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "strength_sessions" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -301,9 +312,9 @@ CREATE INDEX IF NOT EXISTS "strength_sessions_user_id_idx" ON "strength_sessions
 -- wellness_logs
 ALTER TABLE "wellness_logs" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "wellness_logs" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "wellness_logs" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "wellness_logs" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "wellness_logs" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -320,9 +331,9 @@ CREATE INDEX IF NOT EXISTS "wellness_logs_user_id_idx" ON "wellness_logs" ("user
 -- strength_plan_settings
 ALTER TABLE "strength_plan_settings" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "strength_plan_settings" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "strength_plan_settings" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "strength_plan_settings" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "strength_plan_settings" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -339,9 +350,9 @@ CREATE INDEX IF NOT EXISTS "strength_plan_settings_user_id_idx" ON "strength_pla
 -- custom_workout_templates
 ALTER TABLE "custom_workout_templates" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "custom_workout_templates" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "custom_workout_templates" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "custom_workout_templates" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "custom_workout_templates" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
@@ -358,9 +369,9 @@ CREATE INDEX IF NOT EXISTS "custom_workout_templates_user_id_idx" ON "custom_wor
 -- profiles
 ALTER TABLE "profiles" ADD COLUMN IF NOT EXISTS "user_id" uuid;
 --> statement-breakpoint
-UPDATE "profiles" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
---> statement-breakpoint
 ALTER TABLE "profiles" ALTER COLUMN "user_id" SET DEFAULT '00000000-0000-0000-0000-000000000001';
+--> statement-breakpoint
+UPDATE "profiles" SET "user_id" = '00000000-0000-0000-0000-000000000001' WHERE "user_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "profiles" ALTER COLUMN "user_id" SET NOT NULL;
 --> statement-breakpoint
