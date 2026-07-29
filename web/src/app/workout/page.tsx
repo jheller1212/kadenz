@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, MoreHorizontal, CheckCircle2, Flame, Wind, HeartPulse, SkipForward, Pencil, Minus, Plus, RotateCcw, Link2, Clock, CalendarClock, Undo2, Check, Flag } from "lucide-react";
 import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { useSettings } from "@/lib/useSettings";
@@ -949,9 +949,30 @@ function MusicButton() {
   );
 }
 
-export default function WorkoutDetailPage({ params }: { params: Promise<{ id: string }> }) {
+// useSearchParams() requires a Suspense boundary in a prerendered/exported
+// build, so the id-reading logic lives in the inner component below.
+export default function WorkoutDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-dvh bg-bg">
+          <NavBar title="Workout" large={false} />
+          <div className="px-4 pb-tabbar flex flex-col gap-3 pt-2">
+            <Skeleton className="h-40 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </main>
+      }
+    >
+      <WorkoutDetailPageInner />
+    </Suspense>
+  );
+}
+
+function WorkoutDetailPageInner() {
   useSwipeBack();
-  const { id } = use(params);
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id");
   const router = useRouter();
   const settings = useSettings();
   const useMiles = settings.units === "miles";
@@ -997,6 +1018,11 @@ export default function WorkoutDetailPage({ params }: { params: Promise<{ id: st
   } | null>(null);
 
   async function loadWorkout() {
+    if (!id) {
+      setError("Workout not found.");
+      setLoading(false);
+      return;
+    }
     try {
       const res = await apiFetch(`/api/workouts/${id}`);
       if (res.status === 404) {

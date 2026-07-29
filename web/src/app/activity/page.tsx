@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -31,6 +31,7 @@ import { getUserZoneBounds, computeZoneSeconds, formatZoneTime } from "@/lib/hr-
 import { decodePolyline, polylineToPath } from "@/lib/polyline";
 import { workoutColor } from "@/lib/workout-colors";
 import { buildHeartRateChartData } from "@/lib/activity-charts";
+import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -671,7 +672,7 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
 
         <div className="border-t border-hairline px-4 py-3">
           <TransitionLink
-            href={`/workout/${workout.id}`}
+            href={workoutUrl(workout.id)}
             className="press flex items-center justify-center gap-1.5 text-[13px] font-semibold text-text-2"
           >
             View full workout
@@ -686,7 +687,7 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
 // ── Linked Strength Session ───────────────────────────────────────────────────
 // The strength equivalent of PlannedWorkoutSection above: this activity is
 // linked (strengthSessionId set), but the strength session's own sets/reps
-// live on its own detail screen (/strength/session/[id]), so this is just a
+// live on its own detail screen (/strength/session?id=...), so this is just a
 // pointer there, not a rebuild of that screen.
 
 function LinkedStrengthSection({ session }: { session: NonNullable<ActivityDetail["linkedStrengthSession"]> }) {
@@ -694,7 +695,7 @@ function LinkedStrengthSection({ session }: { session: NonNullable<ActivityDetai
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Linked Session</h2>
       <TransitionLink
-        href={`/strength/session/${session.id}`}
+        href={strengthSessionUrl(session.id)}
         className="press flex items-center gap-3 overflow-hidden k-card px-4 py-3.5"
       >
         <ActivityIcon className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.75} />
@@ -1203,18 +1204,34 @@ function LoadingSkeleton() {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function ActivityDetailPage({ params }: { params: Promise<{ id: string }> }) {
+// useSearchParams() requires a Suspense boundary in a prerendered/exported
+// build, so the id-reading logic lives in the inner component below.
+export default function ActivityDetailPage() {
+  return (
+    <Suspense fallback={<LoadingSkeleton />}>
+      <ActivityDetailPageInner />
+    </Suspense>
+  );
+}
+
+function ActivityDetailPageInner() {
   useSwipeBack();
-  const { id } = use(params);
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id");
   const [activity, setActivity] = useState<ActivityDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(!!id);
+  const [error, setError] = useState(!id);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const router = useRouter();
 
   async function reload() {
+    if (!id) {
+      setError(true);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await apiFetch(`/api/activities/${id}`);
       if (!res.ok) throw new Error("Not found");

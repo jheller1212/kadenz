@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, CheckCircle2, Dumbbell } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
@@ -86,12 +86,30 @@ interface CatalogRow {
   name: string;
 }
 
-export default function StrengthSessionPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+// useSearchParams() requires a Suspense boundary in a prerendered/exported
+// build, so the id-reading logic lives in the inner component below.
+export default function StrengthSessionPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-dvh bg-bg">
+          <NavBar title="Session" large={false} />
+          <div className="flex flex-col gap-3 px-4 pb-tabbar pt-2">
+            <Skeleton className="h-36 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </main>
+      }
+    >
+      <StrengthSessionPageInner />
+    </Suspense>
+  );
+}
+
+function StrengthSessionPageInner() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id");
   useSwipeBack();
   const router = useRouter();
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -148,6 +166,11 @@ export default function StrengthSessionPage({
   }
 
   useEffect(() => {
+    if (!id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- no fetch to run without an id, so there's nothing to synchronize; this just ends the loading state
+      setLoading(false);
+      return;
+    }
     let alive = true;
     Promise.all([
       apiFetch(`/api/strength/sessions/${id}`).then((r) => (r.ok ? r.json() : null)),
