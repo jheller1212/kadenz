@@ -386,6 +386,38 @@ export default function StrengthPage() {
   // so abandoned picker taps don't linger as phantom "missed" sessions.
   const adHocIdRef = useRef<string | null>(null);
 
+  // Backing out of an ad-hoc session deletes it without awaiting the response
+  // (Back must feel instant), which leaves a window where the session still exists server-side.
+  // Starting a session again inside that window used to re-adopt the very
+  // session that was being deleted, because pickType's "is there already a
+  // planned session today?" list still returned it — so a duration or equipment
+  // choice made in the start sheet was silently dropped and the abandoned plan
+  // came back instead. Remembering the in-flight delete lets pickType wait for
+  // it and skip that id outright.
+  const abandonRef = useRef<{ id: string; done: Promise<void> } | null>(null);
+
+  function abandonSession(id: string) {
+    const done = apiFetch(`/api/strength/sessions/${id}`, {
+      method: "DELETE",
+      // Survives the page being navigated away from or closed right after
+      // Back — otherwise an abandoned session lingers on today as a phantom
+      // "missed" session, which is exactly what this delete exists to prevent.
+      keepalive: true,
+    })
+      .then(() => undefined)
+      .catch(() => undefined);
+    abandonRef.current = { id, done };
+  }
+
+  /** Waits for any in-flight abandon-delete and returns the id it removed. */
+  async function settleAbandon(): Promise<string | null> {
+    const pending = abandonRef.current;
+    if (!pending) return null;
+    await pending.done;
+    abandonRef.current = null;
+    return pending.id;
+  }
+
   // Deep-link from a session detail screen's "Start session" (Today, the plan,
   // the feed): /strength?session=<id> jumps straight to THIS session's overview
   // — weights, reorder, then start guided — instead of the picker landing.
@@ -469,6 +501,12 @@ export default function StrengthPage() {
       let sessionId: string | null = null;
       adHocIdRef.current = null;
 
+      // Let a just-abandoned session finish disappearing before asking what's
+      // already planned for today, and never adopt it even if that delete
+      // failed. Without this, Back followed by a quick restart re-adopts the
+      // abandoned plan and drops the start sheet's duration/equipment choice.
+      const abandonedId = await settleAbandon();
+
       // Adopt: a planned session of this type scheduled for today. An
       // already-planned session (e.g. from auto-scheduling) keeps its own
       // committed plan — a chosen start-sheet override only applies when
@@ -482,7 +520,9 @@ export default function StrengthPage() {
       );
       if (listRes.ok) {
         const todays = (await listRes.json()) as Array<{ id: string; type: string; status: string }>;
-        sessionId = todays.find((s) => s.type === type && s.status === "planned")?.id ?? null;
+        sessionId =
+          todays.find((s) => s.type === type && s.status === "planned" && s.id !== abandonedId)?.id ??
+          null;
       }
 
       if (!sessionId) {
@@ -553,7 +593,7 @@ export default function StrengthPage() {
     // Abandoning a just-created ad-hoc session before logging anything? Remove
     // it again (adopted planned sessions are left untouched).
     if (phase === "overview" && adHocIdRef.current && session?.id === adHocIdRef.current) {
-      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+      abandonSession(adHocIdRef.current);
     }
     adHocIdRef.current = null;
     setPhase("picker");
@@ -961,7 +1001,7 @@ export default function StrengthPage() {
   // snapshot — remove an ad-hoc session entirely so nothing lingers on today.
   function handleDiscardGuided() {
     if (adHocIdRef.current && session?.id === adHocIdRef.current) {
-      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+      abandonSession(adHocIdRef.current);
     }
     adHocIdRef.current = null;
     setResume(null);
