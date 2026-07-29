@@ -108,16 +108,27 @@ async function getAccessToken(account: ServiceAccount): Promise<string> {
 }
 
 /**
- * True when FCM says this token will never work again, so the row should be
- * deleted rather than retried. UNREGISTERED means the app was uninstalled or
- * the token was replaced; INVALID_ARGUMENT on a send means the token is
- * malformed. Everything else (quota, 5xx, network) is transient and keeps its
- * row so a later cron run can try again.
+ * True only when FCM says this specific token will never work again, so the
+ * row should be deleted rather than retried. That means UNREGISTERED, which is
+ * FCM's way of saying the app was uninstalled or the token was replaced.
+ *
+ * Deliberately narrow. INVALID_ARGUMENT is NOT treated as permanent, even
+ * though a malformed token is one of the things that produces it, because a
+ * malformed *message* produces exactly the same code. A bug in the payload we
+ * send would return INVALID_ARGUMENT for every device at once, and treating
+ * that as permanent would delete every native subscription in the table on a
+ * single cron run. Recovering from that needs every athlete to reinstall or
+ * re-enable notifications, which is unrecoverable in practice.
+ *
+ * The cost of being wrong the other way is far smaller: a genuinely malformed
+ * token keeps its row and fails a few more times until the retry cap in
+ * retry.ts stops attempting it. Wasted work, no data loss.
  */
 export function isPermanentFcmFailure(status: number, body: string): boolean {
+  // 404 NOT_FOUND is the documented "this registration token is gone".
   if (status === 404) return true;
-  if (status === 403 || status === 400) {
-    return body.includes("UNREGISTERED") || body.includes("INVALID_ARGUMENT");
+  if (status === 400 || status === 403) {
+    return body.includes("UNREGISTERED");
   }
   return false;
 }

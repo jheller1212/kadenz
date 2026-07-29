@@ -26,8 +26,21 @@ describe("isPermanentFcmFailure", () => {
     expect(isPermanentFcmFailure(403, '{"error":{"status":"UNREGISTERED"}}')).toBe(true);
   });
 
-  it("treats a malformed token as permanently gone", () => {
-    expect(isPermanentFcmFailure(400, '{"error":{"status":"INVALID_ARGUMENT"}}')).toBe(true);
+  // The important one. INVALID_ARGUMENT is returned both for a bad token and
+  // for a bad message, so a bug in the payload we send would return it for
+  // every device at once. Treating it as permanent would delete every native
+  // subscription in a single cron run, and getting them back needs every
+  // athlete to reinstall or re-enable notifications.
+  it("keeps a row on INVALID_ARGUMENT, which may be our payload not their token", () => {
+    expect(isPermanentFcmFailure(400, '{"error":{"status":"INVALID_ARGUMENT"}}')).toBe(false);
+  });
+
+  it("still deletes on UNREGISTERED reported with a 400", () => {
+    expect(isPermanentFcmFailure(400, '{"error":{"status":"UNREGISTERED"}}')).toBe(true);
+  });
+
+  it("keeps a row on SENDER_ID_MISMATCH, which is a config error not a dead token", () => {
+    expect(isPermanentFcmFailure(403, '{"error":{"status":"SENDER_ID_MISMATCH"}}')).toBe(false);
   });
 
   it("keeps a quota error, so the row survives to be retried", () => {
