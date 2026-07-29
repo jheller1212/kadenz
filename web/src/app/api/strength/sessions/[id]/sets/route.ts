@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, strengthExercises } from "@/db";
 import { snapToLevel } from "@/lib/strength/weights";
 import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
@@ -121,6 +121,22 @@ export async function POST(
         .where(and(eq(strengthSessions.id, id), eq(strengthSessions.autoScheduled, true)));
     } catch (err) {
       console.error("Failed to clear autoScheduled after logging set:", err);
+    }
+
+    // Real start/end, derived from logged sets (see schema.ts strengthSessions
+    // and the 0046 migration) — startedAt is set once, on the very first set;
+    // endedAt keeps moving forward with every set logged, including edits to
+    // an already-logged set (an upsert here is still "activity happening
+    // now", the same reason an adjust-load edit resets the auto-close clock).
+    // sql`coalesce` rather than a read-then-write so a queued offline replay
+    // racing a live write can't clobber an earlier startedAt with a later one.
+    try {
+      await db
+        .update(strengthSessions)
+        .set({ startedAt: sql`coalesce(${strengthSessions.startedAt}, now())`, endedAt: new Date() })
+        .where(eq(strengthSessions.id, id));
+    } catch (err) {
+      console.error("Failed to update session start/end times after logging set:", err);
     }
 
     // PR check: compare this set against every other completed session that
@@ -253,6 +269,13 @@ export async function DELETE(
     }
 
     await db.delete(strengthSets).where(eq(strengthSets.sessionId, id));
+    // Discarding a workout returns it to the planned state (unchanged
+    // behaviour) — its start/end derive from sets that no longer exist, so
+    // they go back to null rather than lying about when it "happened".
+    await db
+      .update(strengthSessions)
+      .set({ startedAt: null, endedAt: null })
+      .where(eq(strengthSessions.id, id));
     return Response.json({ ok: true });
   } catch (err) {
     console.error("DB error discarding sets:", err);

@@ -530,6 +530,14 @@ export const strengthSessions = pgTable(
     // session would silently revert to the profile default.
     equipmentOverride: text("equipment_override").array(),
     durationOverrideMinutes: integer("duration_override_minutes"),
+    // Real wall-clock start/end, derived from logged sets (first/last
+    // strength_sets.createdAt) rather than "Start"/"Finish" button taps — see
+    // the 0046 migration and lib/strength/reconcile.ts for why. Null until
+    // the first set is logged; endedAt keeps moving forward with every set
+    // and is what the auto-close sweep and the completion PATCH both read as
+    // the session's real finish time.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

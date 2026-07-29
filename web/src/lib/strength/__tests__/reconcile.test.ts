@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_CLOSE_IDLE_MINUTES,
+  autoCloseUpdate,
   clearsAutoScheduled,
   computeTopUpPlacements,
   dateFromDayKey,
+  isAutoCloseDue,
   isPrunable,
   isStaleAdhoc,
   twinAbsorptionUpdate,
@@ -194,6 +197,64 @@ describe("twinAbsorptionUpdate", () => {
       hasLoggedData: false,
     };
     expect(isPrunable(twin, today)).toBe(false);
+  });
+});
+
+// ── Auto-close (abandoned in-progress sessions) ──────────────────────────────
+
+describe("isAutoCloseDue", () => {
+  const start = new Date("2026-07-20T18:00:00Z");
+  const lastSet = new Date("2026-07-20T18:20:00Z"); // 20 min into the workout
+
+  it("is not due before the idle threshold elapses", () => {
+    const now = new Date(lastSet.getTime() + (AUTO_CLOSE_IDLE_MINUTES - 1) * 60_000);
+    expect(isAutoCloseDue({ status: "planned", startedAt: start, endedAt: lastSet }, now)).toBe(false);
+  });
+
+  it("is due exactly at the idle threshold boundary", () => {
+    const now = new Date(lastSet.getTime() + AUTO_CLOSE_IDLE_MINUTES * 60_000);
+    expect(isAutoCloseDue({ status: "planned", startedAt: start, endedAt: lastSet }, now)).toBe(true);
+  });
+
+  it("is due well past the idle threshold", () => {
+    const now = new Date(lastSet.getTime() + 2 * AUTO_CLOSE_IDLE_MINUTES * 60_000);
+    expect(isAutoCloseDue({ status: "planned", startedAt: start, endedAt: lastSet }, now)).toBe(true);
+  });
+
+  it("a genuine rest/pause under the threshold is never touched", () => {
+    // A phone-call-length pause (15 min) must not trip the sweep.
+    const now = new Date(lastSet.getTime() + 15 * 60_000);
+    expect(isAutoCloseDue({ status: "planned", startedAt: start, endedAt: lastSet }, now)).toBe(false);
+  });
+
+  it("never touches a session with no logged sets (no startedAt/endedAt)", () => {
+    const now = new Date(start.getTime() + 10 * AUTO_CLOSE_IDLE_MINUTES * 60_000);
+    expect(isAutoCloseDue({ status: "planned", startedAt: null, endedAt: null }, now)).toBe(false);
+  });
+
+  it("never touches a session that already reached a terminal status", () => {
+    const now = new Date(lastSet.getTime() + 10 * AUTO_CLOSE_IDLE_MINUTES * 60_000);
+    for (const status of ["completed", "skipped", "missed"]) {
+      expect(isAutoCloseDue({ status, startedAt: start, endedAt: lastSet }, now)).toBe(false);
+    }
+  });
+});
+
+describe("autoCloseUpdate", () => {
+  it("lands on completed with a duration derived from the real set timestamps", () => {
+    const start = new Date("2026-07-20T18:00:00Z");
+    const lastSet = new Date("2026-07-20T18:42:00Z");
+    const now = new Date("2026-07-20T19:30:00Z");
+    const update = autoCloseUpdate({ startedAt: start, endedAt: lastSet }, now);
+    expect(update.status).toBe("completed");
+    expect(update.durationMinutes).toBe(42);
+    expect(update.updatedAt).toBe(now);
+  });
+
+  it("never produces a zero/negative duration for a same-timestamp single-set session", () => {
+    const t = new Date("2026-07-20T18:00:00Z");
+    const update = autoCloseUpdate({ startedAt: t, endedAt: t }, new Date(t.getTime() + 60_000));
+    expect(update.durationMinutes).toBe(1);
   });
 });
 

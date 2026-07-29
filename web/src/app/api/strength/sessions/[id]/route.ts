@@ -265,6 +265,26 @@ export async function PATCH(
       set.dayOfWeek = d.getDay();
     }
 
+    // The real duration is the gap between the first and last logged set
+    // (see schema.ts strengthSessions startedAt/endedAt), never a client-side
+    // wall-clock read since app foreground time — that ref doesn't survive a
+    // reload or a minimize/resume days apart. Overrides whatever
+    // durationMinutes the client sent; a session with no logged sets at all
+    // (startedAt still null) falls back to the client's value untouched, so
+    // an empty completed session doesn't get a fabricated duration either.
+    if (updates.status === "completed") {
+      const [times] = await db
+        .select({ startedAt: strengthSessions.startedAt, endedAt: strengthSessions.endedAt })
+        .from(strengthSessions)
+        .where(eq(strengthSessions.id, id));
+      if (times?.startedAt && times?.endedAt) {
+        set.durationMinutes = Math.max(
+          1,
+          Math.round((times.endedAt.getTime() - times.startedAt.getTime()) / 60000)
+        );
+      }
+    }
+
     const [updated] = await db
       .update(strengthSessions)
       .set(set)

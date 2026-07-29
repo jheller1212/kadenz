@@ -114,6 +114,53 @@ export function isStaleAdhoc(
   );
 }
 
+// Idle threshold before an in-progress session auto-closes. Chosen to sit
+// comfortably above two legitimate reasons a session goes quiet mid-workout:
+// a heavy compound lift's rest between working sets (rarely more than 4-5
+// minutes even at the top of a strength block) and a genuine pause — a phone
+// call, someone else needing the gym equipment — which can run 10-20 minutes
+// without the session actually being abandoned. 30 minutes clears both with
+// real margin while still closing a truly abandoned session the same day
+// rather than leaving it open indefinitely (which is the bug this whole
+// feature exists to fix — see getExerciseHistoryBySlug).
+export const AUTO_CLOSE_IDLE_MINUTES = 30;
+
+/**
+ * A session eligible for auto-close: still "planned" (never explicitly
+ * finished or discarded), has real logged-set timestamps (startedAt/endedAt
+ * — see schema.ts strengthSessions), and its last logged set is older than
+ * the idle threshold. Pure so the boundary is unit-testable without a clock
+ * or a database.
+ */
+export function isAutoCloseDue(
+  s: { status: string; startedAt: Date | null; endedAt: Date | null },
+  now: Date,
+  idleMinutes = AUTO_CLOSE_IDLE_MINUTES
+): boolean {
+  if (s.status !== "planned" || !s.startedAt || !s.endedAt) return false;
+  return now.getTime() - s.endedAt.getTime() >= idleMinutes * 60_000;
+}
+
+/**
+ * The update an auto-close applies. Status lands on "completed" — not a
+ * separate "auto_completed" status — because getExerciseHistoryBySlug and
+ * every progression/prefill read filter on status = "completed"; a session
+ * with real logged sets that never reaches that status is exactly the data
+ * loss this feature exists to close (see the service.ts comment). Duration
+ * is the true gap between the first and last logged set, matching what the
+ * sessions PATCH route now derives when an athlete finishes in-app.
+ */
+export function autoCloseUpdate(
+  s: { startedAt: Date; endedAt: Date },
+  now: Date
+): { status: "completed"; durationMinutes: number; updatedAt: Date } {
+  return {
+    status: "completed",
+    durationMinutes: Math.max(1, Math.round((s.endedAt.getTime() - s.startedAt.getTime()) / 60_000)),
+    updatedAt: now,
+  };
+}
+
 /**
  * When completing a session absorbs a same-day planned "twin" of the same
  * type (see PATCH /api/strength/sessions/[id]), the twin's sets and pain
