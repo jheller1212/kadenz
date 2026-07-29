@@ -24,6 +24,8 @@ import {
   strengthExercises,
   wellnessLogs,
   wellnessMetrics,
+  users,
+  OWNER_USER_ID,
 } from "../src/db/index";
 import { seedStrengthExercises } from "../src/db/seed-strength";
 
@@ -60,6 +62,15 @@ function daysFromNow(n: number): Date {
 
 export async function seedAll(): Promise<void> {
   assertLocalDatabaseUrl(process.env.DATABASE_URL);
+
+  // The owner user. In production this row comes from drizzle/0051_users.sql,
+  // but the harness builds its schema with `drizzle-kit push` and replays no
+  // migrations, so it has to be seeded here. Runs before the already-seeded
+  // early return below, because everything else references it.
+  await db
+    .insert(users)
+    .values({ id: OWNER_USER_ID, displayName: "E2E Owner" })
+    .onConflictDoNothing();
 
   const exerciseCount = await seedStrengthExercises();
   console.log(`[e2e-seed] strength catalogue: ${exerciseCount} exercises.`);

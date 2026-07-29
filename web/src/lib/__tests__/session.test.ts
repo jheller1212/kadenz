@@ -4,8 +4,13 @@ import {
   isSessionFresh,
   makeSessionCookie,
   parseIssuedAtMs,
+  parseUserId,
+  getSessionUserId,
   validateSessionCookie,
 } from "../session";
+
+const USER_A = "11111111-1111-4111-8111-111111111111";
+const USER_B = "22222222-2222-4222-8222-222222222222";
 
 const ONE_DAY_MS = 1000 * 60 * 60 * 24;
 const THIRTY_DAYS_MS = ONE_DAY_MS * 30;
@@ -38,15 +43,38 @@ async function signLegacyPayload(payload: string, secret: string): Promise<strin
 
 describe("parseIssuedAtMs", () => {
   it("extracts the timestamp from a current-format value", () => {
-    expect(parseIssuedAtMs("authenticated:1700000000000")).toBe(1700000000000);
+    expect(parseIssuedAtMs(`${USER_A}:1700000000000`)).toBe(1700000000000);
   });
 
   it("returns null for a legacy value with no timestamp", () => {
-    expect(parseIssuedAtMs("authenticated")).toBeNull();
+    expect(parseIssuedAtMs(USER_A)).toBeNull();
   });
 
   it("returns null when the suffix after the last colon isn't numeric", () => {
-    expect(parseIssuedAtMs("authenticated:not-a-number")).toBeNull();
+    expect(parseIssuedAtMs(`${USER_A}:not-a-number`)).toBeNull();
+  });
+});
+
+describe("parseUserId", () => {
+  it("extracts the user id from a current-format value", () => {
+    expect(parseUserId(`${USER_A}:1700000000000`)).toBe(USER_A);
+  });
+
+  it("lowercases so an id is compared in one casing only", () => {
+    expect(parseUserId(`${USER_A.toUpperCase()}:1700000000000`)).toBe(USER_A);
+  });
+
+  it("returns null for the pre-identity subject", () => {
+    expect(parseUserId("authenticated:1700000000000")).toBeNull();
+  });
+
+  it("returns null when the subject is not a uuid", () => {
+    expect(parseUserId("1:1700000000000")).toBeNull();
+    expect(parseUserId("not-a-uuid:1700000000000")).toBeNull();
+  });
+
+  it("returns null when there is no subject at all", () => {
+    expect(parseUserId("1700000000000")).toBeNull();
   });
 });
 
@@ -87,14 +115,14 @@ describe("cookie round-trip", () => {
 
   it("validates a freshly minted cookie", async () => {
     vi.setSystemTime(1_700_000_000_000);
-    const setCookie = await makeSessionCookie();
+    const setCookie = await makeSessionCookie(USER_A);
     const header = cookieHeaderFrom(setCookie);
     await expect(validateSessionCookie(header)).resolves.toBe(true);
   });
 
   it("rejects a cookie once it's past its max age", async () => {
     vi.setSystemTime(1_700_000_000_000);
-    const setCookie = await makeSessionCookie();
+    const setCookie = await makeSessionCookie(USER_A);
     const header = cookieHeaderFrom(setCookie);
 
     vi.setSystemTime(1_700_000_000_000 + THIRTY_DAYS_MS + 1000);
@@ -103,7 +131,7 @@ describe("cookie round-trip", () => {
 
   it("rejects a tampered signature", async () => {
     vi.setSystemTime(1_700_000_000_000);
-    const setCookie = await makeSessionCookie();
+    const setCookie = await makeSessionCookie(USER_A);
     const header = cookieHeaderFrom(setCookie).replace(/.$/, "x");
     await expect(validateSessionCookie(header)).resolves.toBe(false);
   });
@@ -121,6 +149,41 @@ describe("cookie round-trip", () => {
   it("rejects a missing cookie header", async () => {
     await expect(validateSessionCookie(null)).resolves.toBe(false);
     await expect(validateSessionCookie("")).resolves.toBe(false);
+  });
+
+  it("returns the user id the cookie was minted for", async () => {
+    vi.setSystemTime(1_700_000_000_000);
+    const headerA = cookieHeaderFrom(await makeSessionCookie(USER_A));
+    const headerB = cookieHeaderFrom(await makeSessionCookie(USER_B));
+
+    await expect(getSessionUserId(headerA)).resolves.toBe(USER_A);
+    await expect(getSessionUserId(headerB)).resolves.toBe(USER_B);
+  });
+
+  it("rejects a correctly signed cookie in the pre-identity format rather than reading it as the owner", async () => {
+    // A cookie minted before identity existed: same HMAC scheme, still inside
+    // its max age, but its subject is the literal "authenticated". It must not
+    // resolve to a user, or every old cookie would become an owner session.
+    vi.setSystemTime(1_700_000_000_000);
+    const signed = await signLegacyPayload(
+      `authenticated:${Date.now()}`,
+      "test-secret-value"
+    );
+    const header = `session=${signed}`;
+    await expect(getSessionUserId(header)).resolves.toBeNull();
+    await expect(validateSessionCookie(header)).resolves.toBe(false);
+  });
+
+  it("rejects a cookie whose user id was swapped without re-signing", async () => {
+    vi.setSystemTime(1_700_000_000_000);
+    const header = cookieHeaderFrom(await makeSessionCookie(USER_A));
+    const forged = header.replace(USER_A, USER_B);
+    await expect(getSessionUserId(forged)).resolves.toBeNull();
+  });
+
+  it("refuses to mint a session with no user id", async () => {
+    await expect(makeSessionCookie("")).rejects.toThrow();
+    await expect(makeSessionCookie("authenticated")).rejects.toThrow();
   });
 
   it("clearSessionCookie sets Max-Age=0", () => {

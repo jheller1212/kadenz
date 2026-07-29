@@ -1,0 +1,97 @@
+import { and, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { OWNER_USER_ID, userIdentities, users } from "@/db/schema";
+
+export type AuthProvider = "strava" | "google";
+
+export type LoginIdentity = {
+  provider: AuthProvider;
+  /** Strava athlete id, or the Google subject claim. Never the email. */
+  providerAccountId: string;
+  email?: string | null;
+  displayName?: string | null;
+  /**
+   * Whether this is the account Kadenz's existing data belongs to (see
+   * ownerStravaAthleteId / ownerGoogleEmail in lib/owner.ts). The caller
+   * decides this from configuration, so it can never be inferred from
+   * whatever account happens to log in first.
+   */
+  isOwner: boolean;
+};
+
+/**
+ * Resolves an OAuth login to the user it belongs to, creating the user and
+ * the identity row the first time that account is seen.
+ *
+ * Callers must have checked the allowlist before calling this. It records who
+ * someone is; it does not decide whether they are allowed in.
+ */
+export async function resolveUserForLogin(
+  identity: LoginIdentity
+): Promise<string> {
+  const { provider, providerAccountId, isOwner } = identity;
+  const email = identity.email?.trim().toLowerCase() || null;
+  const displayName = identity.displayName?.trim() || null;
+
+  const [existing] = await db
+    .select({ userId: userIdentities.userId })
+    .from(userIdentities)
+    .where(
+      and(
+        eq(userIdentities.provider, provider),
+        eq(userIdentities.providerAccountId, providerAccountId)
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(userIdentities)
+      .set({ lastLoginAt: new Date(), ...(email ? { email } : {}) })
+      .where(
+        and(
+          eq(userIdentities.provider, provider),
+          eq(userIdentities.providerAccountId, providerAccountId)
+        )
+      );
+    return existing.userId;
+  }
+
+  let userId: string;
+  if (isOwner) {
+    // Seeded by drizzle/0051_users.sql. Re-asserted here because the e2e
+    // harness builds its database with `drizzle-kit push`, which creates the
+    // tables but replays no migration, so the row would not otherwise exist.
+    await db
+      .insert(users)
+      .values({ id: OWNER_USER_ID, email, displayName })
+      .onConflictDoNothing();
+    userId = OWNER_USER_ID;
+  } else {
+    const [created] = await db
+      .insert(users)
+      .values({ email, displayName })
+      .returning({ id: users.id });
+    userId = created.id;
+  }
+
+  // Upsert rather than insert so two logins racing the same first-ever sign-in
+  // both end up on whichever user row won, instead of one of them failing on
+  // the unique index.
+  const [linked] = await db
+    .insert(userIdentities)
+    .values({
+      userId,
+      provider,
+      providerAccountId,
+      email,
+      lastLoginAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [userIdentities.provider, userIdentities.providerAccountId],
+      set: { lastLoginAt: new Date() },
+    })
+    .returning({ userId: userIdentities.userId });
+
+  return linked.userId;
+}
