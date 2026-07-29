@@ -12,7 +12,7 @@ import { db, workouts, sentReminders } from "@/db";
 import { localDayKey } from "@/lib/app-time";
 import { selectDueReminders, type ReminderCandidate } from "./due";
 import { isRetryEligible, type SentReminderRow } from "./retry";
-import { loadReminderConfig } from "./settings";
+import { listEnabledReminderConfigs, type ReminderConfig } from "./settings";
 import { listSubscriptions, removeExpiredSubscriptions } from "./subscriptions";
 import { sendPush } from "./push";
 
@@ -22,19 +22,71 @@ import { sendPush } from "./push";
 const WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
 export interface DispatchResult {
+  /** True if at least one user has reminders switched on. */
   enabled: boolean;
+  /** How many users this run dispatched for. */
+  users: number;
   checked: number;
   sent: number;
   skippedNoSubscription: number;
   errors: number;
 }
 
+/**
+ * Sends every due reminder, one user at a time.
+ *
+ * The per-user loop is the whole point. This used to read one settings row,
+ * every planned workout and every push subscription in the database with no
+ * owner filter anywhere, so with two athletes signed up, each of them would
+ * have received a push for the other's workouts.
+ */
 export async function dispatchDueReminders(now: Date = new Date()): Promise<DispatchResult> {
-  const config = await loadReminderConfig();
-  if (!config.enabled) {
-    return { enabled: false, checked: 0, sent: 0, skippedNoSubscription: 0, errors: 0 };
+  const enabledUsers = await listEnabledReminderConfigs();
+
+  const total: DispatchResult = {
+    enabled: enabledUsers.length > 0,
+    users: enabledUsers.length,
+    checked: 0,
+    sent: 0,
+    skippedNoSubscription: 0,
+    errors: 0,
+  };
+
+  // Collected across users and deleted once at the end. An endpoint the push
+  // service reports as gone is gone for everyone, and one DELETE beats one
+  // per athlete.
+  const deadEndpoints = new Set<string>();
+
+  for (const { userId, config } of enabledUsers) {
+    // One athlete's push provider being down must not stop the others from
+    // getting their reminders, so a failure is counted and the loop goes on.
+    try {
+      const result = await dispatchForUser(userId, config, now, deadEndpoints);
+      total.checked += result.checked;
+      total.sent += result.sent;
+      total.skippedNoSubscription += result.skippedNoSubscription;
+      total.errors += result.errors;
+    } catch (err) {
+      console.error(`Reminder dispatch failed for user ${userId}:`, err);
+      total.errors += 1;
+    }
   }
 
+  if (deadEndpoints.size > 0) {
+    await removeExpiredSubscriptions([...deadEndpoints]);
+  }
+
+  return total;
+}
+
+type UserDispatchResult = Omit<DispatchResult, "enabled" | "users">;
+
+async function dispatchForUser(
+  userId: string,
+  config: ReminderConfig,
+  now: Date,
+  deadEndpoints: Set<string>
+): Promise<UserDispatchResult> {
   const windowStart = new Date(now.getTime() - WINDOW_MS);
   const windowEnd = new Date(now.getTime() + WINDOW_MS);
 
@@ -48,7 +100,12 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
     })
     .from(workouts)
     .where(
-      and(eq(workouts.status, "planned"), gte(workouts.date, windowStart), lte(workouts.date, windowEnd))
+      and(
+        eq(workouts.userId, userId),
+        eq(workouts.status, "planned"),
+        gte(workouts.date, windowStart),
+        lte(workouts.date, windowEnd)
+      )
     );
 
   const candidates: ReminderCandidate[] = rows.map((r) => ({
@@ -67,17 +124,24 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
   const due = selectDueReminders(now, candidates, config, new Set());
 
   if (due.length === 0) {
-    return { enabled: true, checked: candidates.length, sent: 0, skippedNoSubscription: 0, errors: 0 };
+    return { checked: candidates.length, sent: 0, skippedNoSubscription: 0, errors: 0 };
   }
 
-  const subscriptions = await listSubscriptions();
+  // This athlete's own devices. Anything wider here is a notification sent to
+  // a stranger.
+  const subscriptions = await listSubscriptions(userId);
   let sent = 0;
   let skippedNoSubscription = 0;
   let errors = 0;
-  const deadEndpoints = new Set<string>();
 
   // Existing claims for these workouts, so a prior transient failure can be
   // told apart from "never attempted" without racing the claim itself.
+  //
+  // No user filter, on purpose: the workout ids come from the owner-scoped
+  // query above, so they are already this athlete's. Filtering on user_id as
+  // well would hide a claim whose owner disagreed with its workout's, and a
+  // hidden claim reads as "never attempted", which is the one state that can
+  // send a second push.
   const existingRows =
     due.length === 0
       ? []
@@ -116,7 +180,7 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
       // one gets zero rows back and simply moves on — never a second push.
       const claimed = await db
         .insert(sentReminders)
-        .values({ workoutId: reminder.workoutId, status: "pending", attempts: 1 })
+        .values({ workoutId: reminder.workoutId, userId, status: "pending", attempts: 1 })
         .onConflictDoNothing()
         .returning({ id: sentReminders.id });
       if (claimed.length === 0) continue;
@@ -176,9 +240,5 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
     else if (!anyTransientError) errors += 1; // permanent: every subscription was expired
   }
 
-  if (deadEndpoints.size > 0) {
-    await removeExpiredSubscriptions([...deadEndpoints]);
-  }
-
-  return { enabled: true, checked: candidates.length, sent, skippedNoSubscription, errors };
+  return { checked: candidates.length, sent, skippedNoSubscription, errors };
 }
