@@ -127,10 +127,23 @@ conflict from a fake pass).
 
 ## CI
 
-Deliberately not wired into `.github/workflows/ci.yml` in this change —
-getting a browser test runner green in CI (service containers, caching the
-downloaded Postgres/Chromium binaries, etc.) is its own piece of work, and
-mixing it with building the harness itself would make both harder to review.
+Runs on every push and pull request as the `Web e2e (Playwright)` job in
+`.github/workflows/ci.yml`, in parallel with the lint/typecheck/unit/build
+job. It runs `npm run test:e2e` — the exact command you run locally — so
+there is no CI-only setup path that can drift from the one you test against.
+
+Notes on that job:
+
+- **No Postgres service container.** The harness starts its own local
+  Postgres and refuses to talk to any other database, so a service container
+  would just be a second database nothing connects to.
+- **Chromium only**, cached by Playwright version.
+- **No retries**, in CI or locally. A spec that passes on the second attempt
+  is a bug report, not a pass.
+- On failure the HTML report and the `test-results` traces are uploaded as
+  the `playwright-report` artifact. `npx playwright show-trace` on the
+  downloaded zip replays the failing test frame by frame, so a CI-only
+  failure does not need a local repro.
 
 ## Adding a new spec
 
