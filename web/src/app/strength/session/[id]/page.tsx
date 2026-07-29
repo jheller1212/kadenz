@@ -20,6 +20,7 @@ import type { PlannedExercise } from "@/components/strength/GuidedSession";
 import type { ExerciseOverride } from "@/lib/strength/session";
 import { workingSetNumber } from "@/lib/strength/types";
 import { sessionVolume } from "@/lib/strength/volume";
+import { firstLoggedExerciseOrder } from "@/lib/strength/session-order";
 
 // ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
@@ -40,6 +41,9 @@ interface SetRow {
    *  strength_sets.kind). Drives both the athlete-facing set number (see
    *  workingSetNumber) and the volume stat's warm-up exclusion below. */
   kind?: "warmup" | "working" | null;
+  /** When this row was actually logged — the only real record of exercise
+   *  order (see lib/strength/session-order.ts firstLoggedExerciseOrder). */
+  createdAt: string;
 }
 
 interface SessionDetail {
@@ -231,15 +235,26 @@ export default function StrengthSessionPage({
     month: "short",
   });
 
-  // Logged sets grouped per exercise, in first-logged order.
+  // Logged sets grouped per exercise. `bySlot`'s own key order is whatever
+  // order the API returned rows in (set_number ascending, a per-exercise
+  // counter that says nothing about cross-exercise order) — the athlete's
+  // real order comes from `exerciseOrder` below, computed from when each
+  // exercise's first set was actually logged.
   const bySlot = new Map<string, SetRow[]>();
   for (const s of session.sets) {
     const list = bySlot.get(s.exerciseId) ?? [];
     list.push(s);
     bySlot.set(s.exerciseId, list);
   }
+  const exerciseOrder = firstLoggedExerciseOrder(session.sets);
 
   const planned = session.plannedExercises ?? [];
+  // Planned but never logged — still shown, so nothing the athlete decided
+  // to skip (or ran out of time for) silently disappears from the screen.
+  const loggedSlugs = new Set(
+    exerciseOrder.map((exerciseId) => catalog[exerciseId]?.slug).filter((s): s is string => !!s)
+  );
+  const skipped = hasLoggedSets ? planned.filter((ex) => !loggedSlugs.has(ex.slug)) : [];
 
   // Summary numbers: recorded reality when sets exist, the prescription otherwise.
   const exerciseCount = hasLoggedSets ? bySlot.size : planned.length;
@@ -407,8 +422,11 @@ export default function StrengthSessionPage({
         </h2>
 
         {hasLoggedSets ? (
-          // Recorded reality: one card per exercise with its logged sets.
-          [...bySlot.entries()].map(([exerciseId, sets], i) => {
+          // Recorded reality: one card per exercise with its logged sets, in
+          // the order the athlete actually performed them (first-logged —
+          // see exerciseOrder above), not the order they were proposed in.
+          exerciseOrder.map((exerciseId, i) => {
+            const sets = bySlot.get(exerciseId) ?? [];
             const row = catalog[exerciseId];
             const muscle = muscleFor(row?.slug);
             return (
@@ -458,7 +476,38 @@ export default function StrengthSessionPage({
           })
         ) : planned.length === 0 ? (
           <EmptyState title="No sets logged" message="This session has no recorded sets." />
-        ) : (
+        ) : null}
+
+        {/* Planned but never logged — visible, not silently dropped, and
+            obviously not part of what was actually done. */}
+        {skipped.length > 0 && (
+          <>
+            <h2 className="mt-1 text-[17px] font-bold text-text-1">Not done</h2>
+            {skipped.map((ex) => {
+              const muscle = muscleFor(ex.slug);
+              return (
+                <div key={ex.slug} className="k-card flex items-start gap-3 p-3.5 opacity-60">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
+                    <SkipForward className="h-3.5 w-3.5" strokeWidth={2.4} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
+                      {muscle && (
+                        <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] font-semibold text-text-3">
+                          {muscle}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[12px] text-text-3">Not done</p>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {!hasLoggedSets && planned.length > 0 && (
           // The prescription: one block per planned exercise.
           planned.map((ex, i) => {
             const muscle = muscleFor(ex.slug);
