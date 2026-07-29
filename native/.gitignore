@@ -1,0 +1,23 @@
+node_modules/
+
+# Generated platform projects. `npx cap add ios` and `npx cap add android`
+# recreate these from capacitor.config.ts and package.json, so they are build
+# output rather than source. Keeping them out of git also means a signing
+# certificate, provisioning profile or keystore dropped into the Xcode or
+# Gradle project can never be committed by accident.
+ios/
+android/
+
+# Firebase config files. They are not secrets in the credential sense, but they
+# identify a specific Firebase project and belong to whoever runs the app, not
+# to the repo. See README.md for where to put them.
+google-services.json
+GoogleService-Info.plist
+
+# Signing material. Listed explicitly so an accidental copy into this directory
+# is ignored rather than staged.
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+*.jks

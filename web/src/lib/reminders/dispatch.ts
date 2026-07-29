@@ -14,7 +14,7 @@ import { selectDueReminders, type ReminderCandidate } from "./due";
 import { isRetryEligible, type SentReminderRow } from "./retry";
 import { loadReminderConfig } from "./settings";
 import { listSubscriptions, removeExpiredSubscriptions } from "./subscriptions";
-import { sendPush } from "./push";
+import { sendToSubscription } from "./push";
 
 // Generous padding either side of "now" so any workout that could plausibly
 // be within its reminder window today gets fetched, regardless of how far
@@ -151,10 +151,10 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
     let anySucceeded = false;
     let anyTransientError = false;
     for (const sub of subscriptions) {
-      const result = await sendPush(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payload
-      );
+      // sendToSubscription picks web push or FCM from the stored transport,
+      // so a native device and a desktop browser are both just "one more
+      // subscription" here and the success/expiry bookkeeping is unchanged.
+      const result = await sendToSubscription(sub, payload);
       if (result.ok) anySucceeded = true;
       else if (result.expired) deadEndpoints.add(sub.endpoint);
       else {

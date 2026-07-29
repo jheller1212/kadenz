@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence } from "motion/react";
-import { UNAUTHORIZED_EVENT } from "@/lib/api";
+import { apiFetch, UNAUTHORIZED_EVENT } from "@/lib/api";
 import { ConnectScreen } from "@/components/ConnectScreen";
 import { BootSplash } from "@/components/BootSplash";
 
@@ -22,7 +22,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let alive = true;
     const check = async () => {
       try {
-        const res = await fetch("/api/session", { cache: "no-store" });
+        // apiFetch, not bare fetch: in the native shell the API lives on
+        // another origin and a relative URL would hit the local bundle. This
+        // was the only /api call in the app still going through raw fetch.
+        const res = await apiFetch("/api/session", { cache: "no-store" });
         if (alive) setState(res.ok ? "authed" : "guest");
       } catch {
         // Network/offline: don't lock the user out — assume authed and let

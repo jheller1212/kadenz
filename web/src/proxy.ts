@@ -24,6 +24,37 @@ const CRON_AUTHENTICATED_ROUTES: string[] = [
   "/api/garmin/reconcile",
 ];
 
+// Origins allowed to call this API from another origin, as an exact-match
+// comma-separated list. Empty by default, which leaves CORS entirely off and
+// the API same-origin only, exactly as it has always been.
+//
+// The native shell needs this: it serves the UI from local files in the
+// WebView, so its origin is `capacitor://localhost` (iOS) or `http://localhost`
+// (Android) while the API stays on Vercel. An allowlist rather than a wildcard
+// because these responses are credentialed, and `Access-Control-Allow-Origin: *`
+// is not permitted with credentials for exactly that reason.
+function allowedOrigins(): string[] {
+  return (process.env.SHELL_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
+/** The origin to echo back, or null if this request gets no CORS headers. */
+function corsOrigin(request: NextRequest): string | null {
+  const origin = request.headers.get("origin");
+  if (!origin) return null;
+  return allowedOrigins().includes(origin) ? origin : null;
+}
+
+function applyCors(response: NextResponse, origin: string): NextResponse {
+  response.headers.set("Access-Control-Allow-Origin", origin);
+  response.headers.set("Access-Control-Allow-Credentials", "true");
+  // Caches must not serve one origin's response to another.
+  response.headers.append("Vary", "Origin");
+  return response;
+}
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
@@ -31,8 +62,29 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
+  const origin = corsOrigin(request);
+
+  // Answer the preflight before the session check, not after. A preflight is
+  // sent by the browser with no cookies and no credentials by design, so
+  // running it through the gate below would 401 every cross-origin request
+  // before the real one was ever made.
+  if (request.method === "OPTIONS") {
+    if (!origin) {
+      return new NextResponse(null, { status: 403 }) as NextResponse;
+    }
+    const preflight = new NextResponse(null, { status: 204 });
+    applyCors(preflight, origin);
+    preflight.headers.set(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    );
+    preflight.headers.set("Access-Control-Allow-Headers", "Content-Type,Authorization");
+    preflight.headers.set("Access-Control-Max-Age", "86400");
+    return preflight;
+  }
+
   if (PUBLIC_API_ROUTES.includes(pathname)) {
-    return NextResponse.next();
+    return origin ? applyCors(NextResponse.next(), origin) : NextResponse.next();
   }
 
   // Vercel cron invocations authenticate with CRON_SECRET, not a session.
@@ -55,10 +107,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const cookieHeader = request.headers.get("cookie");
   const valid = await validateSessionCookie(cookieHeader);
   if (!valid) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // The 401 gets CORS headers too. Without them the shell's fetch rejects
+    // with an opaque network error instead of a 401, and apiFetch never fires
+    // the unauthorized event that surfaces the Connect screen.
+    const denied = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return origin ? applyCors(denied, origin) : denied;
   }
 
-  return NextResponse.next();
+  return origin ? applyCors(NextResponse.next(), origin) : NextResponse.next();
 }
 
 export const config = {
