@@ -22,6 +22,14 @@ export interface GuidedWorkSet {
    *  so an in-progress session saved before this field existed still loads
    *  and reads as all-working, same convention as strength_sets.kind. */
   kind?: "warmup" | "working";
+  /** True for a set the athlete added beyond the prescription ("log one
+   *  more" — see guided-sets.ts). Client-side only, never sent to the API
+   *  and not a DB column: the prescription itself is never persisted per
+   *  session (it's re-derived from the template on every read, see
+   *  session.ts), so a logged extra set can't "corrupt" it — this flag only
+   *  gates the undo affordance (only ever remove the last extra set) and is
+   *  absent/false for every prescribed set, including on old snapshots. */
+  extra?: boolean;
 }
 
 export interface GuidedSnapshot {
