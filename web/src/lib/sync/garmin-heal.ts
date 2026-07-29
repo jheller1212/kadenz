@@ -49,3 +49,56 @@ export function ourOrphanIds(
 export function isListingPossiblyPartial(count: number, limit: number): boolean {
   return count >= limit;
 }
+
+/** The subset of GarminWorkoutSummary the adoption match needs — kept
+ *  narrow so this file stays network- and type-import-free. */
+export interface AdoptionCandidate {
+  garminWorkoutId: string;
+  name: string | null;
+  createdByKadenz: boolean;
+  scheduledDates: string[];
+}
+
+/**
+ * Find a workout already on Garmin that matches a create job about to be
+ * sent, so the push can adopt its id instead of creating a duplicate.
+ *
+ * This exists for one narrow window: Garmin's create call succeeds but the
+ * write of the returned id back onto our row fails or the process dies
+ * before it runs. The row still has garminWorkoutId = null, so it reads as
+ * "never pushed" and the outbox retry (or the next day's window sync) tries
+ * to create it again. Before creating, check whether the exact workout we
+ * are about to send already exists — if so, adopt its id instead.
+ *
+ * The match key is (title, scheduled date) plus two safety conditions:
+ *   - createdByKadenz — never adopt a workout Jonas made by hand or that
+ *     another app created; the Kadenz tag on the description is the only
+ *     signal that a Garmin workout is "ours" to begin with.
+ *   - not already in trackedIds — never steal an id another row already
+ *     owns. trackedIds must be every non-null garminWorkoutId across BOTH
+ *     workouts and strengthSessions, read in the same drain this runs in,
+ *     the same exclusion rule ourOrphanIds uses for reconcile.
+ * Title equality is exact string equality against garminLabel's output —
+ * the caller must pass the SAME title string it is about to send, not a
+ * re-derivation, or the match silently stops firing when the two drift.
+ *
+ * A miss here does not prove the workout is absent — see
+ * isListingPossiblyPartial. The caller's fallback for a miss is always
+ * "create", which reproduces today's (pre-fix) behaviour, so a false miss
+ * is no worse than not having this check at all.
+ */
+export function findAdoptionCandidate(
+  listing: AdoptionCandidate[],
+  trackedIds: Set<string>,
+  title: string,
+  scheduledDate: string
+): string | null {
+  const match = listing.find(
+    (w) =>
+      w.createdByKadenz &&
+      !trackedIds.has(w.garminWorkoutId) &&
+      w.name === title &&
+      w.scheduledDates.includes(scheduledDate)
+  );
+  return match ? match.garminWorkoutId : null;
+}
