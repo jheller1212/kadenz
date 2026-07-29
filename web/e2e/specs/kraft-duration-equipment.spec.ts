@@ -1,9 +1,17 @@
 import { test, expect, type Page } from "@playwright/test";
+import { clearTodaysStrengthSessions } from "../helpers";
 
 // Both specs start a fresh session, read the overview, then go Back — which
 // deletes the ad-hoc session it just created (see strength/page.tsx
 // backToPicker) — so the next start on the same programme type is genuinely
 // fresh rather than "adopting" the one just created.
+//
+// The final Back of each test fires that delete and the test then ends, so the
+// browser context can be torn down before the request lands. Clearing today's
+// planned sessions around each test means one dropped delete can't turn into a
+// permanently poisoned database: without it, the leftover session gets adopted
+// on the next run, the duration override never applies, and the estimate
+// assertion below fails for reasons that have nothing to do with durations.
 
 async function startSession(
   page: Page,
@@ -39,6 +47,14 @@ async function backToPicker(page: Page) {
 }
 
 test.describe("Kraft session start options", () => {
+  test.beforeEach(async ({ page }) => {
+    await clearTodaysStrengthSessions(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await clearTodaysStrengthSessions(page);
+  });
+
   test("a duration chip changes the exercise list and moves the estimate toward the budget", async ({ page }) => {
     await page.goto("/strength");
 
@@ -54,10 +70,12 @@ test.describe("Kraft session start options", () => {
     expect(Number.isFinite(chosenEstimate)).toBe(true);
 
     // Moved toward the 30-minute budget: strictly shorter than the unbudgeted
-    // baseline, and close enough to 30 that the override is clearly doing
-    // something (not just off-by-a-few from natural variance).
+    // baseline, and inside the window fitSessionToDuration promises — at or
+    // under the budget, and no more than DURATION_TOLERANCE (20%) under it, so
+    // a session trimmed down to almost nothing fails here too.
     expect(chosenEstimate).toBeLessThan(baselineEstimate);
-    expect(chosenEstimate).toBeLessThanOrEqual(35);
+    expect(chosenEstimate).toBeLessThanOrEqual(30);
+    expect(chosenEstimate).toBeGreaterThanOrEqual(24);
 
     await backToPicker(page);
   });
