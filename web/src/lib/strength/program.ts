@@ -1423,6 +1423,86 @@ export function resolveSlotVariant(
   };
 }
 
+// ── Movement families (for "last done" display only) ─────────────────────────
+// Every equipment-gated variant list above is one movement pattern's ranked
+// ladder of substitutes (barbell squat / dumbbell squat / kettlebell squat /
+// air squat are all "the squat", just resolved differently depending on what
+// equipment a given session had — see resolveSlotVariant). A per-session
+// equipment override (see strength_sessions.equipment_override) can now flip
+// which slug a session resolves to day to day, which used to fragment
+// "last done" history across slugs that are the same movement to the athlete:
+// squatting with dumbbells two days ago, then squatting with dumbbells again
+// today, could still land on two different slugs if the equipment available
+// differed and something else in the ladder won.
+//
+// This is display-only grouping (see the history route's `familyLast`) —
+// load prefill and PR tracking stay keyed by the exact slug (getExerciseHistoryBySlug
+// in service.ts, and this route's own `sessions`/`points`/`records`), because
+// a barbell weight and a dumbbell weight are not interchangeable numbers.
+//
+// Built as a union-find over every variant list so a shared fallback (e.g.
+// hip_raise anchoring both the hinge and hip-thrust ladders) merges those
+// ladders too — that fallback is one physical exercise regardless of which
+// slot prescribed it.
+const VARIANT_LISTS: SlotVariant[][] = [
+  SQUAT_VARIANTS,
+  HINGE_VARIANTS,
+  HIP_THRUST_VARIANTS,
+  HORIZONTAL_PRESS_VARIANTS,
+  OVERHEAD_PRESS_VARIANTS,
+  ROW_VARIANTS,
+  RENEGADE_ROW_VARIANTS,
+  ONE_ARM_ROW_VARIANTS,
+  KNEE_TARGETED_VARIANTS,
+  HAMSTRING_TARGETED_VARIANTS,
+  CALF_RAISE_ACCESSORY_VARIANTS,
+  SPLIT_SQUAT_ACCESSORY_VARIANTS,
+  SINGLE_LEG_RDL_ACCESSORY_VARIANTS,
+  LATERAL_RAISE_ACCESSORY_VARIANTS,
+];
+
+const MOVEMENT_FAMILIES: string[][] = (() => {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    if (!parent.has(x)) parent.set(x, x);
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    parent.set(x, root);
+    return root;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  for (const list of VARIANT_LISTS) {
+    for (const v of list) find(v.exerciseSlug);
+    for (let i = 1; i < list.length; i++) union(list[0].exerciseSlug, list[i].exerciseSlug);
+  }
+  const groups = new Map<string, string[]>();
+  for (const slug of parent.keys()) {
+    const root = find(slug);
+    const group = groups.get(root) ?? [];
+    group.push(slug);
+    groups.set(root, group);
+  }
+  return [...groups.values()];
+})();
+
+const MOVEMENT_FAMILY_BY_SLUG: Record<string, string[]> = Object.fromEntries(
+  MOVEMENT_FAMILIES.flatMap((group) => group.map((slug) => [slug, group]))
+);
+
+/**
+ * Every slug that is the same movement as `slug` (including itself), for
+ * "last done" display grouping only — see the block comment above. A slug
+ * that never appears in a variant list (no equipment-driven substitutes,
+ * e.g. Achilles-role or single-exercise accessory slots) returns just itself.
+ */
+export function movementFamilySlugs(slug: string): string[] {
+  return MOVEMENT_FAMILY_BY_SLUG[slug] ?? [slug];
+}
+
 // ── Session templates ─────────────────────────────────────────────────────────
 // Slot order IS session order. For lower_achilles, explosive Achilles work is
 // placed before the slow-heavy HSR calf work (a hard rule, also validated).

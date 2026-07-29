@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, strengthExercises, painLogs } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
-import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
+import { EXERCISE_BY_SLUG, movementFamilySlugs } from "@/lib/strength/program";
 import { computeSessionMetrics, annotatePrs, currentRecords, type PrSet } from "@/lib/strength/pr";
 
 // ── GET /api/strength/history/[exerciseId] ────────────────────────────────────
@@ -151,6 +151,59 @@ export async function GET(
       pain = pl.map((p) => ({ date: p.date, score: p.score }));
     }
 
+    // Display-only "last done" across every equipment variant of the same
+    // movement (see movementFamilySlugs) — a per-session equipment override
+    // can resolve the squat slot to db_squat one day and air_squat the next,
+    // and an athlete calling both "squats" should see the more recent one
+    // instead of a stale date from the last time THIS exact slug came up.
+    // Never used for load prefill or PRs (those stay exact-slug, above) —
+    // a barbell number and a dumbbell number aren't interchangeable.
+    const family = movementFamilySlugs(exercise.slug);
+    let familyLast: {
+      exerciseSlug: string;
+      exerciseName: string;
+      date: Date;
+      sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null; kind: string | null }>;
+    } | null = null;
+    if (family.length > 1) {
+      const familyRows = await db
+        .select({
+          sessionId: strengthSessions.id,
+          date: strengthSessions.date,
+          slug: strengthExercises.slug,
+          exerciseName: strengthExercises.name,
+          setNumber: strengthSets.setNumber,
+          weightKg: strengthSets.weightKg,
+          reps: strengthSets.reps,
+          kind: strengthSets.kind,
+        })
+        .from(strengthSets)
+        .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
+        .innerJoin(strengthExercises, eq(strengthSets.exerciseId, strengthExercises.id))
+        .where(
+          and(
+            inArray(strengthExercises.slug, family),
+            eq(strengthSessions.status, "completed"),
+            profileId
+              ? eq(strengthSessions.profileId, profileId)
+              : isNull(strengthSessions.profileId)
+          )
+        )
+        .orderBy(desc(strengthSessions.date), asc(strengthSets.setNumber));
+
+      if (familyRows.length > 0) {
+        const topSessionId = familyRows[0].sessionId;
+        familyLast = {
+          exerciseSlug: familyRows[0].slug,
+          exerciseName: familyRows[0].exerciseName,
+          date: familyRows[0].date,
+          sets: familyRows
+            .filter((r) => r.sessionId === topSessionId)
+            .map((r) => ({ setNumber: r.setNumber, weightKg: r.weightKg, reps: r.reps, kind: r.kind })),
+        };
+      }
+    }
+
     return Response.json({
       exercise,
       bodyweight: profile.bodyweight,
@@ -158,6 +211,7 @@ export async function GET(
       sessions,
       records,
       pain,
+      familyLast,
     });
   } catch (err) {
     console.error("DB error fetching exercise history:", err);

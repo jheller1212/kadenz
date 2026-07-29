@@ -191,10 +191,18 @@ function buildWork(exercises: PlannedExercise[], warmupSuggestionsEnabled: boole
 // Previous performance of one exercise (dated per-set detail from history).
 // `setNumber` is the raw persisted position (kept for the API's upsert key,
 // not display — see workingSetNumber in lib/strength/types.ts); `kind`
-// drives what's actually shown.
+// drives what's actually shown. `exerciseSlug`/`exerciseName` are set only
+// when this came from `familyLast` (a same-movement variant, e.g. a barbell
+// squat session standing in for today's dumbbell squat's "last done") so the
+// sheet can say what was actually done instead of implying it was this exact
+// exercise — see the API route's movementFamilySlugs comment for why this
+// exists (a per-session equipment override can change which slug a movement
+// resolves to day to day).
 interface LastPerf {
   date: string;
   sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null; kind?: "warmup" | "working" | null }>;
+  exerciseSlug?: string;
+  exerciseName?: string;
 }
 
 export default function GuidedSession({
@@ -300,9 +308,13 @@ export default function GuidedSession({
     lastPerfFetched.current.add(ex.slug);
     apiFetch(`/api/strength/history/${ex.slug}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((json: { sessions?: LastPerf[] } | null) => {
+      .then((json: { sessions?: LastPerf[]; familyLast?: LastPerf | null } | null) => {
         const sessions = json?.sessions ?? [];
-        const last = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+        const exact = sessions.length > 0 ? sessions[sessions.length - 1] : null;
+        // familyLast covers every equipment variant of this movement (see the
+        // route) and is always the same session or newer than `exact` — use
+        // it so "last done" reflects the movement, not just this exact slug.
+        const last = json?.familyLast ?? exact;
         setLastPerf((m) => ({ ...m, [ex.slug]: last }));
       })
       .catch(() => setLastPerf((m) => ({ ...m, [ex.slug]: null })));
@@ -1272,10 +1284,16 @@ export default function GuidedSession({
           const ex = exercises[exIndex];
           const lp = ex ? lastPerf[ex.slug] : null;
           if (!ex || !lp) return null;
+          // A family match from a different exact exercise (e.g. today's
+          // dumbbell squat vs a barbell squat two sessions ago) — say what
+          // was actually done, not the current exercise's name, so a
+          // different-equipment weight is never read as this exercise's own.
+          const isVariant = lp.exerciseSlug != null && lp.exerciseSlug !== ex.slug;
           return (
             <div className="flex flex-col gap-3 pb-2">
               <div>
-                <p className="text-[15px] font-bold text-text-1">{ex.name}</p>
+                <p className="text-[15px] font-bold text-text-1">{isVariant ? lp.exerciseName : ex.name}</p>
+                {isVariant && <p className="text-[12px] text-text-3">Different equipment than today</p>}
                 <p className="mt-0.5 text-[12px] text-text-3">
                   {new Date(lp.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", year: "numeric" })}
                   {" · "}{formatRecency(lp.date)}
