@@ -271,6 +271,20 @@ export async function GET(
       }
     }
 
+    // Fetch linked strength session, if any — the "Not linked to your plan"
+    // prompt keys off this being present (see LinkActivitySection in the
+    // client), and it was previously never populated, so linking an activity
+    // to a strength session left the screen looking exactly like it had not
+    // linked, even though the write succeeded.
+    let linkedStrengthSession: { id: string; title: string; type: string } | null = null;
+    if (activity.strengthSessionId) {
+      const session = await db.query.strengthSessions.findFirst({
+        where: (s, { eq }) => eq(s.id, activity.strengthSessionId!),
+        columns: { id: true, title: true, type: true },
+      });
+      if (session) linkedStrengthSession = session;
+    }
+
     // Parse splits and laps from stored JSON
     const splits = parseSplits(activity.splitsJson);
     const laps = parseLaps(activity.lapsJson);
@@ -352,6 +366,7 @@ export async function GET(
       streams,
       bestEfforts,
       plannedWorkout,
+      linkedStrengthSession,
     });
   } catch (err) {
     console.error("Error fetching activity detail:", err);

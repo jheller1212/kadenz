@@ -235,6 +235,19 @@ export async function seedAll(): Promise<void> {
     }
   }
 
+  // ── Unlinked strength activity for the e2e link-flow spec ──────────────────
+  // Same day as the seeded "lower" session above, so it shows up as a link
+  // candidate (candidates route: activity date ±3 days) with no extra wiring.
+  await db.insert(activities).values({
+    sportType: "WeightTraining",
+    name: "E2E link-test activity",
+    distanceKm: 0,
+    durationSeconds: 1800,
+    avgPaceSecKm: 0,
+    avgHr: 128,
+    startDate: daysAgo(2),
+  });
+
   // ── Today's check-in (feeds readiness.hasCheckIn) ──────────────────────────
   const checkInDate = new Date();
   await db.insert(wellnessLogs).values({

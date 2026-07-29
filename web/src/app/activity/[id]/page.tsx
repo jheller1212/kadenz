@@ -30,6 +30,7 @@ import { useSwipeBack } from "@/lib/useSwipeBack";
 import { getUserZoneBounds, computeZoneSeconds, formatZoneTime } from "@/lib/hr-zone-time";
 import { decodePolyline, polylineToPath } from "@/lib/polyline";
 import { workoutColor } from "@/lib/workout-colors";
+import { buildHeartRateChartData } from "@/lib/activity-charts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ interface ActivityDetail {
     title: string;
     blocks: PlannedWorkoutBlock[];
   } | null;
+  linkedStrengthSession: { id: string; title: string; type: string } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -681,6 +683,28 @@ function PlannedWorkoutSection({ workout }: { workout: NonNullable<ActivityDetai
   );
 }
 
+// ── Linked Strength Session ───────────────────────────────────────────────────
+// The strength equivalent of PlannedWorkoutSection above: this activity is
+// linked (strengthSessionId set), but the strength session's own sets/reps
+// live on its own detail screen (/strength/session/[id]), so this is just a
+// pointer there, not a rebuild of that screen.
+
+function LinkedStrengthSection({ session }: { session: NonNullable<ActivityDetail["linkedStrengthSession"]> }) {
+  return (
+    <div>
+      <h2 className="mb-3 text-[15px] font-bold text-text-1">Linked Session</h2>
+      <TransitionLink
+        href={`/strength/session/${session.id}`}
+        className="press flex items-center gap-3 overflow-hidden k-card px-4 py-3.5"
+      >
+        <ActivityIcon className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.75} />
+        <span className="flex-1 text-[15px] font-medium text-text-1">{session.title}</span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-text-3" strokeWidth={2} />
+      </TransitionLink>
+    </div>
+  );
+}
+
 // ── Laps Bar Chart ────────────────────────────────────────────────────────────
 
 function LapsSection({
@@ -948,24 +972,22 @@ function ElevationChartSection({ activity }: { activity: ActivityDetail }) {
 
 function HeartRateChartSection({ activity }: { activity: ActivityDetail }) {
   const streams = activity.streams;
-  if (!streams?.heartrate || streams.heartrate.length < 2) return null;
-
-  const distData = streams.distance
-    ? streams.distance.map((d) => d / 1000)
-    : streams.heartrate.map((_, i) => (i / streams.heartrate!.length) * activity.distanceKm);
+  const chart = buildHeartRateChartData(streams, activity.sportType, activity.distanceKm);
+  if (!chart.heartrate) return null;
+  const strength = chart.axis === "time";
 
   return (
     <div>
       <h2 className="mb-3 text-[15px] font-bold text-text-1">Heart Rate</h2>
       <div className="k-card p-4">
         <AreaChart
-          data={streams.heartrate}
-          xData={distData}
+          data={chart.heartrate}
+          xData={chart.xData}
           fillColor="#F87171"
           lineColor="#EF4444"
           gradientId="hr-gradient"
           invertY={false}
-          xFormatter={(v) => `${displayDistance(v).toFixed(1)}${distanceUnitLabel()}`}
+          xFormatter={strength ? (v) => formatDuration(v) : (v) => `${displayDistance(v).toFixed(1)}${distanceUnitLabel()}`}
           yFormatter={(v) => `${Math.round(v)}`}
           height={120}
         />
@@ -1324,9 +1346,10 @@ export default function ActivityDetailPage({ params }: { params: Promise<{ id: s
         {/* Best Efforts */}
         {activity.bestEfforts.length > 0 && <BestEfforts efforts={activity.bestEfforts} />}
 
-        {/* Planned Workout */}
+        {/* Planned Workout / linked strength session */}
         {activity.plannedWorkout && <PlannedWorkoutSection workout={activity.plannedWorkout} />}
-        {!activity.plannedWorkout && (
+        {activity.linkedStrengthSession && <LinkedStrengthSection session={activity.linkedStrengthSession} />}
+        {!activity.plannedWorkout && !activity.linkedStrengthSession && (
           <LinkActivitySection activityId={activity.id} onLinked={reload} />
         )}
 
