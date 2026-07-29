@@ -15,7 +15,7 @@ import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
 import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
-import { pruneStaleAdhocSessions } from "@/lib/strength/schedule";
+import { pruneStaleAdhocSessions, autoCloseAbandonedSessions } from "@/lib/strength/schedule";
 
 // Failed jobs get one retry per cron run until this hard cap.
 const RETRY_CAP = 10;
@@ -101,6 +101,17 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("Stale ad-hoc strength session prune error:", err);
     out.strengthAdhocPruneError = "prune failed";
+  }
+
+  try {
+    // Backstop only — the real path is the 15-minute sync-drain cron (see
+    // that route). Cheap and idempotent, so calling it again here is harmless
+    // on a normal day and catches abandoned sessions if that faster cron is
+    // ever broken end to end (same reasoning as dispatchDueReminders below).
+    out.strengthAutoClosed = await autoCloseAbandonedSessions();
+  } catch (err) {
+    console.error("Strength auto-close cron error:", err);
+    out.strengthAutoCloseError = "auto-close failed";
   }
 
   try {

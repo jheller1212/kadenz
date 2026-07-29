@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lte } from "drizzle-orm";
 import {
   db,
   plans,
@@ -23,6 +23,8 @@ import {
   dateFromDayKey,
   isPrunable,
   isStaleAdhoc,
+  isAutoCloseDue,
+  autoCloseUpdate,
   weekKeyOf,
 } from "./reconcile";
 import type { Complaint, StrengthSessionType } from "./types";
@@ -486,6 +488,67 @@ export async function pruneStaleAdhocSessions(): Promise<{ removed: number }> {
     .delete(strengthSessions)
     .where(inArray(strengthSessions.id, stale.map((s) => s.id)));
   return { removed: stale.length };
+}
+
+/**
+ * Auto-close abandoned in-progress sessions: still "planned" with real
+ * logged sets (startedAt/endedAt set — see schema.ts) whose last set is
+ * older than the idle threshold (see isAutoCloseDue). Lands the session on
+ * "completed" with a duration derived from its own set timestamps, exactly
+ * like an in-app Finish — this is what makes an athlete's abandoned real
+ * work show up in exercise history and progression instead of vanishing
+ * (see getExerciseHistoryBySlug).
+ *
+ * Runs from two places, deliberately: the 15-minute sync-drain cron (the
+ * primary path — an abandoned session is caught within roughly 30-45
+ * minutes of going idle, not up to a day later) and the daily gcal cron (a
+ * backstop if the frequent one is ever broken end to end, same pattern as
+ * dispatchDueReminders). Both call this same function; it's cheap (one
+ * indexed query plus a handful of updates on a bad day) and idempotent (a
+ * session it just closed no longer matches the "planned" filter).
+ *
+ * Global across profiles, same reasoning as pruneStaleAdhocSessions — a
+ * household guest's abandoned session needs closing too, and this never
+ * touches the owner's rows or vice versa (each row is closed independently
+ * on its own startedAt/endedAt).
+ */
+export async function autoCloseAbandonedSessions(): Promise<{ closed: number }> {
+  const now = new Date();
+  const candidates = await db
+    .select({
+      id: strengthSessions.id,
+      status: strengthSessions.status,
+      startedAt: strengthSessions.startedAt,
+      endedAt: strengthSessions.endedAt,
+      garminWorkoutId: strengthSessions.garminWorkoutId,
+    })
+    .from(strengthSessions)
+    .where(
+      and(
+        eq(strengthSessions.status, "planned"),
+        isNotNull(strengthSessions.startedAt),
+        isNotNull(strengthSessions.endedAt)
+      )
+    );
+
+  const due = candidates.filter((s) => isAutoCloseDue(s, now));
+  if (due.length === 0) return { closed: 0 };
+
+  for (const s of due) {
+    await db
+      .update(strengthSessions)
+      .set(autoCloseUpdate({ startedAt: s.startedAt!, endedAt: s.endedAt! }, now))
+      .where(eq(strengthSessions.id, s.id));
+    // Same reasoning as the sessions PATCH route completing a session: a
+    // "planned" push on the watch that's actually done is stale-is-worse-
+    // than-missing, so it comes off rather than being left to look current.
+    if (s.garminWorkoutId) {
+      queueGarminStrengthDelete(s.id, s.garminWorkoutId).catch((err) =>
+        console.error("Failed to queue Garmin delete on auto-close:", err)
+      );
+    }
+  }
+  return { closed: due.length };
 }
 
 /**

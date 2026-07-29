@@ -830,10 +830,70 @@ export default function StrengthPage() {
     setPhase("guided");
   }
 
+  // Dismiss the resume card without touching the server: the logged sets
+  // stay on the (still "planned") session — the auto-close sweep picks it up
+  // after the idle threshold, so nothing is silently lost by tapping away
+  // (see lib/strength/schedule.ts autoCloseAbandonedSessions). Real deletion
+  // goes through discardUnfinished below, which the athlete has to choose
+  // explicitly.
   function discardResume() {
     haptic("light");
     clearGuidedSnapshot();
     setResumeSnap(null);
+  }
+
+  const [resumeActionBusy, setResumeActionBusy] = useState<"complete" | "discard" | null>(null);
+
+  // Complete-in-place, without reopening the guided view: the server derives
+  // the real duration from the session's own startedAt/endedAt (see the
+  // sessions PATCH route), so there's nothing client-side left to compute.
+  async function completeResume() {
+    const snap = resumeSnap;
+    if (!snap || resumeActionBusy) return;
+    haptic("success");
+    setResumeActionBusy("complete");
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${snap.session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      });
+      if (!res.ok) {
+        setError("Couldn't complete the workout. Try again.");
+        return;
+      }
+      clearGuidedSnapshot();
+      setResumeSnap(null);
+    } catch {
+      setError("Network error. Couldn't complete the workout.");
+    } finally {
+      setResumeActionBusy(null);
+    }
+  }
+
+  // Deletes every set logged this session and puts it back to "planned" —
+  // the same server call GuidedSession's own Discard makes. Unrecoverable,
+  // which is why this sits behind its own explicit button, never the default.
+  async function discardUnfinished() {
+    const snap = resumeSnap;
+    if (!snap || resumeActionBusy) return;
+    haptic("warning");
+    setResumeActionBusy("discard");
+    try {
+      const res = await apiFetch(`/api/strength/sessions/${snap.session.id}/sets`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setError("Couldn't discard the workout. Try again.");
+        return;
+      }
+      clearGuidedSnapshot();
+      setResumeSnap(null);
+    } catch {
+      setError("Network error. Couldn't discard the workout.");
+    } finally {
+      setResumeActionBusy(null);
+    }
   }
 
   function handleFinish(s: GuidedFinishSummary) {
@@ -1018,11 +1078,11 @@ export default function StrengthPage() {
           )}
 
           {resumeSnap && (
-            <div className="mt-4 k-card p-4">
+            <div className="mt-4 k-card p-4" data-testid="unfinished-session-prompt">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-[20px]">⏱️</span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[16px] font-bold text-text-1">Workout in progress</p>
+                  <p className="text-[16px] font-bold text-text-1">Unfinished session</p>
                   <p className="text-[13px] text-text-3">
                     {resumeSnap.session.title} ·{" "}
                     {Object.values(resumeSnap.work).flat().filter((s) => s.logged).length} of{" "}
@@ -1031,16 +1091,22 @@ export default function StrengthPage() {
                 </div>
                 <button
                   type="button"
-                  aria-label="Discard saved workout"
+                  aria-label="Hide this reminder"
                   onClick={discardResume}
                   className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated"
                 >
                   <X className="h-4 w-4 text-text-3" strokeWidth={1.9} />
                 </button>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col gap-2">
                 <Button variant="primary" full onClick={resumeGuided}>
-                  Resume workout
+                  Continue workout
+                </Button>
+                <Button variant="secondary" full busy={resumeActionBusy === "complete"} onClick={completeResume}>
+                  Complete workout · keeps the {Object.values(resumeSnap.work).flat().filter((s) => s.logged).length} logged set{Object.values(resumeSnap.work).flat().filter((s) => s.logged).length === 1 ? "" : "s"}
+                </Button>
+                <Button variant="danger" full busy={resumeActionBusy === "discard"} onClick={discardUnfinished}>
+                  Discard workout · deletes every logged set, can&apos;t be undone
                 </Button>
               </div>
             </div>

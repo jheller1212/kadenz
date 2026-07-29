@@ -250,6 +250,10 @@ export default function GuidedSession({
   const [finishing, setFinishing] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
+  // Reaching the end (Finish tapped) asks explicitly rather than completing
+  // outright — same reasoning as confirmExit's Discard option, but framed
+  // around "you're done" instead of "you're leaving".
+  const [finishPrompt, setFinishPrompt] = useState(false);
   // Wall-clock ms when the workout was paused, or null while running.
   const [pausedAt, setPausedAt] = useState<number | null>(null);
   // slug → previous performance (null = fetched, nothing on record).
@@ -933,6 +937,13 @@ export default function GuidedSession({
     haptic("success");
     const setsLogged = Object.values(work).flat().filter((s) => s.logged).length;
     const totalSets = Object.values(work).flat().length;
+    // Sent as a fallback only (a session with zero logged sets has no
+    // server-side startedAt/endedAt to derive from). Whenever the session
+    // has real logged sets, the PATCH route recomputes and overrides this
+    // from strength_sessions.startedAt/endedAt (first/last logged set) —
+    // sessionStartRef is a wall-clock ref that doesn't survive a reload, a
+    // resume on another device, or storage getting cleared, so it can't be
+    // trusted as the source of truth once persisted timestamps exist.
     const durationMinutes = Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 60000));
     try {
       const res = await apiFetch(`/api/strength/sessions/${session.id}`, {
@@ -944,6 +955,17 @@ export default function GuidedSession({
         setError("Couldn't save the session. Try again.");
         setFinishing(false);
         return;
+      }
+      // The server may have overridden durationMinutes with the real
+      // startedAt/endedAt gap (see the PATCH route) — read it back so the
+      // summary screen shows the same number that got saved, not this
+      // wall-clock estimate.
+      let savedDurationMinutes = durationMinutes;
+      try {
+        const updated = (await res.clone().json()) as { durationMinutes?: number | null };
+        if (typeof updated.durationMinutes === "number") savedDurationMinutes = updated.durationMinutes;
+      } catch {
+        /* not JSON — keep the estimate */
       }
       // Only drop the recovery snapshot once every set write has actually
       // reached the server — otherwise a queued set could be lost for good.
@@ -968,7 +990,7 @@ export default function GuidedSession({
         window.addEventListener("kadenz:queue-flushed", clearWhenDrained);
         void flushQueue();
       }
-      onFinish({ setsLogged, totalSets, durationMinutes });
+      onFinish({ setsLogged, totalSets, durationMinutes: savedDurationMinutes });
     } catch {
       setError("Network error. Couldn't finish the session.");
       setFinishing(false);
@@ -1308,7 +1330,7 @@ export default function GuidedSession({
         <div className="flex gap-3">
           <Button variant="secondary" onClick={() => goTo(exIndex - 1)} disabled={exIndex === 0} full>Prev</Button>
           {isLast ? (
-            <Button variant="primary" onClick={finish} busy={finishing} full>Finish</Button>
+            <Button variant="primary" onClick={() => { haptic("light"); setFinishPrompt(true); }} full>Finish</Button>
           ) : (
             <Button variant="secondary" onClick={() => goTo(exIndex + 1)} full>Next</Button>
           )}
@@ -1401,6 +1423,31 @@ export default function GuidedSession({
         hasLoggedSets={loggedSets.length > 0}
         onExchange={exchangeCurrentExercise}
       />
+
+      <Sheet open={finishPrompt} onClose={() => setFinishPrompt(false)} title="Finish workout?">
+        <div className="flex flex-col gap-3 px-4 pb-6">
+          <p className="text-[14px] text-text-2">
+            {setsLoggedTotal > 0
+              ? `${setsLoggedTotal} set${setsLoggedTotal === 1 ? "" : "s"} logged. Complete saves them; discard deletes them and can't be undone.`
+              : "Nothing logged this session."}
+          </p>
+          <Button
+            variant="primary"
+            size="lg"
+            full
+            busy={finishing}
+            onClick={() => { setFinishPrompt(false); finish(); }}
+          >
+            Complete workout
+          </Button>
+          <Button variant="secondary" size="lg" full onClick={() => setFinishPrompt(false)}>
+            Keep going
+          </Button>
+          <Button variant="danger" size="lg" full busy={discarding} onClick={() => { setFinishPrompt(false); discardWorkout(); }}>
+            Discard workout
+          </Button>
+        </div>
+      </Sheet>
 
       <Sheet open={confirmExit} onClose={() => setConfirmExit(false)} title="Leave workout?">
         <div className="flex flex-col gap-3 px-4 pb-6">

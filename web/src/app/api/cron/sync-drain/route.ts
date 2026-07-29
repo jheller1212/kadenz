@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { validateSessionCookie } from "@/lib/session";
 import { drainOutboxNow } from "@/lib/sync/outbox-drain";
+import { autoCloseAbandonedSessions } from "@/lib/strength/schedule";
 
 // ── GET /api/cron/sync-drain ────────────────────────────────────────────────
 // Safety net for outbox delivery. A plan create/edit/delete already triggers
@@ -32,11 +33,25 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const out: Record<string, unknown> = { ok: true };
+
   try {
-    await drainOutboxNow();
-    return Response.json({ ok: true });
+    out.drain = await drainOutboxNow();
   } catch (err) {
     console.error("Sync drain cron error:", err);
-    return Response.json({ ok: false, error: "drain failed" }, { status: 500 });
+    out.ok = false;
+    out.drainError = "drain failed";
   }
+
+  try {
+    // Rides this same 15-minute cadence so an abandoned Kraft session closes
+    // within roughly 30-45 minutes of going idle rather than waiting for the
+    // once-daily gcal cron — see lib/strength/schedule.ts autoCloseAbandonedSessions.
+    out.strengthAutoClosed = await autoCloseAbandonedSessions();
+  } catch (err) {
+    console.error("Strength auto-close cron error:", err);
+    out.strengthAutoCloseError = "auto-close failed";
+  }
+
+  return Response.json(out, { status: out.ok ? 200 : 500 });
 }
