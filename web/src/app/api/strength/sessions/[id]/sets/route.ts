@@ -185,14 +185,40 @@ export async function POST(
 }
 
 // ── DELETE /api/strength/sessions/[id]/sets ───────────────────────────────────
-// Discard a workout: remove every logged set of this session so it returns to
-// its planned state.
+// No query params: discard a workout — remove every logged set of this
+// session so it returns to its planned state (unchanged behaviour).
+// exerciseSlug + setNumber: remove ONE set — undoing a "log one more" extra
+// set the athlete added by mistake (see GuidedSession's removeLastSet /
+// lib/strength/guided-sets.ts). The client only ever calls this for the last
+// array position of an exercise, so setNumber always names a real, isolated
+// row; nothing here re-numbers the rows around it.
+
+const DeleteQuerySchema = z.object({
+  exerciseId: z.string().uuid().optional(),
+  exerciseSlug: z.string().optional(),
+  setNumber: z.coerce.number().int().positive().optional(),
+});
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const url = new URL(request.url);
+  const parsedQuery = DeleteQuerySchema.safeParse({
+    exerciseId: url.searchParams.get("exerciseId") ?? undefined,
+    exerciseSlug: url.searchParams.get("exerciseSlug") ?? undefined,
+    setNumber: url.searchParams.get("setNumber") ?? undefined,
+  });
+  if (!parsedQuery.success) {
+    return Response.json(
+      { error: "Validation failed", issues: parsedQuery.error.issues },
+      { status: 422 }
+    );
+  }
+  const { exerciseId: exerciseIdParam, exerciseSlug, setNumber } = parsedQuery.data;
+
   try {
     const [session] = await db
       .select({ id: strengthSessions.id })
@@ -201,6 +227,31 @@ export async function DELETE(
     if (!session) {
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
+
+    if (setNumber != null && (exerciseIdParam || exerciseSlug)) {
+      let exerciseId = exerciseIdParam;
+      if (!exerciseId && exerciseSlug) {
+        const [ex] = await db
+          .select({ id: strengthExercises.id })
+          .from(strengthExercises)
+          .where(eq(strengthExercises.slug, exerciseSlug));
+        if (!ex) {
+          return Response.json({ error: "Unknown exercise" }, { status: 422 });
+        }
+        exerciseId = ex.id;
+      }
+      await db
+        .delete(strengthSets)
+        .where(
+          and(
+            eq(strengthSets.sessionId, id),
+            eq(strengthSets.exerciseId, exerciseId!),
+            eq(strengthSets.setNumber, setNumber)
+          )
+        );
+      return Response.json({ ok: true });
+    }
+
     await db.delete(strengthSets).where(eq(strengthSets.sessionId, id));
     return Response.json({ ok: true });
   } catch (err) {

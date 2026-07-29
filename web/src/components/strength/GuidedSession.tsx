@@ -18,6 +18,7 @@ import { VideoSheet } from "@/components/strength/VideoSheet";
 import { AdjustLoadSheet } from "@/components/strength/AdjustLoadSheet";
 import { PrMoment, type PrMomentEvent } from "@/components/strength/PrMoment";
 import { deriveWarmupRampIfEnabled } from "@/lib/strength/warmup";
+import { appendExtraSet, removeLastExtraSet } from "@/lib/strength/guided-sets";
 import { getVideoId } from "@/lib/strength/videos";
 import { displayWeight, weightUnitLabel } from "@/lib/units";
 import { apiFetch } from "@/lib/api";
@@ -231,12 +232,15 @@ export default function GuidedSession({
   const [videoSlug, setVideoSlug] = useState<string | null>(null);
   const [work, setWork] = useState<Record<string, WorkSet[]>>(() => {
     // Fresh plan, overlaid with the snapshot where it still matches — sets
-    // already logged to the server stay logged.
+    // already logged to the server stay logged. >= not === : a saved array
+    // can be longer than freshly built one because the athlete logged one or
+    // more extra sets before minimizing (see guided-sets.ts) — those must
+    // survive the resume too, not just the prescribed count.
     const base = buildWork(exercises, prefs.kraftWarmupSuggestions);
     if (resume?.work) {
       for (const slug of Object.keys(base)) {
         const saved = resume.work[slug];
-        if (saved && saved.length === base[slug].length) base[slug] = saved;
+        if (saved && saved.length >= base[slug].length) base[slug] = saved;
       }
     }
     return base;
@@ -650,6 +654,48 @@ export default function GuidedSession({
     });
     if ((workRef.current[slug] ?? [])[setIndex]?.logged) {
       queueMicrotask(() => postSet(slug, setIndex));
+    }
+  }
+
+  // Log one more set than prescribed. Always appended at the end of the
+  // array — see lib/strength/guided-sets.ts for why that's the only safe
+  // position (setNumber, the API's upsert key, is the raw array position).
+  // Nothing here rewrites `ex.sets`: the prescription is re-derived from the
+  // template on every read (session.ts), never persisted per session, so
+  // logging a 4th set can't overwrite the fact that 3 were planned — both
+  // survive automatically. Becoming unlogged flips `allLogged` back to
+  // false, so the existing idle → beginSet → doneSet flow just picks it up.
+  function addExtraSet(slug: string) {
+    haptic("light");
+    const targetEx = exercises.find((e) => e.slug === slug);
+    setWork((w) => ({
+      ...w,
+      [slug]: appendExtraSet(w[slug] ?? [], {
+        kg: targetEx?.suggestedWeightKg ?? 0,
+        reps: targetEx?.repHigh ?? 0,
+      }),
+    }));
+  }
+
+  // Undo "log one more" — only ever the last set in the array, and only if
+  // it's flagged `extra` (see removeLastExtraSet). If it was already posted,
+  // it must be deleted server-side too, or it survives as a phantom set on
+  // the session summary even though the athlete removed it here.
+  function removeLastSet(slug: string) {
+    const arr = workRef.current[slug] ?? [];
+    const { next, removedIndex, wasLogged } = removeLastExtraSet(arr);
+    if (removedIndex == null) return;
+    haptic("warning");
+    setWork((w) => ({ ...w, [slug]: next }));
+    setTimer((t) => (t && t.slug === slug && t.setIndex === removedIndex ? null : t));
+    if (wasLogged) {
+      const setNumber = removedIndex + 1;
+      mutateWithQueue(
+        `/api/strength/sessions/${session.id}/sets?exerciseSlug=${encodeURIComponent(slug)}&setNumber=${setNumber}`,
+        { method: "DELETE" }
+      )
+        .then(() => setPendingWrites(queuedCountFor(session.id)))
+        .catch(() => setPendingWrites(queuedCountFor(session.id)));
     }
   }
 
@@ -1196,6 +1242,14 @@ export default function GuidedSession({
           ) : allLogged ? (
             <div className="flex flex-col items-center gap-3">
               <p className="text-[15px] font-semibold text-text-2">Exercise complete 💪</p>
+              <Button variant="secondary" size="md" full onClick={() => addExtraSet(ex.slug)}>
+                + Log one more set
+              </Button>
+              {arr[arr.length - 1]?.extra && (
+                <Button variant="ghost" size="md" full onClick={() => removeLastSet(ex.slug)}>
+                  Remove last set
+                </Button>
+              )}
               {!isLast && <Button variant="secondary" size="md" full onClick={() => goTo(exIndex + 1)}>Next exercise →</Button>}
             </div>
           ) : (
@@ -1219,6 +1273,13 @@ export default function GuidedSession({
               <div className="mt-3">
                 <Button variant="primary" size="lg" full onClick={() => beginSet(ex.slug, nextSi)}>Start set {nextSi + 1}</Button>
               </div>
+              {arr[nextSi]?.extra && (
+                <div className="mt-1.5">
+                  <Button variant="ghost" size="md" full onClick={() => removeLastSet(ex.slug)}>
+                    Remove this set
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>
