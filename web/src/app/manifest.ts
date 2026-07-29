@@ -1,5 +1,11 @@
 import type { MetadataRoute } from "next";
 
+// The manifest is a compile-time constant with no request input, so pin it to
+// static. Without this, `output: "export"` treats it as a dynamic route handler
+// and refuses to build. On the server build it changes nothing: the output was
+// already identical for every request.
+export const dynamic = "force-static";
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Kadenz",

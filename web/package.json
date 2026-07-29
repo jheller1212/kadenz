@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/migrate.mjs && next build --webpack",
+    "build:shell": "node scripts/build-shell.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",

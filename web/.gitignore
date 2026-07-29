@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# static export for the native shell: staging tree and its build output
+/.shell-build/
+/.next-shell/
+
 # production
 /build
 
