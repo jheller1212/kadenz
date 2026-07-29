@@ -144,6 +144,57 @@ export const syncStatusEnum = pgEnum("sync_status", [
 
 // ── Tables ───────────────────────────────────────────────────────────────────
 
+// The id of the athlete Kadenz was built for. A fixed constant rather than a
+// generated uuid so the migration that seeds the row, the e2e seed and the
+// application code can all name the same user without reading it back from
+// anywhere. Kept in sync with drizzle/0051_users.sql.
+export const OWNER_USER_ID = "00000000-0000-0000-0000-000000000001";
+
+// A person using Kadenz. Separate from `user_identities` because one person
+// can log in with both Strava and Google, and both must resolve to this one
+// row rather than to two half-populated accounts.
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email"),
+  displayName: text("display_name"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// One OAuth account that proves someone is a given user. The allowlist in
+// lib/owner.ts still decides who may log in at all; this only records who
+// they turned out to be once they were let through.
+export const userIdentities = pgTable(
+  "user_identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    // "strava" | "google"
+    provider: text("provider").notNull(),
+    // Strava athlete id, or the Google subject claim. Stable per provider —
+    // deliberately not the email, which a Google account can change.
+    providerAccountId: text("provider_account_id").notNull(),
+    email: text("email"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("user_identities_provider_account_uq").on(
+      t.provider,
+      t.providerAccountId
+    ),
+    index("user_identities_user_id_idx").on(t.userId),
+  ]
+);
+
 // Household members. The owner has NO row — a NULL profile_id on scoped tables
 // means "the owner". Guest profiles (e.g. partner) get their own strength
 // sessions and wellness logs, selected via the kadenz_profile cookie.

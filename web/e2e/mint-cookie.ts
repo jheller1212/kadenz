@@ -12,12 +12,14 @@
 // SESSION_SECRET that only ever exists in this local e2e process. Zero
 // changes to app code.
 import { makeSessionCookie } from "../src/lib/session";
+import { OWNER_USER_ID } from "../src/db/schema";
 
 async function main() {
   if (!process.env.SESSION_SECRET) {
     throw new Error("[mint-cookie] SESSION_SECRET must be set — refusing to run without it.");
   }
-  const setCookieHeader = await makeSessionCookie();
+  // The owner, which is who e2e/seed.ts seeds the data for.
+  const setCookieHeader = await makeSessionCookie(OWNER_USER_ID);
   const [nameValue] = setCookieHeader.split(";");
   process.stdout.write(nameValue.trim());
 }

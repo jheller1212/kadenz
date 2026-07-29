@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { exchangeCode, saveTokens } from "@/lib/sync/strava-client";
 import { makeSessionCookie } from "@/lib/session";
-import { isAllowedStravaAthleteId } from "@/lib/owner";
+import { isAllowedStravaAthleteId, ownerStravaAthleteId } from "@/lib/owner";
+import { resolveUserForLogin } from "@/lib/users";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -39,6 +40,20 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const athleteId = String(tokens.athlete_id);
+
+  let userId: string;
+  try {
+    userId = await resolveUserForLogin({
+      provider: "strava",
+      providerAccountId: athleteId,
+      isOwner: athleteId === ownerStravaAthleteId(),
+    });
+  } catch (err) {
+    console.error("Failed to resolve Strava user:", err);
+    return NextResponse.redirect(`${base}/?strava=error`);
+  }
+
   try {
     await saveTokens(tokens);
   } catch (err) {
@@ -47,6 +62,6 @@ export async function GET(request: NextRequest) {
   }
 
   const response = NextResponse.redirect(`${base}/?strava=connected`);
-  response.headers.set("Set-Cookie", await makeSessionCookie());
+  response.headers.set("Set-Cookie", await makeSessionCookie(userId));
   return response;
 }
