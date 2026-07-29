@@ -47,6 +47,11 @@ export async function runWellnessSync(): Promise<WellnessSyncResult> {
   // Connect) on the same date must not suppress this pull. wellness_metrics
   // is now unique on (source, date), not date alone, so each source tracks
   // its own "have I already got this night" independently.
+  // Phase 3 must add the user filter here. This asks "which nights do I
+  // already have", and unscoped it will read another athlete's rows as proof
+  // that this athlete's nights are collected, so the backfill silently never
+  // pulls them. No error and no empty screen: just a readiness baseline stuck
+  // in its 21 night warm-up with no visible cause.
   const existing = await db
     .select({ date: wellnessMetrics.date })
     .from(wellnessMetrics)

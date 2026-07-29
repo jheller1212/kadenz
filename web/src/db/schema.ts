@@ -490,6 +490,17 @@ export const activities = pgTable(
     // Postgres never treats NULL as colliding with NULL in a unique index —
     // see drizzle/0050_activity_provider_external_id.sql for the full
     // reasoning behind the WHERE clause.
+    //
+    // Phase 3 has to widen this to (user_id, provider, external_id). It is
+    // global today, so two athletes who both ran the same Strava activity
+    // cannot both import it: the second one silently loses. This is the index
+    // that matters, not the legacy strava_id/garmin_id uniques, because
+    // readers are migrating onto this pair. Keep the WHERE predicate when
+    // widening, and note that Postgres rejects a partial index as an
+    // onConflict target unless the statement repeats a matching WHERE.
+    // Nothing upserts against it today (both call sites pre-check with a
+    // select), so the first conversion to an upsert finds that out at
+    // runtime rather than at build.
     uniqueIndex("activities_provider_external_id_uq")
       .on(t.provider, t.externalId)
       .where(sql`${t.provider} is not null and ${t.externalId} is not null`),
