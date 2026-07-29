@@ -1,0 +1,22 @@
+-- The athlete's own exercise order for one session.
+--
+-- A session's plan is re-derived from its template on every read (see
+-- lib/strength/session.ts buildSessionPlan), so a drag reorder in the
+-- pre-start sheet only ever lived in React state: it was lost on resume, on
+-- reload and on a second device. This column is the stored order, written
+-- when the session starts and re-applied on every read.
+--
+-- Separate from exercise_overrides on purpose. That column is the hand-edit
+-- layer (removed/swapped) and carries its own rules: it may never touch
+-- Achilles rehab work, and it is rejected outright once an exercise has sets
+-- logged. Order has neither rule. It has a different one (explosive work
+-- before slow heavy calf work, see validateAchillesOrdering), and it stays
+-- editable after logging starts.
+--
+-- Slugs, not exercise ids, to match exercise_overrides and the plan itself.
+-- A slug in here that the rebuilt plan no longer contains is ignored, and a
+-- plan exercise missing from here keeps its plan position, so a template or
+-- equipment change can never drop an exercise off the screen.
+--
+-- NULL = no custom order, use the plan's own order.
+ALTER TABLE "strength_sessions" ADD COLUMN IF NOT EXISTS "exercise_order" text[];

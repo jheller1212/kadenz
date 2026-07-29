@@ -32,7 +32,7 @@ import type {
   PlannedExercise,
   SessionType,
 } from "@/components/strength/GuidedSession";
-import type { ExerciseOverride } from "@/lib/strength/session";
+import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
 // Heavy, full-screen surfaces only reached deep in the flow — load them on
 // demand so the strength landing bundle stays small.
 const GuidedSession = dynamic(() => import("@/components/strength/GuidedSession"), {
@@ -666,17 +666,32 @@ export default function StrengthPage() {
     setActionsSlug(null);
   }
 
+  // The order the athlete lands on is stored on the session (see handleStart),
+  // so it outlives today. Checked here, at the moment it is made, rather than
+  // letting the server reject the save later with nothing on screen to
+  // explain it: within an Achilles session, explosive work comes before slow
+  // heavy (HSR) calf work. Returns true when `next` was applied.
+  function applyOrderedList(next: PlannedExercise[]): boolean {
+    const check = validateAchillesOrdering(next.map((x) => x.slug));
+    if (!check.valid) {
+      haptic("warning");
+      setError(check.message);
+      return false;
+    }
+    setError(null);
+    setExercises(next);
+    return true;
+  }
+
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
+    const from = exercises.findIndex((x) => x.slug === active.id);
+    const to = exercises.findIndex((x) => x.slug === over.id);
+    if (from < 0 || to < 0) return;
+    if (!applyOrderedList(arrayMove(exercises, from, to))) return;
     haptic("light");
     setSortMode("custom");
-    setExercises((exs) => {
-      const from = exs.findIndex((x) => x.slug === active.id);
-      const to = exs.findIndex((x) => x.slug === over.id);
-      if (from < 0 || to < 0) return exs;
-      return arrayMove(exs, from, to);
-    });
   }
 
   // Applying a sort reorders the actual list — same state a manual drag edits,
@@ -697,13 +712,15 @@ export default function StrengthPage() {
         /* sort with zero counts */
       }
     }
-    setExercises((exs) =>
-      sortExerciseList(exs, mode, {
-        name: (x) => x.name,
-        weightKg: (x) => x.suggestedWeightKg,
-        timesPerformed: (x) => f?.[x.slug] ?? 0,
-      })
-    );
+    const sorted = sortExerciseList(exercises, mode, {
+      name: (x) => x.name,
+      weightKg: (x) => x.suggestedWeightKg,
+      timesPerformed: (x) => f?.[x.slug] ?? 0,
+    });
+    // A sort that would put slow heavy calf work ahead of explosive work is
+    // refused the same way a drag is (see applyOrderedList), and the chip
+    // goes back to the order actually on screen.
+    if (!applyOrderedList(sorted)) setSortMode("custom");
   }
 
   async function ensureCatalog() {
@@ -798,12 +815,36 @@ export default function StrengthPage() {
     setAddOpen(false);
   }
 
+  // Store the order the athlete is about to work through, so a resume, a
+  // reload or a second device rebuilds the plan in THIS order instead of the
+  // template's (the plan itself is re-derived on every read, see
+  // lib/strength/session.ts). Adds and exchanges made in this sheet stay
+  // ephemeral, as they were before: a slug the rebuilt plan does not contain
+  // is ignored on read, and a plan exercise not in the stored order keeps its
+  // place rather than disappearing.
+  //
+  // Deliberately not awaited. Starting the workout must not wait on the
+  // network, and must not fail because of it: if this call never lands, the
+  // session runs in the chosen order today exactly as it did before this was
+  // stored at all.
+  function persistExerciseOrder() {
+    const sessionId = session?.id;
+    if (!sessionId) return;
+    const order = exercises.map((e) => e.slug);
+    apiFetch(`/api/strength/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ exerciseOrder: order }),
+    }).catch(() => {});
+  }
+
   function handleStart() {
     if (exercises.length === 0) {
       setError("Add at least one exercise before starting.");
       return;
     }
     setError(null);
+    persistExerciseOrder();
     setResume(null); // fresh start — the mount overwrites any old snapshot
     unlockGuidedAudio();
     setPhase("guided");

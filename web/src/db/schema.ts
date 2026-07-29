@@ -520,6 +520,16 @@ export const strengthSessions = pgTable(
       >()
       .notNull()
       .default([]),
+    // The athlete's own exercise order for this session, as slugs, set when
+    // the session starts from the pre-start sheet (drag to reorder, or a sort
+    // chip) and re-applied to the template-derived plan on every read (see
+    // lib/strength/session.ts applyExerciseOrder). Deliberately its own
+    // column rather than another exerciseOverrides entry: overrides may never
+    // touch Achilles work and are rejected once an exercise has sets logged,
+    // and neither rule fits order, which has its own (explosive before slow
+    // heavy calf work) and stays editable mid-session.
+    // Null = no custom order, the plan's own order stands.
+    exerciseOrder: text("exercise_order").array(),
     // Per-session overrides ("I'm at the gym today", "only got 30 min today")
     // — apply to THIS session only, never written back to
     // strength_plan_settings. Null = no override, use the profile's default

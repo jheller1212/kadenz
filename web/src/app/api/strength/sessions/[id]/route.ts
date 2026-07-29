@@ -13,7 +13,7 @@ import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { Equipment, StrengthSessionType } from "@/lib/strength/types";
-import type { ExerciseOverride } from "@/lib/strength/session";
+import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
 import { alignSetHeartRate, type HeartRateStream } from "@/lib/sync/strength-hr";
 
 const ExerciseOverrideSchema = z.discriminatedUnion("action", [
@@ -32,6 +32,11 @@ const PatchSchema = z
     // lib/strength/session.ts applyExerciseOverrides). The caller always
     // sends the complete array, same pattern as availableDays elsewhere.
     exerciseOverrides: z.array(ExerciseOverrideSchema).optional(),
+    // The athlete's own exercise order for this session, as slugs, sent when
+    // they start from the pre-start sheet. Full replace, same as
+    // exerciseOverrides above. An empty array clears it back to the plan's
+    // own order.
+    exerciseOrder: z.array(z.string()).optional(),
   })
   .strict();
 
@@ -114,7 +119,11 @@ export async function GET(
         fitMinutes,
         (session.exerciseOverrides as ExerciseOverride[] | null) ?? [],
         settingsRow,
-        equipmentOverride
+        equipmentOverride,
+        // The athlete's own order, stored when they started from the
+        // pre-start sheet. Same reason the equipment/duration overrides
+        // above are re-applied on every read: the plan itself is not stored.
+        session.exerciseOrder
       );
 
     // Self-heal: a session's targetDurationMinutes may still hold the
@@ -232,6 +241,16 @@ export async function PATCH(
       { error: "Achilles/calf rehab work can't be exchanged or removed." },
       { status: 422 }
     );
+  }
+
+  // Within an Achilles session, explosive work comes before slow heavy (HSR)
+  // calf work. A stored order outlives the day it was set, so an order that
+  // breaks the rehab protocol is refused rather than saved.
+  if (updates.exerciseOrder && updates.exerciseOrder.length > 0) {
+    const ordering = validateAchillesOrdering(updates.exerciseOrder);
+    if (!ordering.valid) {
+      return Response.json({ error: ordering.message }, { status: 422 });
+    }
   }
 
   // Never let an override erase or reinterpret sets the athlete already
