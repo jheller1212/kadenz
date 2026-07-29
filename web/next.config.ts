@@ -12,9 +12,11 @@ const isShellBuild = process.env.KADENZ_SHELL_BUILD === "1";
 
 const shellConfig: NextConfig = {
   output: "export",
-  // The export writes HTML to `out/`. Keeping the intermediate build in its own
-  // directory means a shell build never invalidates the normal `.next` cache.
-  distDir: ".next-shell",
+  // No custom distDir on purpose. The shell build runs in a staged copy of the
+  // tree (scripts/build-shell.mjs), so its .next and out/ are already isolated
+  // from the normal build. Setting distDir here moved the exported HTML out of
+  // out/ and broke the script that collects it.
+  //
   // Static export has no image optimizer at runtime. Nothing imports next/image
   // today, so this only stops a future import from silently breaking the shell.
   images: { unoptimized: true },
