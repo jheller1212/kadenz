@@ -17,6 +17,8 @@ import {
 afterEach(() => {
   delete process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS;
   delete process.env.KADENZ_ALLOWED_GOOGLE_EMAILS;
+  delete process.env.KADENZ_OWNER_STRAVA_ID;
+  delete process.env.KADENZ_OWNER_GOOGLE_EMAIL;
 });
 
 describe("isAllowedStravaAthleteId", () => {
@@ -49,14 +51,40 @@ describe("isAllowedGoogleEmail", () => {
 });
 
 describe("owner account", () => {
-  it("is the first entry of each allowlist", () => {
-    process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = "123, 456";
-    process.env.KADENZ_ALLOWED_GOOGLE_EMAILS = "Owner@Example.com, tester@example.com";
+  it("is the sole allowlisted account when there is exactly one", () => {
+    process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = "123";
+    process.env.KADENZ_ALLOWED_GOOGLE_EMAILS = "Owner@Example.com";
     expect(ownerStravaAthleteId()).toBe("123");
     expect(ownerGoogleEmail()).toBe("owner@example.com");
   });
 
-  it("is null when the allowlist is unset, so nobody inherits by accident", () => {
+  it("refuses to guess once a second account is allowlisted", () => {
+    // This is the case that matters. Resolving as the owner means a session
+    // over every row in the database, so an ambiguous allowlist must produce
+    // a configuration error, never a plausible-looking answer. Adding a
+    // tester without naming the owner explicitly has to fail loudly.
+    process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = "123,456";
+    process.env.KADENZ_ALLOWED_GOOGLE_EMAILS = "owner@example.com,tester@example.com";
+    expect(ownerStravaAthleteId()).toBeNull();
+    expect(ownerGoogleEmail()).toBeNull();
+  });
+
+  it("takes the explicit owner vars over anything in the allowlists", () => {
+    process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = "123,456";
+    process.env.KADENZ_ALLOWED_GOOGLE_EMAILS = "tester@example.com,owner@example.com";
+    process.env.KADENZ_OWNER_STRAVA_ID = "456";
+    process.env.KADENZ_OWNER_GOOGLE_EMAIL = "Owner@Example.com";
+    expect(ownerStravaAthleteId()).toBe("456");
+    expect(ownerGoogleEmail()).toBe("owner@example.com");
+  });
+
+  it("ignores an explicit var that is set to whitespace", () => {
+    process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS = "123";
+    process.env.KADENZ_OWNER_STRAVA_ID = "   ";
+    expect(ownerStravaAthleteId()).toBe("123");
+  });
+
+  it("is null when nothing is configured, so nobody inherits by accident", () => {
     expect(ownerStravaAthleteId()).toBeNull();
     expect(ownerGoogleEmail()).toBeNull();
   });

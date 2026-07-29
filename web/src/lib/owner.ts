@@ -40,28 +40,50 @@ export function isAllowedStravaAthleteId(
 
 // ── Which allowlisted account is the owner ───────────────────────────────────
 //
-// Every row in the database today belongs to one athlete, and Phase 2 of the
+// Every row in the database belongs to one athlete, and Phase 2 of the
 // multi-user plan attributes all of it to a single user: OWNER_USER_ID. So
-// when that athlete logs in, the login has to resolve to that same user, or
-// he would land in an empty app.
+// when that athlete logs in, the login has to resolve to that same user, or he
+// lands in an empty app. Everyone else gets their own user and no data.
 //
-// The FIRST entry of each allowlist is defined to be the owner's account. It
-// is deterministic (no "whoever logs in first wins" race), needs no new
-// configuration, and is already true of both env vars, which hold exactly one
-// entry each. Reordering either list would hand the owner's data to a
-// different account, so append new testers, never prepend them.
+// This is the highest-stakes decision in the login path. Resolving as the
+// owner means a session over all of Jonas's training data and stored tokens,
+// so it is stated explicitly in KADENZ_OWNER_STRAVA_ID and
+// KADENZ_OWNER_GOOGLE_EMAIL rather than inferred from the allowlists. The
+// allowlists stay what they have always been: access control, who may log in
+// at all. They say nothing about whose data it is, and nothing ties a position
+// in one list to the same person's position in the other.
 //
-// Any other allowlisted account resolves to its own user with no data, which
-// is correct but not yet safe to hand out: cross-user isolation is Phase 3,
-// and until it ships the allowlists should keep holding only the owner.
+// Fallback, so this deploys without a config change: if the explicit var is
+// unset AND the matching allowlist holds exactly one account, that account is
+// the owner. That is unambiguous and is true of both env vars today.
+//
+// Fail closed the moment it stops being unambiguous. An unset explicit var
+// with two or more allowlisted accounts returns null, and the callback turns
+// that into a loud configuration error instead of guessing. Guessing wrong
+// here would hand a tester the owner's entire history.
 
-/** The owner's Strava athlete id, or null if the allowlist is unset. */
-export function ownerStravaAthleteId(): string | null {
-  return parseAllowlist(process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS)[0] ?? null;
+function resolveOwner(explicitVar: string | undefined, allowlist: string[]): string | null {
+  const explicit = (explicitVar ?? "").trim();
+  if (explicit) return explicit;
+  return allowlist.length === 1 ? allowlist[0] : null;
 }
 
-/** The owner's Google email (lowercased), or null if the allowlist is unset. */
+/**
+ * The owner's Strava athlete id, or null if it cannot be determined without
+ * guessing (see above). Null is a configuration error, not "no owner".
+ */
+export function ownerStravaAthleteId(): string | null {
+  return resolveOwner(
+    process.env.KADENZ_OWNER_STRAVA_ID,
+    parseAllowlist(process.env.KADENZ_ALLOWED_STRAVA_ATHLETE_IDS)
+  );
+}
+
+/** The owner's Google email (lowercased), or null. Same rules as above. */
 export function ownerGoogleEmail(): string | null {
-  const first = parseAllowlist(process.env.KADENZ_ALLOWED_GOOGLE_EMAILS)[0];
-  return first ? first.toLowerCase() : null;
+  const owner = resolveOwner(
+    process.env.KADENZ_OWNER_GOOGLE_EMAIL,
+    parseAllowlist(process.env.KADENZ_ALLOWED_GOOGLE_EMAILS)
+  );
+  return owner ? owner.toLowerCase() : null;
 }
