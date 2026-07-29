@@ -88,6 +88,13 @@ export interface LoadStyle {
   holdNote?: string;
   /** Worked one side / leg at a time. */
   perSide?: boolean;
+  /**
+   * Weight unit to render in. Omit in the browser, where it resolves from
+   * localStorage. Server callers must pass it: localStorage is not readable
+   * there, so the fallback is the kg default, which is wrong for a lbs
+   * athlete reading a calendar event the cron wrote.
+   */
+  unit?: "kg" | "lbs";
 }
 
 /**
@@ -100,14 +107,14 @@ export function formatLoad(
   weightKg: number | null | undefined,
   style: LoadStyle = {}
 ): string {
-  const { dumbbells, holdNote, perSide } = style;
+  const { dumbbells, holdNote, perSide, unit } = style;
   if (weightKg == null || weightKg <= 0) {
     return perSide ? "Bodyweight · each side" : "Bodyweight";
   }
   const count = dumbbells === 1 ? "× 1" : "× 2";
   const hold = holdNote ?? (dumbbells === 1 ? "1 dumbbell" : "one per hand");
   const side = perSide ? " · each side" : "";
-  const { value, label } = displayLoad(weightKg);
+  const { value, label } = displayLoad(weightKg, unit);
   return `${value} ${label} ${count} · ${hold}${side}`;
 }
 
@@ -119,7 +126,10 @@ export function loadUnitLabel(dumbbells?: 1 | 2): string {
 /** Convert a stored kg load to the display unit from settings. Routed through
  *  lib/units.ts's loadSettings()-backed helpers so this agrees with every
  *  other weight display in the app by construction, not by coincidence. */
-function displayLoad(kg: number): { value: number; label: "kg" | "lbs" } {
-  const label = weightUnitLabel() === "lbs" ? "lbs" : "kg";
-  return { value: displayWeight(kg), label };
+function displayLoad(
+  kg: number,
+  unit?: "kg" | "lbs"
+): { value: number; label: "kg" | "lbs" } {
+  const label = weightUnitLabel(unit) === "lbs" ? "lbs" : "kg";
+  return { value: displayWeight(kg, unit), label };
 }
