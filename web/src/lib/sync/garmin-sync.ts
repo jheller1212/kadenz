@@ -6,11 +6,16 @@
 import { db, syncOutbox, workouts, plans, strengthSessions } from "@/db";
 import { eq, and, gte, lte, ne, isNull, isNotNull, inArray } from "drizzle-orm";
 import { garminClient, toGarminDate } from "./garmin-client";
-import type { GarminWorkoutSummary } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
 import { resetStaleClaims, claimJobs } from "./sync-manager";
-import { rowsNeedingRepush, findAdoptionCandidate, isListingPossiblyPartial } from "./garmin-heal";
+import { rowsNeedingRepush } from "./garmin-heal";
+import {
+  buildAdoptionContext,
+  resolveGarminWorkoutId,
+  writeBackGarminId,
+  type AdoptionContext,
+} from "./garmin-adoption";
 import {
   buildPlannedSession,
   getStrengthPlanSettingsRow,
@@ -21,10 +26,6 @@ import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
 const MAX_ATTEMPTS = 3;
-
-// The worker's own hard cap on GET /workouts (see garmin-worker/main.py) — also
-// used by /api/sync/reconcile-garmin's LIST_LIMIT.
-const ADOPTION_LISTING_LIMIT = 500;
 
 /** Only push workouts this many days out — the whole plan would flood the
  * Garmin calendar. The daily cron rolls the window forward. */
@@ -378,51 +379,6 @@ export async function resyncGarminWindow(): Promise<{
   };
 }
 
-/** Everything a create job needs to check "does this already exist on
- *  Garmin?" before pushing a new one — built at most once per drain. */
-interface AdoptionContext {
-  listing: GarminWorkoutSummary[];
-  trackedIds: Set<string>;
-  isPartial: boolean;
-}
-
-/**
- * Read the account's current workouts plus every id Kadenz already tracks,
- * once, so every create job in this drain can check for an adoption
- * candidate without a listing call each. Mirrors the tracked-id build in
- * /api/sync/reconcile-garmin (both non-null garminWorkoutId columns).
- */
-async function buildAdoptionContext(): Promise<AdoptionContext> {
-  const [listing, runTracked, strengthTracked] = await Promise.all([
-    garminClient.listWorkouts(ADOPTION_LISTING_LIMIT, true),
-    db
-      .select({ garminWorkoutId: workouts.garminWorkoutId })
-      .from(workouts)
-      .where(isNotNull(workouts.garminWorkoutId)),
-    db
-      .select({ garminWorkoutId: strengthSessions.garminWorkoutId })
-      .from(strengthSessions)
-      .where(isNotNull(strengthSessions.garminWorkoutId)),
-  ]);
-
-  const trackedIds = new Set<string>();
-  for (const r of [...runTracked, ...strengthTracked]) {
-    if (r.garminWorkoutId) trackedIds.add(r.garminWorkoutId);
-  }
-
-  return {
-    listing,
-    trackedIds,
-    // A listing capped at the worker's page limit cannot prove a workout is
-    // absent — see isListingPossiblyPartial. That's fine here: unlike
-    // reconcile (which deletes on a miss), a create-job miss just falls
-    // through to creating, which is exactly today's pre-fix behaviour and
-    // no worse. isPartial is carried through only so a match/no-match can be
-    // logged honestly, not to change what happens on a miss.
-    isPartial: isListingPossiblyPartial(listing.length, ADOPTION_LISTING_LIMIT),
-  };
-}
-
 export async function processGarminOutbox(): Promise<SyncResult> {
   await resetStaleClaims("garmin");
 
@@ -543,29 +499,23 @@ async function processGarminJob(
   // almost certainly a leftover from an earlier create whose id write never
   // landed (PLAN_OF_ATTACK.md §4) — reuse its id instead of pushing a
   // duplicate. A miss just falls through to create, same as before this
-  // existed.
-  const adopted = adoption
-    ? findAdoptionCandidate(adoption.listing, adoption.trackedIds, input.title, scheduledDate)
-    : null;
-  const garminWorkoutId = adopted ?? (await garminClient.createWorkout(input));
+  // existed. See garmin-adoption.ts for why resolving through it (rather
+  // than creating directly) also protects against two create jobs in the
+  // same drain adopting the same remote workout.
+  const garminWorkoutId = await resolveGarminWorkoutId(
+    adoption,
+    input.title,
+    scheduledDate,
+    () => garminClient.createWorkout(input)
+  );
 
-  try {
-    await db
-      .update(workouts)
-      .set({ garminWorkoutId })
-      .where(eq(workouts.id, workoutId));
-  } catch (err) {
-    // The workout now exists on Garmin (created or adopted) but writing its
-    // id back onto the row failed. Log the id loudly so it can be recovered
-    // by hand if needed, then rethrow so the job is marked pending/failed
-    // and retries — the retry re-lists Garmin and hits the adoption branch
-    // above instead of creating a second copy.
-    console.error(
-      `Garmin workout ${garminWorkoutId} exists for kadenz workout ${workoutId} but the id write failed; retry will adopt it`,
-      err
-    );
-    throw err;
-  }
+  await writeBackGarminId(
+    async () => {
+      await db.update(workouts).set({ garminWorkoutId }).where(eq(workouts.id, workoutId));
+    },
+    garminWorkoutId,
+    `kadenz workout ${workoutId}`
+  );
 }
 
 
@@ -682,21 +632,21 @@ async function processGarminStrengthJob(
   // Same adopt-before-create rule as the run push (see there for why) — a
   // matching strength workout already on Garmin under our tag and unclaimed
   // is a leftover id write that never landed, not a workout to duplicate.
-  const adopted = adoption
-    ? findAdoptionCandidate(adoption.listing, adoption.trackedIds, workout.title, scheduledDate)
-    : null;
-  const garminWorkoutId = adopted ?? (await garminClient.pushStrengthWorkout(workout));
+  const garminWorkoutId = await resolveGarminWorkoutId(
+    adoption,
+    workout.title,
+    scheduledDate,
+    () => garminClient.pushStrengthWorkout(workout)
+  );
 
-  try {
-    await db
-      .update(strengthSessions)
-      .set({ garminWorkoutId })
-      .where(eq(strengthSessions.id, sessionId));
-  } catch (err) {
-    console.error(
-      `Garmin strength workout ${garminWorkoutId} exists for kadenz session ${sessionId} but the id write failed; retry will adopt it`,
-      err
-    );
-    throw err;
-  }
+  await writeBackGarminId(
+    async () => {
+      await db
+        .update(strengthSessions)
+        .set({ garminWorkoutId })
+        .where(eq(strengthSessions.id, sessionId));
+    },
+    garminWorkoutId,
+    `kadenz strength session ${sessionId}`
+  );
 }
