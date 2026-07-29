@@ -1093,17 +1093,41 @@ export const customWorkoutSlots = pgTable(
 
 // ── Push reminders ────────────────────────────────────────────────────────────
 
+// How a subscription is reached. "web" is a browser Push API subscription
+// sent with VAPID; "fcm" is a Firebase Cloud Messaging token registered by
+// the native shell. Both native platforms use FCM: Firebase forwards to APNs
+// for iOS, so the server keeps one send path and Jonas uploads his APNs key
+// to Firebase rather than this repo holding it.
+export const PUSH_TRANSPORTS = ["web", "fcm"] as const;
+export type PushTransport = (typeof PUSH_TRANSPORTS)[number];
+
 // One row per subscribed device (a single athlete can have phone + desktop
 // both opted in). `endpoint` is unique per browser/device install — the
 // primary key web-push itself uses to address a subscription, so it's also
-// the natural de-dupe key when the same device re-subscribes.
+// the natural de-dupe key when the same device re-subscribes. Native rows
+// store the FCM registration token in the same column, for the same reason:
+// it is the value the sender addresses the device by.
+//
+// p256dh and auth are the Web Push payload encryption key pair. FCM has no
+// equivalent, so they are null on native rows. A database CHECK constraint
+// (migration 0055) keeps the pair and the transport consistent, so a row can
+// never be half of one shape and half of the other.
+//
+// A row therefore carries two independent facts that both have to be right:
+// WHOSE device it is (user_id) and HOW to reach it (transport). Getting
+// either wrong is a notification delivered to the wrong person or over a
+// protocol that cannot carry it, and both fail at delivery time rather than
+// at write time.
 export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     endpoint: text("endpoint").notNull().unique(),
-    p256dh: text("p256dh").notNull(),
-    auth: text("auth").notNull(),
+    // Nullable since migration 0055: FCM tokens have no key pair. The CHECK
+    // constraint, not these columns, is what keeps a web row from losing them.
+    p256dh: text("p256dh"),
+    auth: text("auth"),
+    transport: text("transport").notNull().default("web").$type<PushTransport>(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
@@ -1111,7 +1135,10 @@ export const pushSubscriptions = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("push_subscriptions_user_id_idx").on(t.userId)]
+  (t) => [
+    index("push_subscriptions_user_id_idx").on(t.userId),
+    index("push_subscriptions_transport_idx").on(t.transport),
+  ]
 );
 
 // One row per user (same convention as strength_plan_settings / the

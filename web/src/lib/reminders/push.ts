@@ -4,6 +4,10 @@
 // prefix means public, real secrets fail fast" convention.
 
 import webpush from "web-push";
+import { sendFcmPush } from "./fcm";
+// Type-only, so this does not create a runtime cycle with subscriptions.ts
+// (which pulls in the database client) just to send a notification.
+import type { PushSubscriptionRecord } from "./subscriptions";
 
 let configured = false;
 
@@ -49,4 +53,26 @@ export async function sendPush(
     const expired = statusCode === 404 || statusCode === 410;
     return { ok: false, expired, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * The single place that decides which transport a subscription is delivered
+ * on. Callers pass a stored subscription and get back the same result shape
+ * either way, so nothing above this line branches on transport. Adding a
+ * third transport later means one new case here and nowhere else.
+ */
+export async function sendToSubscription(
+  subscription: PushSubscriptionRecord,
+  payload: ReminderPushPayload
+): Promise<PushSendResult> {
+  if (subscription.transport === "fcm") {
+    return sendFcmPush(subscription.endpoint, payload);
+  }
+  return sendPush(
+    {
+      endpoint: subscription.endpoint,
+      keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+    },
+    payload
+  );
 }
