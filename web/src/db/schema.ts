@@ -150,15 +150,20 @@ export const syncStatusEnum = pgEnum("sync_status", [
 // anywhere. Kept in sync with drizzle/0051_users.sql.
 export const OWNER_USER_ID = "00000000-0000-0000-0000-000000000001";
 
-// Phase 2 of the multi-user plan gives every tenanted table below a
-// `user_id` column, defaulted at the database level to OWNER_USER_ID. That
-// default is deliberate and load-bearing, not a shortcut: Phase 2 does not
-// touch the ~62 query call sites that insert rows across the app, so none of
-// them pass user_id yet. Without the default, making the column NOT NULL
-// would break every insert in the app today. Phase 3 is what sets user_id
-// explicitly at each call site and then drops these defaults. A default
-// that silently attributes every new row to the owner is exactly the wrong
-// behaviour once a second user exists, so it must not survive past Phase 3.
+// Every tenanted table below carries a NOT NULL `user_id`. Phase 2 gave those
+// columns a database-level DEFAULT of OWNER_USER_ID as a scaffold, so that
+// insert call sites kept working before tenancy was enforced. Phase 3 dropped
+// it (drizzle/0053_rls.sql), and it must not come back.
+//
+// The reason is that the default is indistinguishable from correct behaviour
+// right up until it is catastrophic: an insert that forgets user_id attributes
+// a second user's data to the owner, silently, with no error anywhere. Without
+// the default the same mistake is a not-null violation at the first write.
+//
+// So every insert must now pass user_id explicitly. If one fails to compile or
+// fails at runtime, set the id from the request's session -- do not restore a
+// default here. src/db/__tests__/rls-coverage.test.ts fails the build if any
+// tenanted column carries one again.
 
 // A person using Kadenz. Separate from `user_identities` because one person
 // can log in with both Strava and Google, and both must resolve to this one
@@ -221,8 +226,7 @@ export const profiles = pgTable(
     active: boolean("active").notNull().default(true),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -262,8 +266,7 @@ export const plans = pgTable(
     status: planStatusEnum("status").notNull().default("active"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -305,8 +308,7 @@ export const weeks = pgTable(
     skipSnapshot: jsonb("skip_snapshot").$type<{ id: string; status: string }[]>(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -365,8 +367,7 @@ export const workouts = pgTable(
     raceResultLoggedAt: timestamp("race_result_logged_at", { withTimezone: true }),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -402,8 +403,7 @@ export const blocks = pgTable(
     repRestSeconds: integer("rep_rest_seconds"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -434,10 +434,13 @@ export const activities = pgTable(
     // below (see src/lib/activity-provider.ts) — do not add new readers of
     // these two columns, and do not drop them until the eventual cleanup
     // pass (docs/DUPLICATION.md: one concept, computed in one place).
-    stravaId: text("strava_id").unique(),
+    // Uniqueness is per user, as a partial index below, not a global
+    // constraint here: two athletes must both be able to hold a row for the
+    // same external id. See drizzle/0054_tenant_scoped_uniqueness.sql.
+    stravaId: text("strava_id"),
     // Garmin activity id for watch-recorded activities imported via the
     // garmin-worker (stravaId stays null for those).
-    garminId: text("garmin_id").unique(),
+    garminId: text("garmin_id"),
     // Generic replacement for stravaId/garminId so a new source (Apple
     // Health, Health Connect, ...) never needs its own column. Written
     // alongside the legacy column on every write path; both are populated
@@ -476,8 +479,7 @@ export const activities = pgTable(
     streamsJson: jsonb("streams_json"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -490,9 +492,18 @@ export const activities = pgTable(
     // Postgres never treats NULL as colliding with NULL in a unique index —
     // see drizzle/0050_activity_provider_external_id.sql for the full
     // reasoning behind the WHERE clause.
-    uniqueIndex("activities_provider_external_id_uq")
-      .on(t.provider, t.externalId)
+    uniqueIndex("activities_user_provider_external_id_uq")
+      .on(t.userId, t.provider, t.externalId)
       .where(sql`${t.provider} is not null and ${t.externalId} is not null`),
+    // Per-user replacements for what used to be global UNIQUE constraints on
+    // the two legacy id columns. Partial for the same reason as above: a
+    // manually entered activity has neither id, and many such rows coexist.
+    uniqueIndex("activities_user_strava_id_uq")
+      .on(t.userId, t.stravaId)
+      .where(sql`${t.stravaId} is not null`),
+    uniqueIndex("activities_user_garmin_id_uq")
+      .on(t.userId, t.garminId)
+      .where(sql`${t.garminId} is not null`),
     index("activities_user_id_idx").on(t.userId),
   ]
 );
@@ -505,8 +516,7 @@ export const deletedActivities = pgTable(
     stravaId: text("strava_id").primaryKey(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("deleted_activities_user_id_idx").on(t.userId)]
@@ -521,8 +531,7 @@ export const activityTrash = pgTable(
     payload: jsonb("payload").notNull(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("activity_trash_user_id_idx").on(t.userId)]
@@ -538,8 +547,7 @@ export const personalRecords = pgTable(
     source: prSourceEnum("source").notNull().default("race"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -572,8 +580,7 @@ export const syncOutbox = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
   },
   (t) => [
     index("sync_outbox_status_idx").on(t.status),
@@ -683,8 +690,7 @@ export const strengthSessions = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -768,8 +774,7 @@ export const wellnessLogs = pgTable(
     note: text("note"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -809,8 +814,7 @@ export const wellnessMetrics = pgTable(
     source: text("source").notNull().default("garmin"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -822,10 +826,15 @@ export const wellnessMetrics = pgTable(
   // Health, Health Connect) writing the same calendar night must get its
   // own row instead of overwriting Garmin's. See drizzle/0049.
   //
-  // Phase 3 has to widen this to (user_id, source, date): as written, two
-  // users' watches reporting the same night would collide.
+  // Scoped to the user as of Phase 3. Without that leading column two
+  // athletes' watches reporting the same night collide, which is not an edge
+  // case: it is every user, every day.
   (t) => [
-    uniqueIndex("wellness_metrics_source_date_uq").on(t.source, t.date),
+    uniqueIndex("wellness_metrics_user_source_date_uq").on(
+      t.userId,
+      t.source,
+      t.date
+    ),
     index("wellness_metrics_user_id_idx").on(t.userId),
   ]
 );
@@ -887,8 +896,7 @@ export const strengthPlanSettings = pgTable(
     restSeconds: integer("rest_seconds"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -914,8 +922,7 @@ export const customWorkoutTemplates = pgTable(
     name: text("name").notNull(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -961,18 +968,23 @@ export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    endpoint: text("endpoint").notNull().unique(),
+    // Unique per user rather than globally: on a shared device both people
+    // get the same endpoint, and a global constraint would let whoever
+    // enabled reminders second take over the first person's subscription.
+    endpoint: text("endpoint").notNull(),
     p256dh: text("p256dh").notNull(),
     auth: text("auth").notNull(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("push_subscriptions_user_id_idx").on(t.userId)]
+  (t) => [
+    index("push_subscriptions_user_id_idx").on(t.userId),
+    uniqueIndex("push_subscriptions_user_endpoint_uq").on(t.userId, t.endpoint),
+  ]
 );
 
 // One row per user (same convention as strength_plan_settings / the
@@ -991,8 +1003,7 @@ export const reminderSettings = pgTable(
     defaultTimeOfDay: text("default_time_of_day").notNull().default("07:00"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1037,8 +1048,7 @@ export const sentReminders = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
   },
   (t) => [index("sent_reminders_user_id_idx").on(t.userId)]
 );

@@ -139,6 +139,18 @@ export default async function globalSetup() {
   console.log("[e2e] seeding local database…");
   await run("./node_modules/.bin/tsx", ["e2e/seed.ts"], dbEnv);
 
+  // ── 3b. Apply the Phase 3 enforcement SQL ────────────────────────────────
+  // `drizzle-kit push` above builds tables from schema.ts and replays no
+  // migrations, so the row level security policies would not exist and the
+  // isolation specs would pass against a database with no isolation. See
+  // e2e/apply-rls.ts.
+  //
+  // After the seed, not before: the seed writes both users' data with no
+  // request context set, which the policies would (correctly) refuse. Setup
+  // populates the database; the policies then govern how the app reads it.
+  console.log("[e2e] applying row level security…");
+  await run("./node_modules/.bin/tsx", ["e2e/apply-rls.ts"], dbEnv);
+
   // ── 4. Start the app's own dev server against the seeded database ───────
   console.log("[e2e] starting the app dev server…");
   const devServer = spawn(

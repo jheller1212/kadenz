@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { txStore } from "./tx-store";
 
 type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -34,9 +35,26 @@ function getDb(): DrizzleDb {
 
 // A thin proxy so `db.select(...)`, `db.query.x`, `db.insert(...)` etc. all work
 // exactly as before, but the underlying client is built on first access.
+//
+// It also resolves to the caller's transaction when there is one. withUser()
+// (db/with-user.ts) opens a transaction, sets the row level security context
+// on it with SET LOCAL, and publishes it on an AsyncLocalStorage store. Every
+// `db` access beneath that call then lands on that transaction, so the ~62
+// query call sites across the app inherit the caller's identity without any of
+// them being rewritten to thread a handle through.
+//
+// The alternative was passing a `tx` parameter down through every helper in
+// src/lib. That was rejected because a helper someone forgot to convert would
+// keep using the pooled client, and the resulting query would silently run
+// with no context. Resolving centrally means there is one place that decides,
+// and no call site can get it wrong by omission.
+//
+// Note the ordering: the store is consulted on every property access, not
+// captured once, because a single module-level `db` import is shared by
+// requests that are each inside a different transaction.
 export const db = new Proxy({} as DrizzleDb, {
   get(_target, prop, receiver) {
-    const real = getDb();
+    const real = (txStore.getStore() as DrizzleDb | undefined) ?? getDb();
     const value = Reflect.get(real as object, prop, receiver);
     return typeof value === "function" ? value.bind(real) : value;
   },
