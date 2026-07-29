@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { wellnessSourceLabel } from "@/lib/wellness-source";
 
 // ── Readiness card (Today) ────────────────────────────────────────────────────
 // Score ring + band headline + why. Recomputes when the wellness check-in
@@ -14,6 +15,7 @@ interface Readiness {
   hasCheckIn: boolean;
   advice: string;
   physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
+  physiologySource: string | null;
 }
 
 const BAND_META: Record<Readiness["band"], { label: string; color: string }> = {
@@ -91,9 +93,15 @@ export function ReadinessCard() {
           )}
           {data.physiologyWarmup && (
             <p className="mt-1 text-[12px] text-text-3" data-testid="readiness-physiology-warmup">
-              Building your recovery baseline from the watch (
+              Building your recovery baseline from{" "}
+              {wellnessSourceLabel(data.physiologySource) ?? "your watch"} (
               {data.physiologyWarmup.daysCollected}/{data.physiologyWarmup.daysNeeded} days).
               Sleep and HRV will factor in once it&apos;s ready.
+            </p>
+          )}
+          {!data.physiologyWarmup && data.physiologySource && (
+            <p className="mt-1 text-[11px] text-text-3" data-testid="readiness-physiology-source">
+              Recovery data from {wellnessSourceLabel(data.physiologySource)}
             </p>
           )}
         </div>

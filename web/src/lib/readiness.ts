@@ -56,6 +56,10 @@ export interface ReadinessResult {
    * silently omitting the signal. Null once ready, or if there's no
    * physiology data at all. */
   physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
+  /** wellness_metrics.source the physiology signal (ready or warm-up) was
+   * computed from, so the UI can name it (e.g. "Garmin"). Null when there's
+   * no physiology data at all. See lib/wellness-source.ts. */
+  physiologySource: string | null;
 }
 
 const BASE = 75;
@@ -143,5 +147,6 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
     advice: ADVICE[b],
     physiologyWarmup:
       input.physiology && !input.physiology.ready ? input.physiology.warmup : null,
+    physiologySource: input.physiology?.source ?? null,
   };
 }

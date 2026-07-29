@@ -661,7 +661,10 @@ export const wellnessMetrics = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [uniqueIndex("wellness_metrics_date_uq").on(t.date)]
+  // Unique on (source, date), not date alone — a second source (Apple
+  // Health, Health Connect) writing the same calendar night must get its
+  // own row instead of overwriting Garmin's. See drizzle/0049.
+  (t) => [uniqueIndex("wellness_metrics_source_date_uq").on(t.source, t.date)]
 );
 
 export const painLogs = pgTable(

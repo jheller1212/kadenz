@@ -11,7 +11,7 @@
 // converges over a few days, newest-missing-first so the 7-day recent
 // average is complete before the older baseline tail fills in.
 
-import { and, gte, lt } from "drizzle-orm";
+import { and, eq, gte, lt } from "drizzle-orm";
 import { db, wellnessMetrics } from "@/db";
 import { garminClient } from "./garmin-client";
 import { toGarminDate } from "./garmin-client";
@@ -43,10 +43,20 @@ export async function runWellnessSync(): Promise<WellnessSyncResult> {
   const today = dayStart(new Date());
   const windowStart = new Date(today.getTime() - BACKFILL_WINDOW_DAYS * 24 * 3600_000);
 
+  // Garmin rows only — a row from another source (Apple Health, Health
+  // Connect) on the same date must not suppress this pull. wellness_metrics
+  // is now unique on (source, date), not date alone, so each source tracks
+  // its own "have I already got this night" independently.
   const existing = await db
     .select({ date: wellnessMetrics.date })
     .from(wellnessMetrics)
-    .where(and(gte(wellnessMetrics.date, windowStart), lt(wellnessMetrics.date, today)));
+    .where(
+      and(
+        eq(wellnessMetrics.source, "garmin"),
+        gte(wellnessMetrics.date, windowStart),
+        lt(wellnessMetrics.date, today)
+      )
+    );
   const existingKeys = new Set(existing.map((e) => dateKey(e.date)));
 
   // Candidate days: yesterday back to the start of the window. Today is
@@ -82,13 +92,14 @@ export async function runWellnessSync(): Promise<WellnessSyncResult> {
           source: "garmin",
         })
         .onConflictDoUpdate({
-          target: wellnessMetrics.date,
+          target: [wellnessMetrics.source, wellnessMetrics.date],
           set: {
             sleepSeconds: w.sleepSeconds,
             restingHr: w.restingHr,
             hrvLastNightAvg: w.hrvLastNightAvg,
             hrvWeeklyAvg: w.hrvWeeklyAvg,
             hrvStatus: w.hrvStatus,
+            source: "garmin",
             updatedAt: new Date(),
           },
         });
