@@ -21,6 +21,7 @@ export function SessionOverviewCards({
   isSkipped,
   estMinutes,
   isRealDuration,
+  hideTimeCell,
   exerciseCount,
   totalSets,
   volume,
@@ -32,6 +33,11 @@ export function SessionOverviewCards({
   isSkipped: boolean;
   estMinutes: number | null;
   isRealDuration: boolean;
+  /** True when SessionTimeline is already showing this session's real
+   *  recorded duration (with its start/finish) — the stat row would just be
+   *  repeating the same number, the exact "one concept, two places" drift
+   *  this codebase has been bitten by before, so skip it here. */
+  hideTimeCell: boolean;
   exerciseCount: number;
   totalSets: number;
   volume: Volume;
@@ -85,7 +91,7 @@ export function SessionOverviewCards({
             <p className="text-[11px] uppercase tracking-wide text-text-3">Sets</p>
             <p className="text-[22px] font-extrabold tabular-nums text-text-1">{totalSets}</p>
           </div>
-          {estMinutes != null && (
+          {estMinutes != null && !hideTimeCell && (
             <div>
               <p className="text-[11px] uppercase tracking-wide text-text-3">Time</p>
               <p className="text-[22px] font-extrabold tabular-nums text-text-1">

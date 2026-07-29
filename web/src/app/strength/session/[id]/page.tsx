@@ -255,6 +255,13 @@ export default function StrengthSessionPage({
   // there yet. isRealDuration decides whether the "~" estimate marker is
   // allowed on estMinutes below; a real recorded duration must never get it.
   const isRealDuration = session.durationMinutes != null;
+  // SessionTimeline only renders once startedAt exists (see its own null
+  // check), and only labels a duration "real" via the same isRealDuration
+  // check — when both hold, it's already showing this session's recorded
+  // duration alongside its start/finish, so the summary stat row must not
+  // repeat the same number in a second place (that's the "one concept
+  // computed in two places" drift this codebase has hit before).
+  const timelineShowsDuration = isRealDuration && session.startedAt != null;
   const estMinutes =
     session.durationMinutes ??
     session.targetDurationMinutes ??
@@ -277,6 +284,7 @@ export default function StrengthSessionPage({
           isSkipped={isSkipped}
           estMinutes={estMinutes}
           isRealDuration={isRealDuration}
+          hideTimeCell={timelineShowsDuration}
           exerciseCount={exerciseCount}
           totalSets={totalSets}
           volume={volume}
