@@ -5,8 +5,8 @@
 // seeds it with one owner's worth of realistic data, starts the app's own
 // dev server against that database, and mints a valid session cookie for the
 // tests to reuse — all local, all disposable, never production.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import EmbeddedPostgres from "embedded-postgres";
 import {
@@ -75,6 +75,44 @@ function runCapture(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promis
     });
     child.on("error", reject);
   });
+}
+
+// A syntactically valid id that matches nothing in the seed. Dynamic routes
+// warmed with it compile and then 404, which is all the warm-up needs.
+const WARM_PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000";
+
+function segmentToPath(name: string): string {
+  // [id] / [exerciseId] → a placeholder; [...slug] / [[...slug]] → one segment.
+  if (name.startsWith("[")) return WARM_PLACEHOLDER_ID;
+  return name;
+}
+
+/**
+ * Every route module under `src/app`, as a URL that will compile it:
+ * `src/app/settings/apps/page.tsx` → `/settings/apps`,
+ * `src/app/api/activities/[id]/route.ts` → `/api/activities/<placeholder>`.
+ * Route groups `(name)` collapse away, since they contribute no URL path.
+ */
+function allRouteUrls(): { pages: string[]; api: string[] } {
+  const appDir = join(dirname(dirname(__filename)), "src", "app");
+  const pages: string[] = [];
+  const api: string[] = [];
+
+  const walk = (dir: string, segments: string[]) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const isGroup = entry.name.startsWith("(") && entry.name.endsWith(")");
+        walk(join(dir, entry.name), isGroup ? segments : [...segments, segmentToPath(entry.name)]);
+      } else if (/^page\.(tsx|ts|jsx|js)$/.test(entry.name)) {
+        pages.push("/" + segments.join("/"));
+      } else if (/^route\.(tsx|ts|jsx|js)$/.test(entry.name)) {
+        api.push("/" + segments.join("/"));
+      }
+    }
+  };
+
+  walk(appDir, []);
+  return { pages: pages.sort(), api: api.sort() };
 }
 
 async function waitForServer(url: string, timeoutMs: number): Promise<void> {
@@ -152,6 +190,9 @@ export default async function globalSetup() {
         DATABASE_URL: E2E_DATABASE_URL,
         SESSION_SECRET: E2E_SESSION_SECRET,
         NODE_ENV: "development",
+        // Pins every compiled route in memory for the run — see the
+        // onDemandEntries block in next.config.ts for why that matters here.
+        KADENZ_E2E: "1",
       },
     }
   );
@@ -186,33 +227,66 @@ export default async function globalSetup() {
   mkdirSync(dirname(E2E_AUTH_STATE_PATH), { recursive: true });
   writeFileSync(E2E_AUTH_STATE_PATH, JSON.stringify(storageState, null, 2));
 
-  // ── 6. Warm up every route the specs hit ─────────────────────────────────
-  // Next dev compiles each page/route on its first request. Hitting one
-  // mid-test, instead of here, has two visible symptoms: an API response
-  // that's slow enough to look like the feature is broken, and — worse — a
-  // page that Next silently reloads once compilation finishes, which detaches
-  // whatever element a test was about to interact with. Doing this compile
-  // pass up front, before any spec runs, avoids both.
-  console.log("[e2e] warming up dev-compiled routes…");
+  // ── 6. Compile every route in the app before any spec runs ───────────────
+  // Next dev compiles each page and route module on its first request, and an
+  // on-demand compile does not just cost time: it pushes a Fast Refresh update
+  // over the HMR socket to whatever page is open at that moment. A page that
+  // takes a hot update mid-hydration can end up never finishing it, which
+  // looks exactly like a broken screen — the app sits on the boot splash and
+  // the test times out waiting for an element that will never appear.
+  //
+  // A first-time compile is therefore a hazard for whichever test happens to
+  // be running, not just for the test that triggered it. That is why this
+  // compiles everything up front, and why the list is discovered from src/app
+  // instead of hand-maintained: a hand-written list only ever covers the specs
+  // that existed when it was written, and the routes it misses are exactly the
+  // ones that fire a hot update mid-test.
+  //
+  // Route handlers count too, not just pages: an API route compiling for the
+  // first time fires the same hot update, and the page that takes it drops its
+  // in-flight fetches, so a card that was loading simply never appears.
+  //
+  // Pages are warmed with GET. Route handlers are warmed with OPTIONS: Next
+  // has to load the module to answer what methods it allows, so the module
+  // compiles, but no handler body runs — warming must not kick off a sync just
+  // because a route exists. Dynamic segments are filled with an id that
+  // matches nothing, so those compile and then 404.
+  //
+  // Requests go out a few at a time: the compile itself is serial inside Next,
+  // but overlapping requests let it batch entries, which takes this pass from
+  // ~2 minutes to well under one.
+  console.log("[e2e] compiling every route before the first spec…");
   const cookieHeader = `${name}=${value}`;
-  const routesToWarm = [
-    "/",
-    "/plan",
-    "/strength",
-    "/activities",
-    "/stats",
-    "/api/session",
-    "/api/readiness",
-    "/api/today",
-    "/api/strength/exercises",
-  ];
-  for (const route of routesToWarm) {
+  const { pages, api } = allRouteUrls();
+  const warmStarted = Date.now();
+
+  const warmOne = async (route: string, method: "GET" | "OPTIONS") => {
     try {
-      await fetch(`${E2E_BASE_URL}${route}`, { headers: { cookie: cookieHeader } });
+      await fetch(`${E2E_BASE_URL}${route}`, { method, headers: { cookie: cookieHeader } });
     } catch (err) {
       console.warn(`[e2e] warm-up request to ${route} failed (continuing):`, err);
     }
-  }
+  };
+
+  const warmAll = async (routes: string[], method: "GET" | "OPTIONS", concurrency: number) => {
+    const queue = [...routes];
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+        for (let next = queue.shift(); next; next = queue.shift()) {
+          await warmOne(next, method);
+        }
+      })
+    );
+  };
+
+  await warmAll(pages, "GET", 4);
+  await warmAll(api, "OPTIONS", 8);
+
+  console.log(
+    `[e2e] compiled ${pages.length} pages and ${api.length} route handlers in ${Math.round(
+      (Date.now() - warmStarted) / 1000
+    )}s`
+  );
 
   console.log("[e2e] global setup complete.");
 }

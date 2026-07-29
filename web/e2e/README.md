@@ -33,13 +33,47 @@ run, `npm run test:e2e` will:
    of `wellness_metrics` (deliberately fewer than the 21-night baseline the
    readiness card needs — see `readiness-warmup.spec.ts`).
 4. Start the app's own dev server (`next dev --webpack`) against that
-   database, on `127.0.0.1:3100`.
+   database, on `127.0.0.1:3100`, with `KADENZ_E2E=1` set — see "No compiling
+   while tests run" below.
 5. Mint a valid session cookie and hand it to every test via Playwright's
    `storageState` — see "Auth" below.
-6. Warm up every route the specs hit, so Next's on-demand dev compilation
-   doesn't happen mid-test (see the comment in `global-setup.ts` for why that
-   matters — a page reloading mid-interaction the first time it's compiled
-   looks exactly like a real bug otherwise).
+6. Request every page and every route handler once, so nothing compiles for
+   the first time while a spec is running (see below).
+
+## No compiling while tests run
+
+This is the single most important property of the harness, and the cause of
+most of its early flakiness.
+
+`next dev` compiles a page or route handler the first time it is requested,
+and every such compile pushes a Fast Refresh update over the HMR socket to
+whatever page is open at that moment. That update is not harmless:
+
+- a page that takes one while it is still hydrating can stop hydrating
+  altogether, leaving the app on the boot splash until the test times out on
+  an element that never appears, and
+- a page that takes one after hydrating drops its in-flight fetches, so a card
+  that was loading simply never renders.
+
+Both look exactly like real product bugs, in a spec that had nothing to do
+with the route that happened to compile.
+
+Two things together remove it:
+
+- `global-setup.ts` requests every page (GET) and every route handler
+  (OPTIONS, which makes Next load the module without running a handler body)
+  before the first spec. Dynamic segments are filled with an id that matches
+  nothing. The list is read from `src/app`, not hand-maintained, so a spec for
+  an existing route is covered without anyone remembering this file.
+- `next.config.ts` raises `onDemandEntries` when `KADENZ_E2E=1`. Next dev
+  otherwise keeps only 5 compiled routes for 60 seconds each, so with ~110
+  routes it would evict and recompile them all run long no matter how
+  thoroughly they were warmed. `next build` ignores this setting.
+
+If you add a spec and see intermittent "element never appeared" failures,
+check the dev server log for a slow request during the test: a request taking
+seconds means something compiled, and something compiled means a hot update
+landed on the page under test.
 
 Re-running `npm run test:e2e` reuses the same local Postgres data directory —
 the seed is idempotent (it checks for an existing active plan and no-ops if

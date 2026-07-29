@@ -47,12 +47,12 @@ async function backToPicker(page: Page) {
 }
 
 test.describe("Kraft session start options", () => {
-  test.beforeEach(async ({ page }) => {
-    await clearTodaysStrengthSessions(page);
+  test.beforeEach(async () => {
+    await clearTodaysStrengthSessions();
   });
 
-  test.afterEach(async ({ page }) => {
-    await clearTodaysStrengthSessions(page);
+  test.afterEach(async () => {
+    await clearTodaysStrengthSessions();
   });
 
   test("a duration chip changes the exercise list and moves the estimate toward the budget", async ({ page }) => {
