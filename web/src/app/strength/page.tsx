@@ -32,7 +32,7 @@ import type {
   PlannedExercise,
   SessionType,
 } from "@/components/strength/GuidedSession";
-import type { ExerciseOverride } from "@/lib/strength/session";
+import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
 // Heavy, full-screen surfaces only reached deep in the flow — load them on
 // demand so the strength landing bundle stays small.
 const GuidedSession = dynamic(() => import("@/components/strength/GuidedSession"), {
@@ -386,6 +386,38 @@ export default function StrengthPage() {
   // so abandoned picker taps don't linger as phantom "missed" sessions.
   const adHocIdRef = useRef<string | null>(null);
 
+  // Backing out of an ad-hoc session deletes it without awaiting the response
+  // (Back must feel instant), which leaves a window where the session still exists server-side.
+  // Starting a session again inside that window used to re-adopt the very
+  // session that was being deleted, because pickType's "is there already a
+  // planned session today?" list still returned it — so a duration or equipment
+  // choice made in the start sheet was silently dropped and the abandoned plan
+  // came back instead. Remembering the in-flight delete lets pickType wait for
+  // it and skip that id outright.
+  const abandonRef = useRef<{ id: string; done: Promise<void> } | null>(null);
+
+  function abandonSession(id: string) {
+    const done = apiFetch(`/api/strength/sessions/${id}`, {
+      method: "DELETE",
+      // Survives the page being navigated away from or closed right after
+      // Back — otherwise an abandoned session lingers on today as a phantom
+      // "missed" session, which is exactly what this delete exists to prevent.
+      keepalive: true,
+    })
+      .then(() => undefined)
+      .catch(() => undefined);
+    abandonRef.current = { id, done };
+  }
+
+  /** Waits for any in-flight abandon-delete and returns the id it removed. */
+  async function settleAbandon(): Promise<string | null> {
+    const pending = abandonRef.current;
+    if (!pending) return null;
+    await pending.done;
+    abandonRef.current = null;
+    return pending.id;
+  }
+
   // Deep-link from a session detail screen's "Start session" (Today, the plan,
   // the feed): /strength?session=<id> jumps straight to THIS session's overview
   // — weights, reorder, then start guided — instead of the picker landing.
@@ -469,6 +501,12 @@ export default function StrengthPage() {
       let sessionId: string | null = null;
       adHocIdRef.current = null;
 
+      // Let a just-abandoned session finish disappearing before asking what's
+      // already planned for today, and never adopt it even if that delete
+      // failed. Without this, Back followed by a quick restart re-adopts the
+      // abandoned plan and drops the start sheet's duration/equipment choice.
+      const abandonedId = await settleAbandon();
+
       // Adopt: a planned session of this type scheduled for today. An
       // already-planned session (e.g. from auto-scheduling) keeps its own
       // committed plan — a chosen start-sheet override only applies when
@@ -482,7 +520,9 @@ export default function StrengthPage() {
       );
       if (listRes.ok) {
         const todays = (await listRes.json()) as Array<{ id: string; type: string; status: string }>;
-        sessionId = todays.find((s) => s.type === type && s.status === "planned")?.id ?? null;
+        sessionId =
+          todays.find((s) => s.type === type && s.status === "planned" && s.id !== abandonedId)?.id ??
+          null;
       }
 
       if (!sessionId) {
@@ -553,7 +593,7 @@ export default function StrengthPage() {
     // Abandoning a just-created ad-hoc session before logging anything? Remove
     // it again (adopted planned sessions are left untouched).
     if (phase === "overview" && adHocIdRef.current && session?.id === adHocIdRef.current) {
-      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+      abandonSession(adHocIdRef.current);
     }
     adHocIdRef.current = null;
     setPhase("picker");
@@ -666,17 +706,32 @@ export default function StrengthPage() {
     setActionsSlug(null);
   }
 
+  // The order the athlete lands on is stored on the session (see handleStart),
+  // so it outlives today. Checked here, at the moment it is made, rather than
+  // letting the server reject the save later with nothing on screen to
+  // explain it: within an Achilles session, explosive work comes before slow
+  // heavy (HSR) calf work. Returns true when `next` was applied.
+  function applyOrderedList(next: PlannedExercise[]): boolean {
+    const check = validateAchillesOrdering(next.map((x) => x.slug));
+    if (!check.valid) {
+      haptic("warning");
+      setError(check.message);
+      return false;
+    }
+    setError(null);
+    setExercises(next);
+    return true;
+  }
+
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
+    const from = exercises.findIndex((x) => x.slug === active.id);
+    const to = exercises.findIndex((x) => x.slug === over.id);
+    if (from < 0 || to < 0) return;
+    if (!applyOrderedList(arrayMove(exercises, from, to))) return;
     haptic("light");
     setSortMode("custom");
-    setExercises((exs) => {
-      const from = exs.findIndex((x) => x.slug === active.id);
-      const to = exs.findIndex((x) => x.slug === over.id);
-      if (from < 0 || to < 0) return exs;
-      return arrayMove(exs, from, to);
-    });
   }
 
   // Applying a sort reorders the actual list — same state a manual drag edits,
@@ -697,13 +752,15 @@ export default function StrengthPage() {
         /* sort with zero counts */
       }
     }
-    setExercises((exs) =>
-      sortExerciseList(exs, mode, {
-        name: (x) => x.name,
-        weightKg: (x) => x.suggestedWeightKg,
-        timesPerformed: (x) => f?.[x.slug] ?? 0,
-      })
-    );
+    const sorted = sortExerciseList(exercises, mode, {
+      name: (x) => x.name,
+      weightKg: (x) => x.suggestedWeightKg,
+      timesPerformed: (x) => f?.[x.slug] ?? 0,
+    });
+    // A sort that would put slow heavy calf work ahead of explosive work is
+    // refused the same way a drag is (see applyOrderedList), and the chip
+    // goes back to the order actually on screen.
+    if (!applyOrderedList(sorted)) setSortMode("custom");
   }
 
   async function ensureCatalog() {
@@ -798,12 +855,36 @@ export default function StrengthPage() {
     setAddOpen(false);
   }
 
+  // Store the order the athlete is about to work through, so a resume, a
+  // reload or a second device rebuilds the plan in THIS order instead of the
+  // template's (the plan itself is re-derived on every read, see
+  // lib/strength/session.ts). Adds and exchanges made in this sheet stay
+  // ephemeral, as they were before: a slug the rebuilt plan does not contain
+  // is ignored on read, and a plan exercise not in the stored order keeps its
+  // place rather than disappearing.
+  //
+  // Deliberately not awaited. Starting the workout must not wait on the
+  // network, and must not fail because of it: if this call never lands, the
+  // session runs in the chosen order today exactly as it did before this was
+  // stored at all.
+  function persistExerciseOrder() {
+    const sessionId = session?.id;
+    if (!sessionId) return;
+    const order = exercises.map((e) => e.slug);
+    apiFetch(`/api/strength/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ exerciseOrder: order }),
+    }).catch(() => {});
+  }
+
   function handleStart() {
     if (exercises.length === 0) {
       setError("Add at least one exercise before starting.");
       return;
     }
     setError(null);
+    persistExerciseOrder();
     setResume(null); // fresh start — the mount overwrites any old snapshot
     unlockGuidedAudio();
     setPhase("guided");
@@ -920,7 +1001,7 @@ export default function StrengthPage() {
   // snapshot — remove an ad-hoc session entirely so nothing lingers on today.
   function handleDiscardGuided() {
     if (adHocIdRef.current && session?.id === adHocIdRef.current) {
-      apiFetch(`/api/strength/sessions/${adHocIdRef.current}`, { method: "DELETE" }).catch(() => {});
+      abandonSession(adHocIdRef.current);
     }
     adHocIdRef.current = null;
     setResume(null);

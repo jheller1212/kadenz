@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionPlan, validateAchillesOrdering } from "../session";
+import {
+  applyExerciseOrder,
+  buildSessionPlan,
+  validateAchillesOrdering,
+  type PlannedExercise,
+} from "../session";
 import { SESSION_TEMPLATES } from "../program";
 
 describe("buildSessionPlan", () => {
@@ -183,6 +188,39 @@ describe("running-plan phase backoff", () => {
     expect(calf.painGated).toBe(true);
     // ...and the peak-week backoff still reduces ordinary lower-body volume.
     expect(squat.sets).toBe(2); // 3 (template) - 1 (peak)
+  });
+});
+
+describe("applyExerciseOrder", () => {
+  const plan = ["a", "b", "c"].map((slug) => ({ slug }) as PlannedExercise);
+  const slugs = (list: PlannedExercise[]) => list.map((e) => e.slug);
+
+  it("leaves the plan alone when there is no stored order", () => {
+    expect(slugs(applyExerciseOrder(plan, null))).toEqual(["a", "b", "c"]);
+    expect(slugs(applyExerciseOrder(plan, []))).toEqual(["a", "b", "c"]);
+  });
+
+  it("reorders the plan to the stored order", () => {
+    expect(slugs(applyExerciseOrder(plan, ["c", "a", "b"]))).toEqual(["c", "a", "b"]);
+  });
+
+  it("ignores a stored slug the plan no longer contains", () => {
+    expect(slugs(applyExerciseOrder(plan, ["c", "gone", "a", "b"]))).toEqual(["c", "a", "b"]);
+  });
+
+  it("keeps a plan exercise that is missing from the stored order, after the placed ones", () => {
+    // "b" is new relative to this order (a template or equipment change), so
+    // it moves to the end rather than being dropped off the screen.
+    expect(slugs(applyExerciseOrder(plan, ["c", "a"]))).toEqual(["c", "a", "b"]);
+  });
+
+  it("keeps plan order among several unplaced exercises", () => {
+    expect(slugs(applyExerciseOrder(plan, ["c"]))).toEqual(["c", "a", "b"]);
+  });
+
+  it("does not mutate the plan it was given", () => {
+    applyExerciseOrder(plan, ["c", "b", "a"]);
+    expect(slugs(plan)).toEqual(["a", "b", "c"]);
   });
 });
 

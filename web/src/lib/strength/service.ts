@@ -13,6 +13,7 @@ import {
   buildSessionPlan,
   estimateSessionMinutes,
   applyExerciseOverrides,
+  applyExerciseOrder,
   type PlannedExercise,
   type ExerciseOverride,
 } from "./session";
@@ -194,7 +195,13 @@ export async function buildPlannedSession(
   // getStrengthPlanSettingsRow. `undefined` (not passed) means "fetch it";
   // `null` explicitly means "known absent, don't bother querying".
   preloadedSettingsRow?: PlanSettingsRow | null,
-  equipmentOverride?: Equipment[] | null
+  equipmentOverride?: Equipment[] | null,
+  // The session's stored exercise order (strengthSessions.exerciseOrder), if
+  // the athlete set one. Applied last, after the template plan and the hand
+  // edits, so it reorders exactly the list the athlete will see. Reordering
+  // never changes the duration estimate below (it sums per-exercise costs),
+  // so it is safe to apply after duration-fit has already run.
+  exerciseOrder?: string[] | null
 ): Promise<PlannedSessionResult> {
   const [{ programWeek, weekInfo }, historyBySlug, painGate, settingsRow] = await Promise.all([
     getProgramWeekAndPhase(date),
@@ -220,10 +227,12 @@ export async function buildPlannedSession(
   });
   // Hand edits (Exchange / Remove) layered on last — see session.ts for why
   // these can't be baked into the template-derived plan itself.
-  const exercises = applyExerciseOverrides(plan, exerciseOverrides, {
+  const edited = applyExerciseOverrides(plan, exerciseOverrides, {
     historyBySlug,
     lifterProfile: planSettings.lifterProfile,
   });
+  // The athlete's own order last of all — see session.ts applyExerciseOrder.
+  const exercises = applyExerciseOrder(edited, exerciseOrder);
   return { exercises, estimatedDurationMinutes: estimateSessionMinutes(exercises) };
 }
 
