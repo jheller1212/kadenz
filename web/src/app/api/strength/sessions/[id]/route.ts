@@ -14,6 +14,7 @@ import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/g
 import { isConnected } from "@/lib/sync/gcal-client";
 import type { Equipment, StrengthSessionType } from "@/lib/strength/types";
 import type { ExerciseOverride } from "@/lib/strength/session";
+import { alignSetHeartRate, type HeartRateStream } from "@/lib/sync/strength-hr";
 
 const ExerciseOverrideSchema = z.discriminatedUnion("action", [
   z.object({ slug: z.string(), action: z.literal("removed") }),
@@ -128,8 +129,10 @@ export async function GET(
       session.targetDurationMinutes = estimatedDurationMinutes;
     }
 
-    // A linked Strava activity contributes HR + duration to the logged sets.
-    const [linkedActivity] = await db
+    // A linked recorded activity (Strava or Garmin) contributes HR + duration
+    // to the logged sets. streamsJson/startDate are only used server-side
+    // below (to derive per-set HR) — not echoed back on linkedActivity itself.
+    const [linkedActivityRow] = await db
       .select({
         id: activities.id,
         stravaId: activities.stravaId,
@@ -137,16 +140,57 @@ export async function GET(
         avgHr: activities.avgHr,
         maxHr: activities.maxHr,
         durationSeconds: activities.durationSeconds,
+        startDate: activities.startDate,
+        streamsJson: activities.streamsJson,
       })
       .from(activities)
       .where(eq(activities.strengthSessionId, id))
       .limit(1);
 
+    // Per-set heart rate, derived on read from the linked activity's HR
+    // stream aligned against each set's createdAt — see alignSetHeartRate for
+    // exactly what the number represents (a guessed window ending around
+    // when the set was logged, not an exact per-rep reading). Absent (null)
+    // whenever there's no linked activity, no HR stream, or no sample falls
+    // in the set's window — never a fabricated 0.
+    const stream =
+      linkedActivityRow?.streamsJson != null
+        ? ((linkedActivityRow.streamsJson as { time?: number[]; heartrate?: number[] })
+            .heartrate
+            ? {
+                time: (linkedActivityRow.streamsJson as { time: number[] }).time,
+                heartrate: (linkedActivityRow.streamsJson as { heartrate: number[] }).heartrate,
+              }
+            : null)
+        : null;
+    const setsWithHr = sets.map((set) => {
+      const hr: HeartRateStream | null = stream;
+      const { avgHr, maxHr } =
+        linkedActivityRow?.startDate && hr
+          ? alignSetHeartRate(linkedActivityRow.startDate, hr, {
+              createdAt: set.createdAt,
+              durationSeconds: set.durationSeconds,
+            })
+          : { avgHr: null, maxHr: null };
+      return { ...set, avgHr, maxHr };
+    });
+
+    const linkedActivity = linkedActivityRow
+      ? {
+          id: linkedActivityRow.id,
+          stravaId: linkedActivityRow.stravaId,
+          garminId: linkedActivityRow.garminId,
+          avgHr: linkedActivityRow.avgHr,
+          maxHr: linkedActivityRow.maxHr,
+          durationSeconds: linkedActivityRow.durationSeconds,
+        }
+      : null;
+
     return Response.json({
       ...session,
-      sets,
+      sets: setsWithHr,
       plannedExercises,
-      linkedActivity: linkedActivity ?? null,
+      linkedActivity,
     });
   } catch (err) {
     console.error("DB error fetching strength session:", err);

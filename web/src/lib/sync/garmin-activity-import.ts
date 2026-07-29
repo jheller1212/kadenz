@@ -104,6 +104,7 @@ async function importStrength(act: GarminActivity, startDate: Date): Promise<voi
   const strengthSessionId = longEnough
     ? await findMatchingStrengthSession({
         start_date_local: normalizeLocalTimestamp(act.startTimeLocal),
+        moving_time: act.durationSeconds ?? 0,
       })
     : null;
 
