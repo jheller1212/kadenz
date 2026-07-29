@@ -419,6 +419,43 @@ export function applyExerciseOverrides(
   return result;
 }
 
+// ── Stored exercise order ─────────────────────────────────────────────────────
+//
+// The plan is rebuilt from the template on every read, so the athlete's own
+// order (drag in the pre-start sheet, or a sort chip) has to be stored and
+// re-applied here or it dies with the React state that held it. The stored
+// value is a list of slugs on the session row (schema.ts
+// strengthSessions.exerciseOrder), written when the session starts.
+//
+// The two mismatch cases both resolve towards keeping the plan intact:
+//   • a stored slug the plan no longer has (removed by an override, trimmed
+//     by duration-fit, or added ad hoc in the sheet and never persisted) is
+//     ignored;
+//   • a plan exercise missing from the stored order is NEW relative to that
+//     order, so it goes after the exercises the athlete did place, in plan
+//     order. It is never dropped.
+//
+// This governs the plan before and during a session only. A completed
+// session is ordered by when each exercise's first set was actually logged
+// (session-order.ts firstLoggedExerciseOrder), because that is the record of
+// what happened rather than what was intended.
+
+export function applyExerciseOrder(
+  plan: PlannedExercise[],
+  order: string[] | null | undefined
+): PlannedExercise[] {
+  if (!order || order.length === 0) return plan;
+  const rank = new Map<string, number>();
+  order.forEach((slug, i) => {
+    if (!rank.has(slug)) rank.set(slug, i);
+  });
+  // Stable: equal ranks (two unplaced exercises) keep their plan order.
+  return plan
+    .map((ex, i) => ({ ex, i, rank: rank.get(ex.slug) ?? Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.i - b.i))
+    .map((e) => e.ex);
+}
+
 // ── Achilles ordering rule ────────────────────────────────────────────────────
 //
 // Hard rule: within an Achilles session, explosive work comes before slow heavy
