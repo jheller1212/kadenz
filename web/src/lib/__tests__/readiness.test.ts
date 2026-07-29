@@ -97,7 +97,9 @@ describe("computeReadiness", () => {
 
   it("physiology in warm-up contributes nothing but is surfaced for the card", () => {
     const r = computeReadiness(
-      base({ physiology: { delta: 0, reasons: [], ready: false, warmup: { daysCollected: 5, daysNeeded: 21 } } })
+      base({
+        physiology: { delta: 0, reasons: [], ready: false, warmup: { daysCollected: 5, daysNeeded: 21 }, source: "garmin" },
+      })
     );
     expect(r.score).toBe(75);
     expect(r.reasons).toEqual([]);
@@ -112,6 +114,7 @@ describe("computeReadiness", () => {
           reasons: [{ label: "HRV 20% below your baseline", delta: -12 }],
           ready: true,
           warmup: null,
+          source: "garmin",
         },
       })
     );

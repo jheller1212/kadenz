@@ -12,6 +12,8 @@
 // four days of data is worse than no number, because it looks like evidence
 // when it's noise.
 
+import { selectWellnessSource, type SourceNights } from "./wellness-source";
+
 export interface WellnessNight {
   /** Calendar day of the overnight reading, YYYY-MM-DD. */
   date: string;
@@ -32,6 +34,12 @@ export interface PhysiologyResult {
    * history to trust a deviation yet. See `warmup` for how far along. */
   ready: boolean;
   warmup: { daysCollected: number; daysNeeded: number } | null;
+  /** wellness_metrics.source the nights fed into this computation came from
+   * (e.g. "garmin", "apple_health"), or null when there was no history at
+   * all. Callers use this to name the signal in the UI. Every night in a
+   * single computation comes from exactly one source — see
+   * lib/wellness-source.ts for why sources are never mixed. */
+  source: string | null;
 }
 
 // How far back the baseline looks, and how much history it needs before a
@@ -95,13 +103,17 @@ function latestNight(nights: WellnessNight[], asOf: Date): WellnessNight | null 
 }
 
 /**
- * Pure function: nightly wellness history → readiness adjustment.
- * `asOf` defaults to now but is a parameter so this stays testable without
- * mocking the clock.
+ * Pure function: nightly wellness history from a SINGLE source → readiness
+ * adjustment. `asOf` defaults to now but is a parameter so this stays
+ * testable without mocking the clock. `source` is passed through untouched
+ * onto the result for the UI to name the signal — callers that already
+ * selected a single source (see computePhysiologyReadinessAcrossSources
+ * below) pass it here; it plays no part in the math.
  */
 export function computePhysiologyReadiness(
   nights: WellnessNight[],
-  asOf: Date = new Date()
+  asOf: Date = new Date(),
+  source: string | null = null
 ): PhysiologyResult {
   const hrv = baselineAndRecent(nights, asOf, (n) => n.hrvLastNightAvg);
   const rhr = baselineAndRecent(nights, asOf, (n) => n.restingHr);
@@ -120,6 +132,7 @@ export function computePhysiologyReadiness(
         daysCollected: Math.max(hrv.baselineCount, rhr.baselineCount),
         daysNeeded: MIN_BASELINE_NIGHTS,
       },
+      source,
     };
   }
 
@@ -166,5 +179,24 @@ export function computePhysiologyReadiness(
     }
   }
 
-  return { delta, reasons, ready: true, warmup: null };
+  return { delta, reasons, ready: true, warmup: null, source };
+}
+
+/**
+ * Entry point for callers with nights spanning multiple sources (e.g. the
+ * readiness API, which loads the whole wellness_metrics history regardless
+ * of which device wrote it). Picks ONE source for the whole computation —
+ * see lib/wellness-source.ts for the ranking and why this must happen once
+ * per call, not per night — then runs the ordinary single-source math on
+ * just that source's nights.
+ */
+export function computePhysiologyReadinessAcrossSources(
+  bySource: SourceNights[],
+  asOf: Date = new Date()
+): PhysiologyResult {
+  const { source, nights } = selectWellnessSource(bySource, MIN_BASELINE_NIGHTS);
+  if (source == null) {
+    return { delta: 0, reasons: [], ready: false, warmup: { daysCollected: 0, daysNeeded: MIN_BASELINE_NIGHTS }, source: null };
+  }
+  return computePhysiologyReadiness(nights, asOf, source);
 }

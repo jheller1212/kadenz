@@ -12,7 +12,8 @@ import {
 } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
 import { computeReadiness } from "@/lib/readiness";
-import { computePhysiologyReadiness, type WellnessNight } from "@/lib/physiology";
+import { computePhysiologyReadinessAcrossSources, type WellnessNight } from "@/lib/physiology";
+import type { SourceNights } from "@/lib/wellness-source";
 import { toGarminDate } from "@/lib/sync/garmin-client";
 
 // ── GET /api/readiness ────────────────────────────────────────────────────────
@@ -105,17 +106,32 @@ export async function GET(request: NextRequest) {
           sleepSeconds: wellnessMetrics.sleepSeconds,
           restingHr: wellnessMetrics.restingHr,
           hrvLastNightAvg: wellnessMetrics.hrvLastNightAvg,
+          source: wellnessMetrics.source,
         })
         .from(wellnessMetrics)
         .where(gte(wellnessMetrics.date, since60d));
-      const nights: WellnessNight[] = rows.map((r) => ({
-        date: toGarminDate(r.date),
-        sleepSeconds: r.sleepSeconds,
-        restingHr: r.restingHr,
-        hrvLastNightAvg: r.hrvLastNightAvg,
+
+      // Group by source before handing off — the baseline math must only
+      // ever see one source's nights at a time (see lib/wellness-source.ts).
+      const bySourceMap = new Map<string, WellnessNight[]>();
+      for (const r of rows) {
+        const night: WellnessNight = {
+          date: toGarminDate(r.date),
+          sleepSeconds: r.sleepSeconds,
+          restingHr: r.restingHr,
+          hrvLastNightAvg: r.hrvLastNightAvg,
+        };
+        const list = bySourceMap.get(r.source);
+        if (list) list.push(night);
+        else bySourceMap.set(r.source, [night]);
+      }
+      const bySource: SourceNights[] = Array.from(bySourceMap, ([source, nights]) => ({
+        source,
+        nights,
       }));
-      if (nights.length > 0) {
-        physiology = computePhysiologyReadiness(nights, new Date(now));
+
+      if (rows.length > 0) {
+        physiology = computePhysiologyReadinessAcrossSources(bySource, new Date(now));
       }
     }
 

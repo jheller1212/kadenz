@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { computePhysiologyReadiness, MIN_BASELINE_NIGHTS, type WellnessNight } from "../physiology";
+import {
+  computePhysiologyReadiness,
+  computePhysiologyReadinessAcrossSources,
+  MIN_BASELINE_NIGHTS,
+  type WellnessNight,
+} from "../physiology";
+import type { SourceNights } from "../wellness-source";
 
 const ASOF = new Date("2026-07-24T06:00:00Z");
 
@@ -84,6 +90,79 @@ describe("computePhysiologyReadiness", () => {
 
   it("no data at all returns a zero-day warm-up state", () => {
     const r = computePhysiologyReadiness([], ASOF);
+    expect(r.ready).toBe(false);
+    expect(r.warmup).toEqual({ daysCollected: 0, daysNeeded: MIN_BASELINE_NIGHTS });
+  });
+
+  it("tags the result with the source it was passed", () => {
+    const r = computePhysiologyReadiness(nightsBack(30), ASOF, "apple_health");
+    expect(r.source).toBe("apple_health");
+  });
+});
+
+describe("computePhysiologyReadinessAcrossSources", () => {
+  it("a two-source history produces a baseline from one source only", () => {
+    // Garmin has a full established baseline; Apple Health also has data for
+    // the exact same calendar nights but with wildly different HRV values
+    // (as it would, since SDNN and rMSSD are different quantities). If the
+    // two got blended, the HRV baseline would land somewhere between 60 and
+    // 20 and the "suppressed" reading below wouldn't trigger cleanly.
+    const garminNights = nightsBack(30);
+    const appleNights = nightsBack(30).map((n) => ({ ...n, hrvLastNightAvg: 20 }));
+
+    const bySource: SourceNights[] = [
+      { source: "garmin", nights: garminNights },
+      { source: "apple_health", nights: appleNights },
+    ];
+
+    const r = computePhysiologyReadinessAcrossSources(bySource, ASOF);
+    expect(r.ready).toBe(true);
+    expect(r.source).toBe("garmin");
+    // Garmin's baseline (60) and recent (60, unmodified) match — neutral,
+    // proving the Apple Health value (20) never entered this computation.
+    expect(r.delta).toBe(0);
+  });
+
+  it("selects the source that has cleared the baseline floor, not whichever has more raw rows", () => {
+    // Apple Health has more total nights, but not enough of them are within
+    // the established-baseline floor; Garmin has fewer total nights but all
+    // of them clear the floor.
+    const bySource: SourceNights[] = [
+      { source: "apple_health", nights: nightsBack(MIN_BASELINE_NIGHTS - 5) },
+      { source: "garmin", nights: nightsBack(MIN_BASELINE_NIGHTS) },
+    ];
+    const r = computePhysiologyReadinessAcrossSources(bySource, ASOF);
+    expect(r.source).toBe("garmin");
+    expect(r.ready).toBe(true);
+  });
+
+  it("two nights from different sources on the same calendar date can both exist and are kept separate", () => {
+    // Regression for the migration this ships alongside: wellness_metrics
+    // used to be unique on date alone, so a second source writing the same
+    // night would silently overwrite the first. Post-migration, both rows
+    // exist and the selector must not merge them into one signal.
+    const sameDateGarmin: WellnessNight[] = [
+      { date: "2026-07-20", sleepSeconds: 27000, restingHr: 50, hrvLastNightAvg: 60 },
+    ];
+    const sameDateApple: WellnessNight[] = [
+      { date: "2026-07-20", sleepSeconds: 25000, restingHr: 55, hrvLastNightAvg: 20 },
+    ];
+    const bySource: SourceNights[] = [
+      { source: "garmin", nights: [...nightsBack(30), ...sameDateGarmin] },
+      { source: "apple_health", nights: [...nightsBack(30), ...sameDateApple] },
+    ];
+    const r = computePhysiologyReadinessAcrossSources(bySource, ASOF);
+    // Both source histories are intact and independently usable — selecting
+    // garmin doesn't require apple_health's same-date row to have been
+    // dropped or merged.
+    expect(bySource[0].nights.some((n) => n.date === "2026-07-20")).toBe(true);
+    expect(bySource[1].nights.some((n) => n.date === "2026-07-20")).toBe(true);
+    expect(r.source).toBe("garmin");
+  });
+
+  it("returns null source and warm-up when there is no history at all", () => {
+    const r = computePhysiologyReadinessAcrossSources([], ASOF);
+    expect(r.source).toBeNull();
     expect(r.ready).toBe(false);
     expect(r.warmup).toEqual({ daysCollected: 0, daysNeeded: MIN_BASELINE_NIGHTS });
   });
