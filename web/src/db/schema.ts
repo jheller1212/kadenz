@@ -501,6 +501,13 @@ export const activities = pgTable(
     // Nothing upserts against it today (both call sites pre-check with a
     // select), so the first conversion to an upsert finds that out at
     // runtime rather than at build.
+    //
+    // Widening this index is not enough on its own. The legacy strava_id and
+    // garmin_id uniques below are still live and still global, so until those
+    // columns are dropped they stay the binding constraint: a second athlete
+    // importing the same Strava activity still collides, and the widened
+    // index looks as though it changed nothing. The legacy-column cleanup and
+    // this widening are one piece of work, not two.
     uniqueIndex("activities_provider_external_id_uq")
       .on(t.provider, t.externalId)
       .where(sql`${t.provider} is not null and ${t.externalId} is not null`),
