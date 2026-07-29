@@ -68,10 +68,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // sent by the browser with no cookies and no credentials by design, so
   // running it through the gate below would 401 every cross-origin request
   // before the real one was ever made.
-  if (request.method === "OPTIONS") {
-    if (!origin) {
-      return new NextResponse(null, { status: 403 }) as NextResponse;
-    }
+  //
+  // Only an allowlisted origin is intercepted. Any other OPTIONS request falls
+  // through to the checks below exactly as it did before this branch existed,
+  // so nothing that already worked changes behaviour, and with SHELL_ORIGINS
+  // unset this whole path is unreachable.
+  if (request.method === "OPTIONS" && origin) {
     const preflight = new NextResponse(null, { status: 204 });
     applyCors(preflight, origin);
     preflight.headers.set(
