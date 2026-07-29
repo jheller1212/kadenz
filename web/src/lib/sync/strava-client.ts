@@ -1,9 +1,10 @@
-import { db, syncOutbox, activities, workouts, plans, strengthSessions, deletedActivities, activityTrash } from "@/db";
-import { eq, and, gte, lte, ne, isNull, inArray } from "drizzle-orm";
+import { db, syncOutbox, activities, workouts, plans, strengthSessions, strengthSets, deletedActivities, activityTrash } from "@/db";
+import { eq, and, gte, lte, ne, isNull, inArray, sql } from "drizzle-orm";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { isDuplicateActivity } from "./garmin-import";
 import { pickWorkoutMatch } from "./workout-match";
+import { pickStrengthSessionMatch, type StrengthSessionCandidate } from "./strength-match";
 import { rowToPayload } from "@/lib/activity-trash";
 import {
   isRunActivity,
@@ -399,17 +400,21 @@ export async function findMatchingWorkout(
 }
 
 /**
- * Match a Strava strength activity to a strength session on the same day that
- * isn't already backed by a recorded activity. Prefers planned/incomplete
- * sessions. Returns the session id, or null.
+ * Match a strength activity to a strength session on the same day that isn't
+ * already backed by a recorded activity, using time overlap between the
+ * activity's recorded window and the session's logged-sets window (see
+ * strength-match.ts for the selection rule and tolerance). Returns the
+ * session id, or null when no candidate, several equally-good candidates, or
+ * none within tolerance — see pickStrengthSessionMatch for the exact rule.
  */
 export async function findMatchingStrengthSession(
-  activity: Pick<StravaActivity, "start_date_local">
+  activity: { start_date_local: string; moving_time: number }
 ): Promise<string | null> {
-  const d = new Date(activity.start_date_local);
-  const dayStart = new Date(d);
+  const start = new Date(activity.start_date_local);
+  const end = new Date(start.getTime() + activity.moving_time * 1000);
+  const dayStart = new Date(start);
   dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(d);
+  const dayEnd = new Date(start);
   dayEnd.setHours(23, 59, 59, 999);
 
   const sessions = await db
@@ -421,7 +426,9 @@ export async function findMatchingStrengthSession(
         lte(strengthSessions.date, dayEnd),
         ne(strengthSessions.status, "skipped"),
         // Imports are the owner's activities — never auto-complete a
-        // household member's planned session.
+        // household member's planned session. `activities` has no profileId
+        // of its own (it's the owner's watch/Strava feed only), so this is
+        // the only place that guest sessions are kept out of auto-matching.
         isNull(strengthSessions.profileId)
       )
     );
@@ -436,7 +443,31 @@ export async function findMatchingStrengthSession(
   const open = sessions.filter((s) => !linkedIds.has(s.id));
   if (open.length === 0) return null;
 
-  return (open.find((s) => s.status === "planned") ?? open[0]).id;
+  // Each open candidate's logged-sets span (min/max createdAt), the real time
+  // signal pickStrengthSessionMatch compares against the activity window.
+  const spans = await db
+    .select({
+      sessionId: strengthSets.sessionId,
+      minCreatedAt: sql<string>`min(${strengthSets.createdAt})`,
+      maxCreatedAt: sql<string>`max(${strengthSets.createdAt})`,
+    })
+    .from(strengthSets)
+    .where(inArray(strengthSets.sessionId, open.map((s) => s.id)))
+    .groupBy(strengthSets.sessionId);
+  const spanById = new Map(spans.map((s) => [s.sessionId, s]));
+
+  const candidates: StrengthSessionCandidate[] = open.map((s) => {
+    const span = spanById.get(s.id);
+    return {
+      id: s.id,
+      status: s.status,
+      setsWindow: span
+        ? { start: new Date(span.minCreatedAt), end: new Date(span.maxCreatedAt) }
+        : null,
+    };
+  });
+
+  return pickStrengthSessionMatch({ start, end }, candidates);
 }
 
 /** Process a Strava activity: store it and match to a workout/session. */
