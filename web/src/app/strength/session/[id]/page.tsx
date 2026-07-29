@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, CheckCircle2, Heart, SkipForward, Dumbbell, Repeat, X } from "lucide-react";
+import { ChevronLeft, CheckCircle2, Dumbbell } from "lucide-react";
 import { NavBar } from "@/components/ui/NavBar";
 import { Button } from "@/components/ui/Button";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
@@ -10,17 +10,20 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
-import { STRENGTH_COLOR } from "@/lib/workout-colors";
-import { formatLoad } from "@/lib/strength/weights";
-import { EXERCISES } from "@/lib/strength/program";
 import { estimateWorkoutDuration } from "@/lib/strength/estimate";
 import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import { ExerciseActionsSheet } from "@/components/strength/ExerciseActionsSheet";
 import type { PlannedExercise } from "@/components/strength/GuidedSession";
 import type { ExerciseOverride } from "@/lib/strength/session";
-import { workingSetNumber } from "@/lib/strength/types";
 import { sessionVolume } from "@/lib/strength/volume";
 import { firstLoggedExerciseOrder } from "@/lib/strength/session-order";
+import { SessionHeartRate } from "@/components/strength/SessionHeartRate";
+import { SessionTimeline } from "@/components/strength/SessionTimeline";
+import { SessionSetsList } from "@/components/strength/SessionSetsList";
+import { SessionPerformedOnWatch, type PerformedExercise } from "@/components/strength/SessionPerformedOnWatch";
+import { SessionSkippedExercises } from "@/components/strength/SessionSkippedExercises";
+import { SessionPlannedExercises } from "@/components/strength/SessionPlannedExercises";
+import { SessionOverviewCards } from "@/components/strength/SessionOverviewCards";
 
 // ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
@@ -44,6 +47,12 @@ interface SetRow {
   /** When this row was actually logged — the only real record of exercise
    *  order (see lib/strength/session-order.ts firstLoggedExerciseOrder). */
   createdAt: string;
+  /** Average/max bpm over a guessed window ending around when this set was
+   *  logged (see lib/sync/strength-hr.ts alignSetHeartRate) — null whenever
+   *  there's no linked activity, no HR stream, or no sample in the window.
+   *  Never a per-rep reading; the caption on the heart rate card says so. */
+  avgHr: number | null;
+  maxHr: number | null;
 }
 
 interface SessionDetail {
@@ -54,6 +63,10 @@ interface SessionDetail {
   date: string;
   durationMinutes: number | null;
   targetDurationMinutes: number | null;
+  /** First/last logged set's createdAt (PR #95) — null until the first set
+   *  of the session is logged, so absent for planned/never-started sessions. */
+  startedAt: string | null;
+  endedAt: string | null;
   sets: SetRow[];
   plannedExercises: PlannedExercise[];
   exerciseOverrides: ExerciseOverride[];
@@ -67,33 +80,10 @@ interface SessionDetail {
   } | null;
 }
 
-interface PerformedExercise {
-  category: string | null;
-  name: string | null;
-  sets: number;
-  reps: number[];
-}
-
 interface CatalogRow {
   id: string;
   slug: string;
   name: string;
-}
-
-function muscleFor(slug: string | undefined): string | null {
-  if (!slug) return null;
-  return EXERCISES.find((e) => e.slug === slug)?.primaryMuscle ?? null;
-}
-
-// Garmin gives a category code (BENCH_PRESS) and sometimes a specific name.
-// "BARBELL_BENCH_PRESS" → "Barbell bench press"; "BENCH_PRESS" → "Bench press".
-function prettyExercise(p: PerformedExercise): string {
-  const raw = p.name || p.category || "Exercise";
-  if (raw === "UNKNOWN") return "Exercise";
-  return raw
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 export default function StrengthSessionPage({
@@ -224,7 +214,6 @@ export default function StrengthSessionPage({
     );
   }
 
-  const color = STRENGTH_COLOR.solid;
   const isCompleted = session.status === "completed";
   const isSkipped = session.status === "skipped" || session.status === "missed";
   const hasLoggedSets = session.sets.length > 0;
@@ -261,6 +250,11 @@ export default function StrengthSessionPage({
   const totalSets = hasLoggedSets
     ? session.sets.length
     : planned.reduce((sum, e) => sum + e.sets, 0);
+  // durationMinutes is the real elapsed time (endedAt - startedAt, see
+  // SessionTimeline) — only fall back to the target/estimate when it's not
+  // there yet. isRealDuration decides whether the "~" estimate marker is
+  // allowed on estMinutes below; a real recorded duration must never get it.
+  const isRealDuration = session.durationMinutes != null;
   const estMinutes =
     session.durationMinutes ??
     session.targetDurationMinutes ??
@@ -268,154 +262,41 @@ export default function StrengthSessionPage({
   // Working volume only, dumbbell/bodyweight-aware — see sessionVolume for
   // why warm-ups are excluded and kg/reps are kept as two separate figures.
   const volume = sessionVolume(session.sets);
+  const anySetHr = session.sets.some((s) => s.avgHr != null);
 
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar title={session.title} large={false} left={back} />
 
       <div className="flex flex-col gap-4 px-4 pb-tabbar pt-1">
-        {/* Hero card with the strength-blue accent */}
-        <section
-          className="rounded-[var(--radius-card)] p-4"
-          style={{ backgroundColor: `${color}1A` }}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold text-white"
-                  style={{ backgroundImage: STRENGTH_COLOR.grad }}
-                >
-                  <Dumbbell className="h-3 w-3" strokeWidth={2.4} />
-                  Strength
-                </span>
-              </div>
-              <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">
-                {session.title}
-              </h1>
-              <p className="mt-0.5 text-[13px] text-text-3">
-                {dateStr}
-                {estMinutes != null ? ` · ~${estMinutes} min` : ""}
-              </p>
-            </div>
-            {isCompleted ? (
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent">
-                <CheckCircle2 className="h-5 w-5 text-on-accent" strokeWidth={2.4} />
-              </div>
-            ) : isSkipped ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-elevated px-2 py-1 text-[11px] font-bold capitalize text-text-3">
-                <SkipForward className="h-3 w-3" strokeWidth={2.4} />
-                {session.status}
-              </span>
-            ) : (
-              <div className="h-8 w-8 shrink-0 rounded-full border-2 border-text-3" />
-            )}
-          </div>
-        </section>
+        <SessionOverviewCards
+          title={session.title}
+          dateStr={dateStr}
+          status={session.status}
+          isCompleted={isCompleted}
+          isSkipped={isSkipped}
+          estMinutes={estMinutes}
+          isRealDuration={isRealDuration}
+          exerciseCount={exerciseCount}
+          totalSets={totalSets}
+          volume={volume}
+        />
 
-        {/* Summary stat row */}
-        <section className="k-card p-4">
-          <div className="flex items-end gap-6">
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-text-3">Exercises</p>
-              <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                {exerciseCount}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-text-3">Sets</p>
-              <p className="text-[22px] font-extrabold tabular-nums text-text-1">{totalSets}</p>
-            </div>
-            {estMinutes != null && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-text-3">Time</p>
-                <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                  {estMinutes}
-                  <span className="text-[13px] font-semibold text-text-3"> min</span>
-                </p>
-              </div>
-            )}
-            {volume.kg != null && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-text-3">Volume</p>
-                <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                  {Math.round(volume.kg)}
-                  <span className="text-[13px] font-semibold text-text-3"> kg</span>
-                </p>
-              </div>
-            )}
-            {volume.bodyweightReps != null && (
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-text-3">Bodyweight</p>
-                <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                  {volume.bodyweightReps}
-                  <span className="text-[13px] font-semibold text-text-3"> reps</span>
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
+        {/* Start / finish / real duration — only present once a set has been
+            logged (see SessionTimeline). */}
+        <SessionTimeline
+          startedAt={session.startedAt}
+          endedAt={session.endedAt}
+          durationMinutes={session.durationMinutes}
+        />
 
-        {/* Heart rate from a linked Strava recording, shown alongside the
-            logged sets — the "combined" view. */}
-        {session.linkedActivity?.avgHr != null && (
-          <section className="k-card p-4">
-            <div className="flex items-center gap-2">
-              <Heart className="h-4 w-4 text-danger" strokeWidth={2.2} fill="currentColor" />
-              <p className="text-[13px] font-semibold text-text-1">Heart rate</p>
-              <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-text-3">
-                from Strava
-              </span>
-            </div>
-            <div className="mt-3 flex items-center gap-8">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-text-3">Average</p>
-                <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                  {session.linkedActivity.avgHr}
-                  <span className="text-[12px] font-semibold text-text-3"> bpm</span>
-                </p>
-              </div>
-              {session.linkedActivity.maxHr != null && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-text-3">Max</p>
-                  <p className="text-[22px] font-extrabold tabular-nums text-text-1">
-                    {session.linkedActivity.maxHr}
-                    <span className="text-[12px] font-semibold text-text-3"> bpm</span>
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
+        {/* Heart rate from the linked recording, shown alongside the logged
+            sets below — the "combined" view. */}
+        {session.linkedActivity && (
+          <SessionHeartRate linkedActivity={session.linkedActivity} showPerSetCaption={anySetHr} />
         )}
 
-        {performed.length > 0 && (
-          <section className="k-card p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
-                As performed on watch
-              </p>
-              <span className="text-[11px] text-text-3">Garmin</span>
-            </div>
-            <ol className="flex flex-col gap-2.5">
-              {performed.map((p, i) => {
-                const uniform = p.reps.length > 0 && p.reps.every((r) => r === p.reps[0]);
-                const repText =
-                  p.reps.length === 0
-                    ? ""
-                    : uniform
-                      ? ` · ${p.sets} × ${p.reps[0]}`
-                      : ` · ${p.reps.join(", ")} reps`;
-                return (
-                  <li key={i} className="flex items-baseline gap-3">
-                    <span className="w-5 shrink-0 text-[13px] font-bold tabular-nums text-text-3">{i + 1}</span>
-                    <span className="text-[15px] font-semibold text-text-1">{prettyExercise(p)}</span>
-                    <span className="ml-auto text-[13px] tabular-nums text-text-2">{repText.replace(/^ · /, "")}</span>
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
-        )}
+        <SessionPerformedOnWatch performed={performed} />
 
         <h2 className="text-[17px] font-bold text-text-1">
           {hasLoggedSets ? "Logged sets" : performed.length > 0 ? "Planned exercises" : "Exercises"}
@@ -425,150 +306,28 @@ export default function StrengthSessionPage({
           // Recorded reality: one card per exercise with its logged sets, in
           // the order the athlete actually performed them (first-logged —
           // see exerciseOrder above), not the order they were proposed in.
-          exerciseOrder.map((exerciseId, i) => {
-            const sets = bySlot.get(exerciseId) ?? [];
-            const row = catalog[exerciseId];
-            const muscle = muscleFor(row?.slug);
-            return (
-              <div key={exerciseId} className="k-card flex items-start gap-3 p-3.5">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[15px] font-bold leading-tight text-text-1">
-                      {row?.name ?? "Exercise"}
-                    </p>
-                    {muscle && (
-                      <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] font-semibold text-text-3">
-                        {muscle}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-[12px] text-text-3">
-                    {sets.length} {sets.length === 1 ? "set" : "sets"}
-                  </p>
-                  <div className="mt-2 flex flex-col gap-1.5">
-                    {(() => {
-                      const ordered = [...sets].sort((a, b) => a.setNumber - b.setNumber);
-                      return ordered.map((s, idx) => (
-                        <div
-                          key={s.id}
-                          className="flex items-center justify-between text-[14px]"
-                        >
-                          {/* Number counts working sets only — a warm-up ramp
-                              (raw setNumber counts it) would otherwise push
-                              "Set 1" as logged during the guided session up to
-                              "Set 3" here (see workingSetNumber). */}
-                          <span className="text-text-3">
-                            {s.kind === "warmup" ? "WU" : `Set ${workingSetNumber(ordered, idx)}`}
-                          </span>
-                          <span className="font-semibold tabular-nums text-text-1">
-                            {s.weightKg != null ? `${s.weightKg} kg` : "BW"} × {s.reps ?? "—"}
-                          </span>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          <SessionSetsList exerciseOrder={exerciseOrder} bySlot={bySlot} catalog={catalog} />
         ) : planned.length === 0 ? (
           <EmptyState title="No sets logged" message="This session has no recorded sets." />
         ) : null}
 
         {/* Planned but never logged — visible, not silently dropped, and
             obviously not part of what was actually done. */}
-        {skipped.length > 0 && (
-          <>
-            <h2 className="mt-1 text-[17px] font-bold text-text-1">Not done</h2>
-            {skipped.map((ex) => {
-              const muscle = muscleFor(ex.slug);
-              return (
-                <div key={ex.slug} className="k-card flex items-start gap-3 p-3.5 opacity-60">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
-                    <SkipForward className="h-3.5 w-3.5" strokeWidth={2.4} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
-                      {muscle && (
-                        <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] font-semibold text-text-3">
-                          {muscle}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-[12px] text-text-3">Not done</p>
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
+        <SessionSkippedExercises skipped={skipped} />
 
         {!hasLoggedSets && planned.length > 0 && (
-          // The prescription: one block per planned exercise.
-          planned.map((ex, i) => {
-            const muscle = muscleFor(ex.slug);
-            // Not started yet (checked above via hasLoggedSets) — editable,
-            // except the always-protected rehab work (see EXERCISE_BY_SLUG
-            // achillesRole, enforced server-side too).
-            const editable = session.status === "planned" && !EXERCISES.find((e) => e.slug === ex.slug)?.achillesRole;
-            return (
-              <div key={ex.slug} className="k-card flex items-start gap-3 p-3.5">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-[12px] font-extrabold text-text-2">
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[15px] font-bold leading-tight text-text-1">{ex.name}</p>
-                    {muscle && (
-                      <span className="rounded-md bg-elevated px-2 py-0.5 text-[11px] font-semibold text-text-3">
-                        {muscle}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-[12px] text-text-3">
-                    {ex.sets} sets ×{" "}
-                    {ex.repLow === ex.repHigh ? ex.repLow : `${ex.repLow}–${ex.repHigh}`} reps ·{" "}
-                    {ex.restSeconds}s rest
-                  </p>
-                  <p className="mt-0.5 text-[12px] font-medium text-text-2">
-                    {formatLoad(ex.suggestedWeightKg, {
-                      dumbbells: ex.dumbbells,
-                      holdNote: ex.holdNote,
-                      perSide: ex.perSide,
-                    })}
-                  </p>
-                </div>
-                {editable && (
-                  <div className="flex shrink-0 items-start gap-1.5">
-                    <button
-                      type="button"
-                      disabled={actionsBusy}
-                      onClick={() => { haptic("light"); setActionsSlug(ex.slug); }}
-                      aria-label={`Exchange ${ex.name}`}
-                      style={{ touchAction: "manipulation" }}
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3 disabled:opacity-50"
-                    >
-                      <Repeat className="h-4 w-4" strokeWidth={2.2} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionsBusy}
-                      onClick={() => handleRemove(ex.slug)}
-                      aria-label={`Remove ${ex.name}`}
-                      style={{ touchAction: "manipulation" }}
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated text-text-3 disabled:opacity-50"
-                    >
-                      <X className="h-4 w-4" strokeWidth={2.5} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })
+          // The prescription: not started yet (checked via hasLoggedSets),
+          // so still editable via Exchange/Remove.
+          <SessionPlannedExercises
+            planned={planned}
+            editable={session.status === "planned"}
+            actionsBusy={actionsBusy}
+            onExchange={(slug) => {
+              haptic("light");
+              setActionsSlug(slug);
+            }}
+            onRemove={handleRemove}
+          />
         )}
 
         {actionsError && (
