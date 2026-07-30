@@ -95,3 +95,24 @@ export async function resolveUserForLogin(
 
   return linked.userId;
 }
+
+/**
+ * Every user Kadenz knows about.
+ *
+ * The background jobs need this. A cron run carries no session, and until
+ * Phase 4 it did not need one: every integration it touched was a single global
+ * row, so "the athlete" was whoever those rows belonged to. Now that tokens and
+ * the import bookmark are per user, a job has to be told whose work it is
+ * doing, and this is the list it iterates.
+ *
+ * Used for the Garmin worker specifically, whose credentials are installation
+ * level environment config rather than per-user OAuth, so "who might have watch
+ * activities" cannot be answered from the credentials table. For Strava and
+ * Google, prefer listUsersWithProvider in lib/sync/credentials.ts: it returns
+ * only the people who actually connected, which is a shorter list and avoids a
+ * pointless no-op iteration per user.
+ */
+export async function listAllUserIds(): Promise<string[]> {
+  const rows = await db.select({ id: users.id }).from(users);
+  return rows.map((r) => r.id);
+}
