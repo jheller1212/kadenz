@@ -9,12 +9,14 @@
 -- the second person's Strava account. This table replaces that row with one
 -- row per (user, provider).
 --
--- provider_account_id is stored as its own indexed column rather than left
--- inside the payload because the Strava webhook is the one caller that has no
--- session: its event body names the athlete (owner_id) and nothing else, so
--- resolving "whose activity is this" has to be an indexed lookup on the
--- athlete id. Reading it out of jsonb would work and would also mean a table
--- scan on every webhook delivery.
+-- There is deliberately no provider_account_id column. The Strava webhook does
+-- have to turn an athlete id into a user, since its event body names the
+-- athlete and nothing else, but user_identities already holds that exact pair
+-- under a unique index. It is also identity rather than tenanted data, so it
+-- carries no row level security policy and stays readable at the one moment
+-- the webhook needs it: before any user context has been established. A copy
+-- of the athlete id beside the tokens would be the same fact in two places and
+-- unreadable exactly when it mattered.
 --
 -- Additive on purpose. The old sync_outbox singleton rows are COPIED, never
 -- deleted or rewritten, so the owner's live connection survives this
@@ -36,7 +38,6 @@ CREATE TABLE IF NOT EXISTS "integration_credentials" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "user_id" uuid NOT NULL,
   "provider" text NOT NULL,
-  "provider_account_id" text,
   "payload" jsonb NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -48,10 +49,6 @@ CREATE TABLE IF NOT EXISTS "integration_credentials" (
 -- caller's own row instead of on the installation's only row.
 CREATE UNIQUE INDEX IF NOT EXISTS "integration_credentials_user_provider_uq"
   ON "integration_credentials" ("user_id", "provider");
---> statement-breakpoint
-
-CREATE INDEX IF NOT EXISTS "integration_credentials_provider_account_idx"
-  ON "integration_credentials" ("provider", "provider_account_id");
 --> statement-breakpoint
 
 DO $$
@@ -69,11 +66,10 @@ END $$;
 -- Strava skips this without erroring, and ON CONFLICT DO NOTHING means a
 -- re-run (or a connection already re-established by the new code) is never
 -- overwritten with the older singleton payload.
-INSERT INTO "integration_credentials" ("user_id", "provider", "provider_account_id", "payload")
+INSERT INTO "integration_credentials" ("user_id", "provider", "payload")
 SELECT
   '00000000-0000-0000-0000-000000000001',
   'strava',
-  "payload" ->> 'athlete_id',
   "payload"
 FROM "sync_outbox"
 WHERE "idempotency_key" = 'strava:tokens:singleton'
@@ -81,11 +77,10 @@ WHERE "idempotency_key" = 'strava:tokens:singleton'
 ON CONFLICT ("user_id", "provider") DO NOTHING;
 --> statement-breakpoint
 
-INSERT INTO "integration_credentials" ("user_id", "provider", "provider_account_id", "payload")
+INSERT INTO "integration_credentials" ("user_id", "provider", "payload")
 SELECT
   '00000000-0000-0000-0000-000000000001',
   'google',
-  NULL,
   "payload"
 FROM "sync_outbox"
 WHERE "idempotency_key" = 'gcal:tokens:singleton'

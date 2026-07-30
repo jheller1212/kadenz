@@ -105,12 +105,12 @@ export async function resolveUserForLogin(
  * the import bookmark are per user, a job has to be told whose work it is
  * doing, and this is the list it iterates.
  *
- * Used for the Garmin worker specifically, whose credentials are installation
- * level environment config rather than per-user OAuth, so "who might have watch
- * activities" cannot be answered from the credentials table. For Strava and
- * Google, prefer listUsersWithProvider in lib/sync/credentials.ts: it returns
- * only the people who actually connected, which is a shorter list and avoids a
- * pointless no-op iteration per user.
+ * This is a stopgap with a known replacement. Phase 3 introduces forEachUser in
+ * db/with-user.ts, which iterates the same list AND runs each iteration inside
+ * that user's row level security context, which this cannot do. When phase 3
+ * lands, callers of this move to forEachUser and this function goes away.
+ * Keeping two ways to loop over users is exactly how a fan-out ends up doing
+ * the work of one athlete twice, so do not build anything new on it.
  */
 export async function listAllUserIds(): Promise<string[]> {
   const rows = await db.select({ id: users.id }).from(users);

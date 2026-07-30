@@ -233,13 +233,16 @@ export const integrationCredentials = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     // "strava" | "google"
     provider: text("provider").notNull(),
-    // Strava athlete id for a Strava connection. Its own column, not a jsonb
-    // field, because the Strava webhook arrives with no session and the
-    // athlete id in the event body is the only thing that says whose activity
-    // it is — that lookup has to hit an index.
-    providerAccountId: text("provider_account_id"),
     // The provider's token set. Shape is owned by the client module that reads
     // it (StravaTokens in strava-client.ts, GCalTokens in gcal-client.ts).
+    //
+    // Deliberately no provider_account_id column here. The Strava webhook does
+    // need to turn an athlete id into a user, but user_identities already
+    // stores exactly that pair under a unique index, and it is identity rather
+    // than tenanted data so it stays readable before any user context exists.
+    // A copy of the athlete id next to the tokens would be the same fact in
+    // two places, free to drift, and unreadable at the moment the webhook
+    // actually needs it. See findUserByProviderAccount in lib/sync/credentials.ts.
     payload: jsonb("payload").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -252,10 +255,6 @@ export const integrationCredentials = pgTable(
     uniqueIndex("integration_credentials_user_provider_uq").on(
       t.userId,
       t.provider
-    ),
-    index("integration_credentials_provider_account_idx").on(
-      t.provider,
-      t.providerAccountId
     ),
   ]
 );

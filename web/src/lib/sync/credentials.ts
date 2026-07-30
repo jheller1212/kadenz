@@ -11,7 +11,7 @@
 // "which user's tokens" is a required argument at the only place it could be
 // got wrong, rather than a fact about which row happened to be there.
 
-import { db, integrationCredentials } from "@/db";
+import { db, integrationCredentials, userIdentities } from "@/db";
 import { and, eq } from "drizzle-orm";
 
 export type IntegrationProvider = "strava" | "google";
@@ -55,35 +55,21 @@ export async function loadCredentials<T>(
  * Stores `payload` as `userId`'s credentials for `provider`, replacing whatever
  * they had before.
  *
- * The conflict target is (user_id, provider), which is the whole fix: two
- * people connecting the same service land on two rows. `providerAccountId` is
- * the external account id where the provider gives us one, so an incoming
- * webhook can find its way back to this row.
+ * The conflict target is (user_id, provider), and that is the whole fix: two
+ * people connecting the same service land on two rows instead of fighting over
+ * the installation's only one.
  */
 export async function saveCredentials(
   userId: string,
   provider: IntegrationProvider,
-  payload: Record<string, unknown>,
-  providerAccountId?: string | null
+  payload: Record<string, unknown>
 ): Promise<void> {
   await db
     .insert(integrationCredentials)
-    .values({
-      userId,
-      provider,
-      providerAccountId: providerAccountId ?? null,
-      payload,
-    })
+    .values({ userId, provider, payload })
     .onConflictDoUpdate({
       target: [integrationCredentials.userId, integrationCredentials.provider],
-      set: {
-        payload,
-        // Only overwrite the account id when this write actually knows one, so
-        // a token refresh (which carries no account id) cannot blank out the
-        // value the webhook lookup depends on.
-        ...(providerAccountId ? { providerAccountId } : {}),
-        updatedAt: new Date(),
-      },
+      set: { payload, updatedAt: new Date() },
     });
 }
 
@@ -103,15 +89,32 @@ export async function deleteCredentials(
 }
 
 /**
- * The user who connected the `provider` account identified by
- * `providerAccountId`, or null if nobody has.
+ * The user who owns the `provider` account identified by `providerAccountId`,
+ * or null if nobody does.
  *
- * This exists for the Strava webhook, which is the one caller with no session:
- * its event body names the athlete and nothing else. Without this it had no
- * way to tell whose activity an event described, and with a single global token
- * row it did not need one — it always acted as the installation's only user.
- * Returning null (rather than falling back to the owner) is deliberate: an
- * event for an athlete nobody has connected must be ignored, not attributed to
+ * This exists for the Strava webhook, the one caller with no session: its event
+ * body names the athlete (owner_id) and nothing else, so the athlete id is the
+ * only identity it has. With a single global token row it did not need one, it
+ * always acted as the installation's only user.
+ *
+ * It reads user_identities rather than this module's own table, and that choice
+ * matters for two reasons beyond reusing an index that already exists.
+ *
+ * First, correctness under row level security. This lookup necessarily runs
+ * BEFORE any user context is established, since establishing it is the whole
+ * point of the call. Tenanted tables answer such a read with nothing, so
+ * resolving the athlete against a tenanted credentials table would return null
+ * for every event and the webhook would silently stop working. user_identities
+ * is identity rather than a user's data, carries no policy by design, and is
+ * already read this way.
+ *
+ * Second, it keeps one fact in one place. Connecting Strava in Kadenz IS
+ * logging in with Strava (see api/auth/strava/callback), so the identity row
+ * always exists for a connected athlete. Storing the athlete id a second time
+ * next to the tokens would give the same fact two homes that can drift.
+ *
+ * Returning null rather than falling back to the owner is deliberate: an event
+ * for an athlete nobody has connected must be ignored, not attributed to
  * whoever happens to be first in the table.
  */
 export async function findUserByProviderAccount(
@@ -119,33 +122,15 @@ export async function findUserByProviderAccount(
   providerAccountId: string
 ): Promise<string | null> {
   const [row] = await db
-    .select({ userId: integrationCredentials.userId })
-    .from(integrationCredentials)
+    .select({ userId: userIdentities.userId })
+    .from(userIdentities)
     .where(
       and(
-        eq(integrationCredentials.provider, provider),
-        eq(integrationCredentials.providerAccountId, providerAccountId)
+        eq(userIdentities.provider, provider),
+        eq(userIdentities.providerAccountId, providerAccountId)
       )
     )
     .limit(1);
 
   return row?.userId ?? null;
-}
-
-/**
- * Everyone who has connected `provider`.
- *
- * The background jobs need this because a cron run has no session and can no
- * longer assume there is exactly one athlete to work for. Phase 5 turns the
- * loops themselves into proper fan-out; this is the list they iterate.
- */
-export async function listUsersWithProvider(
-  provider: IntegrationProvider
-): Promise<string[]> {
-  const rows = await db
-    .select({ userId: integrationCredentials.userId })
-    .from(integrationCredentials)
-    .where(eq(integrationCredentials.provider, provider));
-
-  return [...new Set(rows.map((r) => r.userId))];
 }
