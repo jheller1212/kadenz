@@ -586,6 +586,17 @@ export const syncOutbox = pgTable(
     target: syncTargetEnum("target").notNull(),
     payload: jsonb("payload"),
     status: syncStatusEnum("status").notNull().default("pending"),
+    // Unique table-wide, which is what allowed the Strava and Google token
+    // singletons to live in this table in the first place.
+    //
+    // Phase 3 must widen this to (user_id, idempotency_key), and it is the
+    // nastiest of the global uniques for a specific reason: under RLS, an
+    // INSERT ... ON CONFLICT DO UPDATE needs the conflicting row to be
+    // visible to the policy. Conflict with a row belonging to another user and
+    // Postgres raises a unique violation instead of updating, because the
+    // statement cannot see what it collided with. So per-user code reusing an
+    // idempotency key pattern fails in production and passes in any test with
+    // one user in the database, which is every test we have.
     idempotencyKey: text("idempotency_key").unique(),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
