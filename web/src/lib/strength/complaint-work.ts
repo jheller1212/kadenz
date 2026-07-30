@@ -25,6 +25,23 @@ export function complaintWorkSlugs(complaint: Complaint): string[] {
   return [...new Set([targeted.slug, ...variants])];
 }
 
+/**
+ * Which complaint set a session is actually built from.
+ *
+ * A session the athlete has started carries the complaints it was built with
+ * (schema.ts strengthSessions.complaints) and keeps them, so turning a
+ * complaint off later cannot rebuild it without the exercises its sets are
+ * logged against. A session nobody has started has no snapshot and follows the
+ * athlete's current settings, which is what makes a settings change reach
+ * everything still to come without regenerating a single row.
+ */
+export function effectiveComplaints(
+  sessionSnapshot: Complaint[] | null | undefined,
+  currentSettings: Complaint[]
+): Complaint[] {
+  return sessionSnapshot ?? currentSettings;
+}
+
 /** Exercise slugs that are complaint work for THIS athlete's complaints. */
 export function complaintWorkSlugsFor(complaints: Complaint[]): Set<string> {
   return new Set(complaints.flatMap(complaintWorkSlugs));

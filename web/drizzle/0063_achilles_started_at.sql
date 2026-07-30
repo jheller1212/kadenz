@@ -15,18 +15,35 @@
 -- light weeks, resuming a ramp on a tendon that has not been loaded in a month
 -- does not.
 --
--- Backfilled to created_at for athletes who already report the complaint, so
--- their ramp continues from where their plan started instead of dropping back
--- to week 1 on deploy. NULL (no Achilles complaint) falls back to the running
--- plan week, which is the old behaviour and only ever reached by code paths
--- that have no Achilles work to prescribe.
+-- Athletes who already report the complaint are backfilled to their active
+-- running plan's start date, not to when they set Kraft up. That is the exact
+-- anchor the old clock used, so nobody's ramp position moves on deploy: the
+-- new clock reproduces the week they are on today and takes over from there.
+-- Checked against the live data rather than assumed. The one athlete with the
+-- complaint set Kraft up on 2026-07-14 and started their current plan on
+-- 2026-07-27, so a created_at backfill would have jumped them from week 1
+-- (2x15 kg) to week 3 (2x20 kg) overnight. Falls back to created_at only when
+-- there is no active plan, where there was no plan week to preserve.
+--
+-- NULL (no Achilles complaint) falls back to the running plan week, which is
+-- the old behaviour and only reached by code paths with no Achilles work to
+-- prescribe.
 
 ALTER TABLE "strength_plan_settings"
   ADD COLUMN IF NOT EXISTS "achilles_started_at" timestamptz;
 --> statement-breakpoint
 
-UPDATE "strength_plan_settings"
-SET "achilles_started_at" = "created_at"
-WHERE "achilles_started_at" IS NULL
-  AND "complaints" IS NOT NULL
-  AND 'achilles' = ANY("complaints");
+UPDATE "strength_plan_settings" ps
+SET "achilles_started_at" = COALESCE(
+  (
+    SELECT p."start_date"
+    FROM "plans" p
+    WHERE p."user_id" = ps."user_id" AND p."status" = 'active'
+    ORDER BY p."start_date" DESC
+    LIMIT 1
+  ),
+  ps."created_at"
+)
+WHERE ps."achilles_started_at" IS NULL
+  AND ps."complaints" IS NOT NULL
+  AND 'achilles' = ANY(ps."complaints");

@@ -19,7 +19,7 @@ import {
 } from "./session";
 import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
-import { achillesProgramWeek } from "./complaint-work";
+import { achillesProgramWeek, effectiveComplaints } from "./complaint-work";
 import { EQUIPMENT_KEYS } from "./equipment";
 import type { LifterProfile } from "./load-model";
 import type {
@@ -221,10 +221,10 @@ export async function buildPlannedSession(
       : getStrengthPlanSettingsRow(profileId),
   ]);
   const planSettings = derivePlanSettingsForLoads(settingsRow);
-  const complaints =
-    complaintsSnapshot != null
-      ? filterComplaints(complaintsSnapshot)
-      : planSettings.complaints;
+  const complaints = effectiveComplaints(
+    complaintsSnapshot ? filterComplaints(complaintsSnapshot) : null,
+    planSettings.complaints
+  );
   const plan = buildSessionPlan(type, {
     // The HSR ramp runs on its own clock (when the Achilles complaint was
     // reported), not the running plan's week — see complaint-work.ts.
