@@ -10,6 +10,7 @@ import {
 } from "./gcal-client";
 import type { WorkoutEventInput, StrengthEventInput } from "./gcal-client";
 import { buildPlannedSession } from "@/lib/strength/service";
+import { loadUserUnits } from "@/lib/user-units";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
 const MAX_ATTEMPTS = 3;
@@ -187,8 +188,14 @@ async function fetchWorkoutForSync(workoutId: string): Promise<WorkoutEventInput
 
   if (!row) return null;
 
+  // The event summary and description are rebuilt in the owner's unit, so the
+  // calendar stops being the one place in Kadenz still quoting km to a miles
+  // athlete. One primary-key lookup per job.
+  const { distanceUnit } = await loadUserUnits(row.userId);
+
   return {
     workoutId: row.id,
+    distanceUnit,
     title: row.title,
     description: row.description,
     date: row.date,
@@ -333,8 +340,13 @@ async function fetchStrengthSessionForSync(
     row.date,
     row.profileId
   );
+  // The description lists every exercise's load, so it needs the owner's
+  // weight unit for the same reason the run event needs the distance unit.
+  const { weightUnit } = await loadUserUnits(row.userId);
+
   return {
     sessionId: row.id,
+    weightUnit,
     title: row.title,
     date: row.date,
     type: row.type,

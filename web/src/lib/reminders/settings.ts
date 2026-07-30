@@ -1,7 +1,11 @@
 // Server-side home of the reminder toggle + lead time. Same reasoning as
 // lib/sync/garmin-config.ts: it must live in the DB, not localStorage, so the
-// cron can read it with no browser involved. Single-athlete app → singleton
-// row, upserted in place rather than keyed by user.
+// cron can read it with no browser involved.
+//
+// One row per user, addressed by user_id (unique index
+// reminder_settings_user_id_uq). It used to be read as a singleton with an
+// unfiltered .limit(1), which returns an arbitrary athlete's toggle and lead
+// time the moment a second row exists.
 
 import { db, reminderSettings } from "@/db";
 import { eq } from "drizzle-orm";
@@ -19,8 +23,12 @@ const DEFAULT_CONFIG: ReminderConfig = {
   defaultTimeOfDay: "07:00",
 };
 
-export async function loadReminderConfig(): Promise<ReminderConfig> {
-  const [row] = await db.select().from(reminderSettings).limit(1);
+export async function loadReminderConfig(userId: string): Promise<ReminderConfig> {
+  const [row] = await db
+    .select()
+    .from(reminderSettings)
+    .where(eq(reminderSettings.userId, userId))
+    .limit(1);
   if (!row) return DEFAULT_CONFIG;
   return {
     enabled: row.enabled,
@@ -29,18 +37,43 @@ export async function loadReminderConfig(): Promise<ReminderConfig> {
   };
 }
 
-export async function saveReminderConfig(config: ReminderConfig): Promise<void> {
-  const [existing] = await db
-    .select({ id: reminderSettings.id })
-    .from(reminderSettings)
-    .limit(1);
+export async function saveReminderConfig(userId: string, config: ReminderConfig): Promise<void> {
+  // One upsert rather than select-then-insert-or-update. The two-step version
+  // could interleave with a concurrent save (two devices toggling at once) so
+  // that both read "no row" and both inserted, leaving one user with two rows
+  // and the cron reading whichever one it happened to get. The unique index
+  // on user_id rules that out, and this resolves the conflict rather than
+  // failing on it.
+  await db
+    .insert(reminderSettings)
+    .values({ ...config, userId })
+    .onConflictDoUpdate({
+      target: reminderSettings.userId,
+      set: { ...config, updatedAt: new Date() },
+    });
+}
 
-  if (existing) {
-    await db
-      .update(reminderSettings)
-      .set({ ...config, updatedAt: new Date() })
-      .where(eq(reminderSettings.id, existing.id));
-  } else {
-    await db.insert(reminderSettings).values(config);
-  }
+export interface UserReminderConfig {
+  userId: string;
+  config: ReminderConfig;
+}
+
+/**
+ * Every user who has reminders switched on. This is the dispatch loop's list
+ * of who to send for. A user with no row has never enabled reminders, so
+ * being absent here is the same answer as the default config.
+ */
+export async function listEnabledReminderConfigs(): Promise<UserReminderConfig[]> {
+  const rows = await db
+    .select()
+    .from(reminderSettings)
+    .where(eq(reminderSettings.enabled, true));
+  return rows.map((row) => ({
+    userId: row.userId,
+    config: {
+      enabled: row.enabled,
+      leadMinutes: row.leadMinutes,
+      defaultTimeOfDay: row.defaultTimeOfDay,
+    },
+  }));
 }

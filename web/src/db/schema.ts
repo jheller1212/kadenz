@@ -167,6 +167,14 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email"),
   displayName: text("display_name"),
+  // "km" | "miles". The server-readable copy of the athlete's unit
+  // preference, which otherwise lives only in localStorage and so is
+  // invisible to anything the cron generates (watch, calendar, push).
+  // CHECK-constrained in 0057; see lib/user-units.ts for the typed reader.
+  distanceUnit: text("distance_unit").notNull().default("km"),
+  // "kg" | "lbs". Needed because a strength session's calendar event lists
+  // each exercise's load.
+  weightUnit: text("weight_unit").notNull().default("kg"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

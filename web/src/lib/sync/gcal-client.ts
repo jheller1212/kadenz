@@ -2,6 +2,9 @@ import { google } from "googleapis";
 import { db, syncOutbox } from "@/db";
 import { eq } from "drizzle-orm";
 import { formatLoad } from "@/lib/strength/weights";
+import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
+import { displayDistance, displayPace, distanceUnitLabel, paceUnitLabel } from "@/lib/units";
+import type { DistanceUnit, WeightUnit } from "@/lib/user-units";
 
 // ── Token storage (in DB via sync_outbox with special entity) ────────────────
 
@@ -105,6 +108,12 @@ const WORKOUT_COLORS: Record<string, string> = {
 export interface WorkoutEventInput {
   workoutId: string;
   title: string;
+  /**
+   * The owner's distance unit (users.distance_unit). Optional so a caller
+   * that has not resolved it yet still compiles; absent means km, which is
+   * both the storage unit and the default preference.
+   */
+  distanceUnit?: DistanceUnit;
   description?: string | null;
   date: Date;
   targetKm?: number | null;
@@ -124,17 +133,25 @@ export interface WorkoutEventInput {
   }>;
 }
 
-function formatPaceSec(secPerKm: number): string {
-  const min = Math.floor(secPerKm / 60);
-  const sec = secPerKm % 60;
-  return `${min}:${sec.toString().padStart(2, "0")} /km`;
+// Pace is stored per km. Converting to the athlete's unit means converting
+// the number AND the label together, so both come from the same `unit`.
+function formatPaceSec(secPerKm: number, unit?: DistanceUnit): string {
+  const perUnit = Math.round(displayPace(secPerKm, unit));
+  const min = Math.floor(perUnit / 60);
+  const sec = perUnit % 60;
+  return `${min}:${sec.toString().padStart(2, "0")} ${paceUnitLabel(unit)}`;
 }
 
 function buildEventDescription(workout: WorkoutEventInput): string {
   const lines: string[] = [];
+  // Distances and paces are stored in km and converted here, the same way
+  // every in-app screen converts them. Before this, a miles athlete's
+  // calendar was the one place in Kadenz still quoting km.
+  const unit = workout.distanceUnit;
+  const unitLabel = distanceUnitLabel(unit);
 
   if (workout.targetKm) {
-    lines.push(`Distance: ${workout.targetKm.toFixed(1)} km`);
+    lines.push(`Distance: ${displayDistance(workout.targetKm, 1, unit).toFixed(1)} ${unitLabel}`);
   }
   if (workout.targetDurationMinutes) {
     lines.push(`Duration: ~${workout.targetDurationMinutes} min`);
@@ -153,12 +170,12 @@ function buildEventDescription(workout: WorkoutEventInput): string {
           `${block.reps}x ${(block.repDistanceKm * 1000).toFixed(0)}m`
         );
       } else if (block.distanceKm) {
-        parts.push(`${block.distanceKm.toFixed(1)} km`);
+        parts.push(`${displayDistance(block.distanceKm, 1, unit).toFixed(1)} ${unitLabel}`);
       } else if (block.durationMinutes) {
         parts.push(`${block.durationMinutes} min`);
       }
       if (block.targetPaceSecKm) {
-        parts.push(`@ ${formatPaceSec(block.targetPaceSecKm)}`);
+        parts.push(`@ ${formatPaceSec(block.targetPaceSecKm, unit)}`);
       }
       lines.push(parts.join(" "));
     }
@@ -188,6 +205,15 @@ function buildEventTimes(date: Date, durationMinutes?: number | null, timeOfDay?
   };
 }
 
+// The stored title is always written in km at generation time, so it is
+// rebuilt here from the workout's numeric fields in the athlete's own unit,
+// exactly as every in-app screen does. Interval and race titles come back
+// unchanged: they are in meters and in race-distance labels respectively,
+// neither of which converts.
+function eventSummary(workout: WorkoutEventInput): string {
+  return displayWorkoutTitle(workout, workout.distanceUnit);
+}
+
 // ── Calendar event CRUD ───────────────────────────────────────────────────────
 
 export async function createEvent(workout: WorkoutEventInput): Promise<string> {
@@ -200,7 +226,7 @@ export async function createEvent(workout: WorkoutEventInput): Promise<string> {
   const res = await cal.events.insert({
     calendarId: process.env.GOOGLE_CALENDAR_ID ?? "primary",
     requestBody: {
-      summary: workout.title,
+      summary: eventSummary(workout),
       description: buildEventDescription(workout),
       colorId: WORKOUT_COLORS[workout.type] ?? "0",
       ...times,
@@ -224,7 +250,7 @@ export async function patchEvent(
   const cal = google.calendar({ version: "v3", auth });
 
   const body: Record<string, unknown> = {};
-  if (workout.title) body.summary = workout.title;
+  if (workout.title) body.summary = eventSummary(workout as WorkoutEventInput);
   if (workout.description !== undefined || workout.blocks !== undefined) {
     body.description = buildEventDescription(workout as WorkoutEventInput);
   }
@@ -265,6 +291,12 @@ const STRENGTH_COLORS: Record<string, string> = {
 export interface StrengthEventInput {
   sessionId: string;
   title: string;
+  /**
+   * The owner's weight unit (users.weight_unit). The description lists every
+   * exercise's load, so without this a lbs athlete reads their calendar in
+   * kg. Absent means kg, which is both the storage unit and the default.
+   */
+  weightUnit?: WeightUnit;
   date: Date;
   type: string;
   targetDurationMinutes?: number | null;
@@ -288,7 +320,14 @@ function buildStrengthDescription(session: StrengthEventInput): string {
     for (const ex of session.exercises) {
       const load =
         ex.suggestedWeightKg != null
-          ? ` @ ${formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}`
+          ? ` @ ${formatLoad(ex.suggestedWeightKg, {
+              dumbbells: ex.dumbbells,
+              holdNote: ex.holdNote,
+              perSide: ex.perSide,
+              // Explicit: this runs in the cron, where formatLoad's own
+              // localStorage lookup would silently answer kg for everyone.
+              unit: session.weightUnit,
+            })}`
           : "";
       lines.push(`  • ${ex.name} · ${ex.prescription}${load}`);
     }
