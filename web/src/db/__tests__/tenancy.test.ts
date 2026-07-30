@@ -27,6 +27,13 @@ const TENANTED_TABLES = {
   strengthPlanSettings: schema.strengthPlanSettings,
   customWorkoutTemplates: schema.customWorkoutTemplates,
   profiles: schema.profiles,
+  // Phase 4. These two are tenanted by construction rather than by a
+  // backfilled column: their userId has no DB default, because a credential
+  // or an import bookmark with no known owner is not a thing that should
+  // exist. They are listed here so the exhaustiveness check below stays a
+  // real tripwire.
+  integrationCredentials: schema.integrationCredentials,
+  userIntegrationState: schema.userIntegrationState,
 } as const;
 
 // Deliberately not tenanted:

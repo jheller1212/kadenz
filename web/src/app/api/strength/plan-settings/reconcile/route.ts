@@ -1,14 +1,18 @@
 import { NextRequest } from "next/server";
 import { getActiveProfileId } from "@/lib/profiles";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
+import { requireRequestUser } from "@/lib/request-user";
 
 // One-shot cleanup: prune future auto-scheduled sessions the user never
 // touched, then re-run the top-up against the active plan's run days. Same
 // operation plan create/regenerate performs; callable standalone when the
 // schedule has drifted (e.g. sessions stacked by an earlier plan).
 export async function POST(request: NextRequest) {
+  const { userId, response } = await requireRequestUser(request);
+  if (response) return response;
+
   try {
-    const result = await reconcileStrengthSchedule(getActiveProfileId(request));
+    const result = await reconcileStrengthSchedule(getActiveProfileId(request), userId);
     return Response.json(result);
   } catch (err) {
     console.error("[plan-settings] reconcile failed", err);

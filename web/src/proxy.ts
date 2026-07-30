@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { validateSessionCookie } from "@/lib/session";
+import { getShellTokenUserId, validateSessionCookie } from "@/lib/session";
 
 // Routes that must be reachable without a session cookie
 const PUBLIC_API_ROUTES: string[] = [
@@ -52,13 +52,23 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const cookieHeader = request.headers.get("cookie");
-  const valid = await validateSessionCookie(cookieHeader);
-  if (!valid) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // A session cookie, or the native shell's bearer token. The shell runs on a
+  // capacitor:// origin, so the SameSite=Lax cookie is never sent with its
+  // requests; the token is how it identifies itself instead. Both resolve to a
+  // user id through lib/session.ts, and the route resolves the same id again
+  // via lib/request-user.ts — this gate proves the caller is someone, the
+  // route decides whose data it may touch.
+  //
+  // Deliberately NOT accepted on the cron branch above: a shell token is a
+  // user credential and must not open maintenance endpoints that run with
+  // installation-wide authority.
+  if (await validateSessionCookie(request.headers.get("cookie"))) {
+    return NextResponse.next();
   }
-
-  return NextResponse.next();
+  if (await getShellTokenUserId(request.headers.get("authorization"))) {
+    return NextResponse.next();
+  }
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
 export const config = {

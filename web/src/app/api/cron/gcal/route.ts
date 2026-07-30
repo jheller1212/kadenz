@@ -16,9 +16,33 @@ import { runGarminImport } from "@/lib/sync/garmin-activity-import";
 import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 import { pruneStaleAdhocSessions, autoCloseAbandonedSessions } from "@/lib/strength/schedule";
+import { listAllUserIds } from "@/lib/users";
 
 // Failed jobs get one retry per cron run until this hard cap.
 const RETRY_CAP = 10;
+
+/**
+ * The subset of `userIds` for which `predicate` holds.
+ *
+ * Sequential rather than Promise.all: these predicates each hit the database,
+ * and the pooled client is capped at one connection per function instance, so
+ * firing them together would queue on the pool anyway while making a single
+ * failure harder to attribute to a user.
+ */
+async function filterUsers(
+  userIds: string[],
+  predicate: (userId: string) => Promise<boolean>
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const userId of userIds) {
+    try {
+      if (await predicate(userId)) out.push(userId);
+    } catch (err) {
+      console.error(`Connection check failed for user ${userId}:`, err);
+    }
+  }
+  return out;
+}
 
 // ── GET /api/cron/gcal ────────────────────────────────────────────────────────
 // The single daily cron (Vercel Hobby allows one — see vercel.json).
@@ -55,6 +79,17 @@ export async function GET(request: NextRequest) {
 
   const out: Record<string, unknown> = { ok: true };
 
+  // A cron run carries no session, so it has no single user to act as. Every
+  // integration it touches is now per person, so it fans out over users.
+  // Superseded by withCronFanOut once phase 3 lands; see lib/users.ts.
+  let userIds: string[];
+  try {
+    userIds = await listAllUserIds();
+  } catch (err) {
+    console.error("GCal cron could not list users:", err);
+    return Response.json({ ok: false, error: "user list failed" }, { status: 500 });
+  }
+
   try {
     // Give permanently-failed jobs another chance, up to RETRY_CAP attempts
     // (covers both gcal and garmin targets).
@@ -65,7 +100,12 @@ export async function GET(request: NextRequest) {
       .returning({ id: syncOutbox.id });
     out.requeued = requeued.length;
 
-    if (await isConnected()) {
+    // "Is a calendar connected" is now a per-person fact, so the gate asks
+    // whether ANYONE is connected. The drain itself stays global on purpose:
+    // every outbox row records its own owner and is delivered with that
+    // owner's credentials, so one drain correctly serves everybody.
+    const connected = await filterUsers(userIds, isConnected);
+    if (connected.length > 0) {
       out.gcal = await processGCalOutbox();
     } else {
       out.gcal = "not connected";
@@ -76,13 +116,33 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    if (await isGarminWorkoutSyncEnabled()) {
-      // Self-heal first: anything we pushed that has vanished from Garmin
-      // gets recreated, then the window rolls forward as usual.
-      out.garminResync = await resyncGarminWindow();
-      out.garminQueued = await queueGarminWindowSync();
-      // Kraft sessions ride the same rolling window as runs.
-      out.garminStrengthQueued = await queueGarminStrengthWindowSync();
+    // Garmin is reached through installation-level worker credentials rather
+    // than per-user OAuth, so in practice only the owner has a watch. The loop
+    // is still per user because the toggle and the queueing are per user, and
+    // a user with the toggle off simply contributes nothing.
+    const enabled = await filterUsers(userIds, isGarminWorkoutSyncEnabled);
+    if (enabled.length > 0) {
+      let repushed = 0;
+      let queued = 0;
+      let strengthQueued = 0;
+      for (const userId of enabled) {
+        try {
+          // Self-heal first: anything we pushed that has vanished from Garmin
+          // gets recreated, then the window rolls forward as usual.
+          const resync = await resyncGarminWindow(userId);
+          repushed += resync.repushed;
+          queued += await queueGarminWindowSync(userId);
+          // Kraft sessions ride the same rolling window as runs.
+          strengthQueued += await queueGarminStrengthWindowSync(userId);
+        } catch (err) {
+          // Per user, so one athlete's Garmin outage cannot skip everyone
+          // queued behind them.
+          console.error(`Garmin window sync failed for user ${userId}:`, err);
+        }
+      }
+      out.garminResync = repushed;
+      out.garminQueued = queued;
+      out.garminStrengthQueued = strengthQueued;
       out.garmin = await processGarminOutbox();
     } else {
       out.garmin = "disabled";
@@ -118,7 +178,20 @@ export async function GET(request: NextRequest) {
     // Activity import runs whenever the worker is deployed, independent of the
     // workout-push toggle (importing is read-only on Garmin's side).
     if (garminClient.isConfigured()) {
-      out.garminImport = await runGarminImport();
+      // Per user because the import bookmark is per user. That is the whole
+      // point of migration 0059: with one shared bookmark, each iteration
+      // would overwrite the previous one's position and every athlete would
+      // re-import or skip activities depending on who ran last.
+      const imports: Record<string, unknown> = {};
+      for (const userId of userIds) {
+        try {
+          imports[userId] = await runGarminImport(userId);
+        } catch (err) {
+          console.error(`Garmin import failed for user ${userId}:`, err);
+          imports[userId] = "failed";
+        }
+      }
+      out.garminImport = imports;
     }
   } catch (err) {
     console.error("Garmin cron import error:", err);
@@ -126,7 +199,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    out.wellnessSync = await runWellnessSync();
+    const wellness: Record<string, unknown> = {};
+    for (const userId of userIds) {
+      try {
+        wellness[userId] = await runWellnessSync(userId);
+      } catch (err) {
+        console.error(`Wellness sync failed for user ${userId}:`, err);
+        wellness[userId] = "failed";
+      }
+    }
+    out.wellnessSync = wellness;
   } catch (err) {
     console.error("Garmin wellness sync error:", err);
     out.wellnessSyncError = "sync failed";

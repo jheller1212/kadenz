@@ -7,6 +7,7 @@ import {
   ensureStrengthSchedule,
   pruneAutoSchedule,
 } from "@/lib/strength/schedule";
+import { requireRequestUser } from "@/lib/request-user";
 
 const EQUIPMENT_VALUES = [
   "dumbbell", "barbell", "bench", "chair", "box", "kettlebell", "pullup_bar", "band",
@@ -60,6 +61,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const { userId, response } = await requireRequestUser(request);
+  if (response) return response;
   const profileId = getActiveProfileId(request);
 
   let data: z.infer<typeof SettingsSchema>;
@@ -110,9 +113,9 @@ export async function PUT(request: NextRequest) {
 
     // Rebuild the upcoming auto schedule from the new preferences. Completed
     // and manually created sessions are never touched.
-    await pruneAutoSchedule(profileId);
+    await pruneAutoSchedule(profileId, userId);
     const { created } = data.active
-      ? await ensureStrengthSchedule(profileId)
+      ? await ensureStrengthSchedule(profileId, userId)
       : { created: 0 };
 
     return Response.json({ ok: true, created });
@@ -134,6 +137,8 @@ const PatchSchema = z
   .strict();
 
 export async function PATCH(request: NextRequest) {
+  const { userId, response } = await requireRequestUser(request);
+  if (response) return response;
   const profileId = getActiveProfileId(request);
 
   let data: z.infer<typeof PatchSchema>;
@@ -160,7 +165,7 @@ export async function PATCH(request: NextRequest) {
     // Prescriptions are derived at read time, so no session rows need rewriting —
     // but re-run ensure so the calendar/watch descriptions (which bake the rest
     // in) refresh to the new value.
-    if (updated[0].active) await ensureStrengthSchedule(profileId);
+    if (updated[0].active) await ensureStrengthSchedule(profileId, userId);
 
     return Response.json({ ok: true, hadPlan: true });
   } catch (err) {
@@ -179,10 +184,12 @@ export async function PATCH(request: NextRequest) {
 // survive — they are training data, and load progression is derived from them.
 // It also cleans up the calendar events and watch workouts those rows created.
 export async function DELETE(request: NextRequest) {
+  const { userId, response } = await requireRequestUser(request);
+  if (response) return response;
   const profileId = getActiveProfileId(request);
 
   try {
-    const { removed } = await pruneAutoSchedule(profileId);
+    const { removed } = await pruneAutoSchedule(profileId, userId);
 
     const deleted = await db
       .delete(strengthPlanSettings)

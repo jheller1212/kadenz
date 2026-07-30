@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { validateSessionCookie } from "@/lib/session";
 import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { autoCloseAbandonedSessions } from "@/lib/strength/schedule";
+import { listAllUserIds } from "@/lib/users";
 
 // ── GET /api/cron/sync-drain ────────────────────────────────────────────────
 // Safety net for outbox delivery. A plan create/edit/delete already triggers
@@ -35,8 +36,27 @@ export async function GET(request: NextRequest) {
 
   const out: Record<string, unknown> = { ok: true };
 
+  // A cron run carries no session, so it has no single user to act as. The two
+  // queueing decisions inside drainOutboxNow (is watch sync on, is a calendar
+  // connected) are per person, so this fans out over users. The drains it
+  // performs are not per person: an outbox row records its own owner.
+  //
+  // One user's failure must not stop the ones queued behind them, hence the
+  // catch inside the loop rather than around it. Superseded by withCronFanOut
+  // once phase 3 lands; see listAllUserIds in lib/users.ts.
   try {
-    out.drain = await drainOutboxNow();
+    const userIds = await listAllUserIds();
+    let drained = 0;
+    for (const userId of userIds) {
+      try {
+        await drainOutboxNow(userId);
+        drained++;
+      } catch (err) {
+        console.error(`Sync drain failed for user ${userId}:`, err);
+      }
+    }
+    out.drain = { users: userIds.length, drained };
+    if (drained < userIds.length) out.drainError = "some users failed";
   } catch (err) {
     console.error("Sync drain cron error:", err);
     out.ok = false;

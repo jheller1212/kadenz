@@ -167,3 +167,94 @@ export async function validateSessionCookie(
 ): Promise<boolean> {
   return (await getSessionUserId(cookieHeader)) !== null;
 }
+
+// ── Bearer tokens for the native shell ───────────────────────────────────────
+//
+// The Capacitor shell runs on a capacitor:// (or http://localhost) origin and
+// calls the API cross-site. The session cookie is SameSite=Lax and is
+// therefore not sent on those requests, so every call came back 401.
+//
+// Relaxing the cookie to SameSite=None would fix the shell and weaken CSRF
+// posture for every browser session at the same time, which is a bad trade for
+// one client. A bearer token the shell sends explicitly is opt-in per request
+// and carries no ambient authority.
+//
+// The token is minted from an already-authenticated session (see
+// /api/auth/shell/token) and resolves to a user id through the same signature
+// scheme and the same identity accessor shape as the cookie, so anything built
+// on lib/request-user.ts inherits tenancy without knowing which credential the
+// caller used.
+
+// Short by design: a copy that leaks off the device stops working within a
+// day. The shell refreshes on launch by presenting its still-valid token
+// (rotation), so a running install never asks the athlete to log in again;
+// one that has been closed for longer falls back to the web login it used to
+// get its first token.
+const SHELL_TOKEN_MAX_AGE_MS = 1000 * 60 * 60 * 24;
+
+// Domain separation between the two credential formats, and it is doing real
+// work in both directions. A cookie payload is "<uuid>:<ms>", so a shell token
+// presented as a cookie fails parseUserId (its subject reads as
+// "shell:<uuid>", not a uuid) and a cookie value presented as a bearer fails
+// the prefix check below. One signing secret, two credentials that cannot be
+// swapped for each other.
+const SHELL_PREFIX = "shell:";
+
+function buildShellPayload(userId: string, issuedAtMs: number): string {
+  return `${SHELL_PREFIX}${userId}:${issuedAtMs}`;
+}
+
+/** Mints a shell bearer token for `userId`. */
+export async function makeShellToken(userId: string): Promise<string> {
+  if (!UUID_RE.test(userId)) {
+    throw new Error("makeShellToken requires a user id");
+  }
+  const secret = getSecret();
+  const payload = buildShellPayload(userId.toLowerCase(), Date.now());
+  const sig = await hmacSign(payload, secret);
+  return `${payload}.${sig}`;
+}
+
+/** How long a freshly minted shell token stays valid, in seconds. */
+export const SHELL_TOKEN_MAX_AGE_SECONDS = SHELL_TOKEN_MAX_AGE_MS / 1000;
+
+/**
+ * Returns the id of the user a shell bearer token belongs to, or null if the
+ * header is absent, malformed, not a shell token, tampered with, or expired.
+ *
+ * Takes the raw Authorization header so the caller cannot accidentally pass a
+ * token from somewhere other than the request.
+ */
+export async function getShellTokenUserId(
+  authorizationHeader: string | null
+): Promise<string | null> {
+  if (!authorizationHeader) return null;
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const token = match[1].trim();
+
+  const dotIndex = token.lastIndexOf(".");
+  if (dotIndex === -1) return null;
+  const value = token.slice(0, dotIndex);
+  const signature = token.slice(dotIndex + 1);
+
+  if (!value.startsWith(SHELL_PREFIX)) return null;
+
+  try {
+    const secret = getSecret();
+    if (!(await hmacVerify(value, signature, secret))) return null;
+  } catch {
+    return null;
+  }
+
+  const issuedAtMs = parseIssuedAtMs(value);
+  if (issuedAtMs === null) return null;
+  if (!isSessionFresh(issuedAtMs, Date.now(), SHELL_TOKEN_MAX_AGE_MS)) {
+    return null;
+  }
+
+  // Strip the prefix before reading the subject, so the uuid check runs
+  // against the id itself and a token whose subject is not a uuid is rejected
+  // rather than half-parsed.
+  return parseUserId(value.slice(SHELL_PREFIX.length));
+}

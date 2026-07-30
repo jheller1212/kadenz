@@ -5,6 +5,7 @@ import { db, workouts, blocks } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 const WorkoutPatchSchema = z.object({
   status: z.enum(["planned", "completed", "skipped", "missed"]).optional(),
@@ -38,6 +39,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; workoutId: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id, workoutId } = await params;
 
   let body: unknown;
@@ -191,10 +194,10 @@ export async function PATCH(
     // (same pattern as complete). A missing connection is not an error — the
     // time is still stored and shown, it just has nowhere else to sync to.
     if (date || parsed.data.timeOfDay !== undefined) {
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (connected) {
-            queueWorkoutSync(workoutId, "update", "gcal").catch((err) =>
+            queueWorkoutSync(workoutId, "update", userId, "gcal").catch((err) =>
               console.error("Failed to queue gcal reschedule:", err)
             );
           }

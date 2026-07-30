@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { saveSubscription } from "@/lib/reminders/subscriptions";
-import { getSessionUserId } from "@/lib/session";
+import { requireRequestUser } from "@/lib/request-user";
 
 // ── POST /api/push/subscribe ─────────────────────────────────────────────────
 // Stores a browser push subscription server-side so the reminder cron can
@@ -9,8 +9,11 @@ import { getSessionUserId } from "@/lib/session";
 // allowed notifications" (see lib/permissions.ts) — this route just persists
 // whatever subscription object the Push API handed back.
 //
-// proxy.ts already requires a valid session here. The user id is what decides
-// whose device this is, and therefore whose workouts it will be told about.
+// Resolved through request-user.ts (not getSessionUserId directly) so the
+// native shell's bearer token reaches the same tenancy as the browser cookie
+// path. The user id is what decides whose device this is, and therefore
+// whose workouts it will be told about. This route is the one that proves
+// that whole auth chain end to end.
 
 const SubscriptionSchema = z
   .object({
@@ -23,8 +26,8 @@ const SubscriptionSchema = z
   .strict();
 
 export async function POST(request: NextRequest) {
-  const userId = await getSessionUserId(request.headers.get("cookie"));
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireRequestUser(request);
+  if (auth.response) return auth.response;
 
   let body: unknown;
   try {
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await saveSubscription(userId, {
+    await saveSubscription(auth.userId, {
       endpoint: parsed.data.endpoint,
       p256dh: parsed.data.keys.p256dh,
       auth: parsed.data.keys.auth,

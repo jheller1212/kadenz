@@ -12,6 +12,7 @@ const processActivity = vi.fn().mockResolvedValue("stored");
 const updateActivity = vi.fn().mockResolvedValue("updated");
 const deleteStravaActivity = vi.fn().mockResolvedValue("trashed");
 const loadSubscription = vi.fn();
+const findUserByProviderAccount = vi.fn();
 
 vi.mock("@/lib/sync/strava-client", () => ({
   processActivity,
@@ -19,8 +20,12 @@ vi.mock("@/lib/sync/strava-client", () => ({
   deleteStravaActivity,
   loadSubscription,
 }));
+vi.mock("@/lib/sync/credentials", () => ({ findUserByProviderAccount }));
 
 const { POST } = await import("../route");
+
+const OWNER_ID = 1;
+const OWNER_USER = "11111111-1111-4111-8111-111111111111";
 
 function fakeRequest(body: unknown): NextRequest {
   return { text: async () => JSON.stringify(body) } as unknown as NextRequest;
@@ -39,6 +44,8 @@ beforeEach(() => {
   deleteStravaActivity.mockClear();
   loadSubscription.mockReset();
   loadSubscription.mockResolvedValue({ subscription_id: 42, callback_url: "https://kadenz.example/api/strava/webhook" });
+  findUserByProviderAccount.mockReset();
+  findUserByProviderAccount.mockResolvedValue(OWNER_USER);
 });
 
 describe("POST /api/strava/webhook", () => {
@@ -48,7 +55,7 @@ describe("POST /api/strava/webhook", () => {
         object_type: "activity",
         object_id: 1,
         aspect_type: "create",
-        owner_id: 1,
+        owner_id: OWNER_ID,
         subscription_id: 999, // not the registered one
         event_time: 0,
       })
@@ -64,13 +71,13 @@ describe("POST /api/strava/webhook", () => {
         object_type: "activity",
         object_id: 555,
         aspect_type: "create",
-        owner_id: 1,
+        owner_id: OWNER_ID,
         subscription_id: 42,
         event_time: 0,
       })
     );
     await flush();
-    expect(processActivity).toHaveBeenCalledWith(555);
+    expect(processActivity).toHaveBeenCalledWith(OWNER_USER, 555);
     expect(updateActivity).not.toHaveBeenCalled();
     expect(deleteStravaActivity).not.toHaveBeenCalled();
   });
@@ -81,13 +88,13 @@ describe("POST /api/strava/webhook", () => {
         object_type: "activity",
         object_id: 555,
         aspect_type: "update",
-        owner_id: 1,
+        owner_id: OWNER_ID,
         subscription_id: 42,
         event_time: 0,
       })
     );
     await flush();
-    expect(updateActivity).toHaveBeenCalledWith(555);
+    expect(updateActivity).toHaveBeenCalledWith(OWNER_USER, 555);
     expect(processActivity).not.toHaveBeenCalled();
   });
 
@@ -97,14 +104,33 @@ describe("POST /api/strava/webhook", () => {
         object_type: "activity",
         object_id: 555,
         aspect_type: "delete",
-        owner_id: 1,
+        owner_id: OWNER_ID,
         subscription_id: 42,
         event_time: 0,
       })
     );
     await flush();
-    expect(deleteStravaActivity).toHaveBeenCalledWith(555);
+    expect(deleteStravaActivity).toHaveBeenCalledWith(OWNER_USER, 555);
     expect(processActivity).not.toHaveBeenCalled();
+  });
+
+  it("ignores an event for an athlete nobody has connected, touching nothing", async () => {
+    findUserByProviderAccount.mockResolvedValue(null);
+    const res = await POST(
+      fakeRequest({
+        object_type: "activity",
+        object_id: 555,
+        aspect_type: "create",
+        owner_id: 999999,
+        subscription_id: 42,
+        event_time: 0,
+      })
+    );
+    await flush();
+    expect(res.status).toBe(200);
+    expect(processActivity).not.toHaveBeenCalled();
+    expect(updateActivity).not.toHaveBeenCalled();
+    expect(deleteStravaActivity).not.toHaveBeenCalled();
   });
 
   it("always replies 200 to Strava, even for a known event type", async () => {
@@ -113,7 +139,7 @@ describe("POST /api/strava/webhook", () => {
         object_type: "activity",
         object_id: 555,
         aspect_type: "update",
-        owner_id: 1,
+        owner_id: OWNER_ID,
         subscription_id: 42,
         event_time: 0,
       })

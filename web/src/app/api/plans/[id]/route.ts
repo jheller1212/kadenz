@@ -14,6 +14,7 @@ import { garminClient } from "@/lib/sync/garmin-client";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { queueRetireDeletes, retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
 import { drainOutboxNow, scheduleOutboxDrain } from "@/lib/sync/outbox-drain";
+import { requireRequestUser, resolveRequestUserId } from "@/lib/request-user";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra", "custom"]),
@@ -108,6 +109,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
   let body: unknown;
@@ -232,6 +235,7 @@ export async function PUT(
         id: workouts.id,
         gcalEventId: workouts.gcalEventId,
         garminWorkoutId: workouts.garminWorkoutId,
+        userId: workouts.userId,
       })
       .from(workouts)
       .where(and(eq(workouts.planId, id), untouchedPlanned));
@@ -367,32 +371,32 @@ export async function PUT(
     const insertedWorkoutIds = insertedWorkouts.map((wo) => wo.id);
     after(async () => {
       try {
-        if (await isConnected()) {
+        if (await isConnected(userId)) {
           // Only push the freshly inserted workouts — a preserved workout
           // already has (or never had) its own event and must not be
           // re-queued as a "create", which would push a duplicate event and
           // overwrite the id of the one already on the calendar.
-          await queuePlanWorkoutsSync(id, "gcal", insertedWorkoutIds);
+          await queuePlanWorkoutsSync(id, userId, "gcal", insertedWorkoutIds);
         }
       } catch (err) {
         console.error("Failed to queue gcal sync:", err);
       }
       try {
-        if (garminClient.isConfigured() && (await isGarminWorkoutSyncEnabled())) {
-          await queueGarminWindowSync(id);
+        if (garminClient.isConfigured() && (await isGarminWorkoutSyncEnabled(userId))) {
+          await queueGarminWindowSync(userId, id);
         }
       } catch (err) {
         console.error("Failed to queue Garmin sync:", err);
       }
       // Runs after the queueing above so the rows it just wrote are included.
-      await drainOutboxNow();
+      await drainOutboxNow(userId);
     });
 
     // Rebuild the auto strength schedule around the regenerated run days.
     // Strength sessions have no plan FK — without this, the old schedule's
     // future auto-scheduled sessions linger and the top-up stacks new ones.
     try {
-      await reconcileStrengthSchedule(null);
+      await reconcileStrengthSchedule(null, userId);
     } catch (err) {
       console.error("Failed to reconcile strength schedule:", err);
     }
@@ -422,9 +426,11 @@ export async function PUT(
 // ── DELETE /api/plans/[id] — soft-delete (archived) ──────────────────────────
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
   try {
@@ -449,7 +455,7 @@ export async function DELETE(
     // Flush those deletes promptly instead of waiting for the daily cron —
     // this is what actually clears the archived plan's workouts off the
     // watch and calendar (see outbox-drain.ts).
-    scheduleOutboxDrain();
+    scheduleOutboxDrain(userId);
 
     return Response.json({ id: updated.id, status: "archived" });
   } catch (err) {

@@ -98,6 +98,8 @@ function garminRun(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const TEST_USER_ID = "11111111-1111-1111-1111-111111111111";
+
 beforeEach(() => {
   resetMockDb();
   listActivities.mockReset();
@@ -110,7 +112,7 @@ describe("runGarminImport — dual write", () => {
     queueSelect([]); // already-imported-from-garmin check: none
     queueSelect([]); // isDuplicate: no nearby activities
 
-    const result = await runGarminImport();
+    const result = await runGarminImport(TEST_USER_ID);
 
     expect(result.imported).toBe(1);
     const insert = insertCalls.find((c) => c.table === activities);
@@ -119,6 +121,10 @@ describe("runGarminImport — dual write", () => {
     expect(values.garminId).toBe("999");
     expect(values.provider).toBe("garmin");
     expect(values.externalId).toBe("999");
+    // The imported activity must be filed under the user the import ran
+    // for, not left to the row default (which used to attribute it to
+    // whoever owns the installation).
+    expect(values.userId).toBe(TEST_USER_ID);
   });
 
   it("writes provider/externalId alongside garminId for a strength session", async () => {
@@ -129,7 +135,7 @@ describe("runGarminImport — dual write", () => {
     queueSelect([]); // already-imported-from-garmin check: none
     queueSelect([]); // isDuplicate: no nearby activities
 
-    const result = await runGarminImport();
+    const result = await runGarminImport(TEST_USER_ID);
 
     expect(result.imported).toBe(1);
     const insert = insertCalls.find((c) => c.table === activities);
@@ -138,5 +144,6 @@ describe("runGarminImport — dual write", () => {
     expect(values.garminId).toBe("999");
     expect(values.provider).toBe("garmin");
     expect(values.externalId).toBe("999");
+    expect(values.userId).toBe(TEST_USER_ID);
   });
 });

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, workouts, plans } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { requireRequestUser } from "@/lib/request-user";
 
 // A generous ceiling (48h) rather than a race-distance-specific one — ultras
 // exist, and rejecting a slow-but-real finish is worse than accepting a typo
@@ -31,6 +32,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
 ) {
+  const { userId, response: unauth } = await requireRequestUser(request);
+  if (unauth) return unauth;
   const { workoutId } = await params;
 
   let body: unknown;
@@ -88,10 +91,10 @@ export async function POST(
       planStatus = plan.status;
     }
 
-    isConnected()
+    isConnected(userId)
       .then((connected) => {
         if (connected) {
-          queueWorkoutSync(workoutId, "update", "gcal").catch((err) => {
+          queueWorkoutSync(workoutId, "update", userId, "gcal").catch((err) => {
             console.error("Failed to queue gcal update:", err);
           });
         }

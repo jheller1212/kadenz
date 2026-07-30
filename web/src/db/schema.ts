@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -211,6 +212,76 @@ export const userIdentities = pgTable(
     ),
     index("user_identities_user_id_idx").on(t.userId),
   ]
+);
+
+// One person's OAuth credentials for one external service. Phase 4 of the
+// multi-user plan (see drizzle/0058_integration_credentials.sql): these tokens
+// used to be a single row in sync_outbox under a fixed idempotency key, so the
+// second person to connect Strava or Google silently took over the first
+// person's integration.
+//
+// Unlike the Phase 2 tenancy columns, userId here carries NO default. There is
+// no such thing as an unattributed credential: the row means "this person
+// connected this account", and a default would make the first plausible answer
+// (the owner) the wrong one.
+export const integrationCredentials = pgTable(
+  "integration_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // "strava" | "google"
+    provider: text("provider").notNull(),
+    // The provider's token set. Shape is owned by the client module that reads
+    // it (StravaTokens in strava-client.ts, GCalTokens in gcal-client.ts).
+    //
+    // Deliberately no provider_account_id column here. The Strava webhook does
+    // need to turn an athlete id into a user, but user_identities already
+    // stores exactly that pair under a unique index, and it is identity rather
+    // than tenanted data so it stays readable before any user context exists.
+    // A copy of the athlete id next to the tokens would be the same fact in
+    // two places, free to drift, and unreadable at the moment the webhook
+    // actually needs it. See findUserByProviderAccount in lib/sync/credentials.ts.
+    payload: jsonb("payload").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("integration_credentials_user_provider_uq").on(
+      t.userId,
+      t.provider
+    ),
+  ]
+);
+
+// Per-user sync bookkeeping: the Garmin activity-import bookmark and the
+// "send workouts to the watch" toggle. Both were single global rows in
+// sync_outbox before Phase 4 (see drizzle/0059_user_integration_state.sql),
+// which meant a per-user import loop would have had every iteration overwrite
+// the same bookmark and each athlete would re-import or skip activities
+// depending on who ran last.
+//
+// Key/value rather than a column per setting: both values are small blobs only
+// their own reader understands, and the next one should not need a migration.
+// As with integrationCredentials, userId carries no default.
+export const userIntegrationState = pgTable(
+  "user_integration_state",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: jsonb("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.key] })]
 );
 
 // Household members. The owner has NO row — a NULL profile_id on scoped tables

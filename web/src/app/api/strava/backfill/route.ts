@@ -7,6 +7,7 @@ import {
   updateActivity,
   type StravaActivity,
 } from "@/lib/sync/strava-client";
+import { requireRequestUser } from "@/lib/request-user";
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 const DEFAULT_LOOKBACK_DAYS = 30;
@@ -18,6 +19,9 @@ const MAX_NEW_PER_RUN = 80;
 // ── POST: Backfill recent Strava activities ──────────────────────────────────
 
 export async function POST(request: NextRequest) {
+  const { userId, response: unauth } = await requireRequestUser(request);
+  if (unauth) return unauth;
+
   // Parse optional `since` param (ISO date string or Unix epoch seconds)
   let sinceEpoch: number;
   // `refresh: true` repairs already-imported activities instead of skipping
@@ -57,7 +61,7 @@ export async function POST(request: NextRequest) {
 
   let token: string;
   try {
-    token = await getAccessToken();
+    token = await getAccessToken(userId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return Response.json(
@@ -149,7 +153,7 @@ export async function POST(request: NextRequest) {
       if (isKnown) {
         if (needsRefresh(id)) {
           processedNew++;
-          const result = await updateActivity(activity.id);
+          const result = await updateActivity(userId, activity.id);
           if (result === "updated") refreshed++;
           else alreadySynced++; // not_found / trashed — nothing to refresh
         } else {
@@ -158,7 +162,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
       processedNew++;
-      const result = await processActivity(activity.id);
+      const result = await processActivity(userId, activity.id);
       if (result === "stored") inserted++;
       else if (result === "skipped") skippedTypes++;
       else alreadySynced++;

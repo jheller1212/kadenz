@@ -15,6 +15,15 @@ import { buildRetireDeleteBatch, type RetireCandidateWorkout } from "./plan-reti
 export type { RetireCandidateWorkout } from "./plan-retire-rules";
 export { buildRetireDeleteBatch } from "./plan-retire-rules";
 
+// The pure batch-building logic in plan-retire-rules.ts only needs a
+// workout's own sync ids (see RetireCandidateWorkout there); everything in
+// THIS file also needs to know whose calendar/watch those ids live on, so it
+// works with rows carrying that extra field instead of widening the pure
+// type every caller of buildRetireDeleteBatch would otherwise have to satisfy.
+export interface RetireCandidateWorkoutWithUser extends RetireCandidateWorkout {
+  userId: string;
+}
+
 export interface RetireResult {
   gcalQueued: number;
   garminQueued: number;
@@ -31,8 +40,15 @@ export interface RetireResult {
  * queue* helpers, and the daily cron drains anything a frozen invocation
  * left pending. Awaiting the insert is what makes the delete durable instead
  * of a bare unawaited promise that a serverless freeze can silently drop.
+ *
+ * `rows` may span more than one user (the archived-plan reconciliation sweep
+ * below passes rows from every plan in the installation), so the gcal
+ * deletes are grouped by owner before queueing: each queueWorkoutEventDeletes
+ * call carries only one person's events.
  */
-export async function queueRetireDeletes(rows: RetireCandidateWorkout[]): Promise<RetireResult> {
+export async function queueRetireDeletes(
+  rows: RetireCandidateWorkoutWithUser[]
+): Promise<RetireResult> {
   // A workout being retired may still have an earlier pending create/update
   // job sitting in the outbox (e.g. queued before the plan was archived, or
   // from before this retire path existed). Left pending, reconnecting a
@@ -42,20 +58,43 @@ export async function queueRetireDeletes(rows: RetireCandidateWorkout[]): Promis
   await cancelPendingOutboxForWorkouts(rows.map((r) => r.id));
 
   const { gcalDeletes, garminDeletes } = buildRetireDeleteBatch(rows);
+  const ownerByWorkoutId = new Map(rows.map((r) => [r.id, r.userId]));
 
   let gcalQueued = 0;
   let garminQueued = 0;
 
-  if (gcalDeletes.length > 0 && (await isConnected())) {
-    await queueWorkoutEventDeletes(gcalDeletes);
-    gcalQueued = gcalDeletes.length;
+  if (gcalDeletes.length > 0) {
+    for (const [owner, ownerDeletes] of groupByOwner(gcalDeletes, ownerByWorkoutId)) {
+      if (await isConnected(owner)) {
+        await queueWorkoutEventDeletes(ownerDeletes, owner);
+        gcalQueued += ownerDeletes.length;
+      }
+    }
   }
   if (garminDeletes.length > 0 && garminClient.isConfigured()) {
-    await queueGarminWorkoutDeletes(garminDeletes);
-    garminQueued = garminDeletes.length;
+    for (const [owner, ownerDeletes] of groupByOwner(garminDeletes, ownerByWorkoutId)) {
+      await queueGarminWorkoutDeletes(owner, ownerDeletes);
+      garminQueued += ownerDeletes.length;
+    }
   }
 
   return { gcalQueued, garminQueued };
+}
+
+/** Splits a batch of per-workout deletes into per-owner buckets. */
+function groupByOwner<T extends { workoutId: string }>(
+  deletes: T[],
+  ownerByWorkoutId: Map<string, string>
+): Map<string, T[]> {
+  const byOwner = new Map<string, T[]>();
+  for (const del of deletes) {
+    const owner = ownerByWorkoutId.get(del.workoutId);
+    if (!owner) continue;
+    const bucket = byOwner.get(owner);
+    if (bucket) bucket.push(del);
+    else byOwner.set(owner, [del]);
+  }
+  return byOwner;
 }
 
 /**
@@ -77,6 +116,7 @@ export async function retirePlanSyncArtifacts(planId: string): Promise<RetireRes
       id: workouts.id,
       gcalEventId: workouts.gcalEventId,
       garminWorkoutId: workouts.garminWorkoutId,
+      userId: workouts.userId,
     })
     .from(workouts)
     .where(eq(workouts.planId, planId));
@@ -150,7 +190,7 @@ export async function previewArchivedPlanSyncArtifacts(): Promise<{
 }
 
 async function selectArchivedPlanArtifactRows(): Promise<
-  Array<RetireCandidateWorkout & { planId: string }>
+  Array<RetireCandidateWorkoutWithUser & { planId: string }>
 > {
   return db
     .select({
@@ -158,6 +198,7 @@ async function selectArchivedPlanArtifactRows(): Promise<
       planId: workouts.planId,
       gcalEventId: workouts.gcalEventId,
       garminWorkoutId: workouts.garminWorkoutId,
+      userId: workouts.userId,
     })
     .from(workouts)
     .innerJoin(plans, eq(workouts.planId, plans.id))

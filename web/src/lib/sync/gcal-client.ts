@@ -1,16 +1,15 @@
 import { google } from "googleapis";
-import { db, syncOutbox } from "@/db";
-import { eq } from "drizzle-orm";
 import { formatLoad } from "@/lib/strength/weights";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { displayDistance, displayPace, distanceUnitLabel, paceUnitLabel } from "@/lib/units";
 import type { DistanceUnit, WeightUnit } from "@/lib/user-units";
+import { loadCredentials, saveCredentials } from "@/lib/sync/credentials";
 
-// ── Token storage (in DB via sync_outbox with special entity) ────────────────
-
-const TOKEN_ENTITY_TYPE = "plan" as const; // reuse existing enum value
-const TOKEN_ENTITY_ID = "00000000-0000-0000-0000-000000000000";
-const TOKEN_IDEM_KEY = "gcal:tokens:singleton";
+// ── Token storage ─────────────────────────────────────────────────────────────
+// Per-user, via lib/sync/credentials.ts. Before Phase 4 these lived in one
+// sync_outbox row shared by the whole installation, so the second person to
+// connect Google overwrote the first person's tokens. See credentials.ts for
+// the full story.
 
 export interface GCalTokens {
   access_token: string;
@@ -18,38 +17,12 @@ export interface GCalTokens {
   expiry_date: number;
 }
 
-export async function loadTokens(): Promise<GCalTokens | null> {
-  try {
-    const [row] = await db
-      .select({ payload: syncOutbox.payload })
-      .from(syncOutbox)
-      .where(eq(syncOutbox.idempotencyKey, TOKEN_IDEM_KEY))
-      .limit(1);
-
-    if (!row?.payload) return null;
-    return row.payload as unknown as GCalTokens;
-  } catch {
-    return null;
-  }
+export async function loadTokens(userId: string): Promise<GCalTokens | null> {
+  return loadCredentials<GCalTokens>(userId, "google");
 }
 
-export async function saveTokens(tokens: GCalTokens): Promise<void> {
-  await db
-    .insert(syncOutbox)
-    .values({
-      entityType: TOKEN_ENTITY_TYPE,
-      entityId: TOKEN_ENTITY_ID,
-      action: "update",
-      target: "gcal",
-      status: "completed",
-      idempotencyKey: TOKEN_IDEM_KEY,
-      payload: tokens as unknown as Record<string, unknown>,
-      attempts: 0,
-    })
-    .onConflictDoUpdate({
-      target: syncOutbox.idempotencyKey,
-      set: { payload: tokens as unknown as Record<string, unknown> },
-    });
+export async function saveTokens(userId: string, tokens: GCalTokens): Promise<void> {
+  await saveCredentials(userId, "google", tokens as unknown as Record<string, unknown>);
 }
 
 // ── OAuth2 client factory ─────────────────────────────────────────────────────
@@ -69,27 +42,30 @@ export function createOAuth2Client() {
   );
 }
 
-export async function getAuthClient() {
-  const tokens = await loadTokens();
+export async function getAuthClient(userId: string) {
+  const tokens = await loadTokens(userId);
   if (!tokens) return null;
   const auth = createOAuth2Client();
   auth.setCredentials(tokens);
-  // Persist refreshed tokens automatically
+  // Persist refreshed tokens automatically, against the SAME userId this
+  // client was built for. `userId` is captured by this closure, not read
+  // again later, so a refresh can never land on the wrong person's row even
+  // if another user's client is created concurrently.
   auth.on("tokens", (newTokens) => {
     const merged: GCalTokens = {
       access_token: newTokens.access_token ?? tokens.access_token,
       refresh_token: newTokens.refresh_token ?? tokens.refresh_token,
       expiry_date: newTokens.expiry_date ?? tokens.expiry_date,
     };
-    saveTokens(merged).catch((err) => {
+    saveTokens(userId, merged).catch((err) => {
       console.error("Failed to persist refreshed gcal tokens:", err);
     });
   });
   return auth;
 }
 
-export async function isConnected(): Promise<boolean> {
-  return (await loadTokens()) !== null;
+export async function isConnected(userId: string): Promise<boolean> {
+  return (await loadTokens(userId)) !== null;
 }
 
 // ── Workout → Calendar event mapping ─────────────────────────────────────────
@@ -216,8 +192,8 @@ function eventSummary(workout: WorkoutEventInput): string {
 
 // ── Calendar event CRUD ───────────────────────────────────────────────────────
 
-export async function createEvent(workout: WorkoutEventInput): Promise<string> {
-  const auth = await getAuthClient();
+export async function createEvent(userId: string, workout: WorkoutEventInput): Promise<string> {
+  const auth = await getAuthClient(userId);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const cal = google.calendar({ version: "v3", auth });
@@ -241,10 +217,11 @@ export async function createEvent(workout: WorkoutEventInput): Promise<string> {
 }
 
 export async function patchEvent(
+  userId: string,
   gcalEventId: string,
   workout: Partial<WorkoutEventInput> & { workoutId: string }
 ): Promise<void> {
-  const auth = await getAuthClient();
+  const auth = await getAuthClient(userId);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const cal = google.calendar({ version: "v3", auth });
@@ -268,8 +245,8 @@ export async function patchEvent(
   });
 }
 
-export async function deleteEvent(gcalEventId: string): Promise<void> {
-  const auth = await getAuthClient();
+export async function deleteEvent(userId: string, gcalEventId: string): Promise<void> {
+  const auth = await getAuthClient(userId);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const cal = google.calendar({ version: "v3", auth });
@@ -337,9 +314,10 @@ function buildStrengthDescription(session: StrengthEventInput): string {
 }
 
 export async function createStrengthEvent(
+  userId: string,
   session: StrengthEventInput
 ): Promise<string> {
-  const auth = await getAuthClient();
+  const auth = await getAuthClient(userId);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const cal = google.calendar({ version: "v3", auth });
@@ -363,10 +341,11 @@ export async function createStrengthEvent(
 }
 
 export async function patchStrengthEvent(
+  userId: string,
   gcalEventId: string,
   session: StrengthEventInput
 ): Promise<void> {
-  const auth = await getAuthClient();
+  const auth = await getAuthClient(userId);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const cal = google.calendar({ version: "v3", auth });

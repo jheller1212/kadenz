@@ -14,6 +14,7 @@ import { retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
 import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { pruneAutoSchedule, reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { timer } from "@/lib/timing";
+import { requireRequestUser, resolveRequestUserId } from "@/lib/request-user";
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,9 @@ const PlanConfigSchema = z.object({
 // ── POST /api/plans ───────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
@@ -254,21 +258,21 @@ export async function POST(request: NextRequest) {
     // risk a serverless timeout.
     after(async () => {
       try {
-        if (await isConnected()) {
-          await queuePlanWorkoutsSync(planId, "gcal");
+        if (await isConnected(userId)) {
+          await queuePlanWorkoutsSync(planId, userId, "gcal");
         }
       } catch (err) {
         console.error("Failed to queue gcal sync:", err);
       }
       try {
-        if (await isGarminWorkoutSyncEnabled()) {
-          await queueGarminWindowSync(planId);
+        if (await isGarminWorkoutSyncEnabled(userId)) {
+          await queueGarminWindowSync(userId, planId);
         }
       } catch (err) {
         console.error("Failed to queue Garmin sync:", err);
       }
       // Runs after the queueing above so the rows it just wrote are included.
-      await drainOutboxNow();
+      await drainOutboxNow(userId);
     });
 
     // Rebuild the auto strength schedule around the new plan's run days.
@@ -298,7 +302,7 @@ export async function POST(request: NextRequest) {
     let shortWeeks = 0;
     if (data.strengthMode === "adapt") {
       try {
-        ({ shortWeeks } = await reconcileStrengthSchedule(null));
+        ({ shortWeeks } = await reconcileStrengthSchedule(null, userId));
       } catch (err) {
         console.error("Failed to reconcile strength schedule:", err);
       }
@@ -307,7 +311,7 @@ export async function POST(request: NextRequest) {
       // auto-scheduled sessions must go — otherwise they linger against a plan
       // that no longer exists. Completed sessions are never touched.
       try {
-        await pruneAutoSchedule(null);
+        await pruneAutoSchedule(null, userId);
       } catch (err) {
         console.error("Failed to prune strength schedule:", err);
       }

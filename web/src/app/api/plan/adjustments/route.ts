@@ -5,6 +5,7 @@ import { db, plans, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 // ── Plan adjustments ("adjustment tray") ─────────────────────────────────────
 // Detects missed run sessions and lets the athlete realign: mark them missed,
@@ -128,6 +129,9 @@ const ApplySchema = z
   .strict();
 
 export async function POST(request: NextRequest) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
@@ -219,11 +223,11 @@ export async function POST(request: NextRequest) {
         console.error("Failed to queue Garmin workout update:", e)
       );
     }
-    isConnected()
+    isConnected(userId)
       .then((connected) => {
         if (!connected) return;
         for (const id of touched) {
-          queueWorkoutSync(id, "update", "gcal").catch((e) =>
+          queueWorkoutSync(id, "update", userId, "gcal").catch((e) =>
             console.error("Failed to queue workout sync:", e)
           );
         }

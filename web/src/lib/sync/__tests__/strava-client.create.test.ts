@@ -16,7 +16,13 @@ const strengthSets = { __t: "strengthSets" } as Record<string, unknown>;
 const deletedActivities = { __t: "deletedActivities" } as Record<string, unknown>;
 const activityTrash = { __t: "activityTrash" } as Record<string, unknown>;
 const syncOutbox = { __t: "syncOutbox" } as Record<string, unknown>;
-for (const t of [activities, workouts, plans, strengthSessions, strengthSets, deletedActivities, activityTrash, syncOutbox]) {
+// strava-client's loadTokens/saveTokens go through lib/sync/credentials.ts
+// (not mocked here, it's the real module), which reads/writes this table.
+// It needs the same opaque-tag treatment as everything else the mocked "@/db"
+// stands in for, or `integrationCredentials.userId` throws on an undefined
+// export and loadCredentials' catch quietly turns that into "not connected".
+const integrationCredentials = { __t: "integrationCredentials" } as Record<string, unknown>;
+for (const t of [activities, workouts, plans, strengthSessions, strengthSets, deletedActivities, activityTrash, syncOutbox, integrationCredentials]) {
   t.id = "id";
   t.stravaId = "stravaId";
   t.workoutId = "workoutId";
@@ -29,6 +35,8 @@ for (const t of [activities, workouts, plans, strengthSessions, strengthSets, de
   t.durationSeconds = "durationSeconds";
   t.payload = "payload";
   t.idempotencyKey = "idempotencyKey";
+  t.userId = "userId";
+  t.provider = "provider";
 }
 
 let selectQueue: unknown[][] = [];
@@ -64,6 +72,7 @@ vi.mock("@/db", () => ({
   deletedActivities,
   activityTrash,
   syncOutbox,
+  integrationCredentials,
   db: {
     select: () => ({
       from: () => chain(selectQueue.shift() ?? []),
@@ -93,6 +102,8 @@ vi.mock("@/lib/sync/gcal-client", () => ({ isConnected: vi.fn().mockResolvedValu
 vi.mock("@/lib/sync/sync-manager", () => ({ queueStrengthSessionSync: vi.fn() }));
 
 const { processActivity } = await import("../strava-client");
+
+const USER_ID = "11111111-1111-4111-8111-111111111111";
 
 const TOKEN_ROW = [
   {
@@ -139,7 +150,7 @@ describe("processActivity — dual write", () => {
     queueSelect([]); // isDuplicateOfExisting: no nearby activities
     queueSelect([]); // findMatchingWorkout: no candidates → null, no match
 
-    const result = await processActivity(555);
+    const result = await processActivity(USER_ID, 555);
 
     expect(result).toBe("stored");
     const insert = insertCalls.find((c) => c.table === activities);
@@ -148,6 +159,7 @@ describe("processActivity — dual write", () => {
     expect(values.stravaId).toBe("555");
     expect(values.provider).toBe("strava");
     expect(values.externalId).toBe("555");
+    expect(values.userId).toBe(USER_ID);
   });
 
   it("writes provider/externalId alongside stravaId for a strength session", async () => {
@@ -166,7 +178,7 @@ describe("processActivity — dual write", () => {
     queueSelect([]); // isDuplicateOfExisting: no nearby activities
     queueSelect([]); // findMatchingStrengthSession: no candidates → null
 
-    const result = await processActivity(555);
+    const result = await processActivity(USER_ID, 555);
 
     expect(result).toBe("stored");
     const insert = insertCalls.find((c) => c.table === activities);
@@ -175,5 +187,6 @@ describe("processActivity — dual write", () => {
     expect(values.stravaId).toBe("555");
     expect(values.provider).toBe("strava");
     expect(values.externalId).toBe("555");
+    expect(values.userId).toBe(USER_ID);
   });
 });

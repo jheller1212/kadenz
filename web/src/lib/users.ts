@@ -95,3 +95,24 @@ export async function resolveUserForLogin(
 
   return linked.userId;
 }
+
+/**
+ * Every user Kadenz knows about.
+ *
+ * The background jobs need this. A cron run carries no session, and until
+ * Phase 4 it did not need one: every integration it touched was a single global
+ * row, so "the athlete" was whoever those rows belonged to. Now that tokens and
+ * the import bookmark are per user, a job has to be told whose work it is
+ * doing, and this is the list it iterates.
+ *
+ * This is a stopgap with a known replacement. Phase 3 introduces forEachUser in
+ * db/with-user.ts, which iterates the same list AND runs each iteration inside
+ * that user's row level security context, which this cannot do. When phase 3
+ * lands, callers of this move to forEachUser and this function goes away.
+ * Keeping two ways to loop over users is exactly how a fan-out ends up doing
+ * the work of one athlete twice, so do not build anything new on it.
+ */
+export async function listAllUserIds(): Promise<string[]> {
+  const rows = await db.select({ id: users.id }).from(users);
+  return rows.map((r) => r.id);
+}

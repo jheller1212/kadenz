@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, activities, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { resolveRequestUserId } from "@/lib/request-user";
 import { completesOnRecord } from "@/lib/workout-record";
 
 // ── POST /api/workouts/[workoutId]/record ─────────────────────────────────────
@@ -30,6 +31,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { workoutId } = await params;
 
   let body: unknown;
@@ -95,10 +98,10 @@ export async function POST(
       .where(eq(workouts.id, workoutId));
 
     // Reflect completion on the calendar if connected.
-    isConnected()
+    isConnected(userId)
       .then((connected) => {
         if (connected) {
-          queueWorkoutSync(workoutId, "update", "gcal").catch(() => {});
+          queueWorkoutSync(workoutId, "update", userId, "gcal").catch(() => {});
         }
       })
       .catch(() => {});

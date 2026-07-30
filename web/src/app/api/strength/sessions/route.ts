@@ -15,6 +15,7 @@ import {
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { resolveRequestUserId } from "@/lib/request-user";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 import type { Equipment } from "@/lib/strength/types";
 import type { PlannedExercise } from "@/lib/strength/session";
@@ -102,6 +103,9 @@ export async function GET(request: NextRequest) {
 // `force` is set (mirrors the dnd-kit override UX).
 
 export async function POST(request: NextRequest) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
@@ -257,10 +261,10 @@ export async function POST(request: NextRequest) {
       queueGarminStrengthMove(session.id).catch((err) =>
         console.error("Failed to queue Garmin strength push:", err)
       );
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (connected) {
-            queueStrengthSessionSync(session.id, "create", "gcal").catch((err) =>
+            queueStrengthSessionSync(session.id, "create", userId, "gcal").catch((err) =>
               console.error("Failed to queue strength gcal sync:", err)
             );
           }

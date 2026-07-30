@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { resolveRequestUserId } from "@/lib/request-user";
 import { db, strengthSessions, strengthSets, activityTrash } from "@/db";
 import { eq } from "drizzle-orm";
 
@@ -10,9 +11,11 @@ import { eq } from "drizzle-orm";
 // then deletes it. Same 30-day recovery window as deleted activities.
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   try {
     const [session] = await db
@@ -45,10 +48,10 @@ export async function POST(
     // The row is gone from Kadenz — take it off the athlete's calendar and
     // watch too, or it lingers on services they can't clean up from here.
     if (session.gcalEventId) {
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (connected) {
-            return queueStrengthSessionSync(id, "delete", "gcal", {
+            return queueStrengthSessionSync(id, "delete", userId, "gcal", {
               gcalEventId: session.gcalEventId!,
             });
           }
@@ -56,7 +59,7 @@ export async function POST(
         .catch((err) => console.error("Failed to queue calendar cleanup:", err));
     }
     if (session.garminWorkoutId) {
-      queueGarminStrengthDelete(id, session.garminWorkoutId).catch((err) =>
+      queueGarminStrengthDelete(userId, id, session.garminWorkoutId).catch((err) =>
         console.error("Failed to queue Garmin cleanup:", err)
       );
     }

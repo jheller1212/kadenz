@@ -13,6 +13,7 @@ import { queueWorkoutEventDeletes } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWorkoutDeletes } from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 async function loadCandidateWeeks(planId: string): Promise<SkipCandidateWeek[]> {
   const rows = await db.query.weeks.findMany({
@@ -77,6 +78,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
   let body: unknown;
@@ -144,10 +147,10 @@ export async function POST(
       .filter((w) => !!w.gcalEventId)
       .map((w) => ({ workoutId: w.id, gcalEventId: w.gcalEventId! }));
     if (staleGcal.length > 0) {
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (connected) {
-            queueWorkoutEventDeletes(staleGcal).catch((err) =>
+            queueWorkoutEventDeletes(staleGcal, userId).catch((err) =>
               console.error("Failed to queue gcal event deletes for skipped week:", err)
             );
           }
@@ -158,7 +161,7 @@ export async function POST(
       .filter((w) => !!w.garminWorkoutId)
       .map((w) => ({ workoutId: w.id, garminWorkoutId: w.garminWorkoutId! }));
     if (staleGarmin.length > 0 && garminClient.isConfigured()) {
-      queueGarminWorkoutDeletes(staleGarmin).catch((err) =>
+      queueGarminWorkoutDeletes(userId, staleGarmin).catch((err) =>
         console.error("Failed to queue Garmin workout deletes for skipped week:", err)
       );
     }
