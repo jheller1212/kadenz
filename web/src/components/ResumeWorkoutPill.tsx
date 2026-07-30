@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { loadGuidedSnapshot } from "@/lib/strength/guided-snapshot";
 import { loadRunSnapshot } from "@/lib/run-snapshot";
+import { workoutUrl } from "@/lib/routes";
 
 type Parked = { href: string; title: string };
 
@@ -26,7 +27,7 @@ export function ResumeWorkoutPill() {
       if (liftAt >= 0 && liftAt >= runAt) {
         next = { href: "/strength", title: lift!.session.title };
       } else if (runAt >= 0) {
-        next = { href: `/workout/${run!.workoutId}`, title: run!.title };
+        next = { href: workoutUrl(run!.workoutId), title: run!.title };
       }
       setParked(next);
     }
@@ -43,8 +44,12 @@ export function ResumeWorkoutPill() {
     };
   }, []);
 
-  // Hide on the screen that owns the parked session.
-  if (!parked || pathname === parked.href || pathname.startsWith(parked.href + "/")) {
+  // Hide on the screen that owns the parked session. usePathname() never
+  // includes the query string, so compare against parked.href's path only —
+  // "/workout" now covers every workout, not just the parked one, but that's
+  // fine here since only one guided session can be parked at a time.
+  const parkedPath = parked?.href.split("?")[0] ?? null;
+  if (!parked || pathname === parkedPath || pathname.startsWith(parkedPath + "/")) {
     return null;
   }
 

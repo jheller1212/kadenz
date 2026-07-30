@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/migrate.mjs && next build --webpack",
+    "build:shell": "node scripts/build-shell.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -51,6 +52,7 @@
   },
   "allowScripts": {
     "@embedded-postgres/darwin-arm64@18.4.0-beta.17": true,
+    "@embedded-postgres/linux-x64@18.4.0-beta.17": true,
     "embedded-postgres@18.4.0-beta.17": true
   }
 }

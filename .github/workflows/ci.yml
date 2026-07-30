@@ -3,8 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately no `branches:` filter here. With `branches: [main]`, a pull
+  # request whose base is any other branch fired no event at all, so no required
+  # check ran — and GitHub then reported the PR as mergeable, because there is
+  # nothing to be un-mergeable about when no check exists. Every stacked PR in
+  # this repo was silently unverified while looking clean, which is worse than
+  # being red.
+  #
+  # An explicit allowlist of long-lived integration branches would work too, but
+  # it fails the same way the first time someone stacks onto a branch nobody
+  # remembered to add. No filter cannot miss one.
   pull_request:
-    branches: [main]
 
 # Superseded runs are wasted minutes: pushing twice to a PR previously ran CI
 # to completion twice. Never cancel on main - those runs are the post-merge
@@ -71,6 +80,81 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build
+
+  e2e:
+    name: Web e2e (Playwright)
+    runs-on: ubuntu-latest
+    # The whole suite is ~2 minutes of tests on top of ~3 minutes of setup. A
+    # cap well above that turns a hung dev server into a failure instead of a
+    # job that sits there burning minutes.
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # No Postgres service container on purpose: the harness starts its own
+      # local Postgres (the embedded-postgres package, installed by npm ci as a
+      # platform-specific dependency) on 127.0.0.1:54329 and refuses to run
+      # against any DATABASE_URL but that one. A service container would be a
+      # second database the suite would never talk to. Same reason there is no
+      # separate seed step here: global-setup.ts pushes the schema and runs
+      # e2e/seed.ts itself, so CI and a laptop go through the identical path.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Browser binaries are ~150 MB and change only when Playwright does.
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      # Chromium only — playwright.config.ts runs a single mobile-viewport
+      # Chromium project, so downloading Firefox and WebKit would be minutes
+      # spent on browsers no spec ever opens.
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      # The cache above restores the browser but not the apt libraries it links
+      # against, so those still need installing on a cache hit.
+      - name: Install Chromium system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # Blocking, like every other gate here. DATABASE_URL is deliberately not
+      # set: global-setup.ts refuses to start if it points anywhere other than
+      # its own local database.
+      - name: Run end-to-end tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          # test-results carries the trace zips for the failed tests
+          # (trace: retain-on-failure), which is what makes a CI-only failure
+          # debuggable: npx playwright show-trace on the downloaded file.
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
   worker:
     name: Garmin Worker (Python)

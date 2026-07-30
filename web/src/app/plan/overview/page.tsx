@@ -18,6 +18,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
+import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
 import { haptic } from "@/lib/haptics";
 import {
   runSpine,
@@ -107,8 +108,8 @@ function DayRow({
     : dateLabel(itemDate(item));
   const href = item
     ? item.kind === "run"
-      ? `/workout/${item.id}`
-      : `/strength/session/${item.id}`
+      ? workoutUrl(item.id)
+      : strengthSessionUrl(item.id)
     : null;
   const stateColor = item
     ? item.kind === "run"

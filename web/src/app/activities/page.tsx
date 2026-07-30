@@ -18,6 +18,7 @@ import { formatPace } from "@/lib/plan-engine/pace-zones";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { PullIndicator } from "@/components/ui/PullIndicator";
+import { activityUrl, strengthSessionUrl } from "@/lib/routes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -481,7 +482,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
   if (hasActivity) {
     return (
       <TransitionLink
-        href={`/activity/${workout.activity!.id}`}
+        href={activityUrl(workout.activity!.id)}
         aria-label={`View activity details for ${workout.title}`}
         className="press block overflow-hidden k-card"
         style={washStyle}
@@ -495,7 +496,7 @@ function WorkoutRow({ workout }: { workout: ActivityWorkout }) {
   if (workout.strengthSessionId) {
     return (
       <TransitionLink
-        href={`/strength/session/${workout.strengthSessionId}`}
+        href={strengthSessionUrl(workout.strengthSessionId)}
         aria-label={`View strength session ${workout.title}`}
         className="press block overflow-hidden k-card"
         style={washStyle}

@@ -32,19 +32,79 @@ run, `npm run test:e2e` will:
    strength sessions with logged sets, today's wellness check-in, and 5 days
    of `wellness_metrics` (deliberately fewer than the 21-night baseline the
    readiness card needs — see `readiness-warmup.spec.ts`).
-4. Start the app's own dev server (`next dev --webpack`) against that
-   database, on `127.0.0.1:3100`.
+4. Build the app (`next build --webpack`) and serve that build
+   (`next start`) against that database, on `127.0.0.1:3100` — see "Why a
+   production build, not `next dev`" below.
 5. Mint a valid session cookie and hand it to every test via Playwright's
    `storageState` — see "Auth" below.
-6. Warm up every route the specs hit, so Next's on-demand dev compilation
-   doesn't happen mid-test (see the comment in `global-setup.ts` for why that
-   matters — a page reloading mid-interaction the first time it's compiled
-   looks exactly like a real bug otherwise).
+
+## Why a production build, not `next dev`
+
+This is the single most important property of the harness, and the cause of
+almost all of its early flakiness.
+
+`next dev` compiles a page or route handler the first time it is requested,
+and every such compile pushes a Fast Refresh update over the HMR socket to
+whatever page is open at that moment. That update is not harmless:
+
+- a page that takes one while it is still hydrating can stop hydrating
+  altogether, leaving the app on the boot splash until the test times out on
+  an element that never appears, and
+- a page that takes one after hydrating drops its in-flight fetches, so a card
+  that was loading simply never renders.
+
+Both look exactly like real product bugs, in a spec that had nothing to do
+with the route that happened to compile. That is why the failures read as
+generic flakiness for so long: with ~110 routes, it hit a different spec
+almost every run.
+
+Warming every route up front and pinning them in memory (`onDemandEntries`)
+got most of the way there, but could not finish the job. Some entries only
+compile when a request actually fails — `/_error` is the one that bit us — and
+no HTTP request can warm those, because `/_error` is not routable and 404s.
+So a single 500 anywhere in a run still fired a hot update into whichever spec
+happened to be open, and the run still went red.
+
+A production build has no HMR socket, no Fast Refresh and no on-demand
+compilation, so the entire class is gone rather than mitigated. Two things
+come free with it:
+
+- the suite exercises the same output that actually serves users, instead of a
+  dev bundle nobody ever ships, and
+- the service worker is exercised too. It registers only in production
+  (`src/app/sw-register.tsx`) and serves `/_next/static/` cache-first, which
+  is safe precisely because a real build content-hashes those URLs.
+
+It is not slower, either. The build replaces a warm-up pass that had grown to
+128s in CI, and the specs themselves run about twice as fast without per-page
+dev compilation: 18 specs in 50s against a build, vs 1.7 minutes against
+`next dev`.
+
+`NODE_ENV=production` is set on the app's own child process only. The safety
+guard in `global-setup.ts` still reads the *inherited* environment and still
+refuses to start when that says production — see "Safety" below. Production
+code, never production data.
+
+While *authoring* a spec, a rebuild per run is a real tax, so running the
+harness against a dev server by hand is still worth doing. `next.config.ts`
+keeps an `onDemandEntries` override behind `KADENZ_E2E=1` for exactly that
+case: it pins every compiled route in memory, which removes most (not all) of
+the dev-server interference described above. Do not wire it back into the
+harness — CI needs the class gone, not reduced.
 
 Re-running `npm run test:e2e` reuses the same local Postgres data directory —
 the seed is idempotent (it checks for an existing active plan and no-ops if
 one is already there), so re-runs are fast and don't accumulate duplicate
 data.
+
+The app server is started detached and torn down by process group. `next start`
+forks a server child; signalling only the parent leaves that child alive
+holding port 3100, and the next run then fails to bind. If you ever see that,
+the previous run leaked:
+
+```bash
+pkill -f next-server
+```
 
 To wipe the local database and start over:
 
@@ -100,7 +160,11 @@ Zero application code was changed to make this possible.
 
 ## Safety
 
-- `global-setup.ts` refuses to run if `NODE_ENV=production`.
+- `global-setup.ts` refuses to run if the *inherited* `NODE_ENV` is
+  `production`. It does set `NODE_ENV=production` on the app's own child
+  process, because that is what makes it a real build — but the guard reads the
+  environment it was started in, which is the one that could carry real
+  credentials. Production code, never production data.
 - `global-setup.ts` refuses to run if `DATABASE_URL` is already set in the
   environment to anything other than this harness's own local database URL
   (`e2e/env.ts`'s `E2E_DATABASE_URL`, hardcoded to `127.0.0.1`).
@@ -127,10 +191,23 @@ conflict from a fake pass).
 
 ## CI
 
-Deliberately not wired into `.github/workflows/ci.yml` in this change —
-getting a browser test runner green in CI (service containers, caching the
-downloaded Postgres/Chromium binaries, etc.) is its own piece of work, and
-mixing it with building the harness itself would make both harder to review.
+Runs on every push and pull request as the `Web e2e (Playwright)` job in
+`.github/workflows/ci.yml`, in parallel with the lint/typecheck/unit/build
+job. It runs `npm run test:e2e` — the exact command you run locally — so
+there is no CI-only setup path that can drift from the one you test against.
+
+Notes on that job:
+
+- **No Postgres service container.** The harness starts its own local
+  Postgres and refuses to talk to any other database, so a service container
+  would just be a second database nothing connects to.
+- **Chromium only**, cached by Playwright version.
+- **No retries**, in CI or locally. A spec that passes on the second attempt
+  is a bug report, not a pass.
+- On failure the HTML report and the `test-results` traces are uploaded as
+  the `playwright-report` artifact. `npx playwright show-trace` on the
+  downloaded zip replays the failing test frame by frame, so a CI-only
+  failure does not need a local repro.
 
 ## Adding a new spec
 

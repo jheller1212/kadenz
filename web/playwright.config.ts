@@ -6,12 +6,21 @@ import { E2E_AUTH_STATE_PATH, E2E_BASE_URL } from "./e2e/env";
 // e2e/README.md for how the local database and dev server get started.
 export default defineConfig({
   testDir: "./e2e/specs",
-  timeout: 30_000,
-  expect: { timeout: 8_000 },
+  // CI runners are slower and colder than a laptop, and the dev server compiles
+  // on demand. The warm-up pass in global-setup covers most of that, but a
+  // first interaction can still be noticeably slower there.
+  timeout: process.env.CI ? 60_000 : 30_000,
+  expect: { timeout: process.env.CI ? 15_000 : 8_000 },
   fullyParallel: false, // specs share one seeded DB/dev server — avoid cross-test races
   workers: 1, // same reason — Playwright parallelizes across spec FILES by worker unless pinned
+  // No retries, on purpose, including in CI: a spec that only passes on the
+  // second attempt is a bug report, not a pass. Auto-retry would hide exactly
+  // the class of problem this suite exists to catch.
   retries: 0,
-  reporter: [["list"]],
+  // In CI the list output scrolls away in a log nobody reads; the HTML report
+  // (with the retain-on-failure traces below) is uploaded as an artifact so a
+  // failure is diagnosable without reproducing it locally.
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
