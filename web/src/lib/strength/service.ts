@@ -295,7 +295,8 @@ export function freezeSessionComplaintsSql() {
   return sql`coalesce(${strengthSessions.complaints}, (
     select coalesce(ps.${sql.identifier("complaints")}, array[]::text[])
     from ${strengthPlanSettings} ps
-    where ps.${sql.identifier("profile_id")} is not distinct from ${strengthSessions.profileId}
+    where ps.${sql.identifier("user_id")} = ${strengthSessions.userId}
+      and ps.${sql.identifier("profile_id")} is not distinct from ${strengthSessions.profileId}
     limit 1
   ), array[]::text[])`;
 }

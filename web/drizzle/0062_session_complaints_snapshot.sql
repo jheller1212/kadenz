@@ -27,6 +27,7 @@ ALTER TABLE "strength_sessions" ADD COLUMN IF NOT EXISTS "complaints" text[];
 UPDATE "strength_sessions" s
 SET "complaints" = COALESCE(ps."complaints", ARRAY[]::text[])
 FROM "strength_plan_settings" ps
-WHERE ps."profile_id" IS NOT DISTINCT FROM s."profile_id"
+WHERE ps."user_id" = s."user_id"
+  AND ps."profile_id" IS NOT DISTINCT FROM s."profile_id"
   AND s."complaints" IS NULL
   AND (s."started_at" IS NOT NULL OR s."status" <> 'planned');
