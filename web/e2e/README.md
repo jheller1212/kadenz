@@ -64,7 +64,15 @@ Two things together remove it:
   (OPTIONS, which makes Next load the module without running a handler body)
   before the first spec. Dynamic segments are filled with an id that matches
   nothing. The list is read from `src/app`, not hand-maintained, so a spec for
-  an existing route is covered without anyone remembering this file.
+  an existing route is covered without anyone remembering this file. It also
+  requests one unmatched URL, because the not-found path is a separate entry
+  that walking `src/app` cannot find: the first 404 of a run costs ~900ms of
+  compile and every later one ~18ms, and it prints no `Compiling` line, so it
+  hid in plain sight.
+- Warm-up reads each response body to completion. An unread body makes undici
+  reset the socket, and next dev logs that as
+  `uncaughtException: Error: aborted (ECONNRESET)` — around a hundred of them
+  per boot, in the one log you go to when a spec fails.
 - `next.config.ts` raises `onDemandEntries` when `KADENZ_E2E=1`. Next dev
   otherwise keeps only 5 compiled routes for 60 seconds each, so with ~110
   routes it would evict and recompile them all run long no matter how
@@ -79,6 +87,16 @@ Re-running `npm run test:e2e` reuses the same local Postgres data directory —
 the seed is idempotent (it checks for an existing active plan and no-ops if
 one is already there), so re-runs are fast and don't accumulate duplicate
 data.
+
+The dev server is started detached and torn down by process group. `next dev`
+forks a separate `next-server` child; signalling only the parent leaves that
+child alive holding `.next/dev/lock`, and the next run in this directory then
+refuses to start with "Another next dev server is already running". If you
+ever see that, the previous run leaked:
+
+```bash
+pkill -f next-server && rm -f .next/dev/lock
+```
 
 To wipe the local database and start over:
 
