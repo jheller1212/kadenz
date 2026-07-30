@@ -2,10 +2,11 @@
 // Boots a disposable, local-only Postgres (no Docker required — the
 // `embedded-postgres` package downloads real Postgres binaries once and runs
 // them as a plain child process), pushes the current Drizzle schema onto it,
-// seeds it with one owner's worth of realistic data, starts the app's own
-// dev server against that database, and mints a valid session cookie for the
-// tests to reuse — all local, all disposable, never production.
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+// seeds it with one owner's worth of realistic data, makes a production build
+// of the app and serves it against that database, and mints a valid session
+// cookie for the tests to reuse — all local, all disposable. Production code,
+// never production data: see the guard below and step 4.
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import EmbeddedPostgres from "embedded-postgres";
@@ -26,9 +27,11 @@ import { state } from "./server-state";
 function assertSafeToRunLocally() {
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "[e2e] NODE_ENV=production — refusing to boot the e2e harness. " +
-        "This suite starts its own throwaway local Postgres and dev server; " +
-        "it must never run against a production build or environment."
+      "[e2e] NODE_ENV=production in the environment — refusing to boot the e2e " +
+        "harness. This suite builds and serves production *code* on purpose " +
+        "(see step 4), but only ever against its own throwaway local Postgres. " +
+        "An inherited production environment is the case this refuses, because " +
+        "that is the one where the credentials in scope might not be local."
     );
   }
   // Belt and braces: the DB URL this harness will use (see env.ts) is
@@ -77,44 +80,6 @@ function runCapture(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promis
   });
 }
 
-// A syntactically valid id that matches nothing in the seed. Dynamic routes
-// warmed with it compile and then 404, which is all the warm-up needs.
-const WARM_PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000";
-
-function segmentToPath(name: string): string {
-  // [id] / [exerciseId] → a placeholder; [...slug] / [[...slug]] → one segment.
-  if (name.startsWith("[")) return WARM_PLACEHOLDER_ID;
-  return name;
-}
-
-/**
- * Every route module under `src/app`, as a URL that will compile it:
- * `src/app/settings/apps/page.tsx` → `/settings/apps`,
- * `src/app/api/activities/[id]/route.ts` → `/api/activities/<placeholder>`.
- * Route groups `(name)` collapse away, since they contribute no URL path.
- */
-function allRouteUrls(): { pages: string[]; api: string[] } {
-  const appDir = join(dirname(dirname(__filename)), "src", "app");
-  const pages: string[] = [];
-  const api: string[] = [];
-
-  const walk = (dir: string, segments: string[]) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        const isGroup = entry.name.startsWith("(") && entry.name.endsWith(")");
-        walk(join(dir, entry.name), isGroup ? segments : [...segments, segmentToPath(entry.name)]);
-      } else if (/^page\.(tsx|ts|jsx|js)$/.test(entry.name)) {
-        pages.push("/" + segments.join("/"));
-      } else if (/^route\.(tsx|ts|jsx|js)$/.test(entry.name)) {
-        api.push("/" + segments.join("/"));
-      }
-    }
-  };
-
-  walk(appDir, []);
-  return { pages: pages.sort(), api: api.sort() };
-}
-
 async function waitForServer(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -126,7 +91,7 @@ async function waitForServer(url: string, timeoutMs: number): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 300));
   }
-  throw new Error(`[e2e] dev server never became ready at ${url}`);
+  throw new Error(`[e2e] app server never became ready at ${url}`);
 }
 
 export default async function globalSetup() {
@@ -177,32 +142,58 @@ export default async function globalSetup() {
   console.log("[e2e] seeding local database…");
   await run("./node_modules/.bin/tsx", ["e2e/seed.ts"], dbEnv);
 
-  // ── 4. Start the app's own dev server against the seeded database ───────
-  console.log("[e2e] starting the app dev server…");
-  const devServer = spawn(
+  // ── 4. Build the app, then serve that build against the seeded database ──
+  //
+  // A production build, not `next dev`, and the reason is the entire failure
+  // history of this suite. `next dev` compiles on demand and pushes a Fast
+  // Refresh update over the HMR socket on every compile; a page that takes one
+  // mid-hydration can stop hydrating, and the spec that fails is whichever one
+  // happened to be open. Warming every route up front and pinning them in
+  // memory removed most of it, but not all: entries like `/_error` only compile
+  // when a request actually fails, and no HTTP request can warm them (`/_error`
+  // itself 404s), so one 500 anywhere in a run still fires a hot update into
+  // whatever spec is running.
+  //
+  // `next build` has no HMR socket, no on-demand compilation and no Fast
+  // Refresh, so the whole class is gone rather than mitigated — and the suite
+  // now exercises the same output that actually serves users. It also costs
+  // less than it looks: the build replaces a warm-up pass that was taking 128s
+  // in CI.
+  //
+  // NODE_ENV=production is set *on this child only*. The guard in
+  // assertSafeToRunLocally deliberately reads the inherited environment, so it
+  // still refuses to run under a production environment; what this does is
+  // build and serve production *code* against the throwaway local Postgres.
+  // The database URL is unchanged and still hardcoded to 127.0.0.1.
+  const prodEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    DATABASE_URL: E2E_DATABASE_URL,
+    SESSION_SECRET: E2E_SESSION_SECRET,
+    NODE_ENV: "production",
+  };
+
+  // `next build` directly, not `npm run build` — that script also runs
+  // scripts/migrate.mjs, and the schema here comes from drizzle-kit push above.
+  console.log("[e2e] building the app (production build)…");
+  await run("./node_modules/.bin/next", ["build", "--webpack"], prodEnv);
+
+  console.log("[e2e] starting the app…");
+  const appServer = spawn(
     "./node_modules/.bin/next",
-    ["dev", "--webpack", "-p", String(E2E_APP_PORT), "-H", "127.0.0.1"],
+    ["start", "-p", String(E2E_APP_PORT), "-H", "127.0.0.1"],
     {
       cwd: dirname(dirname(__filename)),
       stdio: "inherit",
-      // Own process group, so teardown can kill the whole tree. `next dev`
-      // forks a separate `next-server` child, and SIGTERM to the parent alone
-      // leaves that child alive holding .next/dev/lock — after which the next
-      // run in this directory refuses to start ("Another next dev server is
-      // already running") and the harness looks broken for an unrelated reason.
+      // Own process group, so teardown can kill the whole tree: next forks a
+      // separate server child, and SIGTERM to the parent alone leaves that
+      // child alive still holding the port, after which the next run in this
+      // directory fails to bind and the harness looks broken for an unrelated
+      // reason.
       detached: true,
-      env: {
-        ...process.env,
-        DATABASE_URL: E2E_DATABASE_URL,
-        SESSION_SECRET: E2E_SESSION_SECRET,
-        NODE_ENV: "development",
-        // Pins every compiled route in memory for the run — see the
-        // onDemandEntries block in next.config.ts for why that matters here.
-        KADENZ_E2E: "1",
-      },
+      env: prodEnv,
     }
   );
-  state.devServer = devServer;
+  state.appServer = appServer;
   await waitForServer(E2E_BASE_URL, 60_000);
 
   // ── 5. Mint a valid session cookie the same way the OAuth callback would
@@ -232,86 +223,6 @@ export default async function globalSetup() {
   };
   mkdirSync(dirname(E2E_AUTH_STATE_PATH), { recursive: true });
   writeFileSync(E2E_AUTH_STATE_PATH, JSON.stringify(storageState, null, 2));
-
-  // ── 6. Compile every route in the app before any spec runs ───────────────
-  // Next dev compiles each page and route module on its first request, and an
-  // on-demand compile does not just cost time: it pushes a Fast Refresh update
-  // over the HMR socket to whatever page is open at that moment. A page that
-  // takes a hot update mid-hydration can end up never finishing it, which
-  // looks exactly like a broken screen — the app sits on the boot splash and
-  // the test times out waiting for an element that will never appear.
-  //
-  // A first-time compile is therefore a hazard for whichever test happens to
-  // be running, not just for the test that triggered it. That is why this
-  // compiles everything up front, and why the list is discovered from src/app
-  // instead of hand-maintained: a hand-written list only ever covers the specs
-  // that existed when it was written, and the routes it misses are exactly the
-  // ones that fire a hot update mid-test.
-  //
-  // Route handlers count too, not just pages: an API route compiling for the
-  // first time fires the same hot update, and the page that takes it drops its
-  // in-flight fetches, so a card that was loading simply never appears.
-  //
-  // Pages are warmed with GET. Route handlers are warmed with OPTIONS: Next
-  // has to load the module to answer what methods it allows, so the module
-  // compiles, but no handler body runs — warming must not kick off a sync just
-  // because a route exists. Dynamic segments are filled with an id that
-  // matches nothing, so those compile and then 404.
-  //
-  // Requests go out a few at a time: the compile itself is serial inside Next,
-  // but overlapping requests let it batch entries, which takes this pass from
-  // ~2 minutes to well under one.
-  console.log("[e2e] compiling every route before the first spec…");
-  const cookieHeader = `${name}=${value}`;
-  const { pages, api } = allRouteUrls();
-  const warmStarted = Date.now();
-
-  const warmOne = async (route: string, method: "GET" | "OPTIONS") => {
-    try {
-      const res = await fetch(`${E2E_BASE_URL}${route}`, {
-        method,
-        headers: { cookie: cookieHeader },
-      });
-      // Read the body to completion even though nothing wants it. An unread
-      // response body makes undici reset the socket, which next dev surfaces
-      // as `uncaughtException: Error: aborted (ECONNRESET)` — measured at
-      // dozens of them per warm-up pass, all from this loop. They are noise,
-      // but noise in the one log you read to diagnose a failing spec, and it
-      // pushes the dev server through its error path ~100 times on boot.
-      await res.arrayBuffer();
-    } catch (err) {
-      console.warn(`[e2e] warm-up request to ${route} failed (continuing):`, err);
-    }
-  };
-
-  const warmAll = async (routes: string[], method: "GET" | "OPTIONS", concurrency: number) => {
-    const queue = [...routes];
-    await Promise.all(
-      Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-        for (let next = queue.shift(); next; next = queue.shift()) {
-          await warmOne(next, method);
-        }
-      })
-    );
-  };
-
-  await warmAll(pages, "GET", 4);
-  await warmAll(api, "OPTIONS", 8);
-
-  // The not-found path is its own entry and cannot be discovered by walking
-  // src/app, so the loops above never cover it. Measured: the first unmatched
-  // URL of a run costs ~900ms of framework time and every later one ~18ms, so
-  // it is a first-time compile like any other — it just prints no "Compiling"
-  // line, which is why it went unnoticed. Any spec that requests a URL the app
-  // does not serve would otherwise pay that compile, and a compile mid-run is
-  // the whole failure class this pass exists to remove.
-  await warmOne(`/${WARM_PLACEHOLDER_ID}-not-a-route`, "GET");
-
-  console.log(
-    `[e2e] compiled ${pages.length} pages and ${api.length} route handlers in ${Math.round(
-      (Date.now() - warmStarted) / 1000
-    )}s`
-  );
 
   console.log("[e2e] global setup complete.");
 }
