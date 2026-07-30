@@ -176,6 +176,16 @@ export const users = pgTable("users", {
   // "kg" | "lbs". Needed because a strength session's calendar event lists
   // each exercise's load.
   weightUnit: text("weight_unit").notNull().default("kg"),
+  // When the athlete answered "what do you want to connect?" (0060). NULL
+  // means never asked, and that is the only state that prompts — answering
+  // with nothing selected is a real answer, not an absence of one. See
+  // lib/device-setup.ts for the helpers every reader goes through.
+  deviceSetupAt: timestamp("device_setup_at", { withTimezone: true }),
+  // The connection ids they picked, CONNECTION_IDS in lib/device-setup.ts.
+  // Read through parseConnections rather than trusted as-is.
+  deviceConnections: jsonb("device_connections")
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -43,6 +43,17 @@ export interface ReadinessInput {
    * Garmin worker isn't configured or nothing has synced yet — distinct from
    * `ready: false`, which means "configured but still in warm-up". */
   physiology: PhysiologyResult | null;
+  /** Whether a recovery baseline is genuinely on its way, i.e. the athlete
+   * picked something in setup that can supply HRV/resting HR/sleep. Defaults
+   * to true so every existing caller and test keeps its behaviour.
+   *
+   * False suppresses the warm-up state, and only the warm-up state. Warm-up
+   * needs 21 nights (MIN_BASELINE_NIGHTS); an athlete with no device collects
+   * none of them, so "building your baseline (0/21)" would sit on their Today
+   * screen for good, promising a number that cannot arrive. Any physiology
+   * that did somehow become ready is still folded in — the point is not to
+   * ignore data, it is to stop advertising data that is never coming. */
+  expectsPhysiology?: boolean;
 }
 
 export interface ReadinessResult {
@@ -58,7 +69,10 @@ export interface ReadinessResult {
   physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
   /** wellness_metrics.source the physiology signal (ready or warm-up) was
    * computed from, so the UI can name it (e.g. "Garmin"). Null when there's
-   * no physiology data at all. See lib/wellness-source.ts. */
+   * no physiology data at all, and also null when the signal is neither
+   * contributing nor warming up: naming a source the card is saying nothing
+   * about reads as "recovery data from Garmin" to an athlete whose Garmin
+   * rows are months stale and count for nothing. See lib/wellness-source.ts. */
   physiologySource: string | null;
 }
 
@@ -139,14 +153,25 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   const b = band(score);
+  // Warm-up is only claimed when a baseline is genuinely on its way. See the
+  // expectsPhysiology field for why an athlete with no device must never see it.
+  const physiologyWarmup =
+    input.expectsPhysiology !== false && input.physiology && !input.physiology.ready
+      ? input.physiology.warmup
+      : null;
   return {
     score,
     band: b,
     reasons,
     hasCheckIn: w != null && w.ageHours <= 30,
     advice: ADVICE[b],
-    physiologyWarmup:
-      input.physiology && !input.physiology.ready ? input.physiology.warmup : null,
-    physiologySource: input.physiology?.source ?? null,
+    physiologyWarmup,
+    // Named only when the card has something to say about it: it is either
+    // moving the score, or visibly building toward doing so. Otherwise the
+    // signal is silent and so is its source.
+    physiologySource:
+      input.physiology?.ready || physiologyWarmup
+        ? (input.physiology?.source ?? null)
+        : null,
   };
 }

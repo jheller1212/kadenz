@@ -1,7 +1,9 @@
 import { expect, type Page } from "@playwright/test";
-import { and, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { E2E_DATABASE_URL } from "./env";
 import { db, strengthSessions, strengthSets } from "../src/db/index";
+import { OWNER_USER_ID, users } from "../src/db/schema";
+import type { ConnectionId } from "../src/lib/device-setup";
 
 // db is a lazy singleton (see src/db/index.ts) that only reads this on the
 // first real query, so setting it at import time is safe — same pattern as
@@ -68,4 +70,33 @@ export async function openExercisePicker(page: Page) {
 
   await page.getByTestId("custom-workout-add-exercise").click();
   await expect(page.getByTestId("exercise-picker-results")).toBeVisible();
+}
+
+/**
+ * Sets the owner's answer to "which devices and apps do you want connected?".
+ *
+ * `connections: []` with a timestamp is the athlete who records by hand, and
+ * that is a different state from never having been asked (see
+ * lib/device-setup.ts). Written straight to the database for the same reason
+ * as clearTodaysStrengthSessions above: a test precondition has to hold before
+ * the first navigation, and the API needs a loaded page to carry the session.
+ *
+ * Every spec that calls this MUST call resetOwnerDeviceSetup afterwards. Specs
+ * share one database and run in file order on a single worker, so leaving the
+ * owner marked as a no-device athlete would suppress the readiness warm-up
+ * copy that readiness-warmup.spec.ts asserts is visible.
+ */
+export async function setOwnerDeviceSetup(connections: ConnectionId[]) {
+  await db
+    .update(users)
+    .set({ deviceSetupAt: new Date(), deviceConnections: connections })
+    .where(eq(users.id, OWNER_USER_ID));
+}
+
+/** Puts the owner back to "never asked", the state e2e/seed.ts leaves. */
+export async function resetOwnerDeviceSetup() {
+  await db
+    .update(users)
+    .set({ deviceSetupAt: null, deviceConnections: [] })
+    .where(eq(users.id, OWNER_USER_ID));
 }

@@ -11,6 +11,9 @@ import {
   workouts,
 } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
+import { resolveRequestUserId } from "@/lib/request-user";
+import { expectsPhysiology, isManualOnly, UNANSWERED_DEVICE_SETUP } from "@/lib/device-setup";
+import { loadDeviceSetup } from "@/lib/user-device-setup";
 import { computeReadiness } from "@/lib/readiness";
 import { computePhysiologyReadinessAcrossSources, type WellnessNight } from "@/lib/physiology";
 import type { SourceNights } from "@/lib/wellness-source";
@@ -26,6 +29,16 @@ export async function GET(request: NextRequest) {
   const now = Date.now();
 
   try {
+    // What the athlete said they wanted connected. Drives two things below:
+    // whether the card may claim a recovery baseline is still building, and
+    // whether it should say out loud that the score comes from the check-in
+    // alone. Falls back to the unanswered state, which behaves exactly as the
+    // endpoint did before this existed.
+    const userId = await resolveRequestUserId(request);
+    const deviceSetup = userId
+      ? await loadDeviceSetup(userId)
+      : UNANSWERED_DEVICE_SETUP;
+
     const profCond = (col: typeof wellnessLogs.profileId | typeof strengthSessions.profileId) =>
       profileId ? eq(col, profileId) : isNull(col);
 
@@ -152,9 +165,13 @@ export async function GET(request: NextRequest) {
       last7DaysKm,
       priorWeeklyAvgKm,
       physiology,
+      expectsPhysiology: expectsPhysiology(deviceSetup),
     });
 
-    return Response.json(result);
+    // manualOnly is the card's cue to name its own inputs. An athlete who
+    // chose to record by hand should be told the score is their check-in,
+    // rather than left to wonder which sensor it came from.
+    return Response.json({ ...result, manualOnly: isManualOnly(deviceSetup) });
   } catch (err) {
     console.error("DB error computing readiness:", err);
     return Response.json({ error: "Failed to compute readiness" }, { status: 500 });
