@@ -185,6 +185,12 @@ export default async function globalSetup() {
     {
       cwd: dirname(dirname(__filename)),
       stdio: "inherit",
+      // Own process group, so teardown can kill the whole tree. `next dev`
+      // forks a separate `next-server` child, and SIGTERM to the parent alone
+      // leaves that child alive holding .next/dev/lock — after which the next
+      // run in this directory refuses to start ("Another next dev server is
+      // already running") and the harness looks broken for an unrelated reason.
+      detached: true,
       env: {
         ...process.env,
         DATABASE_URL: E2E_DATABASE_URL,
@@ -262,7 +268,17 @@ export default async function globalSetup() {
 
   const warmOne = async (route: string, method: "GET" | "OPTIONS") => {
     try {
-      await fetch(`${E2E_BASE_URL}${route}`, { method, headers: { cookie: cookieHeader } });
+      const res = await fetch(`${E2E_BASE_URL}${route}`, {
+        method,
+        headers: { cookie: cookieHeader },
+      });
+      // Read the body to completion even though nothing wants it. An unread
+      // response body makes undici reset the socket, which next dev surfaces
+      // as `uncaughtException: Error: aborted (ECONNRESET)` — measured at
+      // dozens of them per warm-up pass, all from this loop. They are noise,
+      // but noise in the one log you read to diagnose a failing spec, and it
+      // pushes the dev server through its error path ~100 times on boot.
+      await res.arrayBuffer();
     } catch (err) {
       console.warn(`[e2e] warm-up request to ${route} failed (continuing):`, err);
     }
@@ -281,6 +297,15 @@ export default async function globalSetup() {
 
   await warmAll(pages, "GET", 4);
   await warmAll(api, "OPTIONS", 8);
+
+  // The not-found path is its own entry and cannot be discovered by walking
+  // src/app, so the loops above never cover it. Measured: the first unmatched
+  // URL of a run costs ~900ms of framework time and every later one ~18ms, so
+  // it is a first-time compile like any other — it just prints no "Compiling"
+  // line, which is why it went unnoticed. Any spec that requests a URL the app
+  // does not serve would otherwise pay that compile, and a compile mid-run is
+  // the whole failure class this pass exists to remove.
+  await warmOne(`/${WARM_PLACEHOLDER_ID}-not-a-route`, "GET");
 
   console.log(
     `[e2e] compiled ${pages.length} pages and ${api.length} route handlers in ${Math.round(

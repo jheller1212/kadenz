@@ -5,8 +5,18 @@
 import { state } from "./server-state";
 
 export default async function globalTeardown() {
-  if (state.devServer && !state.devServer.killed) {
-    state.devServer.kill("SIGTERM");
+  const devServer = state.devServer;
+  if (devServer?.pid && !devServer.killed) {
+    // Negative pid = the whole process group (global-setup spawns detached for
+    // exactly this reason). `next dev` forks a `next-server` child that
+    // survives a SIGTERM aimed at the parent and keeps holding
+    // .next/dev/lock, which makes the *next* run in this directory refuse to
+    // start. Fall back to the single process if the group is already gone.
+    try {
+      process.kill(-devServer.pid, "SIGTERM");
+    } catch {
+      devServer.kill("SIGTERM");
+    }
   }
   if (state.pg) {
     await state.pg.stop().catch((err) => {
