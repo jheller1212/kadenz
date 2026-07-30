@@ -7,9 +7,11 @@
 // transient push failure gets another attempt on a later run instead of
 // permanently swallowing the reminder.
 
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
-import { db, workouts, sentReminders } from "@/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { db, sentReminders } from "@/db";
 import { localDayKey } from "@/lib/app-time";
+import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
+import { loadUserUnits } from "@/lib/user-units";
 import { selectDueReminders, type ReminderCandidate } from "./due";
 import { isRetryEligible, type SentReminderRow } from "./retry";
 import { listEnabledReminderConfigs, type ReminderConfig } from "./settings";
@@ -90,23 +92,28 @@ async function dispatchForUser(
   const windowStart = new Date(now.getTime() - WINDOW_MS);
   const windowEnd = new Date(now.getTime() + WINDOW_MS);
 
-  const rows = await db
-    .select({
-      id: workouts.id,
-      title: workouts.title,
-      date: workouts.date,
-      timeOfDay: workouts.timeOfDay,
-      status: workouts.status,
-    })
-    .from(workouts)
-    .where(
-      and(
-        eq(workouts.userId, userId),
-        eq(workouts.status, "planned"),
-        gte(workouts.date, windowStart),
-        lte(workouts.date, windowEnd)
-      )
-    );
+  // type/targetKm and the work block come along because the notification body
+  // rebuilds the title in the athlete's own unit (displayWorkoutTitle), and
+  // tempo runs carry their distance on the block rather than the workout.
+  const rows = await db.query.workouts.findMany({
+    where: (w, { and: andW, eq: eqW, gte: gteW, lte: lteW }) =>
+      andW(
+        eqW(w.userId, userId),
+        eqW(w.status, "planned"),
+        gteW(w.date, windowStart),
+        lteW(w.date, windowEnd)
+      ),
+    columns: {
+      id: true,
+      title: true,
+      date: true,
+      timeOfDay: true,
+      status: true,
+      type: true,
+      targetKm: true,
+    },
+    with: { blocks: { columns: { type: true, distanceKm: true } } },
+  });
 
   const candidates: ReminderCandidate[] = rows.map((r) => ({
     workoutId: r.id,
@@ -114,7 +121,13 @@ async function dispatchForUser(
     timeOfDay: r.timeOfDay,
     status: r.status,
   }));
-  const titleById = new Map(rows.map((r) => [r.id, r.title]));
+
+  // A miles athlete used to get "Easy Run 8km is coming up" because the push
+  // body used the stored title, which is always written in km.
+  const { distanceUnit } = await loadUserUnits(userId);
+  const titleById = new Map(
+    rows.map((r) => [r.id, displayWorkoutTitle(r, distanceUnit)])
+  );
 
   // `alreadySent` is an empty set here on purpose — the real idempotency
   // guard is the unique-workout_id claim below, which is safe even against

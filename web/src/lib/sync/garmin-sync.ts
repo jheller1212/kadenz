@@ -17,6 +17,8 @@ import {
   planDurationMinutesFromRow,
 } from "@/lib/strength/service";
 import { garminLabel, garminDescription, planWeekNumber } from "./garmin-label";
+import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
+import { loadUserUnits } from "@/lib/user-units";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import type { StrengthSessionType } from "@/lib/strength/types";
 
@@ -505,9 +507,16 @@ async function processGarminJob(
 
   const scheduledDate = toGarminDate(row.date);
 
+  // The stored title is always written in km. Rebuild it in the owner's unit
+  // before labelling, so a miles athlete's watch stops disagreeing with every
+  // screen in the app.
+  const { distanceUnit } = await loadUserUnits(row.userId);
+
   const input = {
     // "W3 · Easy Run 10km" — week-prefixed so the watch list is unambiguous.
-    title: garminLabel(row.title, { weekNumber: row.week?.weekNumber ?? null }),
+    title: garminLabel(displayWorkoutTitle(row, distanceUnit), {
+      weekNumber: row.week?.weekNumber ?? null,
+    }),
     // Plan/week overview: "Plan Name (Week 3/8)" then the workout's notes.
     description: garminDescription({
       planName: row.plan?.name,

@@ -15,13 +15,13 @@
 // else — or a workout fetched without the block data tempo needs — falls
 // back to the stored title unchanged.
 //
-// Server-generated artifacts with no per-user unit context (Google Calendar
-// event summary, the Garmin workout label, the push reminder body) use the
-// STORED title, not this helper — units live in localStorage only, there is
-// no server-side settings row to read a preference from. A miles athlete
-// therefore still sees a km title on the watch, in the calendar and in the
-// notification; that's an existing platform constraint this change doesn't
-// widen or narrow, not something reformatting the string differently can fix.
+// The server-generated artifacts (Google Calendar event summary, the Garmin
+// workout label, the push reminder body) call this helper too. They used to
+// fall back to the STORED title, because units lived in localStorage only and
+// the cron has no browser to read it from, so a miles athlete saw a km title
+// on the watch, in the calendar and in the notification. users.distance_unit
+// (migration 0057, read via lib/user-units.ts) is the server-side copy that
+// closed that gap; each of those callers loads it and passes it in.
 //
 // Relative import, not "@/" — there is no vitest config in this repo, so the
 // alias does not resolve under the test runner (see training/session.ts).
