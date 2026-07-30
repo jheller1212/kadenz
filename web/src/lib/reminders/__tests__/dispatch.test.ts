@@ -30,10 +30,16 @@ function resetMockDb() {
   updateSetCalls.length = 0;
 }
 
+// Candidate workouts come back through the relational query API
+// (db.query.workouts.findMany), not db.select, because dispatch needs each
+// workout's blocks to rebuild the title in the athlete's own units.
+const findMany = vi.fn();
+
 vi.mock("@/db", () => ({
   workouts,
   sentReminders,
   db: {
+    query: { workouts: { findMany } },
     select: () => ({
       from: () => ({
         where: () => Promise.resolve(selectQueue.shift() ?? []),
@@ -74,13 +80,20 @@ vi.mock("drizzle-orm", () => ({
   gte: (a: unknown, b: unknown) => ({ op: "gte", a, b }),
   lte: (a: unknown, b: unknown) => ({ op: "lte", a, b }),
   inArray: (a: unknown, b: unknown) => ({ op: "inArray", a, b }),
+  // Never called from dispatch, but schema.ts evaluates relations() at import
+  // time and the @/db mock above does not stop it being loaded transitively.
+  relations: () => ({}),
 }));
 
-const listAllUserIds = vi.fn();
-vi.mock("@/lib/users", () => ({ listAllUserIds }));
+// The loop is driven by the users who have reminders switched ON, which is one
+// indexed read rather than "every user, then load each config".
+const listEnabledReminderConfigs = vi.fn();
+vi.mock("../settings", () => ({ listEnabledReminderConfigs }));
 
-const loadReminderConfig = vi.fn();
-vi.mock("../settings", () => ({ loadReminderConfig }));
+// Reminder titles are rebuilt server-side in the athlete's own units.
+vi.mock("@/lib/user-units", () => ({
+  loadUserUnits: vi.fn().mockResolvedValue({ distanceUnit: "km", weightUnit: "kg" }),
+}));
 
 const listSubscriptions = vi.fn();
 const removeExpiredSubscriptions = vi.fn();
@@ -107,13 +120,16 @@ function dueWorkout(id: string, title: string) {
     date: new Date("2026-07-20T08:00:00Z"),
     timeOfDay: "12:15",
     status: "planned" as const,
+    type: "easy",
+    targetKm: 8,
+    blocks: [],
   };
 }
 
 beforeEach(() => {
   resetMockDb();
-  listAllUserIds.mockReset();
-  loadReminderConfig.mockReset();
+  findMany.mockReset();
+  listEnabledReminderConfigs.mockReset();
   listSubscriptions.mockReset();
   removeExpiredSubscriptions.mockReset().mockResolvedValue(undefined);
   sendPush.mockReset();
@@ -121,8 +137,10 @@ beforeEach(() => {
 
 describe("dispatchDueReminders", () => {
   it("sends a user's reminder only to that user's own devices", async () => {
-    listAllUserIds.mockResolvedValue([USER_A, USER_B]);
-    loadReminderConfig.mockResolvedValue(CONFIG);
+    listEnabledReminderConfigs.mockResolvedValue([
+      { userId: USER_A, config: CONFIG },
+      { userId: USER_B, config: CONFIG },
+    ]);
 
     const subsByUser: Record<string, Array<{ endpoint: string; p256dh: string; auth: string }>> = {
       [USER_A]: [{ endpoint: "https://push.example/a-phone", p256dh: "kA", auth: "aA" }],
@@ -131,10 +149,12 @@ describe("dispatchDueReminders", () => {
     listSubscriptions.mockImplementation((userId: string) => Promise.resolve(subsByUser[userId] ?? []));
     sendPush.mockResolvedValue({ ok: true, expired: false });
 
-    // Per-user order: workouts select, then sentReminders existing-claims select.
-    queueSelect([dueWorkout("workout-a", "A's long run")]); // A's workouts
+    // One findMany per user (their own candidate workouts), then one select
+    // per user for existing sent_reminders claims.
+    findMany
+      .mockResolvedValueOnce([dueWorkout("workout-a", "A's long run")])
+      .mockResolvedValueOnce([dueWorkout("workout-b", "B's easy run")]);
     queueSelect([]); // A: no existing sent_reminders claim
-    queueSelect([dueWorkout("workout-b", "B's easy run")]); // B's workouts
     queueSelect([]); // B: no existing sent_reminders claim
     insertReturningQueue = [[{ id: "claim-a" }], [{ id: "claim-b" }]];
 
@@ -155,18 +175,22 @@ describe("dispatchDueReminders", () => {
   });
 
   it("continues to the next user when one user's dispatch throws", async () => {
-    listAllUserIds.mockResolvedValue([USER_A, USER_B]);
-    // A's config load blows up (simulates a DB blip scoped to one user);
-    // B must still get dispatched.
-    loadReminderConfig.mockImplementation((userId: string) =>
-      userId === USER_A ? Promise.reject(new Error("boom")) : Promise.resolve(CONFIG)
-    );
-    listSubscriptions.mockResolvedValue([
-      { endpoint: "https://push.example/b-phone", p256dh: "kB", auth: "aB" },
+    listEnabledReminderConfigs.mockResolvedValue([
+      { userId: USER_A, config: CONFIG },
+      { userId: USER_B, config: CONFIG },
     ]);
+    // A's device lookup blows up (a database blip scoped to one user). B must
+    // still get dispatched rather than being skipped behind A's failure.
+    listSubscriptions.mockImplementation((userId: string) =>
+      userId === USER_A
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve([
+            { endpoint: "https://push.example/b-phone", p256dh: "kB", auth: "aB" },
+          ])
+    );
     sendPush.mockResolvedValue({ ok: true, expired: false });
 
-    queueSelect([dueWorkout("workout-b", "B's easy run")]); // B's workouts
+    findMany.mockResolvedValue([dueWorkout("workout-b", "B's easy run")]);
     queueSelect([]); // B: no existing claim
     insertReturningQueue = [[{ id: "claim-b" }]];
 
