@@ -18,6 +18,8 @@ import { StepAvailability } from "./steps/StepAvailability";
 import { StepTimeline } from "./steps/StepTimeline";
 import { StepPreferences } from "./steps/StepPreferences";
 import { StrengthModeChoice, type StrengthMode } from "./steps/StrengthModeChoice";
+import { ConnectionSetup } from "@/components/ConnectionSetup";
+import { shouldPromptSetup, type ConnectionId, type DeviceSetup } from "@/lib/device-setup";
 import { PlanBuildingLoader } from "@/components/PlanBuildingLoader";
 import { PlanErrorScreen } from "@/components/PlanErrorScreen";
 import {
@@ -38,8 +40,12 @@ import {
   type PlanVariant,
 } from "./steps/data";
 
-const STEPS = ["goal", "level", "variant", "days", "availability", "timeline", "preferences"] as const;
-type Step = (typeof STEPS)[number];
+// The connection step is appended only for athletes who have never answered, so
+// the tuple is split: everything else is fixed, and `steps` below picks the
+// variant in use. The progress bar divides by that, never by the longest list.
+const BASE_STEPS = ["goal", "level", "variant", "days", "availability", "timeline", "preferences"] as const;
+const STEPS_WITH_CONNECTIONS = [...BASE_STEPS, "connections"] as const;
+type Step = (typeof STEPS_WITH_CONNECTIONS)[number];
 
 function addWeeksIso(startIso: string, weeks: number): string {
   const d = new Date(startIso + "T12:00:00");
@@ -99,7 +105,29 @@ function IntentSelector({
 export default function CreatePlanPage() {
   const router = useRouter();
   const [stepIdx, setStepIdx] = useState(0);
-  const step: Step = STEPS[stepIdx];
+
+  // ── Step: Connections (only when never answered) ──────────────────────────
+  const [askConnections, setAskConnections] = useState(false);
+  const [garminOffered, setGarminOffered] = useState(false);
+  const [connections, setConnections] = useState<ConnectionId[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/api/user/device-setup")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: (DeviceSetup & { garminOffered?: boolean }) | null) => {
+        if (!alive || !d) return;
+        setAskConnections(shouldPromptSetup(d));
+        setGarminOffered(Boolean(d.garminOffered));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const steps: readonly Step[] = askConnections ? STEPS_WITH_CONNECTIONS : BASE_STEPS;
+  const step: Step = steps[Math.min(stepIdx, steps.length - 1)];
 
   // ── Step 1: Goal ──────────────────────────────────────────────────────────
   const [intent, setIntent] = useState<PlanIntent>("race");
@@ -290,6 +318,9 @@ export default function CreatePlanPage() {
         return weeksBetween(startDate, raceDate) > 0;
       case "preferences":
         return true;
+      case "connections":
+        // Picking nothing is a valid answer, so this step never gates.
+        return true;
     }
   }
 
@@ -298,7 +329,7 @@ export default function CreatePlanPage() {
       const remaining = daysPerWeek - availableDays.length;
       return `Pick ${remaining} more ${remaining === 1 ? "day" : "days"}`;
     }
-    if (step === "preferences") return "Create plan";
+    if (stepIdx === steps.length - 1) return "Create plan";
     return "Continue";
   }
 
@@ -310,11 +341,34 @@ export default function CreatePlanPage() {
 
   async function next() {
     setError(null);
-    if (stepIdx < STEPS.length - 1) {
+    if (stepIdx < steps.length - 1) {
       haptic("medium");
       setStepIdx((i) => i + 1);
       return;
     }
+    if (step === "connections") await saveConnections(connections);
+    await submitPlan();
+  }
+
+  // A preference that failed to save must never cost the athlete their plan, so
+  // this swallows everything. It is deliberately not part of submitPlan(): a
+  // retry after a failed plan build should not re-send the same preference.
+  async function saveConnections(conns: ConnectionId[]) {
+    try {
+      const res = await apiFetch("/api/user/device-setup", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connections: conns }),
+      });
+      if (!res.ok) console.error("Device setup save failed:", res.status);
+    } catch (e) {
+      console.error("Device setup save failed:", e);
+    }
+  }
+
+  async function skipConnections() {
+    setConnections([]);
+    await saveConnections([]);
     await submitPlan();
   }
 
@@ -418,12 +472,16 @@ export default function CreatePlanPage() {
       title: "Fine-tune your training",
       sub: "Sensible defaults are already set from your level, tweak only if you want to.",
     },
+    connections: {
+      title: "Connect your devices and apps",
+      sub: "Optional. Everything works without any of them.",
+    },
   };
 
   return (
     <main className="flex min-h-dvh flex-col bg-bg">
       <WizardHeader
-        progress={(stepIdx + 1) / STEPS.length}
+        progress={(stepIdx + 1) / steps.length}
         onBack={back}
         onClose={() => router.push("/")}
       />
@@ -522,6 +580,14 @@ export default function CreatePlanPage() {
                     onEasyRunMinKm={setEasyRunMinKm}
                     hillyArea={hillyArea}
                     onHillyArea={setHillyArea}
+                  />
+                )}
+                {step === "connections" && (
+                  <ConnectionSetup
+                    selected={connections}
+                    onChange={setConnections}
+                    garminOffered={garminOffered}
+                    onSkip={skipConnections}
                   />
                 )}
                 {step === "preferences" && strengthSessions !== null && (
