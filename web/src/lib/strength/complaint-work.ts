@@ -1,4 +1,4 @@
-import { ACHILLES_COMPLAINT_SLOTS, TARGETED_WORK } from "./program";
+import { ACHILLES_COMPLAINT_SLOTS, EXERCISE_BY_SLUG, TARGETED_WORK } from "./program";
 import { COMPLAINT_SHORT_LABELS, STRENGTH_COMPLAINTS, type Complaint } from "./types";
 
 // ── Which exercises belong to which complaint ────────────────────────────────
@@ -66,6 +66,26 @@ export function complaintListLabel(complaints: Complaint[]): string {
   if (words.length === 0) return "";
   if (words.length === 1) return words[0];
   return `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
+/**
+ * Does this list of exercises fall under the Achilles ordering rule?
+ *
+ * The rule (validateAchillesOrdering in session.ts) only bites when a session
+ * holds both an explosive and a slow heavy exercise, so the banner announcing
+ * it is gated on the same condition. Gating on `type === "lower_achilles"`
+ * instead used to miss every current session, because Achilles work now
+ * arrives as extra slots inside ordinary lower/full_body/upper sessions.
+ */
+export function hasAchillesOrdering(slugs: string[]): boolean {
+  let explosive = false;
+  let slowHeavy = false;
+  for (const slug of slugs) {
+    const role = EXERCISE_BY_SLUG[slug]?.achillesRole;
+    if (role === "explosive") explosive = true;
+    if (role === "slow_heavy") slowHeavy = true;
+  }
+  return explosive && slowHeavy;
 }
 
 // ── HSR ramp week ────────────────────────────────────────────────────────────

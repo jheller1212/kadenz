@@ -22,6 +22,12 @@ interface Props {
   previousWeightKg: number | null;
   /** Dumbbells the lift uses — adds "each" to both weight readouts. */
   dumbbells?: 1 | 2;
+  /**
+   * Does the pain gate act on this athlete's work? It only eases HSR calf
+   * work (applyPainGate + isHsrExercise in lib/strength/session.ts), so the
+   * "Niggle" note claims that only for an athlete with an Achilles complaint.
+   */
+  easesCalfWork?: boolean;
   /** Reason already stored on this set, if any — pre-selects that chip. */
   selected: LoadFeel | null;
   onSave: (feel: LoadFeel) => void;
@@ -32,7 +38,16 @@ interface Props {
 // session's suggestion via the logged set); "Niggle" is a pain signal, not a
 // load signal, and additionally reports to the Achilles/HSR pain gate — see
 // GuidedSession.tsx's onSave handler.
-export function AdjustLoadSheet({ open, onClose, weightKg, previousWeightKg, dumbbells, selected, onSave }: Props) {
+export function AdjustLoadSheet({
+  open,
+  onClose,
+  weightKg,
+  previousWeightKg,
+  dumbbells,
+  easesCalfWork = false,
+  selected,
+  onSave,
+}: Props) {
   const [choice, setChoice] = useState<LoadFeel | null>(selected);
   const each = dumbbells ? " each" : "";
 
@@ -82,7 +97,9 @@ export function AdjustLoadSheet({ open, onClose, weightKg, previousWeightKg, dum
 
         {choice === "niggle" && (
           <p className="px-2 text-center text-[12px] text-text-3">
-            This also logs a pain check-in for this session, feeding the same gate that eases Achilles/calf work next time.
+            {easesCalfWork
+              ? "This also logs a pain check-in for this session, feeding the same gate that eases your calf work next time."
+              : "This also logs a pain check-in for this session."}
           </p>
         )}
 

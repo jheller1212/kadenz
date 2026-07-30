@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   db,
   plans,
@@ -19,6 +19,7 @@ import {
 } from "./session";
 import { evaluatePainGate, type PainGateResult } from "./progression";
 import { EXERCISES } from "./program";
+import { achillesProgramWeek } from "./complaint-work";
 import { EQUIPMENT_KEYS } from "./equipment";
 import type { LifterProfile } from "./load-model";
 import type {
@@ -201,7 +202,15 @@ export async function buildPlannedSession(
   // edits, so it reorders exactly the list the athlete will see. Reordering
   // never changes the duration estimate below (it sums per-exercise costs),
   // so it is safe to apply after duration-fit has already run.
-  exerciseOrder?: string[] | null
+  exerciseOrder?: string[] | null,
+  // The complaint set this session was started with
+  // (strengthSessions.complaints, migration 0062). Complaints are a template
+  // input, so a still-planned session (undefined/null here) follows whatever
+  // the athlete currently reports and picks up a settings change for free. A
+  // session the athlete has already started keeps what it was built with, so
+  // turning a complaint off never rebuilds a session whose sets are already
+  // logged against the work that complaint added.
+  complaintsSnapshot?: string[] | null
 ): Promise<PlannedSessionResult> {
   const [{ programWeek, weekInfo }, historyBySlug, painGate, settingsRow] = await Promise.all([
     getProgramWeekAndPhase(date),
@@ -212,13 +221,21 @@ export async function buildPlannedSession(
       : getStrengthPlanSettingsRow(profileId),
   ]);
   const planSettings = derivePlanSettingsForLoads(settingsRow);
+  const complaints =
+    complaintsSnapshot != null
+      ? filterComplaints(complaintsSnapshot)
+      : planSettings.complaints;
   const plan = buildSessionPlan(type, {
-    programWeek,
+    // The HSR ramp runs on its own clock (when the Achilles complaint was
+    // reported), not the running plan's week — see complaint-work.ts.
+    programWeek: complaints.includes("achilles")
+      ? achillesProgramWeek(settingsRow?.achillesStartedAt ?? null, date, programWeek)
+      : programWeek,
     historyBySlug,
     painGate,
     ability: planSettings.ability,
     lifterProfile: planSettings.lifterProfile,
-    complaints: planSettings.complaints,
+    complaints,
     targetDurationMinutes,
     restSecondsOverride: planSettings.restSeconds,
     equipment: equipmentOverride !== undefined ? equipmentOverride : planSettings.equipment,
@@ -245,9 +262,42 @@ export interface PlanSettingsRow {
   bodyweightKg: number | null;
   sex: string | null;
   complaints: string[] | null;
+  achillesStartedAt: Date | null;
   restSeconds: number | null;
   equipment: string[] | null;
   goal: string | null;
+}
+
+/** Stored complaint strings → the Complaint values the engine understands.
+ *  Anything unrecognised (an old value, a hand-edited row) is dropped rather
+ *  than shaping a session off a complaint no template knows about. */
+function filterComplaints(raw: string[]): Complaint[] {
+  const known = new Set<string>(STRENGTH_COMPLAINTS);
+  return raw.filter((c): c is Complaint => known.has(c));
+}
+
+/**
+ * SQL for `strength_sessions.complaints` that freezes the profile's current
+ * complaints onto a session the first time it is written, and leaves an
+ * already-frozen value alone.
+ *
+ * Written at the moment a session stops being hypothetical (first logged set,
+ * or a status change away from "planned"). Before that the column stays null
+ * and the session follows the athlete's live settings, which is what makes
+ * turning a complaint off reshape everything still to come. After it, the
+ * session renders from what it was built with, so its logged sets always
+ * belong to an exercise the plan still lists (see migration 0062).
+ *
+ * A correlated subquery rather than a read-then-write so an offline replay
+ * racing a live write cannot overwrite the frozen set with a later one.
+ */
+export function freezeSessionComplaintsSql() {
+  return sql`coalesce(${strengthSessions.complaints}, (
+    select coalesce(ps.${sql.identifier("complaints")}, array[]::text[])
+    from ${strengthPlanSettings} ps
+    where ps.${sql.identifier("profile_id")} is not distinct from ${strengthSessions.profileId}
+    limit 1
+  ), array[]::text[])`;
 }
 
 /**
@@ -267,6 +317,7 @@ export async function getStrengthPlanSettingsRow(
       bodyweightKg: strengthPlanSettings.bodyweightKg,
       sex: strengthPlanSettings.sex,
       complaints: strengthPlanSettings.complaints,
+      achillesStartedAt: strengthPlanSettings.achillesStartedAt,
       restSeconds: strengthPlanSettings.restSeconds,
       equipment: strengthPlanSettings.equipment,
       goal: strengthPlanSettings.goal,
@@ -309,10 +360,7 @@ function derivePlanSettingsForLoads(row: PlanSettingsRow | null): {
     row?.sex === "male" || row?.sex === "female" || row?.sex === "unspecified"
       ? row.sex
       : undefined;
-  const complaintSet = new Set<string>(STRENGTH_COMPLAINTS);
-  const complaints = (row?.complaints ?? []).filter((c): c is Complaint =>
-    complaintSet.has(c)
-  );
+  const complaints = filterComplaints(row?.complaints ?? []);
   const equipmentKeySet = new Set<string>(EQUIPMENT_KEYS);
   const equipment = row?.equipment
     ? row.equipment.filter((e): e is Equipment => equipmentKeySet.has(e))

@@ -6,6 +6,7 @@ import { snapToLevel } from "@/lib/strength/weights";
 import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { isNewSingleSetRecord, type PrSet } from "@/lib/strength/pr";
 import { getActiveProfileId } from "@/lib/profiles";
+import { freezeSessionComplaintsSql } from "@/lib/strength/service";
 
 const SetSchema = z.object({
   exerciseId: z.string().uuid().optional(),
@@ -133,7 +134,15 @@ export async function POST(
     try {
       await db
         .update(strengthSessions)
-        .set({ startedAt: sql`coalesce(${strengthSessions.startedAt}, now())`, endedAt: new Date() })
+        .set({
+          startedAt: sql`coalesce(${strengthSessions.startedAt}, now())`,
+          endedAt: new Date(),
+          // A logged set is the point where this session stops following the
+          // athlete's live complaint settings and keeps what it was built
+          // with, so a later settings change cannot orphan the set just
+          // written (see service.ts freezeSessionComplaintsSql).
+          complaints: freezeSessionComplaintsSql(),
+        })
         .where(eq(strengthSessions.id, id));
     } catch (err) {
       console.error("Failed to update session start/end times after logging set:", err);
@@ -274,7 +283,10 @@ export async function DELETE(
     // they go back to null rather than lying about when it "happened".
     await db
       .update(strengthSessions)
-      .set({ startedAt: null, endedAt: null })
+      // Complaints go back to null with them: with no sets left there is
+      // nothing to protect, and the session should track the athlete's
+      // current settings again like any other planned session.
+      .set({ startedAt: null, endedAt: null, complaints: null })
       .where(eq(strengthSessions.id, id));
     return Response.json({ ok: true });
   } catch (err) {

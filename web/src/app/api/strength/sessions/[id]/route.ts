@@ -4,6 +4,7 @@ import { eq, and, gte, lt, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, painLogs, activities, strengthExercises } from "@/db";
 import {
   buildPlannedSession,
+  freezeSessionComplaintsSql,
   getStrengthPlanSettingsRow,
   planDurationMinutesFromRow,
 } from "@/lib/strength/service";
@@ -124,7 +125,12 @@ export async function GET(
         // The athlete's own order, stored when they started from the
         // pre-start sheet. Same reason the equipment/duration overrides
         // above are re-applied on every read: the plan itself is not stored.
-        session.exerciseOrder
+        session.exerciseOrder,
+        // Frozen once the athlete starts the session, so a later complaint
+        // change cannot rebuild a session whose sets are already logged
+        // (see schema.ts strengthSessions.complaints). Null on a still-
+        // planned session, which then follows the current settings.
+        session.complaints
       );
 
     // Self-heal: a session's targetDurationMinutes may still hold the
@@ -281,6 +287,17 @@ export async function PATCH(
     // something the user deliberately shaped. A bare status tick/untick is
     // NOT adoption: it must not launder auto sessions past future pruning.
     if (clearsAutoScheduled(updates)) set.autoScheduled = false;
+    // Leaving "planned" (completed, skipped, missed) settles what this
+    // session was: freeze the complaints it was built for so a later settings
+    // change cannot re-render it as something the athlete never did. Already
+    // frozen on the first logged set; this covers a session ticked off with
+    // no sets logged. Un-ticking back to "planned" deliberately does NOT
+    // release it, because the sets it logged are still there; discarding
+    // those sets is what returns a session to following live settings (see
+    // the sets DELETE route).
+    if (updates.status && updates.status !== "planned") {
+      set.complaints = freezeSessionComplaintsSql();
+    }
     if (updates.date) {
       const d = new Date(updates.date);
       set.date = d;

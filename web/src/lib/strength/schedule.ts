@@ -337,6 +337,57 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
   return { created, shortWeeks };
 }
 
+/**
+ * Re-push every still-planned session in the next four weeks to the calendar
+ * and the watch.
+ *
+ * ensureStrengthSchedule only re-queues a session whose stored duration
+ * estimate changed, which is the right trigger for a length or rest change but
+ * misses a complaint change: swapping calf raises for nothing at all can leave
+ * the estimate identical while the exercise list is completely different. The
+ * in-app view rebuilds from the template on read and is right either way; the
+ * calendar event and the watch workout are copies, and a copy nobody re-pushes
+ * still lists the old exercises. Both queues self-gate on being configured, so
+ * this is a no-op when neither integration is on.
+ *
+ * Scoped to the same four-week window the app's own views show, and to planned
+ * sessions only, so a completed session's record is never rewritten.
+ */
+export async function resyncPlannedStrengthSessions(
+  profileId: string | null,
+  userId: string
+) {
+  // Calendar connections are per user now (see gcal-client loadTokens), so the
+  // check needs the person, and a guest profile's sessions never go to the
+  // owner's calendar — same rule ensureStrengthSchedule follows above.
+  const gcal = !profileId ? await isConnected(userId).catch(() => false) : false;
+  const from = new Date();
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setDate(to.getDate() + 28);
+
+  const sessions = await db
+    .select({ id: strengthSessions.id })
+    .from(strengthSessions)
+    .where(
+      and(
+        eq(strengthSessions.userId, userId),
+        profileId
+          ? eq(strengthSessions.profileId, profileId)
+          : isNull(strengthSessions.profileId),
+        eq(strengthSessions.status, "planned"),
+        gte(strengthSessions.date, from),
+        lte(strengthSessions.date, to)
+      )
+    );
+
+  for (const s of sessions) {
+    await queueGarminStrengthMove(s.id).catch(() => {});
+    if (gcal) await queueStrengthSessionSync(s.id, "update", userId, "gcal").catch(() => {});
+  }
+  return { resynced: sessions.length };
+}
+
 /** Remove future auto-scheduled sessions the user never touched. */
 export async function pruneAutoSchedule(profileId: string | null, userId: string) {
   const today = new Date();
