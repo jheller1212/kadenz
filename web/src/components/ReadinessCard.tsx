@@ -16,6 +16,8 @@ interface Readiness {
   advice: string;
   physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
   physiologySource: string | null;
+  /** Athlete answered the setup step and connected nothing that feeds data in. */
+  manualOnly: boolean;
 }
 
 const BAND_META: Record<Readiness["band"], { label: string; color: string }> = {
@@ -102,6 +104,14 @@ export function ReadinessCard() {
           {!data.physiologyWarmup && data.physiologySource && (
             <p className="mt-1 text-[11px] text-text-3" data-testid="readiness-physiology-source">
               Recovery data from {wellnessSourceLabel(data.physiologySource)}
+            </p>
+          )}
+          {/* Names what the score is actually made of, so it never reads as a
+              number waiting on data that is never coming. The API already keeps
+              physiologyWarmup null here, the guards just make that explicit. */}
+          {!data.physiologyWarmup && !data.physiologySource && data.manualOnly && (
+            <p className="mt-1 text-[11px] text-text-3" data-testid="readiness-manual-source">
+              From your daily check-in. No device connected, so no sleep or HRV.
             </p>
           )}
         </div>

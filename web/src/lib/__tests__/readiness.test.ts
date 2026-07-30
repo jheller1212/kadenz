@@ -118,6 +118,10 @@ describe("computeReadiness", () => {
     );
     expect(r.physiologyWarmup).toBeNull();
     expect(r.score).toBe(75);
+    // And the source goes quiet with it. Naming Garmin while withholding its
+    // contribution would read as "recovery data from Garmin" to someone who
+    // has no Garmin, which is how stale rows turn into a false claim.
+    expect(r.physiologySource).toBeNull();
   });
 
   it("no device connected: physiology that did become ready still counts", () => {

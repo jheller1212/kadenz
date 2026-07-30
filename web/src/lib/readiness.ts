@@ -69,7 +69,10 @@ export interface ReadinessResult {
   physiologyWarmup: { daysCollected: number; daysNeeded: number } | null;
   /** wellness_metrics.source the physiology signal (ready or warm-up) was
    * computed from, so the UI can name it (e.g. "Garmin"). Null when there's
-   * no physiology data at all. See lib/wellness-source.ts. */
+   * no physiology data at all, and also null when the signal is neither
+   * contributing nor warming up: naming a source the card is saying nothing
+   * about reads as "recovery data from Garmin" to an athlete whose Garmin
+   * rows are months stale and count for nothing. See lib/wellness-source.ts. */
   physiologySource: string | null;
 }
 
@@ -150,16 +153,25 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   const b = band(score);
+  // Warm-up is only claimed when a baseline is genuinely on its way. See the
+  // expectsPhysiology field for why an athlete with no device must never see it.
+  const physiologyWarmup =
+    input.expectsPhysiology !== false && input.physiology && !input.physiology.ready
+      ? input.physiology.warmup
+      : null;
   return {
     score,
     band: b,
     reasons,
     hasCheckIn: w != null && w.ageHours <= 30,
     advice: ADVICE[b],
-    physiologyWarmup:
-      input.expectsPhysiology !== false && input.physiology && !input.physiology.ready
-        ? input.physiology.warmup
+    physiologyWarmup,
+    // Named only when the card has something to say about it: it is either
+    // moving the score, or visibly building toward doing so. Otherwise the
+    // signal is silent and so is its source.
+    physiologySource:
+      input.physiology?.ready || physiologyWarmup
+        ? (input.physiology?.source ?? null)
         : null,
-    physiologySource: input.physiology?.source ?? null,
   };
 }

@@ -160,7 +160,7 @@ export function ConnectionSetup({
           <OptionRow
             testId="connection-option-garmin"
             label="Garmin"
-            sub="This installation's watch. Workouts get sent to it, and sleep, resting heart rate and HRV come back and feed your readiness score."
+            sub="Workouts get sent to your watch, and sleep, resting heart rate and HRV come back and feed your readiness score."
             glyph={<Watch className="h-4.5 w-4.5" strokeWidth={2} />}
             selected={selected.includes("garmin")}
             onToggle={() => toggle("garmin")}

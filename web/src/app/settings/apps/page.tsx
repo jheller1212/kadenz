@@ -10,6 +10,8 @@ import { apiFetch } from "@/lib/api";
 import { loadSettings, saveSettings } from "@/lib/settings";
 import { formatSyncResult, formatRateLimitedResult } from "@/lib/sync/strava-sync-result";
 import { AlertCircle, Watch } from "lucide-react";
+import { AppleHealthRow } from "@/components/ConnectionSetup";
+import { isManualOnly, type DeviceSetup } from "@/lib/device-setup";
 
 // ── Integration connection rows (moved from /settings) ──────────────────────
 
@@ -424,15 +426,46 @@ function GarminConnection() {
   );
 }
 
+// Only shown to athletes who chose to record by hand. The check comes from
+// lib/device-setup so this page and the setup step can never disagree about
+// what "manual only" means.
+function ManualOnlyNote() {
+  const [manual, setManual] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/user/device-setup")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: DeviceSetup | null) => {
+        if (d) setManual(isManualOnly(d));
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!manual) return null;
+
+  return (
+    <div className="k-card mb-4 p-4" data-testid="settings-manual-entry-card">
+      <p className="text-[15px] font-bold text-text-1">You record by hand</p>
+      <p className="mt-0.5 text-[13px] leading-relaxed text-text-2">
+        Log your runs from the Activities tab. If you want something to import them
+        for you, connect it below whenever you like.
+      </p>
+    </div>
+  );
+}
+
 export default function ConnectedAppsPage() {
   return (
     <SettingsSubpage title="Connected Apps">
+      <ManualOnlyNote />
       <ListGroup>
         <StravaConnection />
         <div className="border-t border-hairline/60" />
         <GCalConnection />
         <div className="border-t border-hairline/60" />
         <GarminConnection />
+        <div className="border-t border-hairline/60" />
+        <AppleHealthRow layout="list" />
       </ListGroup>
     </SettingsSubpage>
   );
