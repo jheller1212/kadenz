@@ -347,8 +347,10 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
  * the estimate identical while the exercise list is completely different. The
  * in-app view rebuilds from the template on read and is right either way; the
  * calendar event and the watch workout are copies, and a copy nobody re-pushes
- * still lists the old exercises. Both queues self-gate on being configured, so
- * this is a no-op when neither integration is on.
+ * still lists the old exercises. Both queues self-gate: the watch push checks
+ * this user's own Garmin workout-sync setting (isGarminWorkoutSyncEnabled) and
+ * the calendar push their own connection, so this is a no-op for an athlete
+ * who has neither turned on.
  *
  * Scoped to the same four-week window the app's own views show, and to planned
  * sessions only, so a completed session's record is never rewritten.
