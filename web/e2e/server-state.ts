@@ -6,8 +6,8 @@ import type EmbeddedPostgres from "embedded-postgres";
 
 export const state: {
   pg: EmbeddedPostgres | null;
-  devServer: ChildProcess | null;
+  appServer: ChildProcess | null;
 } = {
   pg: null,
-  devServer: null,
+  appServer: null,
 };
