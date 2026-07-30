@@ -85,6 +85,13 @@ guard in `global-setup.ts` still reads the *inherited* environment and still
 refuses to start when that says production — see "Safety" below. Production
 code, never production data.
 
+While *authoring* a spec, a rebuild per run is a real tax, so running the
+harness against a dev server by hand is still worth doing. `next.config.ts`
+keeps an `onDemandEntries` override behind `KADENZ_E2E=1` for exactly that
+case: it pins every compiled route in memory, which removes most (not all) of
+the dev-server interference described above. Do not wire it back into the
+harness — CI needs the class gone, not reduced.
+
 Re-running `npm run test:e2e` reuses the same local Postgres data directory —
 the seed is idempotent (it checks for an existing active plan and no-ops if
 one is already there), so re-runs are fast and don't accumulate duplicate
