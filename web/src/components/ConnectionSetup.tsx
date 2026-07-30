@@ -205,6 +205,11 @@ export function ConnectionSetup({
                 You log runs from the Activities tab, and readiness comes from your daily
                 check-in.
               </span>
+              {/* This control finishes the wizard, not just the step. Saying so
+                  keeps it a real choice instead of a surprise. */}
+              <span className="mt-1.5 block text-[12px] font-semibold text-accent-fg">
+                Creates your plan now
+              </span>
             </span>
           </button>
         </div>
