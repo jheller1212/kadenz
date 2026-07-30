@@ -11,7 +11,7 @@ import {
   workouts,
 } from "@/db";
 import { getActiveProfileId } from "@/lib/profiles";
-import { getSessionUserId } from "@/lib/session";
+import { resolveRequestUserId } from "@/lib/request-user";
 import { expectsPhysiology, isManualOnly, UNANSWERED_DEVICE_SETUP } from "@/lib/device-setup";
 import { loadDeviceSetup } from "@/lib/user-device-setup";
 import { computeReadiness } from "@/lib/readiness";
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     // whether it should say out loud that the score comes from the check-in
     // alone. Falls back to the unanswered state, which behaves exactly as the
     // endpoint did before this existed.
-    const userId = await getSessionUserId(request.headers.get("cookie"));
+    const userId = await resolveRequestUserId(request);
     const deviceSetup = userId
       ? await loadDeviceSetup(userId)
       : UNANSWERED_DEVICE_SETUP;

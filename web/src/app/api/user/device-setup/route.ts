@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { OWNER_USER_ID } from "@/db/schema";
-import { getSessionUserId } from "@/lib/session";
+import { resolveRequestUserId, unauthorized } from "@/lib/request-user";
 import { CONNECTION_IDS } from "@/lib/device-setup";
 import { loadDeviceSetup, saveDeviceSetup } from "@/lib/user-device-setup";
 import { garminClient } from "@/lib/sync/garmin-client";
@@ -34,8 +34,8 @@ function garminOfferedTo(userId: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = await getSessionUserId(request.headers.get("cookie"));
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return unauthorized();
 
   try {
     const setup = await loadDeviceSetup(userId);
@@ -47,8 +47,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const userId = await getSessionUserId(request.headers.get("cookie"));
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return unauthorized();
 
   let body: unknown;
   try {
