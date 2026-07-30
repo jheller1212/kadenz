@@ -1756,7 +1756,7 @@ const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
 // session.ts), injected as extra slots the same way TARGETED_WORK injects
 // other complaints' work below, just with more than one slot and its own
 // fixed internal order.
-const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
+export const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
   { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
   { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
   { exerciseSlug: "bent_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
