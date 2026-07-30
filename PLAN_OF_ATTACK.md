@@ -73,6 +73,55 @@ flaky test in a day-old suite gets ignored fast, and then the suite dies.
 
 ---
 
+## 2.5 Opening sign-up: Google, then email, then Apple
+
+Today two providers mint a session, Strava and Google, and both are gated by an
+allowlist holding one account. Auth and data are separate concerns: signing in
+does not have to be the thing that brings runs in. The device and app step in
+onboarding makes that explicit, so someone can sign in with anything and
+connect Strava afterwards.
+
+`user_identities.provider` is a plain text column with a unique pair on
+(provider, account id), so **adding a provider is additive and needs no
+migration**.
+
+### The hard dependency, before any of this
+**Opening sign-up to anyone requires the route leaks closed and row level
+security enforced.** Until then, a second person signing in can read and in
+some cases delete the owner's data. That is not caution, it is the 37 leaks in
+`PHASE3_LEAKS.md`. Order is not negotiable:
+
+1. Leaks closed and RLS enforced (in flight)
+2. Per-user OAuth tokens, so one person connecting Strava does not overwrite
+   another's (in flight)
+3. Then, and only then, remove the allowlist
+
+### Then, in this order
+**Google for everyone.** Already built and working. Opening it is deleting the
+allowlist check, not writing a provider. Cheapest real signup path once the
+prerequisites are met.
+
+**Email magic link.** The universal fallback for anyone with neither a Strava
+nor a Google account. Passwordless, so there are no hashes to leak, no reset
+flow and no password support burden. **No email provider is installed today**,
+so this needs one plus a sending domain with SPF, DKIM and DMARC. Budget the
+deliverability setup, not the code.
+
+**Sign in with Apple.** Becomes a store requirement rather than a choice: Apple
+requires it if an iOS app offers any other third-party sign-in, and ours would
+offer Strava and Google. So it lands with the native app in
+`NATIVE_APP_PLAN.md`, not before.
+
+**Keep Strava as the headline option.** For a runner it is the best front door:
+one tap gives identity and the data, and they already have the account. It
+should stop being the only door, not stop being the first.
+
+**Deliberately not doing passwords.** Storing hashes buys breach liability, a
+reset flow and a support surface, in exchange for nothing a magic link does not
+do better.
+
+---
+
 ## 3. Prerequisites for anything multi-provider
 
 Not nice-to-haves. See `NATIVE_APP_PLAN.md`.
