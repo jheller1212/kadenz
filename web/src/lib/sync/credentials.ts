@@ -24,9 +24,9 @@ export type IntegrationProvider = "strava" | "google";
  * never connects anything, and every caller has to degrade rather than throw
  * (an unconnected calendar means "do not queue calendar events", not a 500).
  * A failed query also returns null, matching the behaviour the singleton
- * loaders had — a database blip must not present as "your account is
- * disconnected and needs re-authorising" in a way that makes someone re-run
- * OAuth for nothing, but it must equally not stop the rest of a sync run.
+ * loaders had. A database blip must not stop the rest of a sync run, and it
+ * must equally not be presented to someone as "your account is disconnected"
+ * in a way that makes them re-run OAuth for nothing.
  */
 export async function loadCredentials<T>(
   userId: string,

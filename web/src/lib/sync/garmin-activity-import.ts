@@ -59,7 +59,7 @@ async function isDuplicate(act: GarminActivity, startDate: Date): Promise<boolea
   );
 }
 
-async function importRun(act: GarminActivity, startDate: Date): Promise<void> {
+async function importRun(userId: string, act: GarminActivity, startDate: Date): Promise<void> {
   // Fetch detail for splits; a failed detail fetch shouldn't lose the activity.
   let splitsJson: unknown[] | null = null;
   try {
@@ -77,6 +77,7 @@ async function importRun(act: GarminActivity, startDate: Date): Promise<void> {
 
   await db.insert(activities).values({
     workoutId,
+    userId,
     garminId: act.garminId,
     ...buildProviderExternalId("garmin", act.garminId),
     sportType: "Run",
@@ -101,7 +102,7 @@ async function importRun(act: GarminActivity, startDate: Date): Promise<void> {
   }
 }
 
-async function importStrength(act: GarminActivity, startDate: Date): Promise<void> {
+async function importStrength(userId: string, act: GarminActivity, startDate: Date): Promise<void> {
   const longEnough = (act.durationSeconds ?? 0) >= MIN_STRENGTH_MATCH_SECONDS;
   const strengthSessionId = longEnough
     ? await findMatchingStrengthSession({
@@ -112,6 +113,7 @@ async function importStrength(act: GarminActivity, startDate: Date): Promise<voi
 
   await db.insert(activities).values({
     strengthSessionId,
+    userId,
     garminId: act.garminId,
     ...buildProviderExternalId("garmin", act.garminId),
     sportType: act.activityType || "WeightTraining",
@@ -143,10 +145,10 @@ async function importStrength(act: GarminActivity, startDate: Date): Promise<voi
       .where(eq(strengthSessions.id, strengthSessionId));
 
     if (sess?.gcalEventId) {
-      isGcalConnected()
+      isGcalConnected(userId)
         .then((connected) => {
           if (connected) {
-            return queueStrengthSessionSync(strengthSessionId, "delete", "gcal", {
+            return queueStrengthSessionSync(strengthSessionId, "delete", userId, "gcal", {
               gcalEventId: sess.gcalEventId,
             });
           }
@@ -156,7 +158,16 @@ async function importStrength(act: GarminActivity, startDate: Date): Promise<voi
   }
 }
 
-export async function runGarminImport(): Promise<GarminImportResult> {
+/**
+ * Pull recent activities from the (single, installation-level) Garmin
+ * worker and store them under the given userId. Every insert this makes
+ * (activities) carries that id explicitly rather than relying on the
+ * activities table's user_id default, which is the owner. Today the only
+ * caller of this is the owner's own cron iteration, but requiring the id
+ * as a real parameter means that stays true by construction rather than by
+ * coincidence if a caller ever changes.
+ */
+export async function runGarminImport(userId: string): Promise<GarminImportResult> {
   const result: GarminImportResult = {
     fetched: 0,
     imported: 0,
@@ -165,7 +176,7 @@ export async function runGarminImport(): Promise<GarminImportResult> {
     skippedDeleted: 0,
   };
 
-  const since = await loadImportSince();
+  const since = await loadImportSince(userId);
   const importStartedAt = new Date();
   const acts = await garminClient.listActivities(since.toISOString(), 200);
   result.fetched = acts.length;
@@ -214,9 +225,9 @@ export async function runGarminImport(): Promise<GarminImportResult> {
     // the entire run, so nothing imported). Log and skip the bad one.
     try {
       if (act.kind === "run") {
-        await importRun(act, startDate);
+        await importRun(userId, act, startDate);
       } else {
-        await importStrength(act, startDate);
+        await importStrength(userId, act, startDate);
       }
       result.imported++;
     } catch (err) {
@@ -225,6 +236,6 @@ export async function runGarminImport(): Promise<GarminImportResult> {
     }
   }
 
-  await saveImportTimestamp(importStartedAt);
+  await saveImportTimestamp(userId, importStartedAt);
   return result;
 }

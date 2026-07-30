@@ -1,17 +1,22 @@
+import { type NextRequest } from "next/server";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { loadGarminConfig } from "@/lib/sync/garmin-config";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 // ── GET /api/garmin/status ────────────────────────────────────────────────────
 // Worker deployment + health + the server-side "send workouts to watch" toggle.
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const configured = garminClient.isConfigured();
     const [healthy, authenticated, config] = await Promise.all([
       configured ? garminClient.healthCheck() : Promise.resolve(false),
       // Real auth state — "worker up" is not the same as "Garmin usable".
       configured ? garminClient.authOk() : Promise.resolve(false),
-      loadGarminConfig(),
+      loadGarminConfig(userId),
     ]);
     return Response.json({
       configured,

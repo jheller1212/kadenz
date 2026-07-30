@@ -20,9 +20,15 @@ const strengthSessions = { __t: "strengthSessions" } as Record<string, unknown>;
 const deletedActivities = { __t: "deletedActivities" } as Record<string, unknown>;
 const activityTrash = { __t: "activityTrash" } as Record<string, unknown>;
 const plans = { __t: "plans" } as Record<string, unknown>;
+// strava-client's loadTokens/saveTokens go through lib/sync/credentials.ts
+// (not mocked here, it's the real module), which reads/writes this table.
+// It needs the same opaque-tag treatment as everything else the mocked "@/db"
+// stands in for, or `integrationCredentials.userId` throws on an undefined
+// export and loadCredentials' catch quietly turns that into "not connected".
+const integrationCredentials = { __t: "integrationCredentials" } as Record<string, unknown>;
 // strava-client.ts destructures column props off these (e.g. activities.stravaId)
 // for select projections — any value works since conditions aren't evaluated.
-for (const t of [activities, syncOutbox, workouts, strengthSessions, deletedActivities, activityTrash, plans]) {
+for (const t of [activities, syncOutbox, workouts, strengthSessions, deletedActivities, activityTrash, plans, integrationCredentials]) {
   t.stravaId = "stravaId";
   t.id = "id";
   t.workoutId = "workoutId";
@@ -30,6 +36,8 @@ for (const t of [activities, syncOutbox, workouts, strengthSessions, deletedActi
   t.gcalEventId = "gcalEventId";
   t.payload = "payload";
   t.idempotencyKey = "idempotencyKey";
+  t.userId = "userId";
+  t.provider = "provider";
 }
 
 // ── Scripted select results, consumed FIFO, one entry per db.select() call ──
@@ -68,6 +76,7 @@ vi.mock("@/db", () => ({
   deletedActivities,
   activityTrash,
   plans,
+  integrationCredentials,
   db: {
     select: () => ({
       from: () => chain(selectQueue.shift() ?? []),
@@ -111,6 +120,8 @@ vi.mock("@/lib/sync/sync-manager", () => ({ queueStrengthSessionSync: vi.fn() })
 
 const { updateActivity, deleteStravaActivity } = await import("../strava-client");
 
+const USER_ID = "11111111-1111-4111-8111-111111111111";
+
 // A minimal valid Strava token, expiring far in the future so getAccessToken()
 // never tries to refresh (which would need another fetch + db write).
 const TOKEN_ROW = [
@@ -150,7 +161,7 @@ describe("updateActivity", () => {
   it("is a safe no-op for an unknown Strava id — never creates a row", async () => {
     queueSelect([]); // tombstone check: none
     queueSelect([]); // existing-row check: none found
-    const result = await updateActivity(999);
+    const result = await updateActivity(USER_ID, 999);
     expect(result).toBe("not_found");
     expect(insertCalls).toHaveLength(0);
     expect(updateCalls).toHaveLength(0);
@@ -158,7 +169,7 @@ describe("updateActivity", () => {
 
   it("does not resurrect a trashed (tombstoned) activity", async () => {
     queueSelect([{ stravaId: "555" }]); // tombstone check: found
-    const result = await updateActivity(555);
+    const result = await updateActivity(USER_ID, 555);
     expect(result).toBe("trashed");
     expect(insertCalls).toHaveLength(0);
     expect(updateCalls).toHaveLength(0);
@@ -174,7 +185,7 @@ describe("updateActivity", () => {
       json: async () => stravaActivityPayload({ name: "Evening Run (fixed)" }),
     });
 
-    const result = await updateActivity(555);
+    const result = await updateActivity(USER_ID, 555);
     expect(result).toBe("updated");
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0].table).toBe(activities);
@@ -193,7 +204,7 @@ describe("updateActivity", () => {
       json: async () => stravaActivityPayload(),
     });
 
-    await updateActivity(555);
+    await updateActivity(USER_ID, 555);
     const patch = updateCalls[0].set as Record<string, unknown>;
     expect(patch).not.toHaveProperty("workoutId");
     expect(patch).not.toHaveProperty("strengthSessionId");
@@ -214,7 +225,7 @@ describe("updateActivity", () => {
       json: async () => stravaActivityPayload({ type: "Hike", sport_type: "Hike" }),
     });
 
-    await updateActivity(555);
+    await updateActivity(USER_ID, 555);
     const patch = updateCalls[0].set as Record<string, unknown>;
     expect(patch.name).toBe("Evening Run");
     expect(patch.sportType).toBe("Hike");
@@ -235,13 +246,15 @@ describe("deleteStravaActivity", () => {
       },
     ]);
 
-    const result = await deleteStravaActivity(555);
+    const result = await deleteStravaActivity(USER_ID, 555);
     expect(result).toBe("trashed");
 
     const trashInsert = insertCalls.find((c) => c.table === activityTrash);
     expect(trashInsert).toBeDefined();
+    expect((trashInsert!.values as Record<string, unknown>).userId).toBe(USER_ID);
     const tombstoneInsert = insertCalls.find((c) => c.table === deletedActivities);
     expect(tombstoneInsert).toBeDefined();
+    expect((tombstoneInsert!.values as Record<string, unknown>).userId).toBe(USER_ID);
 
     expect(deleteCalls).toHaveLength(1);
     expect(deleteCalls[0].table).toBe(activities);
@@ -249,7 +262,7 @@ describe("deleteStravaActivity", () => {
 
   it("is a safe no-op when the activity was never imported or is already trashed", async () => {
     queueSelect([]); // no row found
-    const result = await deleteStravaActivity(999);
+    const result = await deleteStravaActivity(USER_ID, 999);
     expect(result).toBe("not_found");
     expect(insertCalls).toHaveLength(0);
     expect(deleteCalls).toHaveLength(0);
@@ -266,7 +279,7 @@ describe("deleteStravaActivity", () => {
       },
     ]);
 
-    await deleteStravaActivity(555);
+    await deleteStravaActivity(USER_ID, 555);
     const workoutUpdate = updateCalls.find((c) => c.table === workouts);
     expect(workoutUpdate).toBeDefined();
     expect((workoutUpdate!.set as Record<string, unknown>).status).toBe("planned");

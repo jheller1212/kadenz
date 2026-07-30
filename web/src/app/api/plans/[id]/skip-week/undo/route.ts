@@ -5,6 +5,7 @@ import { db, weeks, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 const UndoSchema = z.object({ weekId: z.string().uuid() }).strict();
 
@@ -19,6 +20,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
   let body: unknown;
@@ -62,11 +65,11 @@ export async function POST(
 
     // Re-create the calendar/watch events for the restored workouts.
     if (snapshot.length > 0) {
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (!connected) return;
           for (const w of snapshot) {
-            queueWorkoutSync(w.id, "create", "gcal").catch((err) =>
+            queueWorkoutSync(w.id, "create", userId, "gcal").catch((err) =>
               console.error("Failed to queue gcal restore:", err)
             );
           }

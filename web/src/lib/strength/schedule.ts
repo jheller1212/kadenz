@@ -60,7 +60,7 @@ function dowInTz(d: Date): number {
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(name);
 }
 
-export async function ensureStrengthSchedule(profileId: string | null) {
+export async function ensureStrengthSchedule(profileId: string | null, userId: string) {
   const [settings] = await db
     .select()
     .from(strengthPlanSettings)
@@ -192,7 +192,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     }
   }
 
-  const gcal = !profileId ? await isConnected().catch(() => false) : false;
+  const gcal = !profileId ? await isConnected(userId).catch(() => false) : false;
 
   // Build the day strip (tomorrow → horizon); the pure planner cuts it into
   // Monday weeks and enforces the per-day and per-week caps.
@@ -284,7 +284,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
     if (row) {
       created++;
       if (gcal) {
-        queueStrengthSessionSync(row.id, "create", "gcal").catch(() => {});
+        queueStrengthSessionSync(row.id, "create", userId, "gcal").catch(() => {});
       }
     }
   }
@@ -329,7 +329,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
       // no-op when an integration is off.
       queueGarminStrengthMove(s.id).catch(() => {});
       if (gcal) {
-        queueStrengthSessionSync(s.id, "update", "gcal").catch(() => {});
+        queueStrengthSessionSync(s.id, "update", userId, "gcal").catch(() => {});
       }
     }
   }
@@ -338,7 +338,7 @@ export async function ensureStrengthSchedule(profileId: string | null) {
 }
 
 /** Remove future auto-scheduled sessions the user never touched. */
-export async function pruneAutoSchedule(profileId: string | null) {
+export async function pruneAutoSchedule(profileId: string | null, userId: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const candidates = await db
@@ -401,12 +401,12 @@ export async function pruneAutoSchedule(profileId: string | null) {
   // linger forever on services the user can't clean up from here.
   for (const s of future) {
     if (s.gcalEventId) {
-      await queueStrengthSessionSync(s.id, "delete", "gcal", {
+      await queueStrengthSessionSync(s.id, "delete", userId, "gcal", {
         gcalEventId: s.gcalEventId,
       }).catch(() => {});
     }
     if (s.garminWorkoutId) {
-      await queueGarminStrengthDelete(s.id, s.garminWorkoutId).catch(() => {});
+      await queueGarminStrengthDelete(userId, s.id, s.garminWorkoutId).catch(() => {});
     }
   }
 
@@ -445,6 +445,7 @@ export async function pruneStaleAdhocSessions(): Promise<{ removed: number }> {
       date: strengthSessions.date,
       status: strengthSessions.status,
       watchEligible: strengthSessions.watchEligible,
+      userId: strengthSessions.userId,
     })
     .from(strengthSessions)
     .where(and(eq(strengthSessions.watchEligible, false), lte(strengthSessions.date, today)));
@@ -473,14 +474,17 @@ export async function pruneStaleAdhocSessions(): Promise<{ removed: number }> {
 
   // Nothing logged, nothing an athlete has meaningfully seen survive on
   // these rows — hard delete is safe, same reasoning as pruneAutoSchedule.
+  // This sweep is global (every profile across every account), so each
+  // session's own stored userId is what tells the delete which person's
+  // calendar it belongs to; there is no single caller-scoped user here.
   for (const s of stale) {
     if (s.gcalEventId) {
-      await queueStrengthSessionSync(s.id, "delete", "gcal", {
+      await queueStrengthSessionSync(s.id, "delete", s.userId, "gcal", {
         gcalEventId: s.gcalEventId,
       }).catch(() => {});
     }
     if (s.garminWorkoutId) {
-      await queueGarminStrengthDelete(s.id, s.garminWorkoutId).catch(() => {});
+      await queueGarminStrengthDelete(s.userId, s.id, s.garminWorkoutId).catch(() => {});
     }
   }
 
@@ -521,6 +525,7 @@ export async function autoCloseAbandonedSessions(): Promise<{ closed: number }> 
       startedAt: strengthSessions.startedAt,
       endedAt: strengthSessions.endedAt,
       garminWorkoutId: strengthSessions.garminWorkoutId,
+      userId: strengthSessions.userId,
     })
     .from(strengthSessions)
     .where(
@@ -543,7 +548,7 @@ export async function autoCloseAbandonedSessions(): Promise<{ closed: number }> 
     // "planned" push on the watch that's actually done is stale-is-worse-
     // than-missing, so it comes off rather than being left to look current.
     if (s.garminWorkoutId) {
-      queueGarminStrengthDelete(s.id, s.garminWorkoutId).catch((err) =>
+      queueGarminStrengthDelete(s.userId, s.id, s.garminWorkoutId).catch((err) =>
         console.error("Failed to queue Garmin delete on auto-close:", err)
       );
     }
@@ -557,11 +562,11 @@ export async function autoCloseAbandonedSessions(): Promise<{ closed: number }> 
  * sessions would otherwise linger while the scheduler adds new ones on top.
  * Also safe standalone (the reconcile route) to clean up an existing mess.
  */
-export async function reconcileStrengthSchedule(profileId: string | null) {
+export async function reconcileStrengthSchedule(profileId: string | null, userId: string) {
   const t = timer("strength.reconcile");
-  const { removed } = await pruneAutoSchedule(profileId);
+  const { removed } = await pruneAutoSchedule(profileId, userId);
   t.mark("prune");
-  const { created, shortWeeks } = await ensureStrengthSchedule(profileId);
+  const { created, shortWeeks } = await ensureStrengthSchedule(profileId, userId);
   t.mark("ensure");
   t.done({ removed, created, shortWeeks });
   return { removed, created, shortWeeks };

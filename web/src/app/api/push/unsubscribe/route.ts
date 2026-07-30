@@ -1,21 +1,19 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { removeSubscription } from "@/lib/reminders/subscriptions";
-import { getSessionUserId } from "@/lib/session";
+import { requireRequestUser } from "@/lib/request-user";
 
 // ── POST /api/push/unsubscribe ───────────────────────────────────────────────
 // Called when the athlete turns reminders off on this device, or when the
-// notification permission gets revoked at the OS level.
-//
-// proxy.ts already requires a valid session here, but an endpoint is just a
-// string in the request body. Scoped to the caller so a signed-in athlete
-// cannot silence someone else's device by posting their endpoint.
+// notification permission gets revoked at the OS level. Scoped to the caller
+// (resolved via request-user.ts, same path as subscribe) so a device can only
+// ever remove its own owner's subscription row.
 
 const BodySchema = z.object({ endpoint: z.string().url() }).strict();
 
 export async function POST(request: NextRequest) {
-  const userId = await getSessionUserId(request.headers.get("cookie"));
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireRequestUser(request);
+  if (auth.response) return auth.response;
 
   let body: unknown;
   try {
@@ -29,7 +27,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await removeSubscription(userId, parsed.data.endpoint);
+    await removeSubscription(auth.userId, parsed.data.endpoint);
     return Response.json({ ok: true });
   } catch (err) {
     console.error("Push unsubscribe error:", err);

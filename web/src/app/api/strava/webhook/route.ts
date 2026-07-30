@@ -5,6 +5,7 @@ import {
   deleteStravaActivity,
   loadSubscription,
 } from "@/lib/sync/strava-client";
+import { findUserByProviderAccount } from "@/lib/sync/credentials";
 
 // ── GET: Webhook subscription verification ──────────────────────────────────
 
@@ -62,11 +63,34 @@ export async function POST(request: NextRequest) {
   // follow Strava and which never change (the workout/strength-session link,
   // AI insight, everything Kadenz itself set).
   if (event.object_type === "activity") {
+    // A webhook event carries no session, and no user credential at all: the
+    // athlete id in the event body (`owner_id`) is the ONLY identity it has.
+    // Resolve it to whoever connected that Strava account; an athlete nobody
+    // has connected is not this app's business, so the event is logged and
+    // dropped rather than guessed at (never falls back to some default user).
+    const userId = await findUserByProviderAccount("strava", String(event.owner_id));
+    if (!userId) {
+      // Same 200 and the same body as every other event this route handles,
+      // returned at the same point (right after this one lookup, never after
+      // awaiting any processing): this endpoint is on proxy.ts's public
+      // exemption list, so an unauthenticated caller who supplies an
+      // arbitrary owner_id must not be able to tell "this athlete is a
+      // Kadenz user" from "this athlete isn't" by watching the response body,
+      // status, or timing. That would turn the webhook into an oracle for
+      // enumerating connected athletes. The resolved user id, and whether
+      // resolution succeeded at all, are never put in the response, only in
+      // this server-side log line.
+      console.warn(
+        `Strava ${event.aspect_type} event for unconnected athlete ${event.owner_id} (activity ${event.object_id}), ignoring`
+      );
+      return Response.json({ ok: true });
+    }
+
     // Process async — respond to Strava quickly (must reply within 2s).
     // Fire-and-forget means events aren't ordered against each other: an
     // "update" can in principle reach us before its own "create" has
     // finished. updateActivity() treats an unknown id as a no-op rather than
-    // creating a row, so that race just drops the update (rare in practice —
+    // creating a row, so that race just drops the update (rare in practice,
     // a title edit requires the athlete to act after the upload already
     // completed) instead of ever inventing data. See strava-client.ts.
     const handler =
@@ -75,7 +99,7 @@ export async function POST(request: NextRequest) {
         : event.aspect_type === "update"
           ? updateActivity
           : deleteStravaActivity;
-    handler(event.object_id).catch((err) => {
+    handler(userId, event.object_id).catch((err) => {
       console.error(
         `Failed to process Strava ${event.aspect_type} for activity ${event.object_id}:`,
         err

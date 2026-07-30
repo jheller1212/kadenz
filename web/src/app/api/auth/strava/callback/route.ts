@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await saveTokens(tokens);
+    await saveTokens(userId, tokens);
   } catch (err) {
     console.error("Failed to save Strava tokens:", err);
     return NextResponse.redirect(`${base}/?strava=error`);

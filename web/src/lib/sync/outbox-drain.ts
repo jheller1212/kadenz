@@ -41,10 +41,17 @@ import { isGarminWorkoutSyncEnabled } from "./garmin-config";
  * with `FOR UPDATE SKIP LOCKED`, so overlapping drains can never process the
  * same row twice.
  */
-export async function drainOutboxNow(): Promise<void> {
+export async function drainOutboxNow(userId: string): Promise<void> {
+  // `userId` is only needed for the two QUEUEING decisions below: whether this
+  // person has watch sync on, and whether they have a calendar connected. The
+  // drains themselves take no user, because an outbox row already records its
+  // own owner and each job is delivered with that owner's credentials. Passing
+  // a user into the drain would be the wrong shape: one request's drain
+  // legitimately picks up rows queued by anyone, since it claims whatever is
+  // pending with FOR UPDATE SKIP LOCKED.
   try {
-    if (await isGarminWorkoutSyncEnabled()) {
-      await queueGarminStrengthWindowSync();
+    if (await isGarminWorkoutSyncEnabled(userId)) {
+      await queueGarminStrengthWindowSync(userId);
     }
   } catch (err) {
     console.error("Failed to queue Garmin strength top-up:", err);
@@ -52,7 +59,7 @@ export async function drainOutboxNow(): Promise<void> {
 
   const drains: Promise<unknown>[] = [processGarminOutbox()];
   try {
-    if (await isConnected()) drains.push(processGCalOutbox());
+    if (await isConnected(userId)) drains.push(processGCalOutbox());
   } catch (err) {
     console.error("gcal connection check failed:", err);
   }
@@ -75,6 +82,6 @@ export async function drainOutboxNow(): Promise<void> {
  * drainOutboxNow() yourself inside your own after() callback, after your
  * queueing.
  */
-export function scheduleOutboxDrain(): void {
-  after(drainOutboxNow);
+export function scheduleOutboxDrain(userId: string): void {
+  after(() => drainOutboxNow(userId));
 }

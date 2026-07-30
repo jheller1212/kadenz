@@ -12,6 +12,7 @@ import { SESSION_TEMPLATES, EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { resolveRequestUserId } from "@/lib/request-user";
 import type { Equipment, StrengthSessionType } from "@/lib/strength/types";
 import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
 import { alignSetHeartRate, type HeartRateStream } from "@/lib/sync/strength-hr";
@@ -215,6 +216,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
   let body: unknown;
@@ -350,10 +353,10 @@ export async function PATCH(
           .set({ sessionId: updated.id })
           .where(eq(painLogs.sessionId, twin.id));
         if (twin.gcalEventId) {
-          isConnected()
+          isConnected(userId)
             .then((connected) => {
               if (connected) {
-                return queueStrengthSessionSync(twin.id, "delete", "gcal", {
+                return queueStrengthSessionSync(twin.id, "delete", userId, "gcal", {
                   gcalEventId: twin.gcalEventId,
                 });
               }
@@ -367,7 +370,7 @@ export async function PATCH(
         // uncleared id there would look, to the self-heal resync, like a
         // legitimate push that needs repair rather than a deliberate removal.
         if (twin.garminWorkoutId) {
-          queueGarminStrengthDelete(twin.id, twin.garminWorkoutId).catch((err) =>
+          queueGarminStrengthDelete(userId, twin.id, twin.garminWorkoutId).catch((err) =>
             console.error("Failed to queue twin Garmin cleanup:", err)
           );
         }
@@ -394,7 +397,7 @@ export async function PATCH(
       // already reflects that on the device; this push-side copy is inert).
       if (updates.status === "completed" && updated?.garminWorkoutId) {
         const garminWorkoutId = updated.garminWorkoutId;
-        queueGarminStrengthDelete(id, garminWorkoutId).catch((err) =>
+        queueGarminStrengthDelete(userId, id, garminWorkoutId).catch((err) =>
           console.error("Failed to queue Garmin strength delete on completion:", err)
         );
         // Clear it now, not just after the queued job runs — otherwise a
@@ -413,10 +416,10 @@ export async function PATCH(
           console.error("Failed to queue Garmin strength update:", err)
         );
       }
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (connected) {
-            queueStrengthSessionSync(id, "update", "gcal").catch((err) =>
+            queueStrengthSessionSync(id, "update", userId, "gcal").catch((err) =>
               console.error("Failed to queue strength gcal update:", err)
             );
           }
@@ -435,9 +438,11 @@ export async function PATCH(
 // Remove a scheduled strength session and its calendar event.
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   try {
     const [existing] = await db
@@ -457,10 +462,10 @@ export async function DELETE(
 
     // Fan out the calendar deletion if there was an event.
     if (existing.gcalEventId) {
-      isConnected()
+      isConnected(userId)
         .then((connected) => {
           if (connected) {
-            queueStrengthSessionSync(id, "delete", "gcal", {
+            queueStrengthSessionSync(id, "delete", userId, "gcal", {
               gcalEventId: existing.gcalEventId!,
             }).catch((err) =>
               console.error("Failed to queue strength gcal delete:", err)
@@ -472,7 +477,7 @@ export async function DELETE(
 
     // ...and take it off the watch, or it lingers there after deletion here.
     if (existing.garminWorkoutId) {
-      queueGarminStrengthDelete(id, existing.garminWorkoutId).catch((err) =>
+      queueGarminStrengthDelete(userId, id, existing.garminWorkoutId).catch((err) =>
         console.error("Failed to queue Garmin strength delete:", err)
       );
     }

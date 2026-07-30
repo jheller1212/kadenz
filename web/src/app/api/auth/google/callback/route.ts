@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       isOwner: (email ?? "").toLowerCase() === owner,
     });
 
-    await saveTokens({
+    await saveTokens(userId, {
       access_token: tokens.access_token!,
       refresh_token: tokens.refresh_token,
       expiry_date: tokens.expiry_date ?? Date.now() + 3600 * 1000,

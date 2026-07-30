@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
 import { garminTombstoneKey } from "@/lib/sync/garmin-activity-import";
 import { rowToPayload } from "@/lib/activity-trash";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 
@@ -194,11 +195,15 @@ async function fetchStravaDetail(
 // ── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET(
-  _req: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const callerUserId = await resolveRequestUserId(request);
+    if (!callerUserId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     // Fetch activity row
     const [activity] = await db
@@ -224,7 +229,19 @@ export async function GET(
       activity.deviceName == null ||
       activity.gearName == null ||
       cachedStreams == null;
-    const tokenPromise = needsLive && activity.stravaId ? getAccessToken() : null;
+    // Live Strava data is fetched with the CALLER's token, and only for a row
+    // the caller owns. Using the row owner's token instead would be worse than
+    // the read leak this route still has: ownership filtering on the SELECT
+    // above is Phase 3's job, so until that lands a caller can name any
+    // activity id, and fetching it with the owner's credentials would mean
+    // actively querying someone else's Strava account on a stranger's behalf.
+    // Scoped this way, the worst case stays a stale cached row rather than a
+    // live read against an account the caller has no claim to.
+    const ownedByCaller = activity.userId === callerUserId;
+    const tokenPromise =
+      needsLive && ownedByCaller && activity.stravaId
+        ? getAccessToken(callerUserId)
+        : null;
 
     // Fetch linked workout + blocks if present, in one query (relational
     // fetch) instead of two sequential round trips.

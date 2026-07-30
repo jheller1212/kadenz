@@ -2,6 +2,7 @@ import { db, syncOutbox, activities, workouts, plans, strengthSessions, strength
 import { eq, and, gte, lte, ne, isNull, inArray, sql } from "drizzle-orm";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
+import { loadCredentials, saveCredentials } from "@/lib/sync/credentials";
 import { isDuplicateActivity } from "./garmin-import";
 import { pickWorkoutMatch } from "./workout-match";
 import { pickStrengthSessionMatch, type StrengthSessionCandidate } from "./strength-match";
@@ -48,11 +49,11 @@ async function isDuplicateOfExisting(
   return isDuplicateActivity({ startDate, durationSeconds }, nearby);
 }
 
-// ── Token storage (same pattern as gcal-client.ts) ──────────────────────────
-
-const TOKEN_ENTITY_TYPE = "plan" as const;
-const TOKEN_ENTITY_ID = "00000000-0000-0000-0000-000000000001";
-const TOKEN_IDEM_KEY = "strava:tokens:singleton";
+// ── Token storage ─────────────────────────────────────────────────────────────
+// Per-user, via lib/sync/credentials.ts. Before Phase 4 these lived in one
+// sync_outbox row shared by the whole installation, so the second person to
+// connect Strava overwrote the first person's tokens. See credentials.ts for
+// the full story.
 
 export interface StravaTokens {
   access_token: string;
@@ -61,46 +62,37 @@ export interface StravaTokens {
   athlete_id: number;
 }
 
-export async function loadTokens(): Promise<StravaTokens | null> {
-  try {
-    const [row] = await db
-      .select({ payload: syncOutbox.payload })
-      .from(syncOutbox)
-      .where(eq(syncOutbox.idempotencyKey, TOKEN_IDEM_KEY))
-      .limit(1);
-
-    if (!row?.payload) return null;
-    return row.payload as unknown as StravaTokens;
-  } catch {
-    return null;
-  }
+export async function loadTokens(userId: string): Promise<StravaTokens | null> {
+  // Reached from the Strava webhook too (via getAccessToken → fetchActivity),
+  // where `userId` comes from findUserByProviderAccount rather than from a
+  // session. Once row-level security lands, this load has to run inside
+  // withUser(userId, ...): the webhook is what ESTABLISHES the user context
+  // here, it doesn't arrive with one the way a session-authenticated route
+  // does.
+  return loadCredentials<StravaTokens>(userId, "strava");
 }
 
-export async function saveTokens(tokens: StravaTokens): Promise<void> {
-  await db
-    .insert(syncOutbox)
-    .values({
-      entityType: TOKEN_ENTITY_TYPE,
-      entityId: TOKEN_ENTITY_ID,
-      action: "update",
-      target: "gcal", // reuse existing enum value — no migration needed
-      status: "completed",
-      idempotencyKey: TOKEN_IDEM_KEY,
-      payload: tokens as unknown as Record<string, unknown>,
-      attempts: 0,
-    })
-    .onConflictDoUpdate({
-      target: syncOutbox.idempotencyKey,
-      set: { payload: tokens as unknown as Record<string, unknown> },
-    });
+export async function saveTokens(userId: string, tokens: StravaTokens): Promise<void> {
+  // The athlete id the webhook looks callers up by lives in user_identities,
+  // not here (see credentials.ts findUserByProviderAccount). Connecting
+  // Strava IS logging in with Strava (api/auth/strava/callback), so that
+  // identity row already exists by the time this runs.
+  await saveCredentials(userId, "strava", tokens as unknown as Record<string, unknown>);
 }
 
-export async function isConnected(): Promise<boolean> {
-  return (await loadTokens()) !== null;
+export async function isConnected(userId: string): Promise<boolean> {
+  return (await loadTokens(userId)) !== null;
 }
 
-// ── Webhook subscription (same singleton storage pattern) ───────────────────
+// ── Webhook subscription ─────────────────────────────────────────────────────
+// Deliberately still a single installation-wide row, unlike the tokens above:
+// Strava allows exactly one push subscription per APPLICATION, not per user
+// (see getWebhookSubscription/registerWebhookSubscription below), so there is
+// no "which user" to key this by. It stays keyed by a fixed idempotency key
+// in sync_outbox, the same way tokens used to be before they became per-user.
 
+const SUBSCRIPTION_ENTITY_TYPE = "plan" as const;
+const SUBSCRIPTION_ENTITY_ID = "00000000-0000-0000-0000-000000000001";
 const SUBSCRIPTION_IDEM_KEY = "strava:subscription:singleton";
 
 interface StoredSubscription {
@@ -127,8 +119,8 @@ async function saveSubscription(sub: StoredSubscription): Promise<void> {
   await db
     .insert(syncOutbox)
     .values({
-      entityType: TOKEN_ENTITY_TYPE,
-      entityId: TOKEN_ENTITY_ID,
+      entityType: SUBSCRIPTION_ENTITY_TYPE,
+      entityId: SUBSCRIPTION_ENTITY_ID,
       action: "update",
       target: "gcal", // reuse existing enum value — no migration needed
       status: "completed",
@@ -279,6 +271,7 @@ export async function exchangeCode(code: string): Promise<StravaTokens> {
 }
 
 async function refreshAccessToken(
+  userId: string,
   tokens: StravaTokens
 ): Promise<StravaTokens> {
   const { clientId, clientSecret } = getConfig();
@@ -307,18 +300,18 @@ async function refreshAccessToken(
     athlete_id: tokens.athlete_id,
   };
 
-  await saveTokens(refreshed);
+  await saveTokens(userId, refreshed);
   return refreshed;
 }
 
 /** Get a valid access token, refreshing if needed. */
-export async function getAccessToken(): Promise<string> {
-  let tokens = await loadTokens();
+export async function getAccessToken(userId: string): Promise<string> {
+  let tokens = await loadTokens(userId);
   if (!tokens) throw new Error("Strava not connected");
 
   // Refresh if expiring within 5 minutes
   if (tokens.expires_at < Date.now() / 1000 + 300) {
-    tokens = await refreshAccessToken(tokens);
+    tokens = await refreshAccessToken(userId, tokens);
   }
 
   return tokens.access_token;
@@ -333,9 +326,10 @@ const STRAVA_API = "https://www.strava.com/api/v3";
 export type { StravaActivity };
 
 export async function fetchActivity(
+  userId: string,
   activityId: number
 ): Promise<StravaActivity> {
-  const token = await getAccessToken();
+  const token = await getAccessToken(userId);
 
   const res = await fetch(`${STRAVA_API}/activities/${activityId}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -474,7 +468,7 @@ export async function findMatchingStrengthSession(
 /** Process a Strava activity: store it and match to a workout/session. */
 export type ProcessResult = "stored" | "duplicate" | "skipped" | "deleted";
 
-export async function processActivity(activityId: number): Promise<ProcessResult> {
+export async function processActivity(userId: string, activityId: number): Promise<ProcessResult> {
   // Never resurrect an activity the user deleted in Kadenz.
   const [tombstone] = await db
     .select({ stravaId: deletedActivities.stravaId })
@@ -492,7 +486,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
 
   if (existing) return "duplicate";
 
-  const activity = await fetchActivity(activityId);
+  const activity = await fetchActivity(userId, activityId);
   const isRun = isRunActivity(activity);
   const isStrength = isStrengthActivity(activity);
   if (!isRun && !isStrength) return "skipped";
@@ -517,6 +511,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
       ? await findMatchingStrengthSession(activity)
       : null;
     await db.insert(activities).values({
+      userId,
       strengthSessionId,
       stravaId: String(activityId),
       ...buildProviderExternalId("strava", activityId),
@@ -541,10 +536,10 @@ export async function processActivity(activityId: number): Promise<ProcessResult
         .where(eq(strengthSessions.id, strengthSessionId));
 
       if (sess?.gcalEventId) {
-        isGcalConnected()
+        isGcalConnected(userId)
           .then((connected) => {
             if (connected) {
-              return queueStrengthSessionSync(strengthSessionId, "delete", "gcal", {
+              return queueStrengthSessionSync(strengthSessionId, "delete", userId, "gcal", {
                 gcalEventId: sess.gcalEventId,
               });
             }
@@ -566,6 +561,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
   // kept as-is so the feed's type badge doesn't change for already-synced
   // athletes.
   await db.insert(activities).values({
+    userId,
     workoutId,
     stravaId: String(activityId),
     ...buildProviderExternalId("strava", activityId),
@@ -599,7 +595,7 @@ export async function processActivity(activityId: number): Promise<ProcessResult
 
 export type UpdateResult = "updated" | "not_found" | "trashed" | "not_tracked";
 
-export async function updateActivity(activityId: number): Promise<UpdateResult> {
+export async function updateActivity(userId: string, activityId: number): Promise<UpdateResult> {
   // Trashed/tombstoned locally — the athlete removed it from Kadenz, so a
   // Strava-side edit must not bring it back. (Belt and suspenders: a trashed
   // row is also gone from `activities`, so the lookup below would miss it
@@ -625,7 +621,7 @@ export async function updateActivity(activityId: number): Promise<UpdateResult> 
     .limit(1);
   if (!existing) return "not_found";
 
-  const activity = await fetchActivity(activityId);
+  const activity = await fetchActivity(userId, activityId);
   const isRun = isRunActivity(activity);
 
   // Strava's own type change is honoured on the row (sportType always
@@ -676,7 +672,7 @@ export async function updateActivity(activityId: number): Promise<UpdateResult> 
 // both look identical from here: no row in `activities` for this Strava id.
 export type DeleteResult = "trashed" | "not_found";
 
-export async function deleteStravaActivity(activityId: number): Promise<DeleteResult> {
+export async function deleteStravaActivity(userId: string, activityId: number): Promise<DeleteResult> {
   const stravaId = String(activityId);
   const [activity] = await db.select().from(activities).where(eq(activities.stravaId, stravaId));
   // Nothing to do: never imported, or already trashed (manually, or by an
@@ -685,7 +681,7 @@ export async function deleteStravaActivity(activityId: number): Promise<DeleteRe
 
   await db
     .insert(activityTrash)
-    .values({ id: activity.id, payload: rowToPayload(activity) })
+    .values({ id: activity.id, userId, payload: rowToPayload(activity) })
     .onConflictDoNothing();
 
   if (activity.workoutId) {
@@ -700,7 +696,7 @@ export async function deleteStravaActivity(activityId: number): Promise<DeleteRe
       .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
       .where(eq(strengthSessions.id, activity.strengthSessionId));
   }
-  await db.insert(deletedActivities).values({ stravaId }).onConflictDoNothing();
+  await db.insert(deletedActivities).values({ stravaId, userId }).onConflictDoNothing();
   await db.delete(activities).where(eq(activities.id, activity.id));
 
   return "trashed";

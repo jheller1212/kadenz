@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
+import { requireRequestUser } from "@/lib/request-user";
 
 const CompleteSchema = z.object({
   actualKm: z.number().nonnegative().optional(),
@@ -17,6 +18,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
 ) {
+  const { userId, response: unauth } = await requireRequestUser(request);
+  if (unauth) return unauth;
   const { workoutId } = await params;
 
   let body: unknown = {};
@@ -57,9 +60,9 @@ export async function PATCH(
     }
 
     // Queue gcal update if connected
-    isConnected().then((connected) => {
+    isConnected(userId).then((connected) => {
       if (connected) {
-        queueWorkoutSync(workoutId, "update", "gcal").catch((err) => {
+        queueWorkoutSync(workoutId, "update", userId, "gcal").catch((err) => {
           console.error("Failed to queue gcal update:", err);
         });
       }

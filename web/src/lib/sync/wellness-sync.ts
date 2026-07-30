@@ -35,7 +35,18 @@ function dateKey(d: Date): string {
   return toGarminDate(d);
 }
 
-export async function runWellnessSync(): Promise<WellnessSyncResult> {
+/**
+ * Pull overnight physiology from the (single, installation-level) Garmin
+ * worker for the given userId. Garmin isn't per-user OAuth, only the owner
+ * ever resolves to a watch, but wellness_metrics is a real per-row-owned
+ * table, and the `existing` query below is scoped to that userId's own rows
+ * for the same reason garmin-config.ts keys its state by id: unscoped, a
+ * caller iterating multiple ids would read one iteration's collected nights
+ * as proof that another iteration's nights are collected too, and silently
+ * never backfill them. No error and no empty screen, just a readiness
+ * baseline stuck in its 21-night warm-up with no visible cause.
+ */
+export async function runWellnessSync(userId: string): Promise<WellnessSyncResult> {
   if (!garminClient.isConfigured()) {
     return { pulled: 0, missing: 0, failed: 0 };
   }
@@ -45,19 +56,15 @@ export async function runWellnessSync(): Promise<WellnessSyncResult> {
 
   // Garmin rows only — a row from another source (Apple Health, Health
   // Connect) on the same date must not suppress this pull. wellness_metrics
-  // is now unique on (source, date), not date alone, so each source tracks
-  // its own "have I already got this night" independently.
-  // Phase 3 must add the user filter here. This asks "which nights do I
-  // already have", and unscoped it will read another athlete's rows as proof
-  // that this athlete's nights are collected, so the backfill silently never
-  // pulls them. No error and no empty screen: just a readiness baseline stuck
-  // in its 21 night warm-up with no visible cause.
+  // is unique on (source, date), not date alone, so each source tracks its
+  // own "have I already got this night" independently.
   const existing = await db
     .select({ date: wellnessMetrics.date })
     .from(wellnessMetrics)
     .where(
       and(
         eq(wellnessMetrics.source, "garmin"),
+        eq(wellnessMetrics.userId, userId),
         gte(wellnessMetrics.date, windowStart),
         lt(wellnessMetrics.date, today)
       )
@@ -95,7 +102,15 @@ export async function runWellnessSync(): Promise<WellnessSyncResult> {
           hrvWeeklyAvg: w.hrvWeeklyAvg,
           hrvStatus: w.hrvStatus,
           source: "garmin",
+          userId,
         })
+        // NOTE: the unique constraint this targets is still (source, date),
+        // not (user_id, source, date). See the userId column comment on
+        // wellnessMetrics in schema.ts. Two users' Garmin pulls landing on
+        // the same calendar date will still collide at the DB layer, upsert
+        // this row into each other's, regardless of the userId this function
+        // scopes its reads and writes by. Widening the constraint is a
+        // migration, out of scope here; flagged, not fixed.
         .onConflictDoUpdate({
           target: [wellnessMetrics.source, wellnessMetrics.date],
           set: {
@@ -105,6 +120,7 @@ export async function runWellnessSync(): Promise<WellnessSyncResult> {
             hrvWeeklyAvg: w.hrvWeeklyAvg,
             hrvStatus: w.hrvStatus,
             source: "garmin",
+            userId,
             updatedAt: new Date(),
           },
         });

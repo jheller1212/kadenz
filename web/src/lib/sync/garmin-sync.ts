@@ -53,6 +53,7 @@ export async function queueGarminWorkoutMove(workoutId: string): Promise<void> {
       date: workouts.date,
       type: workouts.type,
       status: workouts.status,
+      userId: workouts.userId,
     })
     .from(workouts)
     .where(eq(workouts.id, workoutId))
@@ -60,7 +61,7 @@ export async function queueGarminWorkoutMove(workoutId: string): Promise<void> {
   if (!row || row.type === "rest") return;
 
   if (!row.garminWorkoutId) {
-    if (!(await isGarminWorkoutSyncEnabled())) return;
+    if (!(await isGarminWorkoutSyncEnabled(row.userId))) return;
     if (row.status !== "planned") return;
     const windowEnd = new Date();
     windowEnd.setDate(windowEnd.getDate() + GARMIN_WINDOW_DAYS);
@@ -79,10 +80,14 @@ export async function queueGarminWorkoutMove(workoutId: string): Promise<void> {
         ? `garmin:update:${workoutId}`
         : `garmin:create:${workoutId}`,
       attempts: 0,
+      // The workout's own owner, not the row default, this outbox row must
+      // be attributed to whoever the workout belongs to, not whoever owns
+      // the installation.
+      userId: row.userId,
     })
     .onConflictDoUpdate({
       target: syncOutbox.idempotencyKey,
-      set: { status: "pending", attempts: 0, lastError: null },
+      set: { status: "pending", attempts: 0, lastError: null, userId: row.userId },
     });
   processGarminOutbox().catch(console.error);
 }
@@ -93,10 +98,15 @@ function startOfToday(): Date {
   return d;
 }
 
-/** Queue Garmin deletions for workouts that are being removed (plan regenerate
+/**
+ * Queue Garmin deletions for workouts that are being removed (plan regenerate
  * or archive). Pass the garmin ids explicitly — the rows may already be gone
- * by the time the job runs. */
+ * by the time the job runs, so there is no row left here to read an owner
+ * off; the caller must know it (it already deleted or is about to delete
+ * these workouts, so it has their owner in hand).
+ */
 export async function queueGarminWorkoutDeletes(
+  userId: string,
   items: Array<{ workoutId: string; garminWorkoutId: string }>
 ): Promise<void> {
   if (!garminClient.isConfigured()) return;
@@ -113,6 +123,7 @@ export async function queueGarminWorkoutDeletes(
         idempotencyKey: `garmin:delete:${item.workoutId}`,
         payload: { garminWorkoutId: item.garminWorkoutId },
         attempts: 0,
+        userId,
       })
       .onConflictDoUpdate({
         target: syncOutbox.idempotencyKey,
@@ -121,6 +132,7 @@ export async function queueGarminWorkoutDeletes(
           attempts: 0,
           lastError: null,
           payload: { garminWorkoutId: item.garminWorkoutId },
+          userId,
         },
       });
   }
@@ -128,12 +140,14 @@ export async function queueGarminWorkoutDeletes(
 }
 
 /**
- * Queue Garmin pushes for upcoming run workouts inside the rolling window.
- * Idempotent: workouts already pushed (garminWorkoutId set) or already queued
- * (idempotency key) are skipped, so both plan creation and the daily cron can
- * call this freely. Pass a planId to scope to one plan; omit for all active.
+ * Queue Garmin pushes for upcoming run workouts inside the rolling window,
+ * for one user. Idempotent: workouts already pushed (garminWorkoutId set) or
+ * already queued (idempotency key) are skipped, so both plan creation and
+ * the daily cron can call this freely. Pass a planId to scope to one plan
+ * (the plan is still checked against userId, so passing another user's plan
+ * id here just finds nothing); omit for all of that user's active plans.
  */
-export async function queueGarminWindowSync(planId?: string): Promise<number> {
+export async function queueGarminWindowSync(userId: string, planId?: string): Promise<number> {
   if (!garminClient.isConfigured()) return 0;
   const now = new Date();
   const windowStart = new Date(now);
@@ -149,6 +163,7 @@ export async function queueGarminWindowSync(planId?: string): Promise<number> {
     eq(workouts.status, "planned"),
     isNull(workouts.garminWorkoutId),
     eq(plans.status, "active"),
+    eq(workouts.userId, userId),
   ];
   if (planId) conditions.push(eq(workouts.planId, planId));
 
@@ -171,6 +186,7 @@ export async function queueGarminWindowSync(planId?: string): Promise<number> {
         status: "pending" as const,
         idempotencyKey: `garmin:create:${w.id}`,
         attempts: 0,
+        userId,
       }))
     )
     .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
@@ -192,7 +208,7 @@ export async function queueGarminWindowSync(planId?: string): Promise<number> {
  * there via the athlete's explicit "Send to watch" control, which is a
  * one-shot direct push (POST /sessions/[id]/garmin), not this queue.
  */
-export async function queueGarminStrengthWindowSync(): Promise<number> {
+export async function queueGarminStrengthWindowSync(userId: string): Promise<number> {
   const now = new Date();
   const windowStart = new Date(now);
   windowStart.setHours(0, 0, 0, 0);
@@ -211,7 +227,8 @@ export async function queueGarminStrengthWindowSync(): Promise<number> {
         isNull(strengthSessions.garminWorkoutId),
         eq(strengthSessions.watchEligible, true),
         // Owner only — a household member's sessions aren't on this watch.
-        isNull(strengthSessions.profileId)
+        isNull(strengthSessions.profileId),
+        eq(strengthSessions.userId, userId)
       )
     );
 
@@ -228,11 +245,12 @@ export async function queueGarminStrengthWindowSync(): Promise<number> {
         status: "pending" as const,
         idempotencyKey: `garmin:strength:create:${sess.id}`,
         attempts: 0,
+        userId,
       }))
     )
     .onConflictDoUpdate({
       target: syncOutbox.idempotencyKey,
-      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null },
+      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId },
     });
 
   processGarminOutbox().catch(console.error);
@@ -262,6 +280,7 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
       status: strengthSessions.status,
       profileId: strengthSessions.profileId,
       watchEligible: strengthSessions.watchEligible,
+      userId: strengthSessions.userId,
     })
     .from(strengthSessions)
     .where(eq(strengthSessions.id, sessionId))
@@ -270,7 +289,7 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
 
   if (!row.garminWorkoutId) {
     if (!row.watchEligible) return;
-    if (!(await isGarminWorkoutSyncEnabled())) return;
+    if (!(await isGarminWorkoutSyncEnabled(row.userId))) return;
     if (row.status !== "planned") return;
     const windowEnd = new Date();
     windowEnd.setDate(windowEnd.getDate() + GARMIN_WINDOW_DAYS);
@@ -287,17 +306,24 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
       status: "pending",
       idempotencyKey: `garmin:strength:update:${sessionId}`,
       attempts: 0,
+      userId: row.userId,
     })
     .onConflictDoUpdate({
       target: syncOutbox.idempotencyKey,
-      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null },
+      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId: row.userId },
     });
 
   processGarminOutbox().catch(console.error);
 }
 
-/** Remove a strength session from the watch (pruned, trashed or rescheduled away). */
+/**
+ * Remove a strength session from the watch (pruned, trashed or rescheduled
+ * away). Like queueGarminWorkoutDeletes, there is no row left to read an
+ * owner off by the time some of these callers run (the session may already
+ * be gone), so the caller must pass it.
+ */
 export async function queueGarminStrengthDelete(
+  userId: string,
   sessionId: string,
   garminWorkoutId: string
 ): Promise<void> {
@@ -314,10 +340,11 @@ export async function queueGarminStrengthDelete(
       idempotencyKey: `garmin:strength:delete:${sessionId}`,
       payload: { garminWorkoutId },
       attempts: 0,
+      userId,
     })
     .onConflictDoUpdate({
       target: syncOutbox.idempotencyKey,
-      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null },
+      set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId },
     });
 
   processGarminOutbox().catch(console.error);
@@ -331,15 +358,19 @@ export async function queueGarminStrengthDelete(
  * plan repairs itself after workouts are removed on Garmin's side. Nothing is
  * ever deleted here; repair only ever adds.
  */
-export async function resyncGarminWindow(): Promise<{
+export async function resyncGarminWindow(userId: string): Promise<{
   repushed: number;
   runsQueued: number;
   strengthQueued: number;
 }> {
   const empty = { repushed: 0, runsQueued: 0, strengthQueued: 0 };
   if (!garminClient.isConfigured()) return empty;
-  if (!(await isGarminWorkoutSyncEnabled())) return empty;
+  if (!(await isGarminWorkoutSyncEnabled(userId))) return empty;
 
+  // The Garmin worker credential is installation-level (see lib/users.ts
+  // listAllUserIds), so this listing is whatever is actually on the one
+  // configured watch, not scoped by user. The rows checked against it below
+  // ARE scoped, so a user's stale-id repair never touches another user's rows.
   const onGarmin = await garminClient.listWorkouts(300);
   const idsOnGarmin = new Set(onGarmin.map((w) => w.garminWorkoutId));
 
@@ -347,11 +378,11 @@ export async function resyncGarminWindow(): Promise<{
     db
       .select({ id: workouts.id, garminWorkoutId: workouts.garminWorkoutId })
       .from(workouts)
-      .where(isNotNull(workouts.garminWorkoutId)),
+      .where(and(isNotNull(workouts.garminWorkoutId), eq(workouts.userId, userId))),
     db
       .select({ id: strengthSessions.id, garminWorkoutId: strengthSessions.garminWorkoutId })
       .from(strengthSessions)
-      .where(isNotNull(strengthSessions.garminWorkoutId)),
+      .where(and(isNotNull(strengthSessions.garminWorkoutId), eq(strengthSessions.userId, userId))),
   ]);
 
   const staleRuns = rowsNeedingRepush(runRows, idsOnGarmin);
@@ -371,8 +402,8 @@ export async function resyncGarminWindow(): Promise<{
   }
 
   // Cleared ids look "never pushed", so the window sync re-creates them.
-  const runsQueued = await queueGarminWindowSync();
-  const strengthQueued = await queueGarminStrengthWindowSync();
+  const runsQueued = await queueGarminWindowSync(userId);
+  const strengthQueued = await queueGarminStrengthWindowSync(userId);
 
   return {
     repushed: staleRuns.length + staleStrength.length,

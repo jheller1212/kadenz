@@ -1,12 +1,12 @@
-import { db, syncOutbox } from "@/db";
-import { eq } from "drizzle-orm";
+import { deleteCredentials } from "@/lib/sync/credentials";
+import { requireRequestUser } from "@/lib/request-user";
+import type { NextRequest } from "next/server";
 
-const TOKEN_IDEM_KEY = "strava:tokens:singleton";
+export async function POST(request: NextRequest) {
+  const { userId, response } = await requireRequestUser(request);
+  if (response) return response;
 
-export async function POST() {
-  await db
-    .delete(syncOutbox)
-    .where(eq(syncOutbox.idempotencyKey, TOKEN_IDEM_KEY));
+  await deleteCredentials(userId, "strava");
 
   return Response.json({ ok: true });
 }

@@ -20,6 +20,7 @@ const MAX_ATTEMPTS = 3;
 export async function queueWorkoutSync(
   workoutId: string,
   action: "create" | "update" | "delete",
+  userId: string,
   target: "gcal" | "garmin" = "gcal",
   payload?: Record<string, unknown>
 ): Promise<void> {
@@ -36,6 +37,7 @@ export async function queueWorkoutSync(
       idempotencyKey,
       payload: payload ?? null,
       attempts: 0,
+      userId,
     })
     .onConflictDoUpdate({
       // Re-arm an existing row: a completed job for this key must not swallow
@@ -62,6 +64,7 @@ export async function queueWorkoutSync(
  */
 export async function queueWorkoutEventDeletes(
   events: Array<{ workoutId: string; gcalEventId: string }>,
+  userId: string,
   target: "gcal" | "garmin" = "gcal"
 ): Promise<void> {
   if (events.length === 0) return;
@@ -74,6 +77,7 @@ export async function queueWorkoutEventDeletes(
     idempotencyKey: `${target}:delete:${e.workoutId}`,
     payload: { gcalEventId: e.gcalEventId } as Record<string, unknown>,
     attempts: 0,
+    userId,
   }));
   await db
     .insert(syncOutbox)
@@ -96,6 +100,7 @@ export async function queueWorkoutEventDeletes(
 
 export async function queuePlanWorkoutsSync(
   planId: string,
+  userId: string,
   target: "gcal" | "garmin" = "gcal",
   // Optional explicit set of workout ids to push (e.g. after a regenerate
   // that preserved some workouts untouched — those must not be re-queued as
@@ -117,6 +122,7 @@ export async function queuePlanWorkoutsSync(
     status: "pending" as const,
     idempotencyKey: `${target}:create:${w.id}`,
     attempts: 0,
+    userId,
   }));
 
   // Batch insert all, skip existing idempotency keys
@@ -144,6 +150,7 @@ export async function queuePlanWorkoutsSync(
 export async function queueStrengthSessionSync(
   sessionId: string,
   action: "create" | "update" | "delete",
+  userId: string,
   target: "gcal" | "garmin" = "gcal",
   payload?: Record<string, unknown>
 ): Promise<void> {
@@ -160,6 +167,7 @@ export async function queueStrengthSessionSync(
       idempotencyKey,
       payload: payload ?? null,
       attempts: 0,
+      userId,
     })
     .onConflictDoUpdate({
       // Re-arm an existing row: a completed job for this key must not swallow
@@ -266,11 +274,21 @@ export async function claimJobs(
       last_error AS "lastError",
       created_at AS "createdAt",
       processed_at AS "processedAt",
-      claimed_at AS "claimedAt"
+      claimed_at AS "claimedAt",
+      user_id AS "userId"
   `);
   return Array.from(rows as unknown as Array<typeof syncOutbox.$inferSelect>);
 }
 
+// A single drain now serves every connected user, not one owner: each job
+// carries its own `userId` (see claimJobs' SELECT and queueWorkoutSync /
+// queueStrengthSessionSync / queuePlanWorkoutsSync / queueWorkoutEventDeletes
+// above, which all require the caller to say whose job this is), and
+// processJob/processStrengthJob read that field to build the right person's
+// calendar client. There is no per-request userId to thread here the way
+// there is in an API route: the drain processes a batch spanning however
+// many people have jobs pending, so the job row itself is the only source of
+// truth for "which person's calendar does this belong to".
 export async function processGCalOutbox(): Promise<SyncResult> {
   const result: SyncResult = {
     processed: 0,
@@ -369,7 +387,7 @@ async function processStrengthJob(
 
   if (job.action === "delete") {
     const payload = job.payload as { gcalEventId?: string } | null;
-    if (payload?.gcalEventId) await deleteEvent(payload.gcalEventId);
+    if (payload?.gcalEventId) await deleteEvent(job.userId, payload.gcalEventId);
     return;
   }
 
@@ -382,9 +400,9 @@ async function processStrengthJob(
     .where(eq(strengthSessions.id, sessionId));
 
   if (current?.gcalEventId) {
-    await patchStrengthEvent(current.gcalEventId, session);
+    await patchStrengthEvent(job.userId, current.gcalEventId, session);
   } else {
-    const gcalEventId = await createStrengthEvent(session);
+    const gcalEventId = await createStrengthEvent(job.userId, session);
     await db
       .update(strengthSessions)
       .set({ gcalEventId })
@@ -407,7 +425,7 @@ async function processJob(
     const workout = await fetchWorkoutForSync(workoutId);
     if (!workout) throw new Error(`Workout ${workoutId} not found`);
 
-    const gcalEventId = await createEvent(workout);
+    const gcalEventId = await createEvent(job.userId, workout);
 
     // Store the gcal event ID back on the workout
     await db
@@ -426,19 +444,19 @@ async function processJob(
 
     if (!current?.gcalEventId) {
       // No existing event — create instead
-      const gcalEventId = await createEvent(workout);
+      const gcalEventId = await createEvent(job.userId, workout);
       await db
         .update(workouts)
         .set({ gcalEventId })
         .where(eq(workouts.id, workoutId));
     } else {
-      await patchEvent(current.gcalEventId, workout);
+      await patchEvent(job.userId, current.gcalEventId, workout);
     }
   } else if (job.action === "delete") {
     const payload = job.payload as { gcalEventId?: string } | null;
     const gcalEventId = payload?.gcalEventId;
     if (gcalEventId) {
-      await deleteEvent(gcalEventId);
+      await deleteEvent(job.userId, gcalEventId);
     }
   }
 }

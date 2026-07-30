@@ -3,6 +3,7 @@ import { z } from "zod";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { loadGarminConfig, saveGarminConfig } from "@/lib/sync/garmin-config";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
+import { resolveRequestUserId } from "@/lib/request-user";
 
 // ── /api/garmin/config ────────────────────────────────────────────────────────
 // Server-side home of the "send workouts to watch" toggle. It must live in the
@@ -10,9 +11,12 @@ import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 
 const ConfigSchema = z.object({ syncWorkouts: z.boolean() }).strict();
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
-    return Response.json(await loadGarminConfig());
+    return Response.json(await loadGarminConfig(userId));
   } catch (err) {
     console.error("Garmin config read error:", err);
     return Response.json({ error: "Failed to read Garmin config" }, { status: 500 });
@@ -20,6 +24,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const userId = await resolveRequestUserId(request);
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
@@ -35,12 +42,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await saveGarminConfig(parsed.data);
+    await saveGarminConfig(userId, parsed.data);
 
     // Turning the toggle on pushes the current 14-day window right away
     // (fire-and-forget — the daily cron would catch up anyway).
     if (parsed.data.syncWorkouts && garminClient.isConfigured()) {
-      queueGarminWindowSync().catch((err) =>
+      queueGarminWindowSync(userId).catch((err) =>
         console.error("Failed to queue Garmin window sync:", err)
       );
     }
