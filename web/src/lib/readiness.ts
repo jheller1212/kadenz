@@ -43,6 +43,17 @@ export interface ReadinessInput {
    * Garmin worker isn't configured or nothing has synced yet — distinct from
    * `ready: false`, which means "configured but still in warm-up". */
   physiology: PhysiologyResult | null;
+  /** Whether a recovery baseline is genuinely on its way, i.e. the athlete
+   * picked something in setup that can supply HRV/resting HR/sleep. Defaults
+   * to true so every existing caller and test keeps its behaviour.
+   *
+   * False suppresses the warm-up state, and only the warm-up state. Warm-up
+   * needs 21 nights (MIN_BASELINE_NIGHTS); an athlete with no device collects
+   * none of them, so "building your baseline (0/21)" would sit on their Today
+   * screen for good, promising a number that cannot arrive. Any physiology
+   * that did somehow become ready is still folded in — the point is not to
+   * ignore data, it is to stop advertising data that is never coming. */
+  expectsPhysiology?: boolean;
 }
 
 export interface ReadinessResult {
@@ -146,7 +157,9 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
     hasCheckIn: w != null && w.ageHours <= 30,
     advice: ADVICE[b],
     physiologyWarmup:
-      input.physiology && !input.physiology.ready ? input.physiology.warmup : null,
+      input.expectsPhysiology !== false && input.physiology && !input.physiology.ready
+        ? input.physiology.warmup
+        : null,
     physiologySource: input.physiology?.source ?? null,
   };
 }

@@ -106,6 +106,39 @@ describe("computeReadiness", () => {
     expect(r.physiologyWarmup).toEqual({ daysCollected: 5, daysNeeded: 21 });
   });
 
+  it("no device connected: warm-up is not surfaced, so nobody waits forever", () => {
+    // An athlete who told us they have no device collects zero of the 21
+    // nights the baseline needs. Showing "building your baseline (5/21)" from
+    // stale rows would promise a number that can never arrive.
+    const r = computeReadiness(
+      base({
+        expectsPhysiology: false,
+        physiology: { delta: 0, reasons: [], ready: false, warmup: { daysCollected: 5, daysNeeded: 21 }, source: "garmin" },
+      })
+    );
+    expect(r.physiologyWarmup).toBeNull();
+    expect(r.score).toBe(75);
+  });
+
+  it("no device connected: physiology that did become ready still counts", () => {
+    // Suppression is about not advertising data that is not coming, not about
+    // discarding data that arrived.
+    const r = computeReadiness(
+      base({
+        expectsPhysiology: false,
+        physiology: {
+          delta: -12,
+          reasons: [{ label: "HRV 20% below your baseline", delta: -12 }],
+          ready: true,
+          warmup: null,
+          source: "garmin",
+        },
+      })
+    );
+    expect(r.score).toBe(63);
+    expect(r.physiologyWarmup).toBeNull();
+  });
+
   it("ready physiology folds its reasons and delta into the score", () => {
     const r = computeReadiness(
       base({
