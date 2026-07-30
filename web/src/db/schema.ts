@@ -150,6 +150,16 @@ export const syncStatusEnum = pgEnum("sync_status", [
 // anywhere. Kept in sync with drizzle/0051_users.sql.
 export const OWNER_USER_ID = "00000000-0000-0000-0000-000000000001";
 
+// Phase 2 of the multi-user plan gives every tenanted table below a
+// `user_id` column, defaulted at the database level to OWNER_USER_ID. That
+// default is deliberate and load-bearing, not a shortcut: Phase 2 does not
+// touch the ~62 query call sites that insert rows across the app, so none of
+// them pass user_id yet. Without the default, making the column NOT NULL
+// would break every insert in the app today. Phase 3 is what sets user_id
+// explicitly at each call site and then drops these defaults. A default
+// that silently attributes every new row to the owner is exactly the wrong
+// behaviour once a second user exists, so it must not survive past Phase 3.
+
 // A person using Kadenz. Separate from `user_identities` because one person
 // can log in with both Strava and Google, and both must resolve to this one
 // row rather than to two half-populated accounts.
@@ -157,6 +167,14 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email"),
   displayName: text("display_name"),
+  // "km" | "miles". The server-readable copy of the athlete's unit
+  // preference, which otherwise lives only in localStorage and so is
+  // invisible to anything the cron generates (watch, calendar, push).
+  // CHECK-constrained in 0057; see lib/user-units.ts for the typed reader.
+  distanceUnit: text("distance_unit").notNull().default("km"),
+  // "kg" | "lbs". Needed because a strength session's calendar event lists
+  // each exercise's load.
+  weightUnit: text("weight_unit").notNull().default("kg"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -198,19 +216,27 @@ export const userIdentities = pgTable(
 // Household members. The owner has NO row — a NULL profile_id on scoped tables
 // means "the owner". Guest profiles (e.g. partner) get their own strength
 // sessions and wellness logs, selected via the kadenz_profile cookie.
-export const profiles = pgTable("profiles", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  color: text("color"),
-  // Soft-delete flag. "Remove person" flips this to false instead of dropping
-  // the row, so it can never cascade away the strength sessions/check-ins/
-  // custom workouts a cascading FK delete would otherwise take with it. Every
-  // list/lookup query below filters on this.
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const profiles = pgTable(
+  "profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    color: text("color"),
+    // Soft-delete flag. "Remove person" flips this to false instead of dropping
+    // the row, so it can never cascade away the strength sessions/check-ins/
+    // custom workouts a cascading FK delete would otherwise take with it. Every
+    // list/lookup query below filters on this.
+    active: boolean("active").notNull().default(true),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("profiles_user_id_idx").on(t.userId)]
+);
 
 export const plans = pgTable(
   "plans",
@@ -242,6 +268,10 @@ export const plans = pgTable(
     // Explicit training days chosen in onboarding (JS weekdays, 0=Sun … 6=Sat)
     availableDays: jsonb("available_days").$type<number[]>(),
     status: planStatusEnum("status").notNull().default("active"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -249,7 +279,10 @@ export const plans = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("plans_status_idx").on(t.status)]
+  (t) => [
+    index("plans_status_idx").on(t.status),
+    index("plans_user_id_idx").on(t.userId),
+  ]
 );
 
 export const weeks = pgTable(
@@ -278,6 +311,10 @@ export const weeks = pgTable(
     // never a workout the athlete had already skipped or completed
     // themselves before this action ran.
     skipSnapshot: jsonb("skip_snapshot").$type<{ id: string; status: string }[]>(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -285,6 +322,7 @@ export const weeks = pgTable(
   (t) => [
     index("weeks_plan_id_idx").on(t.planId),
     index("weeks_plan_week_idx").on(t.planId, t.weekNumber),
+    index("weeks_user_id_idx").on(t.userId),
   ]
 );
 
@@ -333,6 +371,10 @@ export const workouts = pgTable(
     // shown back on the post-race screen and worth more than nothing.
     raceFeel: text("race_feel"),
     raceResultLoggedAt: timestamp("race_result_logged_at", { withTimezone: true }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -345,6 +387,7 @@ export const workouts = pgTable(
     index("workouts_plan_id_idx").on(t.planId),
     index("workouts_date_idx").on(t.date),
     index("workouts_status_idx").on(t.status),
+    index("workouts_user_id_idx").on(t.userId),
   ]
 );
 
@@ -365,11 +408,18 @@ export const blocks = pgTable(
     reps: integer("reps"),
     repDistanceKm: real("rep_distance_km"),
     repRestSeconds: integer("rep_rest_seconds"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("blocks_workout_id_idx").on(t.workoutId)]
+  (t) => [
+    index("blocks_workout_id_idx").on(t.workoutId),
+    index("blocks_user_id_idx").on(t.userId),
+  ]
 );
 
 export const activities = pgTable(
@@ -432,6 +482,10 @@ export const activities = pgTable(
     // at medium resolution) — never fetched at import (would double the
     // Strava calls per sync), only back-filled on first detail view.
     streamsJson: jsonb("streams_json"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -444,26 +498,61 @@ export const activities = pgTable(
     // Postgres never treats NULL as colliding with NULL in a unique index —
     // see drizzle/0050_activity_provider_external_id.sql for the full
     // reasoning behind the WHERE clause.
+    //
+    // Phase 3 has to widen this to (user_id, provider, external_id). It is
+    // global today, so two athletes who both ran the same Strava activity
+    // cannot both import it: the second one silently loses. This is the index
+    // that matters, not the legacy strava_id/garmin_id uniques, because
+    // readers are migrating onto this pair. Keep the WHERE predicate when
+    // widening, and note that Postgres rejects a partial index as an
+    // onConflict target unless the statement repeats a matching WHERE.
+    // Nothing upserts against it today (both call sites pre-check with a
+    // select), so the first conversion to an upsert finds that out at
+    // runtime rather than at build.
+    //
+    // Widening this index is not enough on its own. The legacy strava_id and
+    // garmin_id uniques below are still live and still global, so until those
+    // columns are dropped they stay the binding constraint: a second athlete
+    // importing the same Strava activity still collides, and the widened
+    // index looks as though it changed nothing. The legacy-column cleanup and
+    // this widening are one piece of work, not two.
     uniqueIndex("activities_provider_external_id_uq")
       .on(t.provider, t.externalId)
       .where(sql`${t.provider} is not null and ${t.externalId} is not null`),
+    index("activities_user_id_idx").on(t.userId),
   ]
 );
 
 // Tombstones for user-deleted synced activities: sync (webhook + backfill)
 // must never re-import these Strava ids.
-export const deletedActivities = pgTable("deleted_activities", {
-  stravaId: text("strava_id").primaryKey(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const deletedActivities = pgTable(
+  "deleted_activities",
+  {
+    stravaId: text("strava_id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("deleted_activities_user_id_idx").on(t.userId)]
+);
 
 // Recently deleted activities: full original row kept as jsonb for 30 days so
 // deletes are recoverable. id is the original activities.id.
-export const activityTrash = pgTable("activity_trash", {
-  id: uuid("id").primaryKey(),
-  payload: jsonb("payload").notNull(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const activityTrash = pgTable(
+  "activity_trash",
+  {
+    id: uuid("id").primaryKey(),
+    payload: jsonb("payload").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("activity_trash_user_id_idx").on(t.userId)]
+);
 
 export const personalRecords = pgTable(
   "personal_records",
@@ -473,11 +562,18 @@ export const personalRecords = pgTable(
     timeSeconds: integer("time_seconds").notNull(),
     date: timestamp("date", { withTimezone: true }),
     source: prSourceEnum("source").notNull().default("race"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("personal_records_distance_idx").on(t.distance)]
+  (t) => [
+    index("personal_records_distance_idx").on(t.distance),
+    index("personal_records_user_id_idx").on(t.userId),
+  ]
 );
 
 export const syncOutbox = pgTable(
@@ -490,6 +586,17 @@ export const syncOutbox = pgTable(
     target: syncTargetEnum("target").notNull(),
     payload: jsonb("payload"),
     status: syncStatusEnum("status").notNull().default("pending"),
+    // Unique table-wide, which is what allowed the Strava and Google token
+    // singletons to live in this table in the first place.
+    //
+    // Phase 3 must widen this to (user_id, idempotency_key), and it is the
+    // nastiest of the global uniques for a specific reason: under RLS, an
+    // INSERT ... ON CONFLICT DO UPDATE needs the conflicting row to be
+    // visible to the policy. Conflict with a row belonging to another user and
+    // Postgres raises a unique violation instead of updating, because the
+    // statement cannot see what it collided with. So per-user code reusing an
+    // idempotency key pattern fails in production and passes in any test with
+    // one user in the database, which is every test we have.
     idempotencyKey: text("idempotency_key").unique(),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
@@ -500,11 +607,16 @@ export const syncOutbox = pgTable(
     // When a worker claimed the job. Lets the cron reset rows abandoned
     // mid-flight (serverless timeout, deploy) instead of wedging forever.
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
   },
   (t) => [
     index("sync_outbox_status_idx").on(t.status),
     index("sync_outbox_entity_idx").on(t.entityType, t.entityId),
     index("sync_outbox_target_idx").on(t.target),
+    index("sync_outbox_user_id_idx").on(t.userId),
   ]
 );
 
@@ -616,6 +728,10 @@ export const strengthSessions = pgTable(
     // the session's real finish time.
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -629,6 +745,7 @@ export const strengthSessions = pgTable(
     index("strength_sessions_date_idx").on(t.date),
     index("strength_sessions_status_idx").on(t.status),
     index("strength_sessions_type_idx").on(t.type),
+    index("strength_sessions_user_id_idx").on(t.userId),
   ]
 );
 
@@ -696,6 +813,10 @@ export const wellnessLogs = pgTable(
     sleepQuality: integer("sleep_quality"), // 1–5
     soreness: integer("soreness"), // 1–5
     note: text("note"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -706,6 +827,7 @@ export const wellnessLogs = pgTable(
   (t) => [
     index("wellness_logs_date_idx").on(t.date),
     index("wellness_logs_profile_id_idx").on(t.profileId),
+    index("wellness_logs_user_id_idx").on(t.userId),
   ]
 );
 
@@ -732,6 +854,10 @@ export const wellnessMetrics = pgTable(
     hrvWeeklyAvg: integer("hrv_weekly_avg"),
     hrvStatus: text("hrv_status"),
     source: text("source").notNull().default("garmin"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -742,7 +868,13 @@ export const wellnessMetrics = pgTable(
   // Unique on (source, date), not date alone — a second source (Apple
   // Health, Health Connect) writing the same calendar night must get its
   // own row instead of overwriting Garmin's. See drizzle/0049.
-  (t) => [uniqueIndex("wellness_metrics_source_date_uq").on(t.source, t.date)]
+  //
+  // Phase 3 has to widen this to (user_id, source, date): as written, two
+  // users' watches reporting the same night would collide.
+  (t) => [
+    uniqueIndex("wellness_metrics_source_date_uq").on(t.source, t.date),
+    index("wellness_metrics_user_id_idx").on(t.userId),
+  ]
 );
 
 export const painLogs = pgTable(
@@ -800,6 +932,10 @@ export const strengthPlanSettings = pgTable(
     // per-exercise defaults; set = override every non-rehab exercise's rest so
     // the athlete's rest-timer choice is what the plan actually prescribes.
     restSeconds: integer("rest_seconds"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -807,7 +943,10 @@ export const strengthPlanSettings = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("strength_plan_settings_profile_idx").on(t.profileId)]
+  (t) => [
+    index("strength_plan_settings_profile_idx").on(t.profileId),
+    index("strength_plan_settings_user_id_idx").on(t.userId),
+  ]
 );
 
 // User-defined custom workout templates. Profile-scoped (NULL = owner).
@@ -820,6 +959,10 @@ export const customWorkoutTemplates = pgTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -827,7 +970,10 @@ export const customWorkoutTemplates = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("custom_workout_templates_profile_id_idx").on(t.profileId)]
+  (t) => [
+    index("custom_workout_templates_profile_id_idx").on(t.profileId),
+    index("custom_workout_templates_user_id_idx").on(t.userId),
+  ]
 );
 
 // Exercises within a custom workout template.
@@ -858,32 +1004,48 @@ export const customWorkoutSlots = pgTable(
 // both opted in). `endpoint` is unique per browser/device install — the
 // primary key web-push itself uses to address a subscription, so it's also
 // the natural de-dupe key when the same device re-subscribes.
-export const pushSubscriptions = pgTable("push_subscriptions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  endpoint: text("endpoint").notNull().unique(),
-  p256dh: text("p256dh").notNull(),
-  auth: text("auth").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("push_subscriptions_user_id_idx").on(t.userId)]
+);
 
-// Singleton settings row (single-athlete app, same convention as
-// strength_plan_settings / the localStorage UserSettings mirror pattern).
-// Lives in the DB — not just localStorage — because the cron reads it
-// server-side with no browser involved.
-export const reminderSettings = pgTable("reminder_settings", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  enabled: boolean("enabled").notNull().default(false),
-  // Minutes before a workout's time_of_day to send the push.
-  leadMinutes: integer("lead_minutes").notNull().default(30),
-  // Used for workouts with a null time_of_day — never midnight (see the
-  // time_of_day column comment on `workouts`).
-  defaultTimeOfDay: text("default_time_of_day").notNull().default("07:00"),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+// One row per user (same convention as strength_plan_settings / the
+// localStorage UserSettings mirror pattern). Lives in the DB, not just
+// localStorage, because the cron reads it server-side with no browser
+// involved.
+export const reminderSettings = pgTable(
+  "reminder_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    enabled: boolean("enabled").notNull().default(false),
+    // Minutes before a workout's time_of_day to send the push.
+    leadMinutes: integer("lead_minutes").notNull().default(30),
+    // Used for workouts with a null time_of_day — never midnight (see the
+    // time_of_day column comment on `workouts`).
+    defaultTimeOfDay: text("default_time_of_day").notNull().default("07:00"),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("reminder_settings_user_id_uq").on(t.userId)]
+);
 
 // One row per workout a reminder was ever claimed for. The unique workout_id
 // is the concurrency guard: two overlapping cron runs racing the same
@@ -908,17 +1070,25 @@ export const reminderSendStatusEnum = pgEnum("reminder_send_status", [
   "permanent",
 ]);
 
-export const sentReminders = pgTable("sent_reminders", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workoutId: uuid("workout_id")
-    .notNull()
-    .unique()
-    .references(() => workouts.id, { onDelete: "cascade" }),
-  status: reminderSendStatusEnum("status").notNull().default("sent"),
-  attempts: integer("attempts").notNull().default(1),
-  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull().defaultNow(),
-  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const sentReminders = pgTable(
+  "sent_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workoutId: uuid("workout_id")
+      .notNull()
+      .unique()
+      .references(() => workouts.id, { onDelete: "cascade" }),
+    status: reminderSendStatusEnum("status").notNull().default("sent"),
+    attempts: integer("attempts").notNull().default(1),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id)
+      .default(OWNER_USER_ID),
+  },
+  (t) => [index("sent_reminders_user_id_idx").on(t.userId)]
+);
 
 // ── Relations ─────────────────────────────────────────────────────────────────
 

@@ -30,6 +30,7 @@ const baseRow: ActivityRow = {
   deviceName: null,
   gearName: null,
   streamsJson: null,
+  userId: "00000000-0000-0000-0000-000000000001",
   createdAt: new Date("2026-07-10T18:00:00.000Z"),
 };
 

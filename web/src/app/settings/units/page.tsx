@@ -7,12 +7,36 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { SettingsSubpage, RadioRow } from "@/components/ui/SettingsSubpage";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 
+// Mirrors the two units the server also needs. localStorage stays the
+// client's source of truth and is written first, so a radio button never
+// waits on a round trip; this copy is what the cron reads when it builds the
+// watch label, the calendar event and the push reminder, none of which can
+// see localStorage. A failed mirror is logged and otherwise ignored: the
+// worst case is one server-generated title in the other unit, which is
+// exactly today's behaviour, so it is not worth blocking the screen over.
+function mirrorUnitsToServer(settings: UserSettings) {
+  void fetch("/api/user/units", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      distanceUnit: settings.units,
+      weightUnit: settings.weightUnit,
+    }),
+  }).catch((err) => console.error("Failed to mirror units to server:", err));
+}
+
 export default function UnitsSettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
   useEffect(() => {
+    const local = loadSettings();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only
-    setSettings(loadSettings());
+    setSettings(local);
+    // Push the current preference up on open, not just on change. Every
+    // athlete already has one stored locally from before the server column
+    // existed, and without this they would keep getting km on the watch until
+    // they happened to toggle something on this screen.
+    mirrorUnitsToServer(local);
   }, []);
 
   function update(patch: Partial<UserSettings>) {
@@ -20,6 +44,9 @@ export default function UnitsSettingsPage() {
     const updated = { ...settings, ...patch };
     setSettings(updated);
     saveSettings(updated);
+    if (patch.units !== undefined || patch.weightUnit !== undefined) {
+      mirrorUnitsToServer(updated);
+    }
   }
 
   return (

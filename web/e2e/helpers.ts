@@ -26,6 +26,16 @@ process.env.DATABASE_URL = process.env.DATABASE_URL ?? E2E_DATABASE_URL;
  * session a previous spec left behind. A test precondition needs to be
  * unconditional, and this is local throwaway data by construction (see
  * e2e/env.ts).
+ *
+ * Phase 3 of the multi-user plan needs to revisit this. It deliberately reads
+ * and deletes every session dated today regardless of owner, which is right
+ * for a test precondition. But it runs outside any HTTP request, so it will
+ * have no per-request user context, and under row level security that means
+ * the policy hides every row: the selects return nothing, the deletes remove
+ * nothing, and the precondition silently stops holding while still passing.
+ * It needs whatever escape hatch phase 3 gives trusted server-side work, and
+ * a bare user filter is not it, because cleaning up only one user's sessions
+ * is not what this is for.
  */
 export async function clearTodaysStrengthSessions() {
   const dayStart = new Date();
