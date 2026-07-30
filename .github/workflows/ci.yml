@@ -3,8 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately no `branches:` filter here. With `branches: [main]`, a pull
+  # request whose base is any other branch fired no event at all, so no required
+  # check ran — and GitHub then reported the PR as mergeable, because there is
+  # nothing to be un-mergeable about when no check exists. Every stacked PR in
+  # this repo was silently unverified while looking clean, which is worse than
+  # being red.
+  #
+  # An explicit allowlist of long-lived integration branches would work too, but
+  # it fails the same way the first time someone stacks onto a branch nobody
+  # remembered to add. No filter cannot miss one.
   pull_request:
-    branches: [main]
 
 # Superseded runs are wasted minutes: pushing twice to a PR previously ran CI
 # to completion twice. Never cancel on main - those runs are the post-merge
