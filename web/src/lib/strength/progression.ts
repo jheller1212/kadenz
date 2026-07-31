@@ -1,4 +1,5 @@
-import type { ExerciseDef, ExerciseSessionHistory, LoggedSet } from "./types";
+import type { Complaint, ExerciseDef, ExerciseSessionHistory, LoggedSet } from "./types";
+import { COMPLAINT_SHORT_LABELS, STRENGTH_COMPLAINTS } from "./types";
 import { nextWeight, prevWeight, isTopLevel } from "./weights";
 import { deriveStartWeightKg, type LifterProfile } from "./load-model";
 
@@ -202,4 +203,66 @@ export function applyPainGate(
     suggestedWeightKg: suggested,
     reason: gate.reason ?? suggestion.reason,
   };
+}
+
+// ── Pain gate (non-Achilles complaints) ──────────────────────────────────────
+//
+// The gate above only ever eased calf work, so a knee or hamstring complaint
+// could be logged and change nothing — worse than not asking, since the
+// athlete reasonably expects a "niggle" report to do something. This mirrors
+// the same rule (score above threshold, or a next-day check-in that didn't
+// settle) per complaint instead of globally, so it only eases the work that
+// complaint actually added (see complaint-work.ts complaintWorkSlugs).
+// "achilles" is deliberately excluded — it keeps evaluatePainGate/
+// applyPainGate/getPainGate above untouched, with its own week-based ramp
+// and locked HSR sets.
+
+export interface ComplaintPainLogInput extends PainLogInput {
+  /** The complaint(s) the session this log belongs to was built for (frozen
+   *  strengthSessions.complaints, or the athlete's current settings for a
+   *  session that never froze one — see complaint-work.ts effectiveComplaints).
+   *  A log whose session covered several complaints feeds the gate for each
+   *  of them, since pain_logs has no per-exercise link to say which one. */
+  complaints: Complaint[];
+}
+
+function evaluatePainGateForComplaint(
+  logs: PainLogInput[],
+  complaint: Exclude<Complaint, "achilles">
+): PainGateResult {
+  const label = COMPLAINT_SHORT_LABELS[complaint];
+  const highScore = logs.find((l) => l.score > PAIN_SCORE_THRESHOLD);
+  if (highScore) {
+    return {
+      triggered: true,
+      reason: `Reported ${label} pain ${highScore.score}/10, easing ${label} work this session.`,
+    };
+  }
+  const didNotSettle = logs.find(
+    (l) => l.timing === "next_day" && l.settledWithin24h === false
+  );
+  if (didNotSettle) {
+    return {
+      triggered: true,
+      reason: `${label} pain didn't settle within 24 h, easing ${label} work this session.`,
+    };
+  }
+  return { triggered: false, reason: null };
+}
+
+/** Per-complaint version of evaluatePainGate, keyed by every reported
+ *  complaint except "achilles" (see header comment above). Only complaints
+ *  with at least one own log are present in the result. */
+export function evaluateComplaintPainGates(
+  logs: ComplaintPainLogInput[]
+): Partial<Record<Exclude<Complaint, "achilles">, PainGateResult>> {
+  const result: Partial<Record<Exclude<Complaint, "achilles">, PainGateResult>> = {};
+  for (const complaint of STRENGTH_COMPLAINTS) {
+    if (complaint === "achilles") continue;
+    const own = logs.filter((l) => l.complaints.includes(complaint));
+    if (own.length === 0) continue;
+    const gate = evaluatePainGateForComplaint(own, complaint);
+    if (gate.triggered) result[complaint] = gate;
+  }
+  return result;
 }

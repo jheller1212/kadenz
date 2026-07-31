@@ -28,9 +28,9 @@ import { getAudioCtx, unlockGuidedAudio } from "@/lib/strength/guided-audio";
 export { unlockGuidedAudio };
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 import { PAIN_SCORE_THRESHOLD } from "@/lib/strength/progression";
-import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
-import { hasAchillesOrdering } from "@/lib/strength/complaint-work";
-import { workingSetNumber, type Complaint } from "@/lib/strength/types";
+import { EXERCISE_BY_SLUG, isHsrExercise } from "@/lib/strength/program";
+import { complaintWorkSlugs, hasAchillesOrdering } from "@/lib/strength/complaint-work";
+import { COMPLAINT_SHORT_LABELS, workingSetNumber, type Complaint } from "@/lib/strength/types";
 import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import type { LoadFeel } from "@/lib/strength/guided-snapshot";
 import type { ExerciseOverride } from "@/lib/strength/session";
@@ -91,7 +91,7 @@ interface Props {
    *  array so a minimize/resume or a later detail view stays in sync. */
   exerciseOverrides?: ExerciseOverride[];
   /** The athlete's reported complaints — decides which pain wording applies
-   *  (see AdjustLoadSheet's easesCalfWork). Empty when none are reported. */
+   *  (see AdjustLoadSheet's easesWorkLabel). Empty when none are reported. */
   complaints?: Complaint[];
   /** Restore a previously saved in-progress session at its saved position. */
   resume?: { exIndex: number; work: Record<string, WorkSet[]>; startedAt: number } | null;
@@ -710,10 +710,11 @@ export default function GuidedSession({
 
   // "Niggle" is a pain signal, not a load signal: route it to the same
   // pain-log endpoint the post-session pain check-in uses (see
-  // src/app/strength/page.tsx logPain), which feeds the existing Achilles/HSR
-  // pain gate (evaluatePainGate in lib/strength/progression.ts) — a score just
-  // above its trigger threshold, logged as "during" this set. Best-effort:
-  // the reason chip is already saved on the set regardless of this call.
+  // src/app/strength/page.tsx logPain), which feeds the Achilles/HSR pain
+  // gate (evaluatePainGate) and, per reported complaint, evaluateComplaintPainGates
+  // (both in lib/strength/progression.ts) — a score just above its trigger
+  // threshold, logged as "during" this set. Best-effort: the reason chip is
+  // already saved on the set regardless of this call.
   function reportNiggle(slug: string) {
     const exName = exercises.find((e) => e.slug === slug)?.name ?? "this exercise";
     apiFetch(`/api/strength/sessions/${session.id}/pain`, {
@@ -1028,6 +1029,21 @@ export default function GuidedSession({
   const paused = pausedAt != null;
   const last = lastPerf[ex.slug];
   const setsLoggedTotal = Object.values(work).flat().filter((s) => s.logged).length;
+
+  // What "Niggle" on THIS exercise actually eases next time, for the
+  // AdjustLoadSheet copy (see reportNiggle above + evaluateComplaintPainGates
+  // in lib/strength/progression.ts) — null when this exercise isn't any
+  // reported complaint's own work, so the sheet falls back to generic wording
+  // rather than promising an effect logging pain here won't have.
+  const nonAchillesComplaint = complaints
+    .filter((c) => c !== "achilles")
+    .find((c) => complaintWorkSlugs(c).includes(ex.slug));
+  const easesWorkLabel =
+    isHsrExercise(ex.slug) && complaints.includes("achilles")
+      ? "calf work"
+      : nonAchillesComplaint
+        ? `${COMPLAINT_SHORT_LABELS[nonAchillesComplaint]} work`
+        : null;
 
   return (
     <div
@@ -1412,7 +1428,7 @@ export default function GuidedSession({
         weightKg={adjustOpen != null ? arr[adjustOpen]?.kg ?? 0 : 0}
         previousWeightKg={ex.suggestedWeightKg ?? null}
         dumbbells={ex.dumbbells}
-        easesCalfWork={complaints.includes("achilles")}
+        easesWorkLabel={easesWorkLabel}
         selected={adjustOpen != null ? arr[adjustOpen]?.feel ?? null : null}
         onSave={(feel) => {
           if (adjustOpen != null) saveLoadReason(ex.slug, adjustOpen, feel);

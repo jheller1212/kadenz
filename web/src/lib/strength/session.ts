@@ -7,6 +7,7 @@ import {
   RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS,
   sessionTemplateFor,
 } from "./program";
+import { complaintWorkSlugs } from "./complaint-work";
 import { snapToLevel } from "./weights";
 import {
   suggestProgression,
@@ -75,6 +76,15 @@ export interface BuildSessionOptions {
   historyBySlug?: Record<string, ExerciseSessionHistory[]>;
   /** Result of the Achilles pain gate for this athlete's recent logs. */
   painGate?: PainGateResult;
+  /**
+   * Per-complaint pain gates (evaluateComplaintPainGates in progression.ts),
+   * keyed by every complaint except "achilles" (that one keeps `painGate`
+   * above). A triggered entry eases only the exercise(s) that complaint
+   * itself added via TARGETED_WORK (see complaint-work.ts complaintWorkSlugs)
+   * — a knee complaint never touches a hamstring exercise, and neither
+   * touches Achilles/HSR work.
+   */
+  complaintPainGates?: Partial<Record<Complaint, PainGateResult>>;
   /** Strength ability from the weekly-plan wizard; scales sets and rest. */
   ability?: "beginner" | "intermediate" | "advanced";
   /** Bodyweight/sex/experience for personalised cold-start loads. */
@@ -146,6 +156,20 @@ export function buildSessionPlan(
   const ability = opts.ability ?? "intermediate";
   const lifterProfile = opts.lifterProfile ?? null;
   const equipmentAvailable = opts.equipment ?? null;
+  const complaintPainGates = opts.complaintPainGates ?? {};
+
+  // Which reported (non-Achilles) complaint, if any, put a given slug into
+  // this session — the reverse of complaint-work.ts complaintWorkSlugs, built
+  // fresh per session since two athletes' complaint sets differ. First
+  // complaint to claim a slug wins; TARGETED_WORK never assigns the same slug
+  // to two complaints, so this never actually has to arbitrate.
+  const complaintForSlug = new Map<string, Complaint>();
+  for (const complaint of opts.complaints ?? []) {
+    if (complaint === "achilles") continue;
+    for (const slug of complaintWorkSlugs(complaint)) {
+      if (!complaintForSlug.has(slug)) complaintForSlug.set(slug, complaint);
+    }
+  }
 
   // Slots are resolved in template order, threading `usedSlugs` through so a
   // later slot whose equipment-satisfying variants are all already used by
@@ -246,6 +270,24 @@ export function buildSessionPlan(
       progression = applyPainGate(progression, painGate);
       suggestedWeightKg = progression.suggestedWeightKg;
       painGated = true;
+    }
+
+    // Non-Achilles complaint pain gate: eases only the exercise the reporting
+    // complaint itself added (complaintForSlug above), never Achilles/HSR
+    // work and never another complaint's exercise. Easing means a real
+    // change the athlete can see, not just a capped suggested weight (most
+    // targeted work is bodyweight, so that alone would be invisible): drop
+    // one set, floored at 2 — the same floor beginner-ability scaling uses.
+    const gatingComplaint = complaintForSlug.get(resolved.slug);
+    if (gatingComplaint) {
+      const complaintGate = complaintPainGates[gatingComplaint];
+      if (complaintGate?.triggered) {
+        progression = applyPainGate(progression, complaintGate);
+        suggestedWeightKg = progression.suggestedWeightKg;
+        sets = Math.max(2, sets - 1);
+        prescription = repRangeLabel(sets, repLow, repHigh);
+        painGated = true;
+      }
     }
 
     // Achilles-role work (both HSR and flexible explosive/toe-walk) is
