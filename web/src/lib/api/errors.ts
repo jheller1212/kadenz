@@ -41,3 +41,8 @@ export function badRequest(
 ): HttpError {
   return new HttpError(400, details === undefined ? { error: message } : { error: message, details });
 }
+
+/** The request is well-formed but refused because of what the caller is, not what they sent (e.g. the owner asking to delete themselves). */
+export function conflict(message = "Conflict"): HttpError {
+  return new HttpError(409, { error: message });
+}

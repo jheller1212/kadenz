@@ -1,14 +1,17 @@
 // Owner allowlist for OAuth login.
 //
-// Kadenz is a single-user personal app: the session cookie grants full
-// read/write access to all training data and to the stored Strava/Google
-// tokens. OAuth on its own only proves the visitor controls *some* Strava or
-// Google account, not that they are the owner. Without an identity check, any
+// Kadenz started as a single-user personal app: the session cookie grants
+// full read/write access to its holder's own training data and stored
+// Strava/Google tokens (never anyone else's -- see db/with-user.ts). OAuth on
+// its own only proves the visitor controls *some* Strava or Google account,
+// not that they are allowed in at all. Without an identity check, any
 // stranger who completes OAuth would be minted a valid session. These helpers
-// bind the session to an explicit owner allowlist.
+// bind login to an explicit owner allowlist -- and, for Google only, to the
+// isGoogleSignupOpen() switch below that lets sign-up open beyond it.
 //
-// Fail closed: an unset or empty allowlist rejects everyone. The env vars must
-// be set in production before login can succeed — that is intentional, so a
+// Fail closed: an unset or empty allowlist rejects everyone, and sign-up
+// being open is opt-in, never inferred. The env vars must be set in
+// production before login can succeed -- that is intentional, so a
 // misconfiguration can never silently fall back to "let anyone in".
 
 function parseAllowlist(raw: string | undefined): string[] {
@@ -18,9 +21,35 @@ function parseAllowlist(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** True only if `email` is on KADENZ_ALLOWED_GOOGLE_EMAILS (case-insensitive). */
+// ── Opening Google sign-up ────────────────────────────────────────────────────
+//
+// The multi-user plan requires the leak audit and RLS to be done before
+// anyone but the owner can sign up (see MULTI_USER_PLAN.md / PLAN_OF_ATTACK.md
+// 2.5). Both landed, so Google sign-up can open -- but it opens behind its own
+// switch rather than by widening the allowlist, for two reasons: an allowlist
+// entry is permanent until someone edits it and redeploys, while this reads an
+// env var on every request, so Jonas can turn sign-up back off from the host's
+// dashboard, with no deploy, the moment something looks wrong. And unlike the
+// allowlist (identity, checked once at login) this is a pure feature flag, so
+// keeping it separate means flipping it can never accidentally change who the
+// owner is -- see resolveOwner below, which does not read this at all.
+//
+// Default closed, same rule as the allowlist itself: an unset or unrecognised
+// value must reject rather than admit, so a missing env var in a fresh
+// deploy fails safe instead of open.
+export function isGoogleSignupOpen(): boolean {
+  return process.env.KADENZ_GOOGLE_SIGNUP_OPEN === "true";
+}
+
+/**
+ * True if `email` may sign in with Google: either it is on
+ * KADENZ_ALLOWED_GOOGLE_EMAILS, or sign-up is open (see isGoogleSignupOpen).
+ * Strava has no such switch -- it stays allowlist-only until it gets the same
+ * review this had.
+ */
 export function isAllowedGoogleEmail(email: string | null | undefined): boolean {
   if (!email) return false;
+  if (isGoogleSignupOpen()) return true;
   const allowed = parseAllowlist(process.env.KADENZ_ALLOWED_GOOGLE_EMAILS).map(
     (entry) => entry.toLowerCase()
   );

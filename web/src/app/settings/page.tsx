@@ -33,6 +33,7 @@ import {
   Download,
   ShieldCheck,
   Bell,
+  Trash2,
 } from "lucide-react";
 import pkg from "../../../package.json";
 
@@ -153,6 +154,98 @@ function EditProfileSheet({
   );
 }
 
+// ── Delete account sheet ─────────────────────────────────────────────────────
+
+const DELETE_CONFIRMATION_PHRASE = "DELETE MY ACCOUNT";
+
+function DeleteAccountSheet({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset the form each time the sheet opens
+    setTyped("");
+    setError(null);
+  }, [open]);
+
+  async function confirmDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/user/account", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: DELETE_CONFIRMATION_PHRASE }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to delete account");
+      }
+      haptic("success");
+      // A fresh navigation, not router.push: the account is gone, so nothing
+      // that already fetched data for it should stay mounted.
+      window.location.href = "/";
+      return;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      haptic("warning");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const canDelete = typed.trim() === DELETE_CONFIRMATION_PHRASE;
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Delete account">
+      <div className="flex flex-col gap-4 pb-2">
+        <p className="text-[14px] leading-relaxed text-text-2">
+          This permanently deletes your account and every plan, activity,
+          strength session and setting attached to it, and disconnects Strava
+          and Google. It cannot be undone.
+        </p>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-semibold text-text-2">
+            Type &ldquo;{DELETE_CONFIRMATION_PHRASE}&rdquo; to confirm
+          </span>
+          <input
+            type="text"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            autoCapitalize="characters"
+            className="w-full rounded-xl bg-elevated px-4 py-3 text-[15px] text-text-1 outline-none focus:ring-2 focus:ring-red-500"
+          />
+        </label>
+
+        {error && (
+          <p className="text-[13px] text-red-500" role="alert">
+            {error}
+          </p>
+        )}
+
+        <button
+          type="button"
+          disabled={!canDelete || deleting}
+          onClick={confirmDelete}
+          className="press flex w-full items-center justify-center gap-2 rounded-full bg-red-600 py-3.5 text-[15px] font-bold text-white disabled:opacity-40"
+        >
+          {deleting ? "Deleting…" : "Delete my account"}
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
 // ── Main Settings Page ──────────────────────────────────────────────────────
 
 const PREFERENCE_ROWS = [
@@ -176,6 +269,7 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<{ name: string } | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
@@ -285,12 +379,26 @@ export default function SettingsPage() {
           {signingOut ? "Signing out…" : "Sign out"}
         </button>
 
+        {/* Delete account */}
+        <button
+          type="button"
+          onClick={() => {
+            haptic("light");
+            setDeleteOpen(true);
+          }}
+          className="press mt-3 flex w-full items-center justify-center gap-2 py-2 text-[13px] font-semibold text-red-500"
+        >
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+          Delete account
+        </button>
+
         <p className="mb-4 mt-6 text-center text-[12px] uppercase tracking-wider text-text-3">
           Kadenz · v{pkg.version}
         </p>
       </div>
 
       <EditProfileSheet open={editOpen} onClose={() => setEditOpen(false)} />
+      <DeleteAccountSheet open={deleteOpen} onClose={() => setDeleteOpen(false)} />
       <BottomNav />
     </main>
   );
