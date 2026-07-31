@@ -23,11 +23,15 @@ interface Props {
   /** Dumbbells the lift uses — adds "each" to both weight readouts. */
   dumbbells?: 1 | 2;
   /**
-   * Does the pain gate act on this athlete's work? It only eases HSR calf
-   * work (applyPainGate + isHsrExercise in lib/strength/session.ts), so the
-   * "Niggle" note claims that only for an athlete with an Achilles complaint.
+   * What logging "Niggle" here actually eases next time (see
+   * evaluateComplaintPainGates in lib/strength/progression.ts, and the
+   * Achilles-specific evaluatePainGate it sits alongside) — "calf work" for
+   * an Achilles complaint, "knee work" etc. for a targeted complaint whose
+   * work this exercise is, null when this exercise isn't any of that (the
+   * "Niggle" note then falls back to generic wording rather than claiming an
+   * effect it won't have).
    */
-  easesCalfWork?: boolean;
+  easesWorkLabel?: string | null;
   /** Reason already stored on this set, if any — pre-selects that chip. */
   selected: LoadFeel | null;
   onSave: (feel: LoadFeel) => void;
@@ -44,7 +48,7 @@ export function AdjustLoadSheet({
   weightKg,
   previousWeightKg,
   dumbbells,
-  easesCalfWork = false,
+  easesWorkLabel = null,
   selected,
   onSave,
 }: Props) {
@@ -97,8 +101,8 @@ export function AdjustLoadSheet({
 
         {choice === "niggle" && (
           <p className="px-2 text-center text-[12px] text-text-3">
-            {easesCalfWork
-              ? "This also logs a pain check-in for this session, feeding the same gate that eases your calf work next time."
+            {easesWorkLabel
+              ? `This also logs a pain check-in for this session, feeding the same gate that eases your ${easesWorkLabel} next time.`
               : "This also logs a pain check-in for this session."}
           </p>
         )}

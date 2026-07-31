@@ -57,6 +57,85 @@ describe("buildSessionPlan", () => {
   });
 });
 
+describe("non-Achilles complaint pain gate", () => {
+  it("eases the work a reported complaint added when its gate is triggered", () => {
+    const plan = buildSessionPlan("lower", {
+      complaints: ["knee"],
+      complaintPainGates: { knee: { triggered: true, reason: "Reported knee pain 6/10, easing knee work this session." } },
+    });
+    const stepDown = plan.find((p) => p.slug === "step_down")!;
+    expect(stepDown.painGated).toBe(true);
+    expect(stepDown.sets).toBe(2); // was 3, dropped one set, floored at 2
+    expect(stepDown.progression.reason).toBe(
+      "Reported knee pain 6/10, easing knee work this session."
+    );
+  });
+
+  it("touches nothing else in the session", () => {
+    const plan = buildSessionPlan("lower", {
+      complaints: ["knee"],
+      complaintPainGates: { knee: { triggered: true, reason: "eased" } },
+    });
+    for (const ex of plan) {
+      if (ex.slug === "step_down") continue;
+      expect(ex.painGated).toBe(false);
+    }
+  });
+
+  it("a complaint with no logged pain (no gate entry) changes nothing", () => {
+    const withoutGate = buildSessionPlan("lower", { complaints: ["knee"] });
+    const withEmptyGates = buildSessionPlan("lower", { complaints: ["knee"], complaintPainGates: {} });
+    const a = withoutGate.find((p) => p.slug === "step_down")!;
+    const b = withEmptyGates.find((p) => p.slug === "step_down")!;
+    expect(a.painGated).toBe(false);
+    expect(a.sets).toBe(3);
+    expect(b.painGated).toBe(false);
+    expect(b.sets).toBe(3);
+  });
+
+  it("never eases another complaint's work", () => {
+    const plan = buildSessionPlan("lower", {
+      complaints: ["knee", "hamstring"],
+      complaintPainGates: { knee: { triggered: true, reason: "eased" } },
+    });
+    const stepDown = plan.find((p) => p.slug === "step_down")!;
+    const nordic = plan.find((p) => p.slug === "nordic_curl_negative")!;
+    expect(stepDown.painGated).toBe(true);
+    expect(nordic.painGated).toBe(false);
+    expect(nordic.sets).toBe(3);
+  });
+
+  it("leaves Achilles/HSR work untouched by a non-Achilles complaint gate, sets stay locked", () => {
+    const plan = buildSessionPlan("lower", {
+      complaints: ["achilles", "knee"],
+      programWeek: 1,
+      complaintPainGates: { knee: { triggered: true, reason: "eased" } },
+    });
+    const calf = plan.find((p) => p.slug === "bent_knee_calf_raise")!;
+    expect(calf.painGated).toBe(false);
+    expect(calf.setsLocked).toBe(true);
+  });
+
+  it("Achilles's own gate still eases HSR work exactly as before, locked sets included", () => {
+    const plan = buildSessionPlan("lower", {
+      complaints: ["achilles"],
+      programWeek: 1,
+      painGate: { triggered: true, reason: "pain 6/10" },
+    });
+    const calf = plan.find((p) => p.slug === "bent_knee_calf_raise")!;
+    expect(calf.painGated).toBe(true);
+    expect(calf.setsLocked).toBe(true);
+  });
+
+  it("an athlete with no complaints is unaffected", () => {
+    const plan = buildSessionPlan("lower", {
+      complaintPainGates: { knee: { triggered: true, reason: "eased" } },
+    });
+    expect(plan.some((p) => p.slug === "step_down")).toBe(false);
+    for (const ex of plan) expect(ex.painGated).toBe(false);
+  });
+});
+
 describe("ability scaling", () => {
   it("beginner drops a set and rests longer on non-HSR lifts", () => {
     const plan = buildSessionPlan("upper", { ability: "beginner" });

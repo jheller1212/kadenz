@@ -18,7 +18,11 @@ import {
   type PlannedExercise,
   type ExerciseOverride,
 } from "./session";
-import { evaluatePainGate, type PainGateResult } from "./progression";
+import {
+  evaluatePainGate,
+  evaluateComplaintPainGates,
+  type PainGateResult,
+} from "./progression";
 import { EXERCISES } from "./program";
 import { achillesProgramWeek, effectiveComplaints } from "./complaint-work";
 import { EQUIPMENT_KEYS } from "./equipment";
@@ -180,6 +184,41 @@ export async function getPainGate(
   return evaluatePainGate(logs);
 }
 
+/**
+ * Per-complaint version of getPainGate above: same recent-logs window, but
+ * also reads the complaint(s) each log's session was built for (frozen
+ * strengthSessions.complaints), so a knee pain report only eases the knee's
+ * own targeted work rather than doing nothing (the gap this closes) or
+ * bleeding into every complaint the athlete has ever reported. Achilles is
+ * excluded — getPainGate above stays the only Achilles gate.
+ */
+export async function getComplaintPainGates(
+  before: Date,
+  days = 10
+): Promise<Partial<Record<Exclude<Complaint, "achilles">, PainGateResult>>> {
+  const since = new Date(before);
+  since.setDate(since.getDate() - days);
+  const logs = await db
+    .select({
+      score: painLogs.score,
+      timing: painLogs.timing,
+      settledWithin24h: painLogs.settledWithin24h,
+      complaints: strengthSessions.complaints,
+    })
+    .from(painLogs)
+    .innerJoin(strengthSessions, eq(painLogs.sessionId, strengthSessions.id))
+    .where(
+      and(
+        ownedBy(strengthSessions),
+        gte(painLogs.createdAt, since),
+        lte(painLogs.createdAt, before)
+      )
+    );
+  return evaluateComplaintPainGates(
+    logs.map((l) => ({ ...l, complaints: filterComplaints(l.complaints ?? []) }))
+  );
+}
+
 export interface PlannedSessionResult {
   exercises: PlannedExercise[];
   /** Real-world estimate (minutes) of the plan actually produced — this is
@@ -230,14 +269,16 @@ export async function buildPlannedSession(
   // logged against the work that complaint added.
   complaintsSnapshot?: string[] | null
 ): Promise<PlannedSessionResult> {
-  const [{ programWeek, weekInfo }, historyBySlug, painGate, settingsRow] = await Promise.all([
-    getProgramWeekAndPhase(date),
-    getExerciseHistoryBySlug(date, profileId),
-    getPainGate(date),
-    preloadedSettingsRow !== undefined
-      ? Promise.resolve(preloadedSettingsRow)
-      : getStrengthPlanSettingsRow(profileId),
-  ]);
+  const [{ programWeek, weekInfo }, historyBySlug, painGate, complaintPainGates, settingsRow] =
+    await Promise.all([
+      getProgramWeekAndPhase(date),
+      getExerciseHistoryBySlug(date, profileId),
+      getPainGate(date),
+      getComplaintPainGates(date),
+      preloadedSettingsRow !== undefined
+        ? Promise.resolve(preloadedSettingsRow)
+        : getStrengthPlanSettingsRow(profileId),
+    ]);
   const planSettings = derivePlanSettingsForLoads(settingsRow);
   const complaints = effectiveComplaints(
     complaintsSnapshot ? filterComplaints(complaintsSnapshot) : null,
@@ -251,6 +292,7 @@ export async function buildPlannedSession(
       : programWeek,
     historyBySlug,
     painGate,
+    complaintPainGates,
     ability: planSettings.ability,
     lifterProfile: planSettings.lifterProfile,
     complaints,

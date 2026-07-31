@@ -3,6 +3,7 @@ import {
   suggestProgression,
   evaluatePainGate,
   applyPainGate,
+  evaluateComplaintPainGates,
 } from "../progression";
 import type { ExerciseDef, ExerciseSessionHistory } from "../types";
 
@@ -115,6 +116,53 @@ describe("pain gate", () => {
     const gated = applyPainGate(base, { triggered: true, reason: "pain" });
     expect(gated.action).toBe("decrease");
     expect(gated.suggestedWeightKg).toBe(15.5); // -0.5 kg from 16
+  });
+});
+
+describe("evaluateComplaintPainGates", () => {
+  it("triggers a complaint whose own session logged a high pain score", () => {
+    const gates = evaluateComplaintPainGates([
+      { score: 6, timing: "during", complaints: ["knee"] },
+    ]);
+    expect(gates.knee?.triggered).toBe(true);
+    expect(gates.knee?.reason).toContain("knee");
+  });
+
+  it("never triggers a complaint whose own logs stayed under the threshold", () => {
+    const gates = evaluateComplaintPainGates([
+      { score: 2, timing: "after", complaints: ["knee"] },
+    ]);
+    expect(gates.knee).toBeUndefined();
+  });
+
+  it("a log with no complaints on its session triggers nothing", () => {
+    const gates = evaluateComplaintPainGates([
+      { score: 8, timing: "during", complaints: [] },
+    ]);
+    expect(Object.keys(gates)).toHaveLength(0);
+  });
+
+  it("only triggers the complaint(s) actually reported for that log's session", () => {
+    const gates = evaluateComplaintPainGates([
+      { score: 6, timing: "during", complaints: ["knee"] },
+    ]);
+    expect(gates.knee?.triggered).toBe(true);
+    expect(gates.hamstring).toBeUndefined();
+    expect(gates.itb).toBeUndefined();
+  });
+
+  it("excludes achilles — that complaint keeps evaluatePainGate/getPainGate instead", () => {
+    const gates = evaluateComplaintPainGates([
+      { score: 9, timing: "during", complaints: ["achilles"] },
+    ]);
+    expect(Object.keys(gates)).toHaveLength(0);
+  });
+
+  it("triggers on a next-day check-in that didn't settle, same as the global gate", () => {
+    const gates = evaluateComplaintPainGates([
+      { score: 1, timing: "next_day", settledWithin24h: false, complaints: ["hamstring"] },
+    ]);
+    expect(gates.hamstring?.triggered).toBe(true);
   });
 });
 
