@@ -60,6 +60,20 @@ import { E2E_BASE_URL, E2E_COOKIES_PATH, E2E_SEED_IDS_PATH } from "../env";
 //                           caller's own write still works.
 //  - "tenanted-id"        — takes a resource id, in the URL, the body, or a
 //                           query string.
+//  - "self-scoped-destructive" — an irreversible action on the CALLER's own
+//                           account, with no id anywhere in the request (so,
+//                           like tenanted-create, no cross-user id to attack)
+//                           and no safe way to probe it here at all: unlike
+//                           every other kind, even the CONTROL call is
+//                           destructive, and this suite's specs share one
+//                           seeded database (see e2e/README.md) — actually
+//                           calling it as the owner or as user B would delete
+//                           one of them for the rest of the run. Its scoping
+//                           is proven instead by a dedicated unit test next
+//                           to the route (see each entry's `note`), which
+//                           spies on every WHERE this issues and asserts each
+//                           one compares user_id to the given caller's id and
+//                           nothing else.
 //
 // To add a route: run this spec. It fails with the exact file and
 // "METHOD /api/..." key that has no entry, and tells you to add one below.
@@ -227,7 +241,7 @@ interface Req {
 }
 
 interface PublicLikeEntry {
-  kind: "public" | "cron" | "no-db";
+  kind: "public" | "cron" | "no-db" | "self-scoped-destructive";
   note?: string;
 }
 
@@ -320,6 +334,12 @@ const manifest: Record<string, ManifestEntry> = {
   "GET /api/sync/health": { kind: "no-db", note: "aggregate outbox counters, no per-user rows returned" },
   "GET /api/integrations/gcal/status": { kind: "no-db" },
   "GET /api/integrations/strava/status": { kind: "no-db" },
+
+  // ── Self-scoped destructive ─────────────────────────────────────────────────
+  "DELETE /api/user/account": {
+    kind: "self-scoped-destructive",
+    note: "erases the CALLER's account and every row they own, via lib/account-deletion.ts. Scoping is asserted in src/lib/__tests__/account-deletion.test.ts (every delete filtered by the given userId, discovered from the same tenancy metadata 0064's RLS coverage migration uses) and src/app/api/user/account/__tests__/route.test.ts (the route always deletes the SESSION's own id, never a body/param value, and the owner is refused before anything runs).",
+  },
 
   // ── Tenanted singleton ──────────────────────────────────────────────────────
   "GET /api/strength/plan-settings": { kind: "tenanted-singleton" },
@@ -769,7 +789,8 @@ test.describe("route inventory", () => {
         if (!(key in manifest)) {
           problems.push(
             `UNCLASSIFIED: ${key}\n  file: ${route.file}\n  → add a manifest entry in cross-user-isolation.spec.ts ` +
-              `classifying it public / cron / no-db / tenanted-list / tenanted-singleton / tenanted-create / tenanted-id.`
+              `classifying it public / cron / no-db / tenanted-list / tenanted-singleton / tenanted-create / ` +
+              `tenanted-id / self-scoped-destructive.`
           );
         }
       }
