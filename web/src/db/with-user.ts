@@ -14,7 +14,7 @@ import { asUserId, type UserId } from "@/lib/user-id";
 //
 // ── Why it cannot leak across pooled connections ─────────────────────────────
 //
-// The app talks to Neon through a TRANSACTION pooler, and db/index.ts caps the
+// The app talks to Supabase through a TRANSACTION pooler, and db/index.ts caps the
 // client at one connection per function instance. Both facts mean a physical
 // connection is handed to one request, returned, and handed to a different
 // request afterwards. Anything left behind on that connection is inherited by

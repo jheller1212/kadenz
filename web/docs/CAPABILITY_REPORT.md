@@ -2,7 +2,7 @@
 
 Generated, not hand-maintained. Regenerate with `npm run report:capabilities` from `web/` (runs `scripts/generate-capability-report.ts`).
 
-Generated at `2026-07-31T09:29:40.952Z` from commit `159808d2e53b1c4e984c4c5672b4cb8229543ad5` (working tree had uncommitted changes at generation time).
+Generated at `2026-07-31T09:36:08.547Z` from commit `6b81315f03b51300f26cdee4414ee8a36bbc01db`.
 
 This file answers only "what exists in the code, with proof": every row below has a file and line reference, and every reference is re-derived from the source on each run, not copied from a prior version of this file. It says nothing about what is designed, planned, or matches a brief — that judgement, and its own tracking columns, belongs to the design project's STATUS.md.
 
