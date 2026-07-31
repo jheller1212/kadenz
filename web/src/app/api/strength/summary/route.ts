@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { and, eq, gte, isNull } from "drizzle-orm";
 import { db, strengthSessions } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { sessionVolume, type VolumeSet } from "@/lib/strength/volume";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/strength/summary ─────────────────────────────────────────────────
 // Honest, small aggregate for the Kraft hub stat row: how many completed
@@ -25,16 +27,19 @@ import { sessionVolume, type VolumeSet } from "@/lib/strength/volume";
 const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function GET(request: NextRequest) {
-  const profileId = getActiveProfileId(request);
+export const GET = withSession(async (request: NextRequest) => {
+  const profileId = await getVerifiedProfileId(request);
   const now = new Date();
   const fourWeeksAgo = new Date(now.getTime() - FOUR_WEEKS_MS);
   const oneWeekAgo = new Date(now.getTime() - ONE_WEEK_MS);
 
   try {
-    const profileCond = profileId
-      ? eq(strengthSessions.profileId, profileId)
-      : isNull(strengthSessions.profileId);
+    const profileCond = and(
+      ownedBy(strengthSessions),
+      profileId
+        ? eq(strengthSessions.profileId, profileId)
+        : isNull(strengthSessions.profileId)
+    );
 
     const recentSessions = await db.query.strengthSessions.findMany({
       where: and(profileCond, eq(strengthSessions.status, "completed"), gte(strengthSessions.date, fourWeeksAgo)),
@@ -70,4 +75,4 @@ export async function GET(request: NextRequest) {
     console.error("DB error computing strength summary:", err);
     return Response.json({ error: "Failed to compute summary" }, { status: 500 });
   }
-}
+});

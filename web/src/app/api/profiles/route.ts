@@ -1,8 +1,10 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import { db, profiles } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { evaluateProfileDelete } from "@/lib/profile-delete";
 
 const CreateSchema = z.object({
@@ -20,23 +22,23 @@ const DeleteSchema = z.object({
 // Household guest profiles (the owner has no row — NULL profile_id everywhere).
 // Soft-deleted profiles are excluded so a "removed" person never reappears.
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     const rows = await db
       .select()
       .from(profiles)
-      .where(eq(profiles.active, true))
+      .where(and(ownedBy(profiles), eq(profiles.active, true)))
       .orderBy(asc(profiles.createdAt));
     return Response.json(rows);
   } catch (err) {
     console.error("DB error listing profiles:", err);
     return Response.json({ error: "Failed to fetch profiles" }, { status: 500 });
   }
-}
+});
 
 // ── POST /api/profiles ────────────────────────────────────────────────────────
 
-export async function POST(request: NextRequest) {
+export const POST = withSession(async (request) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -53,14 +55,14 @@ export async function POST(request: NextRequest) {
   try {
     const [row] = await db
       .insert(profiles)
-      .values({ name: parsed.data.name, color: parsed.data.color ?? null })
+      .values({ name: parsed.data.name, color: parsed.data.color ?? null, userId: currentUserId() })
       .returning();
     return Response.json(row, { status: 201 });
   } catch (err) {
     console.error("DB error creating profile:", err);
     return Response.json({ error: "Failed to create profile" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/profiles?id= ──────────────────────────────────────────────────
 // Soft-deletes the profile: flips `active` to false and leaves every strength
@@ -77,7 +79,7 @@ export async function POST(request: NextRequest) {
 //     (the client has no way to detect that and fall back to the owner mid
 //     -session), so switch to another profile (or Owner) first.
 
-export async function DELETE(request: NextRequest) {
+export const DELETE = withSession(async (request) => {
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
@@ -96,16 +98,18 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
+    // ownedBy here is what turns "someone else's profile id" into a 404
+    // instead of a real row this route would otherwise happily soft-delete.
     const [target] = await db
       .select({ id: profiles.id, name: profiles.name, active: profiles.active })
       .from(profiles)
-      .where(eq(profiles.id, id))
+      .where(and(ownedBy(profiles), eq(profiles.id, id)))
       .limit(1);
 
     const decision = evaluateProfileDelete(
       target,
       parsed.data.confirmName,
-      getActiveProfileId(request)
+      await getVerifiedProfileId(request)
     );
     if (!decision.ok) {
       return Response.json({ error: decision.error }, { status: decision.status });
@@ -114,10 +118,10 @@ export async function DELETE(request: NextRequest) {
     await db
       .update(profiles)
       .set({ active: false })
-      .where(and(eq(profiles.id, id), eq(profiles.active, true)));
+      .where(and(ownedBy(profiles), eq(profiles.id, id), eq(profiles.active, true)));
     return Response.json({ ok: true });
   } catch (err) {
     console.error("DB error removing profile:", err);
     return Response.json({ error: "Failed to remove profile" }, { status: 500 });
   }
-}
+});

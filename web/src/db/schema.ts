@@ -151,15 +151,26 @@ export const syncStatusEnum = pgEnum("sync_status", [
 // anywhere. Kept in sync with drizzle/0051_users.sql.
 export const OWNER_USER_ID = "00000000-0000-0000-0000-000000000001";
 
-// Phase 2 of the multi-user plan gives every tenanted table below a
-// `user_id` column, defaulted at the database level to OWNER_USER_ID. That
-// default is deliberate and load-bearing, not a shortcut: Phase 2 does not
-// touch the ~62 query call sites that insert rows across the app, so none of
-// them pass user_id yet. Without the default, making the column NOT NULL
-// would break every insert in the app today. Phase 3 is what sets user_id
-// explicitly at each call site and then drops these defaults. A default
-// that silently attributes every new row to the owner is exactly the wrong
-// behaviour once a second user exists, so it must not survive past Phase 3.
+// Every tenanted table below carries a NOT NULL `user_id`. Phase 2 gave those
+// columns a database-level DEFAULT of OWNER_USER_ID as a scaffold, so that
+// insert call sites kept working before tenancy was enforced. Phase 3 dropped
+// it (drizzle/0053_rls.sql), and it must not come back.
+//
+// The reason is that the default is indistinguishable from correct behaviour
+// right up until it is catastrophic: an insert that forgets user_id attributes
+// a second user's data to the owner, silently, with no error anywhere. Without
+// the default the same mistake is a not-null violation at the first write.
+//
+// So every insert must now pass user_id explicitly. If one fails to compile or
+// fails at runtime, set the id from the request's session (currentUserId() in
+// db/with-user.ts) -- do not restore a default here.
+//
+// Two tests hold this, at different strengths. src/db/__tests__/tenancy.test.ts
+// checks the schema: that every tenanted table declares a user_id and that none
+// is excluded from the policy coverage migration. e2e/specs/rls-coverage.spec.ts
+// checks the live database: that the policies are FORCE-enabled and that no
+// user_id column carries a default. The first is fast and runs everywhere; only
+// the second can prove the guard actually works.
 
 // A person using Kadenz. Separate from `user_identities` because one person
 // can log in with both Strava and Google, and both must resolve to this one
@@ -310,8 +321,7 @@ export const profiles = pgTable(
     active: boolean("active").notNull().default(true),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -351,8 +361,7 @@ export const plans = pgTable(
     status: planStatusEnum("status").notNull().default("active"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -394,8 +403,7 @@ export const weeks = pgTable(
     skipSnapshot: jsonb("skip_snapshot").$type<{ id: string; status: string }[]>(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -454,8 +462,7 @@ export const workouts = pgTable(
     raceResultLoggedAt: timestamp("race_result_logged_at", { withTimezone: true }),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -491,8 +498,7 @@ export const blocks = pgTable(
     repRestSeconds: integer("rep_rest_seconds"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -565,8 +571,7 @@ export const activities = pgTable(
     streamsJson: jsonb("streams_json"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -612,8 +617,7 @@ export const deletedActivities = pgTable(
     stravaId: text("strava_id").primaryKey(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("deleted_activities_user_id_idx").on(t.userId)]
@@ -628,8 +632,7 @@ export const activityTrash = pgTable(
     payload: jsonb("payload").notNull(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("activity_trash_user_id_idx").on(t.userId)]
@@ -645,8 +648,7 @@ export const personalRecords = pgTable(
     source: prSourceEnum("source").notNull().default("race"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -690,8 +692,7 @@ export const syncOutbox = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
   },
   (t) => [
     index("sync_outbox_status_idx").on(t.status),
@@ -819,8 +820,7 @@ export const strengthSessions = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -904,8 +904,7 @@ export const wellnessLogs = pgTable(
     note: text("note"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -945,8 +944,7 @@ export const wellnessMetrics = pgTable(
     source: text("source").notNull().default("garmin"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1031,8 +1029,7 @@ export const strengthPlanSettings = pgTable(
     restSeconds: integer("rest_seconds"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1058,8 +1055,7 @@ export const customWorkoutTemplates = pgTable(
     name: text("name").notNull(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1110,8 +1106,7 @@ export const pushSubscriptions = pgTable(
     auth: text("auth").notNull(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1135,8 +1130,7 @@ export const reminderSettings = pgTable(
     defaultTimeOfDay: text("default_time_of_day").notNull().default("07:00"),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1181,8 +1175,7 @@ export const sentReminders = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id)
-      .default(OWNER_USER_ID),
+      .references(() => users.id),
   },
   (t) => [index("sent_reminders_user_id_idx").on(t.userId)]
 );

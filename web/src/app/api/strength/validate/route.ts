@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
 import { getStrengthPlanSettingsRow } from "@/lib/strength/service";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 const ValidateSchema = z.object({
   // Must match the create schema — a narrower list 422'd real requests
@@ -21,7 +23,7 @@ const ValidateSchema = z.object({
 // Check a proposed placement (or move) against the run schedule + Achilles cap.
 // Used by the planner's drag-and-drop override UX before committing a move.
 
-export async function POST(request: NextRequest) {
+export const POST = withSession(async (request: NextRequest) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -44,7 +46,11 @@ export async function POST(request: NextRequest) {
       const [active] = await db
         .select({ id: plans.id })
         .from(plans)
-        .where(eq(plans.status, "active"))
+        // "The active plan" means the CALLER's active plan. Row level security
+        // would already limit this to them, but an unfiltered status lookup
+        // reads as "whoever's plan is active", which is the wrong intent to
+        // leave in the code and the wrong thing to copy into the next route.
+        .where(and(ownedBy(plans), eq(plans.status, "active")))
         .limit(1);
       planId = active?.id ?? null;
     }
@@ -62,13 +68,14 @@ export async function POST(request: NextRequest) {
       await db
         .select({ id: strengthSessions.id, date: strengthSessions.date, type: strengthSessions.type })
         .from(strengthSessions)
+        .where(ownedBy(strengthSessions))
     ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
     // Same reasoning as the sessions POST route: an achilles complaint
     // reshapes plain lower/upper/full_body sessions with the Achilles block
     // now (see program.ts ACHILLES_COMPLAINT_SLOTS), so the constraint
     // engine needs to know about it to keep enforcing Achilles spacing/cap.
-    const profileId = getActiveProfileId(request);
+    const profileId = await getVerifiedProfileId(request);
     const settingsRow = await getStrengthPlanSettingsRow(profileId);
     const hasAchillesComplaint = (settingsRow?.complaints ?? []).includes("achilles");
 
@@ -87,4 +94,4 @@ export async function POST(request: NextRequest) {
     console.error("DB error validating placement:", err);
     return Response.json({ error: "Validation failed" }, { status: 500 });
   }
-}
+});

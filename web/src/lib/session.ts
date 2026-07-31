@@ -1,5 +1,7 @@
 // Uses Web Crypto API — compatible with both Edge Runtime (proxy) and Node.js runtime (API routes).
 
+import { asUserId, isUserId, type UserId } from "./user-id";
+
 const COOKIE_NAME = "session";
 
 // A session naturally expires after this long, so a captured cookie (shared
@@ -30,16 +32,16 @@ function buildSignedPayload(userId: string, issuedAtMs: number): string {
 }
 
 // Session subjects are database uuids. Anything else in that position (most
-// notably the old literal "authenticated") is not a user and is rejected.
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// notably the old literal "authenticated") is not a user and is rejected. The
+// shape check lives in lib/user-id.ts so there is one definition of what a user
+// id looks like rather than one per file that needed to know.
 
 /** Returns the user id carried by a signed payload, or null if it carries none. */
-export function parseUserId(value: string): string | null {
+export function parseUserId(value: string): UserId | null {
   const sepIndex = value.lastIndexOf(":");
   if (sepIndex === -1) return null;
   const raw = value.slice(0, sepIndex);
-  return UUID_RE.test(raw) ? raw.toLowerCase() : null;
+  return isUserId(raw) ? asUserId(raw) : null;
 }
 
 // Returns the embedded issued-at timestamp, or null if `value` is a legacy
@@ -98,8 +100,11 @@ async function hmacVerify(value: string, signature: string, secret: string): Pro
 }
 
 /** Mints a session for `userId`. There is no such thing as an anonymous session. */
-export async function makeSessionCookie(userId: string): Promise<string> {
-  if (!UUID_RE.test(userId)) {
+export async function makeSessionCookie(userId: UserId): Promise<string> {
+  if (!isUserId(userId)) {
+    // Unreachable through the type, and kept as a runtime guard because this
+    // mints the credential the whole app trusts: a caller that reached here with
+    // a bad value through a cast must not get a working session out of it.
     throw new Error("makeSessionCookie requires a user id");
   }
   const secret = getSecret();
@@ -125,7 +130,7 @@ export function clearSessionCookie(): string {
  */
 export async function getSessionUserId(
   cookieHeader: string | null
-): Promise<string | null> {
+): Promise<UserId | null> {
   if (!cookieHeader) return null;
   const cookies = Object.fromEntries(
     cookieHeader.split(";").map((c) => {
@@ -200,17 +205,19 @@ const SHELL_TOKEN_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 // swapped for each other.
 const SHELL_PREFIX = "shell:";
 
-function buildShellPayload(userId: string, issuedAtMs: number): string {
+function buildShellPayload(userId: UserId, issuedAtMs: number): string {
   return `${SHELL_PREFIX}${userId}:${issuedAtMs}`;
 }
 
 /** Mints a shell bearer token for `userId`. */
-export async function makeShellToken(userId: string): Promise<string> {
-  if (!UUID_RE.test(userId)) {
+export async function makeShellToken(userId: UserId): Promise<string> {
+  if (!isUserId(userId)) {
+    // Unreachable through the type, kept as a runtime guard for the same
+    // reason as makeSessionCookie: this mints a credential the app trusts.
     throw new Error("makeShellToken requires a user id");
   }
   const secret = getSecret();
-  const payload = buildShellPayload(userId.toLowerCase(), Date.now());
+  const payload = buildShellPayload(asUserId(userId), Date.now());
   const sig = await hmacSign(payload, secret);
   return `${payload}.${sig}`;
 }
@@ -227,7 +234,7 @@ export const SHELL_TOKEN_MAX_AGE_SECONDS = SHELL_TOKEN_MAX_AGE_MS / 1000;
  */
 export async function getShellTokenUserId(
   authorizationHeader: string | null
-): Promise<string | null> {
+): Promise<UserId | null> {
   if (!authorizationHeader) return null;
   const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;

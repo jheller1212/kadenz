@@ -8,9 +8,12 @@ import {
   getSessionUserId,
   validateSessionCookie,
 } from "../session";
+import { asUserId, type UserId } from "../user-id";
 
-const USER_A = "11111111-1111-4111-8111-111111111111";
-const USER_B = "22222222-2222-4222-8222-222222222222";
+// Branded at the top rather than at each call: a UserId is what the session
+// layer now takes, and asUserId is the one validating way to make one.
+const USER_A = asUserId("11111111-1111-4111-8111-111111111111");
+const USER_B = asUserId("22222222-2222-4222-8222-222222222222");
 
 const ONE_DAY_MS = 1000 * 60 * 60 * 24;
 const THIRTY_DAYS_MS = ONE_DAY_MS * 30;
@@ -182,8 +185,22 @@ describe("cookie round-trip", () => {
   });
 
   it("refuses to mint a session with no user id", async () => {
-    await expect(makeSessionCookie("")).rejects.toThrow();
-    await expect(makeSessionCookie("authenticated")).rejects.toThrow();
+    // The cast is the point of the test: these are exactly the values the
+    // branded type stops a caller passing by accident, so the only way to reach
+    // the runtime guard is to defeat the type deliberately. The guard stays
+    // because this mints the credential the whole app trusts.
+    await expect(makeSessionCookie("" as UserId)).rejects.toThrow();
+    await expect(makeSessionCookie("authenticated" as UserId)).rejects.toThrow();
+  });
+
+  it("asUserId refuses an id of the wrong kind", () => {
+    // The two live bugs this brand exists for both passed a real, valid string
+    // that was not a user id: a plan id, and the sync target "gcal".
+    expect(() => asUserId("gcal")).toThrow();
+    expect(() => asUserId("not-a-uuid")).toThrow();
+    expect(asUserId("11111111-1111-4111-8111-111111111111")).toBe(
+      "11111111-1111-4111-8111-111111111111"
+    );
   });
 
   it("clearSessionCookie sets Max-Age=0", () => {

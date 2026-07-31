@@ -6,6 +6,8 @@
 
 import { db, activities, workouts, strengthSessions, deletedActivities } from "@/db";
 import { eq, and, gte, lte } from "drizzle-orm";
+import type { UserId } from "@/lib/user-id";
+import { currentUserId } from "@/db/with-user";
 import { garminClient, type GarminActivity } from "./garmin-client";
 import {
   isDuplicateActivity,
@@ -59,7 +61,7 @@ async function isDuplicate(act: GarminActivity, startDate: Date): Promise<boolea
   );
 }
 
-async function importRun(userId: string, act: GarminActivity, startDate: Date): Promise<void> {
+async function importRun(userId: UserId, act: GarminActivity, startDate: Date): Promise<void> {
   // Fetch detail for splits; a failed detail fetch shouldn't lose the activity.
   let splitsJson: unknown[] | null = null;
   try {
@@ -102,7 +104,7 @@ async function importRun(userId: string, act: GarminActivity, startDate: Date): 
   }
 }
 
-async function importStrength(userId: string, act: GarminActivity, startDate: Date): Promise<void> {
+async function importStrength(userId: UserId, act: GarminActivity, startDate: Date): Promise<void> {
   const longEnough = (act.durationSeconds ?? 0) >= MIN_STRENGTH_MATCH_SECONDS;
   const strengthSessionId = longEnough
     ? await findMatchingStrengthSession({
@@ -167,7 +169,7 @@ async function importStrength(userId: string, act: GarminActivity, startDate: Da
  * as a real parameter means that stays true by construction rather than by
  * coincidence if a caller ever changes.
  */
-export async function runGarminImport(userId: string): Promise<GarminImportResult> {
+export async function runGarminImport(userId: UserId): Promise<GarminImportResult> {
   const result: GarminImportResult = {
     fetched: 0,
     imported: 0,

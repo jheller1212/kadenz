@@ -9,6 +9,8 @@ import {
   weeks,
   workouts,
 } from "@/db";
+import { ownedBy } from "@/lib/api/owned";
+import { currentUserId } from "@/db/with-user";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
@@ -65,9 +67,12 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     .select()
     .from(strengthPlanSettings)
     .where(
-      profileId
-        ? eq(strengthPlanSettings.profileId, profileId)
-        : isNull(strengthPlanSettings.profileId)
+      and(
+        ownedBy(strengthPlanSettings),
+        profileId
+          ? eq(strengthPlanSettings.profileId, profileId)
+          : isNull(strengthPlanSettings.profileId)
+      )
     );
   if (!settings || !settings.active) return { created: 0, shortWeeks: 0 };
 
@@ -158,6 +163,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     .from(strengthSessions)
     .where(
       and(
+        ownedBy(strengthSessions),
         gte(strengthSessions.date, windowStart),
         lte(strengthSessions.date, horizon),
         profileId
@@ -267,6 +273,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     const [row] = await db
       .insert(strengthSessions)
       .values({
+        userId: currentUserId(),
         profileId,
         date: day.date,
         dayOfWeek: day.dow,
@@ -306,6 +313,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     .from(strengthSessions)
     .where(
       and(
+        ownedBy(strengthSessions),
         profileId
           ? eq(strengthSessions.profileId, profileId)
           : isNull(strengthSessions.profileId),
@@ -406,6 +414,7 @@ export async function pruneAutoSchedule(profileId: string | null, userId: string
     .from(strengthSessions)
     .where(
       and(
+        ownedBy(strengthSessions),
         gte(strengthSessions.date, today),
         profileId
           ? eq(strengthSessions.profileId, profileId)
@@ -501,7 +510,13 @@ export async function pruneStaleAdhocSessions(): Promise<{ removed: number }> {
       userId: strengthSessions.userId,
     })
     .from(strengthSessions)
-    .where(and(eq(strengthSessions.watchEligible, false), lte(strengthSessions.date, today)));
+    .where(
+      and(
+        ownedBy(strengthSessions),
+        eq(strengthSessions.watchEligible, false),
+        lte(strengthSessions.date, today)
+      )
+    );
 
   if (candidates.length === 0) return { removed: 0 };
 
@@ -583,6 +598,7 @@ export async function autoCloseAbandonedSessions(): Promise<{ closed: number }> 
     .from(strengthSessions)
     .where(
       and(
+        ownedBy(strengthSessions),
         eq(strengthSessions.status, "planned"),
         isNotNull(strengthSessions.startedAt),
         isNotNull(strengthSessions.endedAt)

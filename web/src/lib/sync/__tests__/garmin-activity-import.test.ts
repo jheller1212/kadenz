@@ -5,6 +5,7 @@
 // migration staying additive.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asUserId } from "@/lib/user-id";
 
 const activities = { __t: "activities" } as Record<string, unknown>;
 const workouts = { __t: "workouts" } as Record<string, unknown>;
@@ -98,7 +99,7 @@ function garminRun(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const TEST_USER_ID = "11111111-1111-1111-1111-111111111111";
+const TEST_USER_ID = asUserId("11111111-1111-1111-1111-111111111111");
 
 beforeEach(() => {
   resetMockDb();

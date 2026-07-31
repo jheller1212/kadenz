@@ -5,6 +5,7 @@
 
 import { db, syncOutbox, workouts, plans, strengthSessions } from "@/db";
 import { eq, and, gte, lte, ne, isNull, isNotNull, inArray } from "drizzle-orm";
+import { asUserId } from "@/lib/user-id";
 import { garminClient, toGarminDate } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
@@ -497,7 +498,7 @@ async function processGarminJob(
   // The stored title is always written in km. Rebuild it in the owner's unit
   // before labelling, so a miles athlete's watch stops disagreeing with every
   // screen in the app.
-  const { distanceUnit } = await loadUserUnits(row.userId);
+  const { distanceUnit } = await loadUserUnits(asUserId(row.userId));
 
   const input = {
     // "W3 · Easy Run 10km" — week-prefixed so the watch list is unambiguous.

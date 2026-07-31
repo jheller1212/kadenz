@@ -9,6 +9,7 @@
 
 import { db, pushSubscriptions } from "@/db";
 import { and, eq, inArray } from "drizzle-orm";
+import type { UserId } from "@/lib/user-id";
 
 export interface PushSubscriptionRecord {
   endpoint: string;
@@ -17,7 +18,7 @@ export interface PushSubscriptionRecord {
 }
 
 export async function saveSubscription(
-  userId: string,
+  userId: UserId,
   sub: PushSubscriptionRecord
 ): Promise<void> {
   await db
@@ -37,13 +38,13 @@ export async function saveSubscription(
     });
 }
 
-export async function removeSubscription(userId: string, endpoint: string): Promise<void> {
+export async function removeSubscription(userId: UserId, endpoint: string): Promise<void> {
   await db
     .delete(pushSubscriptions)
     .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, endpoint)));
 }
 
-export async function listSubscriptions(userId: string): Promise<PushSubscriptionRecord[]> {
+export async function listSubscriptions(userId: UserId): Promise<PushSubscriptionRecord[]> {
   return db
     .select({
       endpoint: pushSubscriptions.endpoint,

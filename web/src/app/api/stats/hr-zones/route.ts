@@ -1,8 +1,9 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db, activities } from "@/db";
 import { and, gte, isNotNull, lt } from "drizzle-orm";
 import { sportBucket, type SportBucket } from "@/lib/sport";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/stats/hr-zones?month=YYYY-MM&bounds=139,152,160,169&max=185 ─────
 // Time in HR zones for one month. Zone bounds are client-side (settings), so
@@ -44,7 +45,7 @@ function zoneIndexFor(hr: number, bounds: number[]): number {
   return 4;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request) => {
   const { searchParams } = request.nextUrl;
   const parsed = QuerySchema.safeParse({
     month: searchParams.get("month") ?? undefined,
@@ -87,6 +88,7 @@ export async function GET(request: NextRequest) {
       .from(activities)
       .where(
         and(
+          ownedBy(activities),
           isNotNull(activities.startDate),
           gte(activities.startDate, monthStart),
           lt(activities.startDate, monthEnd)
@@ -139,4 +141,4 @@ export async function GET(request: NextRequest) {
     console.error("Error aggregating HR zone time:", err);
     return Response.json({ error: "Failed to aggregate" }, { status: 500 });
   }
-}
+});

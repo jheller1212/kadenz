@@ -12,14 +12,25 @@ import { spawn } from "node:child_process";
 import EmbeddedPostgres from "embedded-postgres";
 import {
   E2E_APP_PORT,
+  E2E_ARTIFACTS_DIR,
   E2E_AUTH_STATE_PATH,
   E2E_BASE_URL,
+  E2E_COOKIES_PATH,
   E2E_DATABASE_URL,
   E2E_DB_NAME,
   E2E_PG_DATA_DIR,
   E2E_PG_PORT,
   E2E_SESSION_SECRET,
+  USER_B_ID,
 } from "./env";
+
+// Mirrors src/db/schema.ts's OWNER_USER_ID. Not imported from there: every
+// other src/ import in this file is spawned as its own `tsx` process (see the
+// comment on run()/runCapture() below) specifically to avoid pulling that
+// ESM module tree into Playwright's CJS-compiled global-setup process, and a
+// static import of schema.ts here would reintroduce exactly that risk for
+// the sake of one constant.
+const OWNER_USER_ID = "00000000-0000-0000-0000-000000000001";
 import { state } from "./server-state";
 
 // ── Guard: this whole harness must be structurally incapable of touching
@@ -61,17 +72,36 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promise<void>
 
 // Captures stdout instead of inheriting it — used for mint-cookie.ts, which
 // prints exactly one line the caller needs to parse.
-function runCapture(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+function runCapture(
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  opts: { inheritStderr?: boolean } = {}
+): Promise<string> {
+  // stderr is inherited by default because mint-cookie.ts's caller wants its
+  // errors on the console and parses only stdout. Capturing it instead is for
+  // callers that need to INSPECT what the command said, not just what it
+  // returned: drizzle-kit reports an unanswerable prompt on stderr and then
+  // exits zero, so the text is the only evidence there is.
+  const inheritStderr = opts.inheritStderr !== false;
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
-      stdio: ["ignore", "pipe", "inherit"],
+      stdio: ["ignore", "pipe", inheritStderr ? "inherit" : "pipe"],
       env,
       cwd: dirname(dirname(__filename)),
     });
     let out = "";
-    child.stdout.on("data", (chunk) => {
+    child.stdout?.on("data", (chunk) => {
       out += chunk.toString();
     });
+    if (!inheritStderr && child.stderr) {
+      child.stderr.on("data", (chunk) => {
+        const text = chunk.toString();
+        out += text;
+        // Still echoed, so capturing does not make the run quieter than before.
+        process.stderr.write(text);
+      });
+    }
     child.on("exit", (code) => {
       if (code === 0) resolve(out.trim());
       else reject(new Error(`[e2e] ${cmd} ${args.join(" ")} exited with code ${code}`));
@@ -114,12 +144,32 @@ export default async function globalSetup() {
   }
   await pg.start();
 
+  // ── A FRESH database every run, on a persisted data directory ─────────────
+  //
+  // The Postgres data dir is kept between runs because initdb is the slow part.
+  // The database inside it is not, and that distinction matters more than it
+  // looks.
+  //
+  // `drizzle-kit push` compares schema.ts against whatever is already there. On
+  // a populated database that comparison can need an answer ("about to add a
+  // unique constraint to a table that contains 8 rows, truncate it?"), and with
+  // no TTY drizzle-kit prints an error and exits ZERO. The schema silently does
+  // not get applied, and every later step runs against the previous run's
+  // database. The symptom is a seed failing on a column that plainly exists in
+  // schema.ts, which sends you looking in entirely the wrong place.
+  //
+  // Dropping first means push always runs against an empty database, where
+  // there is nothing to ask about. It also removes any state a previous run
+  // left behind, so a spec cannot pass or fail because of what ran before it.
+  // The seed is idempotent and takes seconds; correctness is worth those.
   try {
-    await pg.createDatabase(E2E_DB_NAME);
+    await pg.dropDatabase(E2E_DB_NAME);
   } catch (err) {
+    // First run on a new data dir: nothing to drop.
     const msg = err instanceof Error ? err.message : String(err);
-    if (!/already exists/i.test(msg)) throw err;
+    if (!/does not exist/i.test(msg)) throw err;
   }
+  await pg.createDatabase(E2E_DB_NAME);
 
   const dbEnv: NodeJS.ProcessEnv = { ...process.env, DATABASE_URL: E2E_DATABASE_URL };
 
@@ -127,12 +177,34 @@ export default async function globalSetup() {
   // are the source of truth per project convention — same reasoning applies
   // here: push straight from src/db/schema.ts rather than replaying the
   // hand-authored migration chain, which assumes a pre-existing baseline). ──
+  // `--force` auto-accepts drizzle-kit's data-loss warnings, but NOT its
+  // "is this column added or renamed?" question. Against the persisted data dir
+  // that question can appear, and with no TTY drizzle-kit prints
+  // "Interactive prompts require a TTY terminal" and exits ZERO. The schema is
+  // then silently not updated, and the suite runs against an old database:
+  // symptoms are a seed that fails on a column that plainly exists in
+  // schema.ts, or specs failing for reasons that make no sense against the code
+  // in front of you. That cost real debugging time once already.
+  //
+  // So the output is captured and checked. A prompt that could not be answered
+  // is now a loud failure with the one-line fix, rather than a zero exit code.
   console.log("[e2e] pushing schema to local Postgres…");
-  await run(
+  const pushOutput = await runCapture(
     "./node_modules/.bin/drizzle-kit",
     ["push", "--force"],
-    dbEnv
+    dbEnv,
+    { inheritStderr: false }
   );
+  if (/Interactive prompts require a TTY/i.test(pushOutput)) {
+    throw new Error(
+      "[e2e] drizzle-kit push needed an interactive answer and could not ask, so the schema was NOT applied " +
+        "and every later step would run against a stale database. This happens when the persisted data dir " +
+        "has drifted from src/db/schema.ts (a renamed or re-typed column).\n\n" +
+        "Fix: rm -rf web/e2e/.pgdata web/e2e/.auth web/e2e/.artifacts, then re-run. The seed is idempotent, " +
+        "so a fresh database costs seconds.\n\n" +
+        `drizzle-kit said:\n${pushOutput}`
+    );
+  }
 
   // ── 3. Seed realistic data ───────────────────────────────────────────────
   // Spawned as its own `tsx` process rather than imported in-process:
@@ -141,6 +213,18 @@ export default async function globalSetup() {
   // cycle" error (Node's require(esm) interop limitation).
   console.log("[e2e] seeding local database…");
   await run("./node_modules/.bin/tsx", ["e2e/seed.ts"], dbEnv);
+
+  // ── 3b. Apply the Phase 3 enforcement SQL ────────────────────────────────
+  // `drizzle-kit push` above builds tables from schema.ts and replays no
+  // migrations, so the row level security policies would not exist and the
+  // isolation specs would pass against a database with no isolation. See
+  // e2e/apply-rls.ts.
+  //
+  // After the seed, not before: the seed writes both users' data with no
+  // request context set, which the policies would (correctly) refuse. Setup
+  // populates the database; the policies then govern how the app reads it.
+  console.log("[e2e] applying row level security…");
+  await run("./node_modules/.bin/tsx", ["e2e/apply-rls.ts"], dbEnv);
 
   // ── 4. Build the app, then serve that build against the seeded database ──
   //
@@ -196,15 +280,28 @@ export default async function globalSetup() {
   state.appServer = appServer;
   await waitForServer(E2E_BASE_URL, 60_000);
 
-  // ── 5. Mint a valid session cookie the same way the OAuth callback would
-  // (src/lib/session.ts's own makeSessionCookie — zero app code changes),
-  // and hand it to every test via Playwright's storageState. ──────────────
-  const nameValue = await runCapture(
+  // ── 5. Mint valid session cookies the same way the OAuth callback would
+  // (src/lib/session.ts's own makeSessionCookie — zero app code changes), one
+  // per seeded user, and hand the owner's to every test via Playwright's
+  // storageState (unchanged behaviour for every existing spec). Both raw
+  // cookies are also written to E2E_COOKIES_PATH — the cross-user-isolation
+  // spec is the only consumer of the second one, and it drives its own
+  // per-user API request contexts rather than a browser storageState (see
+  // that spec for why: it needs to hold both users' cookies at once, which
+  // storageState — one per Playwright project — can't express).
+  const mintOutput = await runCapture(
     "./node_modules/.bin/tsx",
-    ["e2e/mint-cookie.ts"],
+    ["e2e/mint-cookie.ts", OWNER_USER_ID, USER_B_ID],
     { ...process.env, SESSION_SECRET: E2E_SESSION_SECRET }
   );
-  const [name, value] = nameValue.split("=");
+  const [ownerCookie, userBCookie] = mintOutput.split("\n");
+  const [name, value] = ownerCookie.split("=");
+
+  mkdirSync(E2E_ARTIFACTS_DIR, { recursive: true });
+  writeFileSync(
+    E2E_COOKIES_PATH,
+    JSON.stringify({ owner: ownerCookie.trim(), userB: userBCookie.trim() }, null, 2)
+  );
 
   const storageState = {
     cookies: [

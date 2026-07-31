@@ -1,6 +1,8 @@
 import { db } from "@/db";
 import { customWorkoutSlots, customWorkoutTemplates } from "@/db/schema";
 import { and, asc, eq, isNull } from "drizzle-orm";
+import { currentUserId } from "@/db/with-user";
+import { ownedBy } from "@/lib/api/owned";
 
 export { estimateWorkoutDuration } from "./estimate";
 
@@ -34,10 +36,16 @@ export interface CustomWorkoutSlotInput {
 }
 
 // NULL profile_id = owner (same convention as wellness/strength scoping).
+// Also scoped to the caller's tenant (ownedBy) — profile alone isn't enough
+// once there's more than one account, since profileId is only unique within
+// one household.
 function profileCond(profileId: string | null) {
-  return profileId
-    ? eq(customWorkoutTemplates.profileId, profileId)
-    : isNull(customWorkoutTemplates.profileId);
+  return and(
+    ownedBy(customWorkoutTemplates),
+    profileId
+      ? eq(customWorkoutTemplates.profileId, profileId)
+      : isNull(customWorkoutTemplates.profileId)
+  );
 }
 
 function toSlotDto(
@@ -103,7 +111,7 @@ export async function createCustomWorkout(
 ): Promise<CustomWorkoutTemplate> {
   const [template] = await db
     .insert(customWorkoutTemplates)
-    .values({ name, profileId })
+    .values({ name, profileId, userId: currentUserId() })
     .returning();
 
   let slotRows: (typeof customWorkoutSlots.$inferSelect)[] = [];
@@ -143,7 +151,7 @@ export async function updateCustomWorkout(
     const [template] = await tx
       .update(customWorkoutTemplates)
       .set({ name, updatedAt: new Date() })
-      .where(eq(customWorkoutTemplates.id, id))
+      .where(and(ownedBy(customWorkoutTemplates), eq(customWorkoutTemplates.id, id)))
       .returning();
 
     await tx

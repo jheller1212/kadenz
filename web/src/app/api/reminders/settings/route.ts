@@ -1,19 +1,21 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { loadReminderConfig, saveReminderConfig } from "@/lib/reminders/settings";
-import { requireRequestUser } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
 
 // ── /api/reminders/settings ──────────────────────────────────────────────────
 // Server-side home of the reminder toggle + lead time, same pattern as
 // /api/garmin/config: it must live in the DB so the cron can read it.
 //
-// proxy.ts already requires a valid credential to reach this route, so the
-// point of reading the user id here is not authentication but scoping:
-// without it both handlers work on whichever settings row came back first, so
-// one athlete could read and overwrite another's reminder toggle.
+// proxy.ts already requires a valid session to reach this route, so the point
+// of the user id here is not authentication but scoping: without it both
+// handlers work on whichever settings row came back first, so one athlete could
+// read and overwrite another's reminder toggle.
 //
-// Resolved through request-user.ts rather than getSessionUserId directly, so
-// the native shell's bearer token reaches the same tenancy as the cookie.
+// withSession is what supplies it. It opens the request's row level security
+// context, so currentUserId() cannot disagree with the rows the database is
+// willing to return.
 
 const TIME_RE = /^\d{2}:\d{2}$/;
 
@@ -25,22 +27,16 @@ const ConfigSchema = z
   })
   .strict();
 
-export async function GET(request: NextRequest) {
-  const auth = await requireRequestUser(request);
-  if (auth.response) return auth.response;
-
+export const GET = withSession(async () => {
   try {
-    return Response.json(await loadReminderConfig(auth.userId));
+    return Response.json(await loadReminderConfig(currentUserId()));
   } catch (err) {
     console.error("Reminder settings read error:", err);
     return Response.json({ error: "Failed to read reminder settings" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: NextRequest) {
-  const auth = await requireRequestUser(request);
-  if (auth.response) return auth.response;
-
+export const POST = withSession(async (request) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -53,10 +49,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await saveReminderConfig(auth.userId, parsed.data);
+    await saveReminderConfig(currentUserId(), parsed.data);
     return Response.json(parsed.data);
   } catch (err) {
     console.error("Reminder settings write error:", err);
     return Response.json({ error: "Failed to save reminder settings" }, { status: 500 });
   }
-}
+});

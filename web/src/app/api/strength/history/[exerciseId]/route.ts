@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, strengthSessions, strengthSets, strengthExercises, painLogs } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { EXERCISE_BY_SLUG, movementFamilySlugs } from "@/lib/strength/program";
 import { computeSessionMetrics, annotatePrs, currentRecords, type PrSet } from "@/lib/strength/pr";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/strength/history/[exerciseId] ────────────────────────────────────
 // Per-exercise chart data: PR-annotated metrics per completed session over
@@ -17,12 +19,12 @@ import { computeSessionMetrics, annotatePrs, currentRecords, type PrSet } from "
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function GET(
+export const GET = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ exerciseId: string }> }
-) {
+) => {
   const { exerciseId: idOrSlug } = await params;
-  const profileId = getActiveProfileId(request);
+  const profileId = await getVerifiedProfileId(request);
   try {
     const [exercise] = await db
       .select()
@@ -52,6 +54,7 @@ export async function GET(
       .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
       .where(
         and(
+          ownedBy(strengthSessions),
           eq(strengthSets.exerciseId, exerciseId),
           eq(strengthSessions.status, "completed"),
           profileId
@@ -182,6 +185,7 @@ export async function GET(
         .innerJoin(strengthExercises, eq(strengthSets.exerciseId, strengthExercises.id))
         .where(
           and(
+            ownedBy(strengthSessions),
             inArray(strengthExercises.slug, family),
             eq(strengthSessions.status, "completed"),
             profileId
@@ -217,4 +221,4 @@ export async function GET(
     console.error("DB error fetching exercise history:", err);
     return Response.json({ error: "Failed to fetch history" }, { status: 500 });
   }
-}
+});

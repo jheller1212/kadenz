@@ -5,7 +5,9 @@ import { db, plans, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { resolveRequestUserId } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
+import { currentUserId } from "@/db/with-user";
 
 // ── Plan adjustments ("adjustment tray") ─────────────────────────────────────
 // Detects missed run sessions and lets the athlete realign: mark them missed,
@@ -49,14 +51,14 @@ async function activePlanId(): Promise<string | null> {
   const [p] = await db
     .select({ id: plans.id })
     .from(plans)
-    .where(eq(plans.status, "active"))
+    .where(and(eq(plans.status, "active"), ownedBy(plans)))
     .limit(1);
   return p?.id ?? null;
 }
 
 // ── GET — surface missed sessions + redistribution context ────────────────────
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request: NextRequest) => {
   try {
     const planId = await activePlanId();
     if (!planId) return Response.json({ hasMissed: false, missed: [] });
@@ -79,6 +81,7 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(workouts.planId, planId),
+          ownedBy(workouts),
           eq(workouts.status, "planned"),
           ne(workouts.type, "rest"),
           gte(workouts.date, from),
@@ -94,6 +97,7 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(workouts.planId, planId),
+          ownedBy(workouts),
           eq(workouts.status, "planned"),
           ne(workouts.type, "rest"),
           gte(workouts.date, today),
@@ -114,7 +118,7 @@ export async function GET(request: NextRequest) {
     console.error("DB error building plan adjustments:", err);
     return Response.json({ error: "Failed to load adjustments" }, { status: 500 });
   }
-}
+});
 
 // ── POST — apply an adjustment ────────────────────────────────────────────────
 
@@ -128,10 +132,7 @@ const ApplySchema = z
   })
   .strict();
 
-export async function POST(request: NextRequest) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
+export const POST = withSession(async (request: NextRequest) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -160,6 +161,7 @@ export async function POST(request: NextRequest) {
       .where(
         and(
           eq(workouts.planId, planId),
+          ownedBy(workouts),
           eq(workouts.status, "planned"),
           lt(workouts.date, today),
           inArray(workouts.id, workoutIds)
@@ -176,7 +178,7 @@ export async function POST(request: NextRequest) {
     await db
       .update(workouts)
       .set({ status: "missed", updatedAt: new Date() })
-      .where(inArray(workouts.id, targetIds));
+      .where(and(inArray(workouts.id, targetIds), ownedBy(workouts)));
     targetIds.forEach((id) => touched.add(id));
 
     let redistributed = 0;
@@ -188,6 +190,7 @@ export async function POST(request: NextRequest) {
         .where(
           and(
             eq(workouts.planId, planId),
+            ownedBy(workouts),
             eq(workouts.status, "planned"),
             ne(workouts.type, "rest"),
             gte(workouts.date, today),
@@ -208,7 +211,7 @@ export async function POST(request: NextRequest) {
           await db
             .update(workouts)
             .set({ targetKm: newKm, updatedAt: new Date() })
-            .where(eq(workouts.id, r.id));
+            .where(and(eq(workouts.id, r.id), ownedBy(workouts)));
           pool -= add;
           touched.add(r.id);
           redistributed++;
@@ -223,11 +226,12 @@ export async function POST(request: NextRequest) {
         console.error("Failed to queue Garmin workout update:", e)
       );
     }
-    isConnected(userId)
+    const adjustmentUserId = currentUserId();
+    isConnected(adjustmentUserId)
       .then((connected) => {
         if (!connected) return;
         for (const id of touched) {
-          queueWorkoutSync(id, "update", userId, "gcal").catch((e) =>
+          queueWorkoutSync(id, "update", adjustmentUserId, "gcal").catch((e) =>
             console.error("Failed to queue workout sync:", e)
           );
         }
@@ -243,4 +247,4 @@ export async function POST(request: NextRequest) {
     console.error("DB error applying plan adjustment:", err);
     return Response.json({ error: "Failed to apply adjustment" }, { status: 500 });
   }
-}
+});

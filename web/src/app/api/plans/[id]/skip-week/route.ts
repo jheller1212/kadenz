@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { db, weeks, workouts } from "@/db";
+import { db, plans, weeks, workouts } from "@/db";
 import {
   listEligibleWeeksToSkip,
   pickDefaultWeekToSkip,
@@ -13,11 +13,13 @@ import { queueWorkoutEventDeletes } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWorkoutDeletes } from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
-import { resolveRequestUserId } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
+import { currentUserId } from "@/db/with-user";
 
 async function loadCandidateWeeks(planId: string): Promise<SkipCandidateWeek[]> {
   const rows = await db.query.weeks.findMany({
-    where: (w, { eq }) => eq(w.planId, planId),
+    where: (w, { eq, and: andOp }) => andOp(eq(w.planId, planId), ownedBy(weeks)),
     orderBy: (w, { asc }) => [asc(w.weekNumber)],
     with: {
       workouts: {
@@ -42,11 +44,13 @@ async function loadCandidateWeeks(planId: string): Promise<SkipCandidateWeek[]> 
 
 // ── GET /api/plans/[id]/skip-week — eligibility ───────────────────────────────
 
-export async function GET(
+export const GET = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
+
+  await requireOwned(plans, id);
 
   try {
     const candidates = await loadCandidateWeeks(id);
@@ -65,7 +69,7 @@ export async function GET(
     console.error("DB error computing skip-week eligibility:", err);
     return Response.json({ error: "Failed to compute eligibility" }, { status: 500 });
   }
-}
+});
 
 // ── POST /api/plans/[id]/skip-week — drop a week ──────────────────────────────
 
@@ -74,13 +78,15 @@ const SkipWeekSchema = z.object({
   reason: z.enum(["illness", "travel", "injury", "other"]).optional(),
 }).strict();
 
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { id } = await params;
+
+  // Checked before the body is parsed — ownership of the plan does not
+  // depend on whether the client sent a valid weekId.
+  await requireOwned(plans, id);
 
   let body: unknown;
   try {
@@ -128,7 +134,7 @@ export async function POST(
             gcalEventId: null,
             garminWorkoutId: null,
           })
-          .where(eq(workouts.id, w.id));
+          .where(and(eq(workouts.id, w.id), ownedBy(workouts)));
       }
       await tx
         .update(weeks)
@@ -137,20 +143,21 @@ export async function POST(
           skipReason: parsed.data.reason ?? null,
           skipSnapshot: snapshot,
         })
-        .where(and(eq(weeks.id, week.id), eq(weeks.planId, id)));
+        .where(and(eq(weeks.id, week.id), eq(weeks.planId, id), ownedBy(weeks)));
     });
 
     // Prune calendar/watch events for the cancelled workouts — reuses the
     // same delete path plan-regeneration uses, so orphaned events don't
     // linger on either surface.
+    const skipWeekUserId = currentUserId();
     const staleGcal = toCancel
       .filter((w) => !!w.gcalEventId)
       .map((w) => ({ workoutId: w.id, gcalEventId: w.gcalEventId! }));
     if (staleGcal.length > 0) {
-      isConnected(userId)
+      isConnected(skipWeekUserId)
         .then((connected) => {
           if (connected) {
-            queueWorkoutEventDeletes(staleGcal, userId).catch((err) =>
+            queueWorkoutEventDeletes(staleGcal, skipWeekUserId).catch((err) =>
               console.error("Failed to queue gcal event deletes for skipped week:", err)
             );
           }
@@ -161,7 +168,7 @@ export async function POST(
       .filter((w) => !!w.garminWorkoutId)
       .map((w) => ({ workoutId: w.id, garminWorkoutId: w.garminWorkoutId! }));
     if (staleGarmin.length > 0 && garminClient.isConfigured()) {
-      queueGarminWorkoutDeletes(userId, staleGarmin).catch((err) =>
+      queueGarminWorkoutDeletes(skipWeekUserId, staleGarmin).catch((err) =>
         console.error("Failed to queue Garmin workout deletes for skipped week:", err)
       );
     }
@@ -171,4 +178,4 @@ export async function POST(
     console.error("DB error skipping week:", err);
     return Response.json({ error: "Failed to skip week" }, { status: 500 });
   }
-}
+});

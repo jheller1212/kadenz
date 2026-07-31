@@ -1,221 +1,37 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db, activities, workouts, strengthSessions, deletedActivities, activityTrash } from "@/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getAccessToken } from "@/lib/sync/strava-client";
 import { garminTombstoneKey } from "@/lib/sync/garmin-activity-import";
 import { rowToPayload } from "@/lib/activity-trash";
-import { resolveRequestUserId } from "@/lib/request-user";
-
-const STRAVA_API = "https://www.strava.com/api/v3";
-
-// ── Types for raw JSON stored in DB ─────────────────────────────────────────
-
-interface RawSplit {
-  split: number;
-  distance: number;
-  elapsed_time: number;
-  moving_time: number;
-  average_speed: number;
-  average_heartrate?: number;
-  elevation_difference?: number;
-  pace_zone?: number;
-}
-
-interface RawLap {
-  lap_index: number;
-  distance: number;
-  elapsed_time: number;
-  moving_time: number;
-  average_speed: number;
-  average_heartrate?: number;
-  max_heartrate?: number;
-}
-
-// Strava's streams endpoint returns an ARRAY of { type, data } objects (one
-// per requested key), not an object keyed by type — a pre-existing parsing
-// bug here (Object.entries on the array elements, which have no `.data`
-// property under their `type`/`data` keys themselves) meant this always
-// silently returned null and streams never rendered. Fixed alongside adding
-// the cache, since caching a permanently-null value has no value.
-interface StravaStreamEntry {
-  type: "distance" | "heartrate" | "velocity_smooth" | "altitude" | "latlng" | "time";
-  data: number[] | [number, number][];
-}
-
-interface StravaDetailedActivity {
-  name?: string;
-  best_efforts?: Array<{
-    name: string;
-    distance: number;
-    elapsed_time: number;
-    moving_time: number;
-  }>;
-  // Strava reports running cadence in strides/min (one leg) — ×2 for spm.
-  average_cadence?: number;
-  calories?: number;
-  device_name?: string;
-  gear?: { id: string; name: string };
-  map?: { summary_polyline?: string };
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function parseSplits(raw: unknown) {
-  if (!Array.isArray(raw)) return [];
-  return (raw as RawSplit[]).map((s) => ({
-    km: s.split,
-    paceSecKm:
-      s.average_speed > 0 ? Math.round(1000 / s.average_speed) : 0,
-    elevationDiff: s.elevation_difference ?? 0,
-    ...(s.average_heartrate != null
-      ? { avgHr: Math.round(s.average_heartrate) }
-      : {}),
-  }));
-}
-
-function parseLaps(raw: unknown) {
-  if (!Array.isArray(raw)) return [];
-  return (raw as RawLap[]).map((l) => ({
-    index: l.lap_index,
-    distanceKm: l.distance / 1000,
-    durationSeconds: l.moving_time,
-    paceSecKm:
-      l.average_speed > 0 ? Math.round(1000 / l.average_speed) : 0,
-    ...(l.average_heartrate != null
-      ? { avgHr: Math.round(l.average_heartrate) }
-      : {}),
-    ...(l.max_heartrate != null
-      ? { maxHr: Math.round(l.max_heartrate) }
-      : {}),
-  }));
-}
-
-// Shape stored in `activities.streams_json` and returned to the client —
-// same fields fetchStravaStreams parses off the live Strava response.
-interface ParsedStreams {
-  distance: number[];
-  time: number[];
-  heartrate?: number[];
-  velocity?: number[];
-  altitude?: number[];
-  latlng?: [number, number][];
-}
-
-async function fetchStravaStreams(
-  stravaId: string,
-  token: string
-): Promise<ParsedStreams | null> {
-  try {
-    const res = await fetch(
-      `${STRAVA_API}/activities/${stravaId}/streams?keys=heartrate,velocity_smooth,altitude,latlng,distance,time&resolution=medium`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!res.ok) return null;
-    const data: StravaStreamEntry[] = await res.json();
-    // Strava returns an array of { type, data } stream objects, keyed off
-    // `type` here so the lookups below stay by name.
-    const map: Record<string, unknown[]> = {};
-    for (const stream of data) {
-      if (stream?.type && stream?.data) map[stream.type] = stream.data;
-    }
-    const timeData = map["time"] as number[] | undefined;
-    if (!timeData) return null;
-    return {
-      distance: (map["distance"] as number[]) ?? [],
-      time: timeData,
-      ...(map["heartrate"] ? { heartrate: map["heartrate"] as number[] } : {}),
-      ...(map["velocity_smooth"]
-        ? { velocity: map["velocity_smooth"] as number[] }
-        : {}),
-      ...(map["altitude"] ? { altitude: map["altitude"] as number[] } : {}),
-      ...(map["latlng"]
-        ? { latlng: map["latlng"] as [number, number][] }
-        : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-interface StravaLiveDetail {
-  bestEfforts: Array<{
-    name: string;
-    distance: number;
-    elapsedTime: number;
-    movingTime: number;
-  }>;
-  polyline: string | null;
-  cadenceSpm: number | null; // steps per minute (Strava value ×2)
-  calories: number | null;
-  deviceName: string | null;
-  gearName: string | null;
-}
-
-const EMPTY_LIVE_DETAIL: StravaLiveDetail = {
-  bestEfforts: [],
-  polyline: null,
-  cadenceSpm: null,
-  calories: null,
-  deviceName: null,
-  gearName: null,
-};
-
-async function fetchStravaDetail(
-  stravaId: string,
-  token: string
-): Promise<StravaLiveDetail> {
-  try {
-    const res = await fetch(`${STRAVA_API}/activities/${stravaId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return EMPTY_LIVE_DETAIL;
-    const data: StravaDetailedActivity = await res.json();
-    return {
-      bestEfforts: (data.best_efforts ?? []).map((e) => ({
-        name: e.name,
-        distance: e.distance,
-        elapsedTime: e.elapsed_time,
-        movingTime: e.moving_time,
-      })),
-      polyline: data.map?.summary_polyline || null,
-      cadenceSpm:
-        data.average_cadence != null && data.average_cadence > 0
-          ? Math.round(data.average_cadence * 2)
-          : null,
-      calories: data.calories != null ? Math.round(data.calories) : null,
-      deviceName: data.device_name ?? null,
-      gearName: data.gear?.name ?? null,
-    };
-  } catch {
-    return EMPTY_LIVE_DETAIL;
-  }
-}
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
+import {
+  EMPTY_LIVE_DETAIL,
+  fetchStravaDetail,
+  fetchStravaStreams,
+  parseLaps,
+  parseSplits,
+  type ParsedStreams,
+  type StravaLiveDetail,
+} from "@/lib/activity-detail";
 
 // ── Route handler ────────────────────────────────────────────────────────────
 
-export async function GET(
-  request: Request,
+export const GET = withSession(async (
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
+  const { id } = await params;
+
+  // Fetch activity row, outside the try below so its 404 (another athlete's
+  // activity id, answered the same as a nonexistent one) reaches withSession
+  // directly instead of being caught and turned into a 500.
+  const activity = await requireOwned(activities, id);
+
   try {
-    const { id } = await params;
-    const callerUserId = await resolveRequestUserId(request);
-    if (!callerUserId) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Fetch activity row
-    const [activity] = await db
-      .select()
-      .from(activities)
-      .where(eq(activities.id, id))
-      .limit(1);
-
-    if (!activity) {
-      return Response.json({ error: "Not found" }, { status: 404 });
-    }
-
     // Everything Strava-sourced is cached on the row once synced (see below),
     // so most views need no token at all — only fetch/refresh one when this
     // row still has something missing, and kick it off now so it overlaps
@@ -229,19 +45,7 @@ export async function GET(
       activity.deviceName == null ||
       activity.gearName == null ||
       cachedStreams == null;
-    // Live Strava data is fetched with the CALLER's token, and only for a row
-    // the caller owns. Using the row owner's token instead would be worse than
-    // the read leak this route still has: ownership filtering on the SELECT
-    // above is Phase 3's job, so until that lands a caller can name any
-    // activity id, and fetching it with the owner's credentials would mean
-    // actively querying someone else's Strava account on a stranger's behalf.
-    // Scoped this way, the worst case stays a stale cached row rather than a
-    // live read against an account the caller has no claim to.
-    const ownedByCaller = activity.userId === callerUserId;
-    const tokenPromise =
-      needsLive && ownedByCaller && activity.stravaId
-        ? getAccessToken(callerUserId)
-        : null;
+    const tokenPromise = needsLive && activity.stravaId ? getAccessToken(currentUserId()) : null;
 
     // Fetch linked workout + blocks if present, in one query (relational
     // fetch) instead of two sequential round trips.
@@ -261,7 +65,8 @@ export async function GET(
 
     if (activity.workoutId) {
       const workout = await db.query.workouts.findFirst({
-        where: (w, { eq }) => eq(w.id, activity.workoutId!),
+        where: (w, { and, eq }) =>
+          and(eq(w.id, activity.workoutId!), eq(w.userId, currentUserId())),
         with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
       });
 
@@ -296,7 +101,8 @@ export async function GET(
     let linkedStrengthSession: { id: string; title: string; type: string } | null = null;
     if (activity.strengthSessionId) {
       const session = await db.query.strengthSessions.findFirst({
-        where: (s, { eq }) => eq(s.id, activity.strengthSessionId!),
+        where: (s, { and, eq }) =>
+          and(eq(s.id, activity.strengthSessionId!), eq(s.userId, currentUserId())),
         columns: { id: true, title: true, type: true },
       });
       if (session) linkedStrengthSession = session;
@@ -345,7 +151,10 @@ export async function GET(
       if (!cachedStreams && liveStreams) patch.streamsJson = liveStreams;
       if (Object.keys(patch).length > 0) {
         try {
-          await db.update(activities).set(patch).where(eq(activities.id, activity.id));
+          await db
+            .update(activities)
+            .set(patch)
+            .where(and(eq(activities.id, activity.id), ownedBy(activities)));
         } catch (err) {
           console.error("Failed to cache activity detail:", err);
         }
@@ -393,7 +202,7 @@ export async function GET(
     console.error("Error fetching activity detail:", err);
     return Response.json({ error: "Failed to fetch" }, { status: 500 });
   }
-}
+});
 
 // ── PATCH /api/activities/[id] — link / unlink to a run or strength session ────
 // Manual reconciliation: attach a recorded activity (with its HR)
@@ -407,10 +216,10 @@ const LinkSchema = z
   })
   .strict();
 
-export async function PATCH(
+export const PATCH = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
 
   let body: unknown;
@@ -425,23 +234,23 @@ export async function PATCH(
   }
   const { workoutId, strengthSessionId, unlink } = parsed.data;
 
-  try {
-    const [activity] = await db.select().from(activities).where(eq(activities.id, id));
-    if (!activity) return Response.json({ error: "Activity not found" }, { status: 404 });
+  // Outside the try below so its 404 reaches withSession directly.
+  const activity = await requireOwned(activities, id);
 
+  try {
     // Revert whatever this activity was previously linked to, back to planned.
     async function detachOld() {
       if (activity.workoutId) {
         await db
           .update(workouts)
           .set({ status: "planned", actualKm: null, stravaActivityId: null, updatedAt: new Date() })
-          .where(eq(workouts.id, activity.workoutId));
+          .where(and(eq(workouts.id, activity.workoutId), ownedBy(workouts)));
       }
       if (activity.strengthSessionId) {
         await db
           .update(strengthSessions)
           .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
-          .where(eq(strengthSessions.id, activity.strengthSessionId));
+          .where(and(eq(strengthSessions.id, activity.strengthSessionId), ownedBy(strengthSessions)));
       }
     }
 
@@ -450,13 +259,19 @@ export async function PATCH(
       const [updated] = await db
         .update(activities)
         .set({ workoutId: null, strengthSessionId: null })
-        .where(eq(activities.id, id))
+        .where(and(eq(activities.id, id), ownedBy(activities)))
         .returning();
       return Response.json(updated);
     }
 
     if (workoutId) {
-      const [w] = await db.select({ id: workouts.id }).from(workouts).where(eq(workouts.id, workoutId));
+      // Scoped by owner, not just id: an unscoped lookup would let a caller
+      // link their activity to (and silently mark completed) someone else's
+      // planned workout, which is a write, not just a read, leak.
+      const [w] = await db
+        .select({ id: workouts.id })
+        .from(workouts)
+        .where(and(eq(workouts.id, workoutId), ownedBy(workouts)));
       if (!w) return Response.json({ error: "Workout not found" }, { status: 422 });
       await detachOld();
       await db
@@ -467,17 +282,20 @@ export async function PATCH(
           stravaActivityId: activity.stravaId ?? null,
           updatedAt: new Date(),
         })
-        .where(eq(workouts.id, workoutId));
+        .where(and(eq(workouts.id, workoutId), ownedBy(workouts)));
       const [updated] = await db
         .update(activities)
         .set({ workoutId, strengthSessionId: null })
-        .where(eq(activities.id, id))
+        .where(and(eq(activities.id, id), ownedBy(activities)))
         .returning();
       return Response.json(updated);
     }
 
-    // strengthSessionId
-    const [s] = await db.select({ id: strengthSessions.id }).from(strengthSessions).where(eq(strengthSessions.id, strengthSessionId!));
+    // strengthSessionId, same ownership scoping as the workout branch above.
+    const [s] = await db
+      .select({ id: strengthSessions.id })
+      .from(strengthSessions)
+      .where(and(eq(strengthSessions.id, strengthSessionId!), ownedBy(strengthSessions)));
     if (!s) return Response.json({ error: "Strength session not found" }, { status: 422 });
     await detachOld();
     await db
@@ -487,55 +305,56 @@ export async function PATCH(
         durationMinutes: activity.durationSeconds ? Math.max(1, Math.round(activity.durationSeconds / 60)) : null,
         updatedAt: new Date(),
       })
-      .where(eq(strengthSessions.id, strengthSessionId!));
+      .where(and(eq(strengthSessions.id, strengthSessionId!), ownedBy(strengthSessions)));
     const [updated] = await db
       .update(activities)
       .set({ strengthSessionId, workoutId: null })
-      .where(eq(activities.id, id))
+      .where(and(eq(activities.id, id), ownedBy(activities)))
       .returning();
     return Response.json(updated);
   } catch (err) {
     console.error("DB error linking activity:", err);
     return Response.json({ error: "Failed to link activity" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/activities/[id] ──────────────────────────────────────────────
 // Moves an activity to the trash (activity_trash, recoverable for 30 days via
 // "Recently deleted"). Any workout / strength session it completed is reverted
 // to planned, and sync tombstones stop Strava/Garmin re-imports.
 
-export async function DELETE(
+export const DELETE = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
-  try {
-    const [activity] = await db.select().from(activities).where(eq(activities.id, id));
-    if (!activity) return Response.json({ error: "Activity not found" }, { status: 404 });
 
+  // Outside the try below so its 404 reaches withSession directly.
+  const activity = await requireOwned(activities, id);
+
+  try {
     // Keep the full row recoverable before anything is destroyed.
     await db
       .insert(activityTrash)
-      .values({ id: activity.id, payload: rowToPayload(activity) })
+      .values({ id: activity.id, payload: rowToPayload(activity), userId: currentUserId() })
       .onConflictDoNothing();
 
     if (activity.workoutId) {
       await db
         .update(workouts)
         .set({ status: "planned", actualKm: null, stravaActivityId: null, updatedAt: new Date() })
-        .where(eq(workouts.id, activity.workoutId));
+        .where(and(eq(workouts.id, activity.workoutId), ownedBy(workouts)));
     }
     if (activity.strengthSessionId) {
       await db
         .update(strengthSessions)
         .set({ status: "planned", durationMinutes: null, updatedAt: new Date() })
-        .where(eq(strengthSessions.id, activity.strengthSessionId));
+        .where(and(eq(strengthSessions.id, activity.strengthSessionId), ownedBy(strengthSessions)));
     }
     if (activity.stravaId) {
       await db
         .insert(deletedActivities)
-        .values({ stravaId: activity.stravaId })
+        .values({ stravaId: activity.stravaId, userId: currentUserId() })
         .onConflictDoNothing();
     }
     if (activity.garminId) {
@@ -543,13 +362,13 @@ export async function DELETE(
       // Garmin import never resurrects it.
       await db
         .insert(deletedActivities)
-        .values({ stravaId: garminTombstoneKey(activity.garminId) })
+        .values({ stravaId: garminTombstoneKey(activity.garminId), userId: currentUserId() })
         .onConflictDoNothing();
     }
-    await db.delete(activities).where(eq(activities.id, id));
+    await db.delete(activities).where(and(eq(activities.id, id), ownedBy(activities)));
     return Response.json({ ok: true });
   } catch (err) {
     console.error("DB error deleting activity:", err);
     return Response.json({ error: "Failed to delete activity" }, { status: 500 });
   }
-}
+});

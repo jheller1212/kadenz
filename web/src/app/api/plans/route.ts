@@ -1,6 +1,6 @@
 import { NextRequest, after } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { isNull } from "drizzle-orm";
 import { db, plans, weeks, workouts, blocks, strengthPlanSettings } from "@/db";
 import { generatePlanForConfig } from "@/lib/plan-engine/plan-generator";
@@ -14,7 +14,9 @@ import { retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
 import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { pruneAutoSchedule, reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { timer } from "@/lib/timing";
-import { requireRequestUser, resolveRequestUserId } from "@/lib/request-user";
+import { currentUserId, withUser } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -48,10 +50,7 @@ const PlanConfigSchema = z.object({
 
 // ── POST /api/plans ───────────────────────────────────────────────────────────
 
-export async function POST(request: NextRequest) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
+export const POST = withSession(async (request: NextRequest) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -131,11 +130,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Archive all existing active plans
+    // Archive all existing active plans — scoped to the caller, otherwise a
+    // new plan for one athlete would archive every other athlete's active plan.
     const archivedPlans = await db
       .update(plans)
       .set({ status: "archived", updatedAt: new Date() })
-      .where(eq(plans.status, "active"))
+      .where(and(eq(plans.status, "active"), ownedBy(plans)))
       .returning({ id: plans.id });
     t.mark("archiveActive");
 
@@ -179,6 +179,7 @@ export async function POST(request: NextRequest) {
         runnerLevel: generatedPlan.runnerLevel ?? null,
         availableDays: generatedPlan.availableDays ?? null,
         status: "active",
+        userId: currentUserId(),
       })
       .returning();
     t.mark("insertPlan");
@@ -192,6 +193,7 @@ export async function POST(request: NextRequest) {
       phase: week.phase,
       type: week.type,
       targetKm: week.targetKm,
+      userId: currentUserId(),
     }));
     const insertedWeeks = await db.insert(weeks).values(weekValues).returning();
     t.mark("insertWeeks");
@@ -215,6 +217,7 @@ export async function POST(request: NextRequest) {
         targetKm: workout.targetKm ?? null,
         targetDurationMinutes: workout.targetDurationMinutes ?? null,
         sortOrder: workout.sortOrder,
+        userId: currentUserId(),
       }))
     );
     const insertedWorkouts = await db.insert(workouts).values(workoutValues).returning();
@@ -241,6 +244,7 @@ export async function POST(request: NextRequest) {
           reps: block.reps ?? null,
           repDistanceKm: block.repDistanceKm ?? null,
           repRestSeconds: block.repRestSeconds ?? null,
+          userId: currentUserId(),
         }))
       )
     );
@@ -256,23 +260,34 @@ export async function POST(request: NextRequest) {
     // is already a multi-second operation (see the strength reconcile below
     // and the #54 postmortem) and pushing every workout to Garmin here would
     // risk a serverless timeout.
+    //
+    // Captured before after() is registered, and re-entered with withUser
+    // inside the callback: by the time after() runs, the response has
+    // already been sent, which means both the AsyncLocalStorage context
+    // withSession entered AND the database transaction it opened are gone
+    // (the transaction commits when the handler returns). currentUserId()
+    // would throw and every query would run on a closed transaction, so the
+    // callback opens its own fresh context instead of trying to inherit one.
+    const ownerId = currentUserId();
     after(async () => {
-      try {
-        if (await isConnected(userId)) {
-          await queuePlanWorkoutsSync(planId, userId, "gcal");
+      await withUser(ownerId, async () => {
+        try {
+          if (await isConnected(currentUserId())) {
+            await queuePlanWorkoutsSync(planId, "gcal");
+          }
+        } catch (err) {
+          console.error("Failed to queue gcal sync:", err);
         }
-      } catch (err) {
-        console.error("Failed to queue gcal sync:", err);
-      }
-      try {
-        if (await isGarminWorkoutSyncEnabled(userId)) {
-          await queueGarminWindowSync(userId, planId);
+        try {
+          if (await isGarminWorkoutSyncEnabled(currentUserId())) {
+            await queueGarminWindowSync(currentUserId(), planId);
+          }
+        } catch (err) {
+          console.error("Failed to queue Garmin sync:", err);
         }
-      } catch (err) {
-        console.error("Failed to queue Garmin sync:", err);
-      }
-      // Runs after the queueing above so the rows it just wrote are included.
-      await drainOutboxNow(userId);
+        // Runs after the queueing above so the rows it just wrote are included.
+        await drainOutboxNow(currentUserId());
+      });
     });
 
     // Rebuild the auto strength schedule around the new plan's run days.
@@ -302,7 +317,7 @@ export async function POST(request: NextRequest) {
     let shortWeeks = 0;
     if (data.strengthMode === "adapt") {
       try {
-        ({ shortWeeks } = await reconcileStrengthSchedule(null, userId));
+        ({ shortWeeks } = await reconcileStrengthSchedule(null, currentUserId()));
       } catch (err) {
         console.error("Failed to reconcile strength schedule:", err);
       }
@@ -311,7 +326,7 @@ export async function POST(request: NextRequest) {
       // auto-scheduled sessions must go — otherwise they linger against a plan
       // that no longer exists. Completed sessions are never touched.
       try {
-        await pruneAutoSchedule(null, userId);
+        await pruneAutoSchedule(null, currentUserId());
       } catch (err) {
         console.error("Failed to prune strength schedule:", err);
       }
@@ -320,7 +335,12 @@ export async function POST(request: NextRequest) {
       const [settings] = await db
         .select()
         .from(strengthPlanSettings)
-        .where(isNull(strengthPlanSettings.profileId));
+        // `profile_id IS NULL` means "the owner of this account", and it is
+        // true of one row per USER, not one row overall. On its own it matches
+        // every athlete's owner row, so the caller has to be named too. Row
+        // level security refuses the others anyway; saying it here keeps the
+        // condition honest about what it selects.
+        .where(and(ownedBy(strengthPlanSettings), isNull(strengthPlanSettings.profileId)));
       if (settings) {
         strength = {
           active: settings.active,
@@ -373,11 +393,11 @@ export async function POST(request: NextRequest) {
     console.error("DB error creating plan:", err);
     return Response.json({ error: "Failed to save plan" }, { status: 500 });
   }
-}
+});
 
 // ── GET /api/plans ────────────────────────────────────────────────────────────
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     const rows = await db
       .select({
@@ -388,7 +408,8 @@ export async function GET() {
         raceDistance: plans.raceDistance,
         raceDate: plans.raceDate,
       })
-      .from(plans);
+      .from(plans)
+      .where(ownedBy(plans));
 
     const now = new Date();
     // A race plan only ever leaves "active" via a logged result (see
@@ -407,4 +428,4 @@ export async function GET() {
     console.error("DB error listing plans:", err);
     return Response.json({ error: "Failed to fetch plans" }, { status: 500 });
   }
-}
+});

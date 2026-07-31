@@ -1,5 +1,6 @@
 import { db, syncOutbox, activities, workouts, plans, strengthSessions, strengthSets, deletedActivities, activityTrash } from "@/db";
 import { eq, and, gte, lte, ne, isNull, inArray, sql } from "drizzle-orm";
+import { currentUserId } from "@/db/with-user";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { loadCredentials, saveCredentials } from "@/lib/sync/credentials";
@@ -124,6 +125,11 @@ async function saveSubscription(sub: StoredSubscription): Promise<void> {
       action: "update",
       target: "gcal", // reuse existing enum value — no migration needed
       status: "completed",
+      // sync_outbox is tenanted and its user_id default was dropped in phase 3,
+      // so the row has to name its owner. There is one Strava subscription for
+      // the whole app, and it is recorded under whichever user registered it,
+      // which is the same user the webhook re-reads it as.
+      userId: currentUserId(),
       idempotencyKey: SUBSCRIPTION_IDEM_KEY,
       payload: sub as unknown as Record<string, unknown>,
       attempts: 0,

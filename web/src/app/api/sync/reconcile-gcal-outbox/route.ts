@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { validateSessionCookie } from "@/lib/session";
+import { withCronFanOut } from "@/lib/api/with-session";
 import { previewGcalOutboxCleanup, applyGcalOutboxCleanup } from "@/lib/sync/gcal-outbox-cleanup";
 
 // ── GET /api/sync/reconcile-gcal-outbox ─────────────────────────────────────
@@ -20,29 +20,25 @@ import { previewGcalOutboxCleanup, applyGcalOutboxCleanup } from "@/lib/sync/gca
 // the entity-exists check are the whole guard, both enforced by the same
 // pure predicate this route shares with its unit tests.
 //
-// Auth mirrors the other reconcile routes: CRON_SECRET bearer or an owner
-// session cookie.
+// sync_outbox/workouts/strength_sessions are all tenanted (Phase 3): this
+// only ever touches jobs targeting gcal, which every user manages
+// independently, so it fans out per user via withCronFanOut — same auth as
+// the other reconcile routes (CRON_SECRET bearer or a signed-in session).
 
-export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const fromCron =
-    Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
-  const fromOwner = await validateSessionCookie(request.headers.get("cookie"));
-  if (!fromCron && !fromOwner) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export function GET(request: NextRequest): Promise<Response> {
   const apply = request.nextUrl.searchParams.get("apply") === "1";
 
-  try {
-    if (!apply) {
-      const preview = await previewGcalOutboxCleanup();
-      return Response.json({ apply: false, ...preview });
+  return withCronFanOut(async (userId) => {
+    try {
+      if (!apply) {
+        const preview = await previewGcalOutboxCleanup();
+        return { apply: false, ...preview };
+      }
+      const result = await applyGcalOutboxCleanup();
+      return { apply: true, ...result };
+    } catch (err) {
+      console.error(`Failed to reconcile gcal outbox for user ${userId}:`, err);
+      return { ok: false, error: "Reconcile failed" };
     }
-    const result = await applyGcalOutboxCleanup();
-    return Response.json({ apply: true, ...result });
-  } catch (err) {
-    console.error("Failed to reconcile gcal outbox:", err);
-    return Response.json({ error: "Reconcile failed" }, { status: 500 });
-  }
+  }, "sync-reconcile-gcal-outbox")(request);
 }

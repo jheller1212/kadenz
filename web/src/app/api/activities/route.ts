@@ -1,8 +1,11 @@
 import { NextRequest } from "next/server";
 import { db, plans, activities, strengthSessions, strengthSets } from "@/db";
 import { and, eq, desc, gte, isNull, inArray, lte, or } from "drizzle-orm";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { isPastDuePlanned, sortSessionsByDateDesc } from "@/lib/training/session";
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // The feed's default rolling window. The client (activities/page.tsx) always
 // sends explicit `from`/`to` query params — this is only the fallback for a
@@ -38,8 +41,8 @@ function splitPacesFromJson(raw: unknown, max = 12): number[] | null {
   return paces.length >= 2 ? paces.slice(0, max) : null;
 }
 
-export async function GET(request: NextRequest) {
-  const profileId = getActiveProfileId(request);
+export const GET = withSession(async (request: NextRequest) => {
+  const profileId = await getVerifiedProfileId(request);
   const { searchParams } = new URL(request.url);
   // Client-controlled window (activities/page.tsx always sends both; see
   // DEFAULT_WINDOW_MONTHS above for the fallback when it doesn't). Selecting
@@ -88,15 +91,18 @@ export async function GET(request: NextRequest) {
             // to createdAt for the window check on exactly those rows too, so
             // they don't silently disappear from every window.
             .where(
-              or(
-                and(
-                  gte(activities.startDate, windowFrom),
-                  windowTo ? lte(activities.startDate, windowTo) : undefined
-                ),
-                and(
-                  isNull(activities.startDate),
-                  gte(activities.createdAt, windowFrom),
-                  windowTo ? lte(activities.createdAt, windowTo) : undefined
+              and(
+                ownedBy(activities),
+                or(
+                  and(
+                    gte(activities.startDate, windowFrom),
+                    windowTo ? lte(activities.startDate, windowTo) : undefined
+                  ),
+                  and(
+                    isNull(activities.startDate),
+                    gte(activities.createdAt, windowFrom),
+                    windowTo ? lte(activities.createdAt, windowTo) : undefined
+                  )
                 )
               )
             )
@@ -106,7 +112,7 @@ export async function GET(request: NextRequest) {
       db
         .select({ id: plans.id, name: plans.name })
         .from(plans)
-        .where(eq(plans.status, "active"))
+        .where(and(ownedBy(plans), eq(plans.status, "active")))
         .limit(1),
 
       // 5. Strength sessions in the same window — unified feed + enrichment.
@@ -115,6 +121,7 @@ export async function GET(request: NextRequest) {
         .from(strengthSessions)
         .where(
           and(
+            ownedBy(strengthSessions),
             profileId
               ? eq(strengthSessions.profileId, profileId)
               : isNull(strengthSessions.profileId),
@@ -134,7 +141,8 @@ export async function GET(request: NextRequest) {
     const [linkedWorkouts, planned, allSets] = await Promise.all([
       linkedWorkoutIds.length > 0
         ? db.query.workouts.findMany({
-            where: (wo, { inArray }) => inArray(wo.id, linkedWorkoutIds),
+            where: (wo, { and, eq, inArray }) =>
+              and(inArray(wo.id, linkedWorkoutIds), eq(wo.userId, currentUserId())),
             with: {
               blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
             },
@@ -144,7 +152,11 @@ export async function GET(request: NextRequest) {
       activePlan
         ? db.query.workouts.findMany({
             where: (wo, { and, eq }) =>
-              and(eq(wo.planId, activePlan.id), eq(wo.status, "planned")),
+              and(
+                eq(wo.planId, activePlan.id),
+                eq(wo.status, "planned"),
+                eq(wo.userId, currentUserId())
+              ),
             orderBy: (wo, { desc }) => [desc(wo.date)],
             with: {
               blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] },
@@ -248,7 +260,7 @@ export async function GET(request: NextRequest) {
         ? await db
             .select({ id: activities.id, splitsJson: activities.splitsJson })
             .from(activities)
-            .where(inArray(activities.id, runActivityIds))
+            .where(and(ownedBy(activities), inArray(activities.id, runActivityIds)))
         : [];
     const splitPacesMap = new Map(
       splitsRows.map((r) => [r.id, splitPacesFromJson(r.splitsJson)])
@@ -365,4 +377,4 @@ export async function GET(request: NextRequest) {
     console.error("DB error fetching activities:", err);
     return Response.json({ error: "Failed to fetch" }, { status: 500 });
   }
-}
+});

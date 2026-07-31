@@ -103,7 +103,13 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("drizzle-orm", () => ({
+// Spread the real module rather than listing exports. An exhaustive mock has to
+// be updated whenever anything anywhere in the imported module graph starts
+// using a different drizzle export: this one broke on `relations`, which
+// db/schema.ts uses and this file never mentions. The operators below are still
+// stubbed, because the assertions match on their plain shapes.
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: (a: unknown, b: unknown) => ({ op: "eq", a, b }),
   and: (...args: unknown[]) => ({ op: "and", args }),
   gte: (a: unknown, b: unknown) => ({ op: "gte", a, b }),
@@ -117,6 +123,11 @@ vi.mock("drizzle-orm", () => ({
 // so importing strava-client.ts doesn't pull in unrelated modules.
 vi.mock("@/lib/sync/gcal-client", () => ({ isConnected: vi.fn().mockResolvedValue(false) }));
 vi.mock("@/lib/sync/sync-manager", () => ({ queueStrengthSessionSync: vi.fn() }));
+
+// Real db/with-user.ts pulls in the real schema.ts (for `users`), which the
+// drizzle-orm mock above doesn't support (no `relations` export) — stubbed
+// out rather than widening that mock.
+vi.mock("@/db/with-user", () => ({ currentUserId: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }));
 
 const { updateActivity, deleteStravaActivity } = await import("../strava-client");
 

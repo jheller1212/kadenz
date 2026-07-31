@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getSessionUserId } from "@/lib/session";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
 import { loadUserUnits, saveUserUnits } from "@/lib/user-units";
 
 // ── /api/user/units ──────────────────────────────────────────────────────────
@@ -11,8 +12,15 @@ import { loadUserUnits, saveUserUnits } from "@/lib/user-units";
 // radio button. This copy exists for the cron, which builds the watch label,
 // the calendar event and the push reminder with no browser to read.
 //
-// proxy.ts already requires a session on this path. The user id is what
-// decides whose preference is being read or written.
+// proxy.ts already requires a session on this path. The user id is what decides
+// whose preference is being read or written.
+//
+// `users` is the identity table and deliberately carries no row level security
+// policy (withUser and the OAuth callback both have to read it before any
+// context exists), so unlike the tenanted tables there is no database backstop
+// here. The `where users.id = currentUserId()` in lib/user-units.ts is the only
+// thing scoping this, which is why the id comes from withSession rather than
+// being passed in as an argument that could be the wrong one.
 
 const UnitsSchema = z
   .object({
@@ -21,22 +29,16 @@ const UnitsSchema = z
   })
   .strict();
 
-export async function GET(request: NextRequest) {
-  const userId = await getSessionUserId(request.headers.get("cookie"));
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withSession(async () => {
   try {
-    return Response.json(await loadUserUnits(userId));
+    return Response.json(await loadUserUnits(currentUserId()));
   } catch (err) {
     console.error("User units read error:", err);
     return Response.json({ error: "Failed to read units" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: NextRequest) {
-  const userId = await getSessionUserId(request.headers.get("cookie"));
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
+export const POST = withSession(async (request) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -49,10 +51,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await saveUserUnits(userId, parsed.data);
+    await saveUserUnits(currentUserId(), parsed.data);
     return Response.json(parsed.data);
   } catch (err) {
     console.error("User units write error:", err);
     return Response.json({ error: "Failed to save units" }, { status: 500 });
   }
-}
+});

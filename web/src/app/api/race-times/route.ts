@@ -1,5 +1,9 @@
 import { db, personalRecords } from "@/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { badRequest, notFound } from "@/lib/api/errors";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const VALID_DISTANCES = ["5k", "10k", "half", "marathon", "mile"] as const;
 const VALID_SOURCES = ["race", "time_trial", "estimate"] as const;
@@ -12,87 +16,87 @@ function isValidSource(v: unknown): v is (typeof VALID_SOURCES)[number] {
   return typeof v === "string" && (VALID_SOURCES as readonly string[]).includes(v);
 }
 
-// GET /api/race-times — list all personal records
-export async function GET() {
-  try {
-    const records = await db
-      .select()
-      .from(personalRecords)
-      .orderBy(personalRecords.createdAt);
+// GET /api/race-times — list the caller's personal records
+export const GET = withSession(async () => {
+  const records = await db
+    .select()
+    .from(personalRecords)
+    .where(ownedBy(personalRecords))
+    .orderBy(personalRecords.createdAt);
 
-    return Response.json(records);
-  } catch (err) {
-    console.error("DB error fetching race times:", err);
-    return Response.json({ error: "Failed to fetch" }, { status: 500 });
+  return Response.json(records);
+});
+
+// POST /api/race-times — add or update one of the caller's race times
+export const POST = withSession(async (req) => {
+  const body = await req.json();
+  const { distance, timeSeconds, date, source } = body;
+
+  if (!isValidDistance(distance)) {
+    throw badRequest(`Invalid distance. Must be one of: ${VALID_DISTANCES.join(", ")}`);
   }
-}
+  if (typeof timeSeconds !== "number" || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+    throw badRequest("timeSeconds must be a positive number");
+  }
+  if (source !== undefined && !isValidSource(source)) {
+    throw badRequest(`Invalid source. Must be one of: ${VALID_SOURCES.join(", ")}`);
+  }
 
-// POST /api/race-times — add or update a race time
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const { distance, timeSeconds, date, source } = body;
+  // One record per distance PER ATHLETE. Without the owner in this lookup, a
+  // second user setting a 10k time would find and overwrite the first user's.
+  const [existing] = await db
+    .select()
+    .from(personalRecords)
+    .where(and(ownedBy(personalRecords), eq(personalRecords.distance, distance)))
+    .limit(1);
 
-    if (!isValidDistance(distance)) {
-      return Response.json({ error: `Invalid distance. Must be one of: ${VALID_DISTANCES.join(", ")}` }, { status: 400 });
-    }
-    if (typeof timeSeconds !== "number" || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
-      return Response.json({ error: "timeSeconds must be a positive number" }, { status: 400 });
-    }
-    if (source !== undefined && !isValidSource(source)) {
-      return Response.json({ error: `Invalid source. Must be one of: ${VALID_SOURCES.join(", ")}` }, { status: 400 });
-    }
-
-    // Check if record for this distance already exists
-    const [existing] = await db
-      .select()
-      .from(personalRecords)
-      .where(eq(personalRecords.distance, distance))
-      .limit(1);
-
-    if (existing) {
-      // Update
-      const [updated] = await db
-        .update(personalRecords)
-        .set({
-          timeSeconds,
-          date: date ? new Date(date) : null,
-          source: source ?? "race",
-        })
-        .where(eq(personalRecords.id, existing.id))
-        .returning();
-
-      return Response.json(updated);
-    }
-
-    // Insert
-    const [record] = await db
-      .insert(personalRecords)
-      .values({
-        distance,
+  if (existing) {
+    const [updated] = await db
+      .update(personalRecords)
+      .set({
         timeSeconds,
         date: date ? new Date(date) : null,
         source: source ?? "race",
       })
+      .where(and(ownedBy(personalRecords), eq(personalRecords.id, existing.id)))
       .returning();
 
-    return Response.json(record);
-  } catch (err) {
-    console.error("DB error saving race time:", err);
-    return Response.json({ error: "Failed to save" }, { status: 500 });
+    return Response.json(updated);
   }
-}
 
-// DELETE /api/race-times — delete a race time by id
-export async function DELETE(req: Request) {
-  try {
-    const { id } = await req.json();
-    if (!id) return Response.json({ error: "id required" }, { status: 400 });
+  const [record] = await db
+    .insert(personalRecords)
+    .values({
+      userId: currentUserId(),
+      distance,
+      timeSeconds,
+      date: date ? new Date(date) : null,
+      source: source ?? "race",
+    })
+    .returning();
 
-    await db.delete(personalRecords).where(eq(personalRecords.id, id));
-    return Response.json({ ok: true });
-  } catch (err) {
-    console.error("DB error deleting race time:", err);
-    return Response.json({ error: "Failed to delete" }, { status: 500 });
-  }
-}
+  return Response.json(record);
+});
+
+// DELETE /api/race-times — delete one of the caller's race times by id
+//
+// The id arrives in the body, and until this change nothing checked whose id it
+// was: any signed-in caller could delete another athlete's personal record, for
+// real, by guessing or observing a uuid. It was the only confirmed destructive
+// cross-user leak in the phase 3 audit. requireOwned answers 404 for a record
+// the caller does not own, and the delete then names the owner as well, so a
+// row can only be removed by the athlete it belongs to.
+export const DELETE = withSession(async (req) => {
+  const { id } = await req.json();
+  if (!id) throw badRequest("id required");
+
+  const record = await requireOwned(personalRecords, id);
+
+  const deleted = await db
+    .delete(personalRecords)
+    .where(and(ownedBy(personalRecords), eq(personalRecords.id, record.id)))
+    .returning({ id: personalRecords.id });
+  if (deleted.length === 0) throw notFound();
+
+  return Response.json({ ok: true });
+});

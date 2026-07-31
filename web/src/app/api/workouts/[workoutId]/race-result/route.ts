@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, workouts, plans } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { requireRequestUser } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 // A generous ceiling (48h) rather than a race-distance-specific one — ultras
 // exist, and rejecting a slow-but-real finish is worse than accepting a typo
@@ -28,13 +30,16 @@ const RaceResultSchema = z.object({
 // the final week). "completed" (not "archived") — archived reads as
 // discarded, this plan did its job. Non-race plans (get_fit/maintain) have no
 // real race day and are untouched by this endpoint.
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
-) {
-  const { userId, response: unauth } = await requireRequestUser(request);
-  if (unauth) return unauth;
+) => {
   const { workoutId } = await params;
+
+  // Ownership before the body: a fake finish time posted against another
+  // athlete's race workout is not a "bad request", it's a leak, and must
+  // 404 regardless of whether finishSeconds parses.
+  const workout = await requireOwned(workouts, workoutId);
 
   let body: unknown;
   try {
@@ -52,10 +57,6 @@ export async function POST(
   }
 
   try {
-    const [workout] = await db.select().from(workouts).where(eq(workouts.id, workoutId));
-    if (!workout) {
-      return Response.json({ error: "Workout not found" }, { status: 404 });
-    }
     if (workout.type !== "race") {
       return Response.json(
         { error: "Only the race-day workout can carry a race result" },
@@ -75,26 +76,29 @@ export async function POST(
         raceResultLoggedAt: now,
         updatedAt: now,
       })
-      .where(eq(workouts.id, workoutId))
+      .where(and(eq(workouts.id, workoutId), ownedBy(workouts)))
       .returning();
 
     let planStatus: string | null = null;
-    const [plan] = await db.select().from(plans).where(eq(plans.id, workout.planId));
+    const [plan] = await db
+      .select()
+      .from(plans)
+      .where(and(eq(plans.id, workout.planId), ownedBy(plans)));
     if (plan && plan.intent === "race" && plan.status === "active") {
       const [updatedPlan] = await db
         .update(plans)
         .set({ status: "completed", updatedAt: now })
-        .where(eq(plans.id, plan.id))
+        .where(and(eq(plans.id, plan.id), ownedBy(plans)))
         .returning({ status: plans.status });
       planStatus = updatedPlan?.status ?? null;
     } else if (plan) {
       planStatus = plan.status;
     }
 
-    isConnected(userId)
+    isConnected(currentUserId())
       .then((connected) => {
         if (connected) {
-          queueWorkoutSync(workoutId, "update", userId, "gcal").catch((err) => {
+          queueWorkoutSync(workoutId, "update", "gcal").catch((err) => {
             console.error("Failed to queue gcal update:", err);
           });
         }
@@ -106,24 +110,23 @@ export async function POST(
     console.error("DB error logging race result:", err);
     return Response.json({ error: "Failed to log race result" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/workouts/[workoutId]/race-result ──────────────────────────────
 // Undo: clears the result and reopens the plan the log closed, so a mistaken
 // or premature log never leaves the plan silently stuck as "completed" while
 // the workout itself goes back to "planned".
-export async function DELETE(
+export const DELETE = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
-) {
+) => {
   const { workoutId } = await params;
 
-  try {
-    const [workout] = await db.select().from(workouts).where(eq(workouts.id, workoutId));
-    if (!workout) {
-      return Response.json({ error: "Workout not found" }, { status: 404 });
-    }
+  // The only confirmed destructive leak in this file: unscoped, this would
+  // let any caller reopen and clear another athlete's logged race result.
+  const workout = await requireOwned(workouts, workoutId);
 
+  try {
     const now = new Date();
     const [updatedWorkout] = await db
       .update(workouts)
@@ -134,10 +137,13 @@ export async function DELETE(
         raceResultLoggedAt: null,
         updatedAt: now,
       })
-      .where(eq(workouts.id, workoutId))
+      .where(and(eq(workouts.id, workoutId), ownedBy(workouts)))
       .returning();
 
-    const [plan] = await db.select().from(plans).where(eq(plans.id, workout.planId));
+    const [plan] = await db
+      .select()
+      .from(plans)
+      .where(and(eq(plans.id, workout.planId), ownedBy(plans)));
     let planStatus: string | null = plan?.status ?? null;
     // Only reopen a plan this exact log closed — never resurrect a plan an
     // athlete deliberately archived some other way.
@@ -145,7 +151,7 @@ export async function DELETE(
       const [updatedPlan] = await db
         .update(plans)
         .set({ status: "active", updatedAt: now })
-        .where(eq(plans.id, plan.id))
+        .where(and(eq(plans.id, plan.id), ownedBy(plans)))
         .returning({ status: plans.status });
       planStatus = updatedPlan?.status ?? null;
     }
@@ -155,4 +161,4 @@ export async function DELETE(
     console.error("DB error undoing race result:", err);
     return Response.json({ error: "Failed to undo race result" }, { status: 500 });
   }
-}
+});

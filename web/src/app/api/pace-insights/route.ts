@@ -1,6 +1,8 @@
 import { db, plans, workouts, blocks, activities, personalRecords } from "@/db";
-import { eq, and, gte, or, asc, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, or, asc, inArray } from "drizzle-orm";
 import { getPaceZones } from "@/lib/plan-engine/pace-zones";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/pace-insights ────────────────────────────────────────────────────
 // Returns pace zone data, speed/long workout history, next speed workout, and PRs
@@ -12,7 +14,7 @@ const WORKOUT_COLORS: Record<string, string> = {
   interval: "#C084FC",
 };
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     // ── 1. Active plan ────────────────────────────────────────────────────────
     const [activePlan] = await db
@@ -22,7 +24,7 @@ export async function GET() {
         vdot: plans.vdot,
       })
       .from(plans)
-      .where(eq(plans.status, "active"))
+      .where(and(ownedBy(plans), eq(plans.status, "active")))
       .limit(1);
 
     if (!activePlan) {
@@ -48,6 +50,7 @@ export async function GET() {
         .from(workouts)
         .where(
           and(
+            ownedBy(workouts),
             eq(workouts.planId, activePlan.id),
             eq(workouts.status, "completed"),
             or(eq(workouts.type, "tempo"), eq(workouts.type, "interval"))
@@ -66,6 +69,7 @@ export async function GET() {
         .from(workouts)
         .where(
           and(
+            ownedBy(workouts),
             eq(workouts.planId, activePlan.id),
             eq(workouts.status, "completed"),
             eq(workouts.type, "long")
@@ -84,6 +88,7 @@ export async function GET() {
         .from(workouts)
         .where(
           and(
+            ownedBy(workouts),
             eq(workouts.planId, activePlan.id),
             eq(workouts.status, "planned"),
             gte(workouts.date, now),
@@ -102,6 +107,7 @@ export async function GET() {
           source: personalRecords.source,
         })
         .from(personalRecords)
+        .where(ownedBy(personalRecords))
         .orderBy(asc(personalRecords.distance)),
     ]);
     const nextSpeed = nextSpeedRows[0];
@@ -140,7 +146,7 @@ export async function GET() {
               avgPaceSecKm: activities.avgPaceSecKm,
             })
             .from(activities)
-            .where(inArray(activities.workoutId, allCompletedIds))
+            .where(and(ownedBy(activities), inArray(activities.workoutId, allCompletedIds)))
         : Promise.resolve([]),
     ]);
 
@@ -321,4 +327,4 @@ export async function GET() {
     console.error("DB error fetching pace insights:", err);
     return Response.json({ error: "Failed to fetch pace insights" }, { status: 500 });
   }
-}
+});

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import {
   CustomWorkoutBodySchema,
   UuidSchema,
@@ -10,6 +10,7 @@ import {
   getCustomWorkout,
   updateCustomWorkout,
 } from "@/lib/strength/custom-workouts";
+import { withSession } from "@/lib/api/with-session";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -18,22 +19,36 @@ async function parseId(ctx: Ctx): Promise<string | null> {
   return UuidSchema.safeParse(id).success ? id : null;
 }
 
-export async function GET(request: NextRequest, ctx: Ctx) {
+// GET/PUT/DELETE all resolve ownership inside the lib/strength/custom-workouts
+// helpers (getCustomWorkout/updateCustomWorkout/deleteCustomWorkout), which
+// filter on both the household profile and the caller's own tenant — "Not
+// found" here already covers "belongs to someone else", same 404-not-403
+// reasoning as lib/api/errors.ts.
+
+export const GET = withSession(async (request: NextRequest, ctx: Ctx) => {
   const id = await parseId(ctx);
   if (!id) return Response.json({ error: "Not found" }, { status: 404 });
   try {
-    const template = await getCustomWorkout(id, getActiveProfileId(request));
+    const template = await getCustomWorkout(id, await getVerifiedProfileId(request));
     if (!template) return Response.json({ error: "Not found" }, { status: 404 });
     return Response.json(template);
   } catch (err) {
     console.error("[custom-workouts] get failed", err);
     return Response.json({ error: "Failed to load workout" }, { status: 500 });
   }
-}
+});
 
-export async function PUT(request: NextRequest, ctx: Ctx) {
+export const PUT = withSession(async (request: NextRequest, ctx: Ctx) => {
   const id = await parseId(ctx);
   if (!id) return Response.json({ error: "Not found" }, { status: 404 });
+
+  const profileId = await getVerifiedProfileId(request);
+  // Ownership before body validation, same reasoning as the strength session
+  // routes: a template that isn't the caller's answers "Not found" regardless
+  // of whether the body would also have failed validation.
+  if (!(await getCustomWorkout(id, profileId))) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
   let data: z.infer<typeof CustomWorkoutBodySchema>;
   try {
@@ -48,7 +63,7 @@ export async function PUT(request: NextRequest, ctx: Ctx) {
   try {
     const template = await updateCustomWorkout(
       id,
-      getActiveProfileId(request),
+      profileId,
       data.name,
       data.slots
     );
@@ -61,13 +76,13 @@ export async function PUT(request: NextRequest, ctx: Ctx) {
       { status: 500 }
     );
   }
-}
+});
 
-export async function DELETE(request: NextRequest, ctx: Ctx) {
+export const DELETE = withSession(async (request: NextRequest, ctx: Ctx) => {
   const id = await parseId(ctx);
   if (!id) return Response.json({ error: "Not found" }, { status: 404 });
   try {
-    const deleted = await deleteCustomWorkout(id, getActiveProfileId(request));
+    const deleted = await deleteCustomWorkout(id, await getVerifiedProfileId(request));
     if (!deleted) return Response.json({ error: "Not found" }, { status: 404 });
     return Response.json({ ok: true });
   } catch (err) {
@@ -77,4 +92,4 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
       { status: 500 }
     );
   }
-}
+});

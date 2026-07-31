@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db, activities, workouts, blocks, plans } from "@/db";
 import { eq, and, gte, ne, asc } from "drizzle-orm";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 // ── POST /api/activities/[id]/insights ───────────────────────────────────────
 // Generates (or returns the cached) AI workout insight for an activity. The
@@ -41,10 +43,10 @@ interface StoredSplit {
   average_speed: number;
 }
 
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return Response.json({ error: "not_configured" }, { status: 501 });
@@ -64,16 +66,10 @@ export async function POST(
   }
   const { regenerate, hrZones } = parsed.data;
 
-  try {
-    const [activity] = await db
-      .select()
-      .from(activities)
-      .where(eq(activities.id, id))
-      .limit(1);
-    if (!activity) {
-      return Response.json({ error: "Not found" }, { status: 404 });
-    }
+  // Outside the try below so its 404 reaches withSession directly.
+  const activity = await requireOwned(activities, id);
 
+  try {
     if (activity.aiInsight && !regenerate) {
       return Response.json({
         insight: activity.aiInsight,
@@ -119,13 +115,13 @@ export async function POST(
       const [workout] = await db
         .select()
         .from(workouts)
-        .where(eq(workouts.id, activity.workoutId))
+        .where(and(eq(workouts.id, activity.workoutId), ownedBy(workouts)))
         .limit(1);
       if (workout) {
         const workoutBlocks = await db
           .select()
           .from(blocks)
-          .where(eq(blocks.workoutId, workout.id))
+          .where(and(eq(blocks.workoutId, workout.id), ownedBy(blocks)))
           .orderBy(blocks.sortOrder);
         const targets = workoutBlocks
           .map((b) => {
@@ -154,7 +150,7 @@ export async function POST(
         goalTimeSeconds: plans.goalTimeSeconds,
       })
       .from(plans)
-      .where(eq(plans.status, "active"))
+      .where(and(ownedBy(plans), eq(plans.status, "active")))
       .limit(1);
     if (activePlan) {
       const daysToRace = Math.max(
@@ -170,6 +166,7 @@ export async function POST(
         .from(workouts)
         .where(
           and(
+            ownedBy(workouts),
             eq(workouts.planId, activePlan.id),
             eq(workouts.status, "planned"),
             ne(workouts.type, "rest"),
@@ -229,11 +226,11 @@ export async function POST(
     await db
       .update(activities)
       .set({ aiInsight: insight, aiInsightGeneratedAt: generatedAt })
-      .where(eq(activities.id, id));
+      .where(and(eq(activities.id, id), ownedBy(activities)));
 
     return Response.json({ insight, generatedAt: generatedAt.toISOString() });
   } catch (err) {
     console.error("Error generating activity insight:", err);
     return Response.json({ error: "Failed to generate insight" }, { status: 500 });
   }
-}
+});

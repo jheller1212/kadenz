@@ -1,14 +1,16 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, strengthPlanSettings } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import {
   ensureStrengthSchedule,
   pruneAutoSchedule,
   resyncPlannedStrengthSessions,
 } from "@/lib/strength/schedule";
-import { requireRequestUser } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
+import { ownedBy } from "@/lib/api/owned";
 
 const EQUIPMENT_VALUES = [
   "dumbbell", "barbell", "bench", "chair", "box", "kettlebell", "pullup_bar", "band",
@@ -43,28 +45,29 @@ const SettingsSchema = z.object({
 });
 
 function profCond(profileId: string | null) {
-  return profileId
-    ? eq(strengthPlanSettings.profileId, profileId)
-    : isNull(strengthPlanSettings.profileId);
+  return and(
+    ownedBy(strengthPlanSettings),
+    profileId
+      ? eq(strengthPlanSettings.profileId, profileId)
+      : isNull(strengthPlanSettings.profileId)
+  );
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request: NextRequest) => {
   try {
     const [settings] = await db
       .select()
       .from(strengthPlanSettings)
-      .where(profCond(getActiveProfileId(request)));
+      .where(profCond(await getVerifiedProfileId(request)));
     return Response.json(settings ?? null);
   } catch (err) {
     console.error("[plan-settings] get failed", err);
     return Response.json({ error: "Failed to load settings" }, { status: 500 });
   }
-}
+});
 
-export async function PUT(request: NextRequest) {
-  const { userId, response } = await requireRequestUser(request);
-  if (response) return response;
-  const profileId = getActiveProfileId(request);
+export const PUT = withSession(async (request: NextRequest) => {
+  const profileId = await getVerifiedProfileId(request);
 
   let data: z.infer<typeof SettingsSchema>;
   try {
@@ -116,7 +119,7 @@ export async function PUT(request: NextRequest) {
     if (updated.length === 0) {
       const inserted = await db
         .insert(strengthPlanSettings)
-        .values({ ...values, profileId })
+        .values({ ...values, profileId, userId: currentUserId() })
         .onConflictDoNothing()
         .returning({ id: strengthPlanSettings.id });
       if (inserted.length === 0) {
@@ -129,9 +132,9 @@ export async function PUT(request: NextRequest) {
 
     // Rebuild the upcoming auto schedule from the new preferences. Completed
     // and manually created sessions are never touched.
-    await pruneAutoSchedule(profileId, userId);
+    await pruneAutoSchedule(profileId, currentUserId());
     const { created } = data.active
-      ? await ensureStrengthSchedule(profileId, userId)
+      ? await ensureStrengthSchedule(profileId, currentUserId())
       : { created: 0 };
 
     return Response.json({ ok: true, created });
@@ -139,7 +142,7 @@ export async function PUT(request: NextRequest) {
     console.error("[plan-settings] save failed", err);
     return Response.json({ error: "Failed to save settings" }, { status: 500 });
   }
-}
+});
 
 // ── PATCH /api/strength/plan-settings ─────────────────────────────────────────
 // Partial update of plan-affecting preferences that live outside the setup
@@ -165,10 +168,8 @@ const PatchSchema = z
     message: "Nothing to update",
   });
 
-export async function PATCH(request: NextRequest) {
-  const { userId, response } = await requireRequestUser(request);
-  if (response) return response;
-  const profileId = getActiveProfileId(request);
+export const PATCH = withSession(async (request: NextRequest) => {
+  const profileId = await getVerifiedProfileId(request);
 
   let data: z.infer<typeof PatchSchema>;
   try {
@@ -224,12 +225,12 @@ export async function PATCH(request: NextRequest) {
     // its next read. The calendar event and the watch workout are copies
     // though, so they have to be pushed again.
     if (updated?.active) {
-      await ensureStrengthSchedule(profileId, userId);
+      await ensureStrengthSchedule(profileId, currentUserId());
       // ensureStrengthSchedule only re-pushes a session whose duration
       // estimate changed, which a complaint change can leave identical while
       // the exercise list is completely different.
       if (data.complaints !== undefined) {
-        await resyncPlannedStrengthSessions(profileId, userId);
+        await resyncPlannedStrengthSessions(profileId, currentUserId());
       }
     }
 
@@ -238,7 +239,7 @@ export async function PATCH(request: NextRequest) {
     console.error("[plan-settings] patch failed", err);
     return Response.json({ error: "Failed to update Kraft settings" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/strength/plan-settings ────────────────────────────────────────
 // Removes the strength plan, for parity with running (which has DELETE on
@@ -249,13 +250,11 @@ export async function PATCH(request: NextRequest) {
 // still-planned, auto-scheduled sessions, so completed and hand-edited sessions
 // survive — they are training data, and load progression is derived from them.
 // It also cleans up the calendar events and watch workouts those rows created.
-export async function DELETE(request: NextRequest) {
-  const { userId, response } = await requireRequestUser(request);
-  if (response) return response;
-  const profileId = getActiveProfileId(request);
+export const DELETE = withSession(async (request: NextRequest) => {
+  const profileId = await getVerifiedProfileId(request);
 
   try {
-    const { removed } = await pruneAutoSchedule(profileId, userId);
+    const { removed } = await pruneAutoSchedule(profileId, currentUserId());
 
     const deleted = await db
       .delete(strengthPlanSettings)
@@ -271,4 +270,4 @@ export async function DELETE(request: NextRequest) {
     console.error("[plan-settings] delete failed", err);
     return Response.json({ error: "Failed to remove strength plan" }, { status: 500 });
   }
-}
+});

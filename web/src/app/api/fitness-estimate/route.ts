@@ -1,5 +1,6 @@
 import { getCurrentFitnessEstimate } from "@/lib/current-fitness";
 import { FITNESS_WINDOW_DAYS } from "@/lib/plan-engine/fitness-estimate";
+import { withSession } from "@/lib/api/with-session";
 
 // ── GET /api/fitness-estimate ───────────────────────────────────────────────
 // Current-fitness VDOT estimated from the athlete's own recent runs, plus the
@@ -7,7 +8,7 @@ import { FITNESS_WINDOW_DAYS } from "@/lib/plan-engine/fitness-estimate";
 // recalibration use to drive paces, exposed so the athlete can see (and judge)
 // where their paces come from before overriding them.
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     const estimate = await getCurrentFitnessEstimate();
 
@@ -33,4 +34,4 @@ export async function GET() {
     console.error("DB error building fitness estimate:", err);
     return Response.json({ error: "Failed to build fitness estimate" }, { status: 500 });
   }
-}
+});

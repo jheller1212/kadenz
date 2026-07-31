@@ -3,6 +3,8 @@ import { createOAuth2Client, saveTokens, type GCalTokens } from "@/lib/sync/gcal
 import { makeSessionCookie } from "@/lib/session";
 import { isAllowedGoogleEmail, ownerGoogleEmail } from "@/lib/owner";
 import { resolveUserForLogin } from "@/lib/users";
+import { withUser } from "@/db/with-user";
+import type { UserId } from "@/lib/user-id";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -20,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   const oauth2Client = createOAuth2Client();
-  let userId: string;
+  let userId: UserId;
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
@@ -29,6 +31,9 @@ export async function GET(request: NextRequest) {
       // Happens if user already authorized before; re-initiate with prompt=consent
       return NextResponse.redirect(`${base}/api/auth/google`);
     }
+    // Captured into a const: the narrowing above only holds for this property
+    // access itself, and is not guaranteed to survive the awaits below.
+    const refreshToken = tokens.refresh_token;
 
     // Bind the session to the owner: verify the account's email against the
     // allowlist before doing anything with the tokens. verifyIdToken checks
@@ -91,11 +96,18 @@ export async function GET(request: NextRequest) {
       isOwner: (email ?? "").toLowerCase() === owner,
     });
 
-    await saveTokens(userId, {
-      access_token: tokens.access_token!,
-      refresh_token: tokens.refresh_token,
-      expiry_date: tokens.expiry_date ?? Date.now() + 3600 * 1000,
-    } satisfies GCalTokens);
+    // Inside the resolved user's context, not on the ambient connection.
+    // integration_credentials carries user_id, so phase 3's coverage migration
+    // (drizzle/0060) forces row level security on it, and a write with no
+    // context set matches no policy and is refused. Passing userId to
+    // saveTokens says WHOSE row it is; withUser is what lets it be written.
+    await withUser(userId, () =>
+      saveTokens(userId, {
+        access_token: tokens.access_token!,
+        refresh_token: refreshToken,
+        expiry_date: tokens.expiry_date ?? Date.now() + 3600 * 1000,
+      } satisfies GCalTokens)
+    );
   } catch (err) {
     console.error("Failed to exchange Google OAuth code:", err);
     return NextResponse.redirect(`${base}/?gcal=error`);

@@ -1,5 +1,4 @@
-import { type NextRequest } from "next/server";
-import { validateSessionCookie } from "@/lib/session";
+import { withCronFanOut } from "@/lib/api/with-session";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 
 // ── GET /api/cron/reminders ─────────────────────────────────────────────────
@@ -8,9 +7,17 @@ import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 // allows one cron job and that slot is already spent on the once-daily
 // GCal/Garmin sync (see /api/cron/gcal and vercel.json). Since the repo is
 // public, GitHub Actions minutes are free, so the frequent schedule lives in
-// .github/workflows/reminders.yml instead and hits this route directly.
-// This handler does ONLY dispatchDueReminders — no Garmin calls, no calendar
-// drain, no activity import — so calling it every 15 minutes is cheap.
+// .github/workflows/reminders.yml (and the Cloudflare Worker cron in
+// cron-worker/) instead and hits this route directly. This handler does ONLY
+// dispatchDueReminders — no Garmin calls, no calendar drain, no activity
+// import — so calling it every 15 minutes is cheap.
+//
+// Reminder settings and sent_reminders are tenanted (Phase 3), so
+// dispatchDueReminders needs a row level security context to see anything at
+// all — withCronFanOut runs it once per user (bearer CRON_SECRET) or once for
+// the caller (owner session), same auth as every other cron route. Reminders
+// have no shared-device caveat the way Garmin does: every user's own push
+// subscription is exactly that, their own.
 //
 // If the Vercel plan ever changes, this can move back into a Vercel cron
 // (vercel.json) and the GitHub workflow can be deleted.
@@ -21,23 +28,16 @@ import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 // workout's start time has passed (see due.ts) — a cron outage does not
 // produce a burst of stale reminders when it comes back.
 
-export async function GET(request: NextRequest) {
-  // Same auth as /api/cron/gcal: the cron secret (GitHub Actions here, or
-  // Vercel's own scheduler if this ever moves back), or a signed-in session
-  // so the owner can trigger a run by hand.
-  const secret = process.env.CRON_SECRET;
-  const fromCron =
-    Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
-  const fromOwner = await validateSessionCookie(request.headers.get("cookie"));
-  if (!fromCron && !fromOwner) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withCronFanOut(async (userId) => {
+  // Caught locally, not left to withCronFanOut/forEachUser: those have no
+  // per-user try/catch of their own, so an uncaught throw here would abort
+  // the whole fan-out and drop every user queued behind this one instead of
+  // just failing this one's dispatch.
   try {
     const result = await dispatchDueReminders();
-    return Response.json({ ok: true, reminders: result });
+    return { ok: true, reminders: result };
   } catch (err) {
-    console.error("Reminder dispatch error:", err);
-    return Response.json({ ok: false, error: "dispatch failed" }, { status: 500 });
+    console.error(`Reminder dispatch error for user ${userId}:`, err);
+    return { ok: false, error: "dispatch failed" };
   }
-}
+}, "cron-reminders");

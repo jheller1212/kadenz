@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { OWNER_USER_ID, userIdentities, users } from "@/db/schema";
+import { asUserId, type UserId } from "@/lib/user-id";
 
 export type AuthProvider = "strava" | "google";
 
@@ -28,7 +29,7 @@ export type LoginIdentity = {
  */
 export async function resolveUserForLogin(
   identity: LoginIdentity
-): Promise<string> {
+): Promise<UserId> {
   const { provider, providerAccountId, isOwner } = identity;
   const email = identity.email?.trim().toLowerCase() || null;
   const displayName = identity.displayName?.trim() || null;
@@ -54,10 +55,12 @@ export async function resolveUserForLogin(
           eq(userIdentities.providerAccountId, providerAccountId)
         )
       );
-    return existing.userId;
+    // The users table stores a plain uuid, so this is a boundary where a raw
+    // column value becomes an identity. Validated rather than cast.
+    return asUserId(existing.userId);
   }
 
-  let userId: string;
+  let userId: UserId;
   if (isOwner) {
     // Seeded by drizzle/0051_users.sql. Re-asserted here because the e2e
     // harness builds its database with `drizzle-kit push`, which creates the
@@ -66,13 +69,13 @@ export async function resolveUserForLogin(
       .insert(users)
       .values({ id: OWNER_USER_ID, email, displayName })
       .onConflictDoNothing();
-    userId = OWNER_USER_ID;
+    userId = asUserId(OWNER_USER_ID);
   } else {
     const [created] = await db
       .insert(users)
       .values({ email, displayName })
       .returning({ id: users.id });
-    userId = created.id;
+    userId = asUserId(created.id);
   }
 
   // Upsert rather than insert so two logins racing the same first-ever sign-in
@@ -93,7 +96,7 @@ export async function resolveUserForLogin(
     })
     .returning({ userId: userIdentities.userId });
 
-  return linked.userId;
+  return asUserId(linked.userId);
 }
 
 /**

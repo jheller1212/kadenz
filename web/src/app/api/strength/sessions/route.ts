@@ -2,7 +2,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
+import { ownedBy } from "@/lib/api/owned";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import { EQUIPMENT_KEYS } from "@/lib/strength/equipment";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
@@ -15,7 +18,6 @@ import {
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { resolveRequestUserId } from "@/lib/request-user";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 import type { Equipment } from "@/lib/strength/types";
 import type { PlannedExercise } from "@/lib/strength/session";
@@ -50,16 +52,17 @@ const CreateSchema = z.object({
 // joined ONLY with ?include=sets — the Today/list views need 6 scalar fields,
 // and dragging every set along made strength cards render slower than runs.
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
   const includeSets = searchParams.get("include") === "sets";
 
-  const profileId = getActiveProfileId(request);
+  const profileId = await getVerifiedProfileId(request);
 
   try {
     const conds = [
+      ownedBy(strengthSessions),
       profileId
         ? eq(strengthSessions.profileId, profileId)
         : isNull(strengthSessions.profileId),
@@ -95,17 +98,14 @@ export async function GET(request: NextRequest) {
     console.error("DB error listing strength sessions:", err);
     return Response.json({ error: "Failed to fetch sessions" }, { status: 500 });
   }
-}
+});
 
 // ── POST /api/strength/sessions ───────────────────────────────────────────────
 // Create a planned session. Runs the constraint engine against the run schedule
 // and other strength sessions; blocking (error) violations are rejected unless
 // `force` is set (mirrors the dnd-kit override UX).
 
-export async function POST(request: NextRequest) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
+export const POST = withSession(async (request: NextRequest) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
   const data = parsed.data;
   const date = new Date(data.date);
 
-  const profileId = getActiveProfileId(request);
+  const profileId = await getVerifiedProfileId(request);
 
   try {
     // Guest profiles live outside the run plan: no plan link, no run-schedule
@@ -135,7 +135,10 @@ export async function POST(request: NextRequest) {
         const [active] = await db
           .select({ id: plans.id })
           .from(plans)
-          .where(eq(plans.status, "active"))
+          // The caller's active plan, not whoever's plan happens to be active.
+          // RLS enforces it either way; naming the owner keeps the intent
+          // readable and lets the planner use the user_id index.
+          .where(and(ownedBy(plans), eq(plans.status, "active")))
           .limit(1);
         planId = active?.id ?? null;
       }
@@ -156,7 +159,7 @@ export async function POST(request: NextRequest) {
           await db
             .select({ id: strengthSessions.id, date: strengthSessions.date, type: strengthSessions.type })
             .from(strengthSessions)
-            .where(isNull(strengthSessions.profileId))
+            .where(and(ownedBy(strengthSessions), isNull(strengthSessions.profileId)))
         ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
     // Fetched once and handed to buildPlannedSession below (both branches),
@@ -238,6 +241,7 @@ export async function POST(request: NextRequest) {
     const [session] = await db
       .insert(strengthSessions)
       .values({
+        userId: currentUserId(),
         planId,
         equipmentOverride: equipmentOverride ?? null,
         durationOverrideMinutes: data.durationOverrideMinutes ?? null,
@@ -261,10 +265,10 @@ export async function POST(request: NextRequest) {
       queueGarminStrengthMove(session.id).catch((err) =>
         console.error("Failed to queue Garmin strength push:", err)
       );
-      isConnected(userId)
+      isConnected(currentUserId())
         .then((connected) => {
           if (connected) {
-            queueStrengthSessionSync(session.id, "create", userId, "gcal").catch((err) =>
+            queueStrengthSessionSync(session.id, "create", currentUserId(), "gcal").catch((err) =>
               console.error("Failed to queue strength gcal sync:", err)
             );
           }
@@ -277,4 +281,4 @@ export async function POST(request: NextRequest) {
     console.error("DB error creating strength session:", err);
     return Response.json({ error: "Failed to create session" }, { status: 500 });
   }
-}
+});

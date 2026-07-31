@@ -175,6 +175,12 @@ session carries a real user id.
   touches many of the 65 files, but it is mechanical and the database is
   backstopping it.
 - Add the filters at the 62 call sites too, for index use and readability.
+- One wrapper per route rather than a line copied into each handler:
+  `withSession` (src/lib/api/with-session.ts) takes the user id from the signed
+  cookie and opens the context; `requireOwned` (src/lib/api/owned.ts) resolves a
+  row by id AND owner or answers 404. The copied-line version fails silently
+  when someone forgets it, which is the one failure mode this phase cannot
+  tolerate.
 
 **Done when the leak test passes** (see below). This is the gate for letting a
 second person in.
@@ -209,11 +215,26 @@ Not a review checklist, an automated test that fails the build:
 2. For every route under `web/src/app/api/`, call it as user B using user A's
    resource ids.
 3. Assert the response is 404 or 403 and **never** contains user A's data.
-4. Separately, assert every table carrying `user_id` has RLS enabled, by
-   querying `pg_tables`. A new table without a policy fails the build rather
-   than quietly leaking.
+4. Separately, assert every table carrying `user_id` has RLS **forced**, by
+   querying `pg_class.relforcerowsecurity`. A new table without a policy fails
+   the build rather than quietly leaking.
 
-Point 4 is what stops this decaying six months from now.
+Point 4 says `pg_class.relforcerowsecurity` and not `pg_tables.rowsecurity` for
+a reason worth stating once. Postgres exempts a table's owner from that table's
+policies, and Kadenz connects as the role that owns every table. So with
+`ENABLE` alone the app keeps reading every user's rows while
+`pg_tables.rowsecurity` reports true: the weaker column is true in both the safe
+and the unsafe case, so asserting on it proves nothing. Only `FORCE` removes the
+owner exemption.
+
+Point 5, learned the hard way: the test must also assert that the same call
+SUCCEEDS as the resource's owner. A route that answers 404 to everybody passes
+an isolation test while being completely broken, and RLS mistakes present as
+empty lists and blank screens rather than errors, so nothing else would notice.
+
+Point 6: the test enumerates the route files on disk and fails on any route or
+method it does not have a classification for. Without that, the next route
+added is outside the test by default, which is how a suite like this decays.
 
 ---
 

@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { requireRequestUser } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const CompleteSchema = z.object({
   actualKm: z.number().nonnegative().optional(),
@@ -14,13 +16,15 @@ const CompleteSchema = z.object({
 
 // ── PATCH /api/workouts/[workoutId]/complete ──────────────────────────────────
 
-export async function PATCH(
+export const PATCH = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
-) {
-  const { userId, response: unauth } = await requireRequestUser(request);
-  if (unauth) return unauth;
+) => {
   const { workoutId } = await params;
+
+  // Checked before the body, since an empty `{}` is a valid request here and
+  // must not be mistaken for proof the workout wasn't checked.
+  await requireOwned(workouts, workoutId);
 
   let body: unknown = {};
   try {
@@ -52,7 +56,7 @@ export async function PATCH(
         ...(parsed.data.rpe !== undefined ? { rpe: parsed.data.rpe } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(workouts.id, workoutId))
+      .where(and(eq(workouts.id, workoutId), ownedBy(workouts)))
       .returning();
 
     if (!updated) {
@@ -60,9 +64,9 @@ export async function PATCH(
     }
 
     // Queue gcal update if connected
-    isConnected(userId).then((connected) => {
+    isConnected(currentUserId()).then((connected) => {
       if (connected) {
-        queueWorkoutSync(workoutId, "update", userId, "gcal").catch((err) => {
+        queueWorkoutSync(workoutId, "update", "gcal").catch((err) => {
           console.error("Failed to queue gcal update:", err);
         });
       }
@@ -73,4 +77,4 @@ export async function PATCH(
     console.error("DB error completing workout:", err);
     return Response.json({ error: "Failed to complete workout" }, { status: 500 });
   }
-}
+});

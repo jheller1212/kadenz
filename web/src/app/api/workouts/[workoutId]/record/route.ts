@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, activities, workouts } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { resolveRequestUserId } from "@/lib/request-user";
 import { completesOnRecord } from "@/lib/workout-record";
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 // ── POST /api/workouts/[workoutId]/record ─────────────────────────────────────
 // A guided phone run finished with GPS: persist it as an activity (route +
@@ -27,13 +29,15 @@ const RecordSchema = z.object({
   startedAt: z.string().datetime().optional(),
 });
 
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { workoutId } = await params;
+
+  // Ownership before the body: a guided-run recording against another
+  // athlete's workout id is a leak, not a validation failure.
+  const workout = await requireOwned(workouts, workoutId);
 
   let body: unknown;
   try {
@@ -51,13 +55,6 @@ export async function POST(
   const data = parsed.data;
 
   try {
-    const workout = await db.query.workouts.findFirst({
-      where: (w, { eq: eqf }) => eqf(w.id, workoutId),
-    });
-    if (!workout) {
-      return Response.json({ error: "Workout not found" }, { status: 404 });
-    }
-
     const avgPaceSecKm = data.distanceKm > 0 ? Math.round(data.durationSeconds / data.distanceKm) : null;
     const startDate = data.startedAt
       ? new Date(data.startedAt)
@@ -76,6 +73,7 @@ export async function POST(
         startDate,
         splitsJson: data.splits ?? null,
         polyline: data.polyline ?? null,
+        userId: currentUserId(),
       })
       .returning({ id: activities.id });
 
@@ -95,13 +93,13 @@ export async function POST(
         actualDurationSeconds: data.durationSeconds,
         updatedAt: new Date(),
       })
-      .where(eq(workouts.id, workoutId));
+      .where(and(eq(workouts.id, workoutId), ownedBy(workouts)));
 
     // Reflect completion on the calendar if connected.
-    isConnected(userId)
+    isConnected(currentUserId())
       .then((connected) => {
         if (connected) {
-          queueWorkoutSync(workoutId, "update", userId, "gcal").catch(() => {});
+          queueWorkoutSync(workoutId, "update", "gcal").catch(() => {});
         }
       })
       .catch(() => {});
@@ -111,4 +109,4 @@ export async function POST(
     console.error("DB error recording guided run:", err);
     return Response.json({ error: "Failed to record run" }, { status: 500 });
   }
-}
+});
