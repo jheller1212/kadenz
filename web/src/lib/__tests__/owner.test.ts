@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   isAllowedGoogleEmail,
   isAllowedStravaAthleteId,
+  isGoogleSignupOpen,
   ownerGoogleEmail,
   ownerStravaAthleteId,
 } from "../owner";
@@ -19,6 +20,7 @@ afterEach(() => {
   delete process.env.KADENZ_ALLOWED_GOOGLE_EMAILS;
   delete process.env.KADENZ_OWNER_STRAVA_ID;
   delete process.env.KADENZ_OWNER_GOOGLE_EMAIL;
+  delete process.env.KADENZ_GOOGLE_SIGNUP_OPEN;
 });
 
 describe("isAllowedStravaAthleteId", () => {
@@ -47,6 +49,36 @@ describe("isAllowedGoogleEmail", () => {
     expect(isAllowedGoogleEmail("a@example.com")).toBe(true);
     expect(isAllowedGoogleEmail("b@example.com")).toBe(false);
     expect(isAllowedGoogleEmail(null)).toBe(false);
+  });
+});
+
+describe("Google sign-up switch", () => {
+  it("is closed by default and closed for anything other than the exact string 'true'", () => {
+    expect(isGoogleSignupOpen()).toBe(false);
+    process.env.KADENZ_GOOGLE_SIGNUP_OPEN = "1";
+    expect(isGoogleSignupOpen()).toBe(false);
+    process.env.KADENZ_GOOGLE_SIGNUP_OPEN = "True";
+    expect(isGoogleSignupOpen()).toBe(false);
+  });
+
+  it("opens once set to 'true'", () => {
+    process.env.KADENZ_GOOGLE_SIGNUP_OPEN = "true";
+    expect(isGoogleSignupOpen()).toBe(true);
+  });
+
+  it("keeps Google gated to the allowlist while closed, even with no allowlist set", () => {
+    expect(isAllowedGoogleEmail("stranger@example.com")).toBe(false);
+  });
+
+  it("admits anyone with a verified email once open, allowlisted or not", () => {
+    process.env.KADENZ_GOOGLE_SIGNUP_OPEN = "true";
+    expect(isAllowedGoogleEmail("stranger@example.com")).toBe(true);
+    expect(isAllowedGoogleEmail(null)).toBe(false);
+  });
+
+  it("does not affect Strava, which stays allowlist-only regardless", () => {
+    process.env.KADENZ_GOOGLE_SIGNUP_OPEN = "true";
+    expect(isAllowedStravaAthleteId(999)).toBe(false);
   });
 });
 
