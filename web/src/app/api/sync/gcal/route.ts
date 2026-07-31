@@ -12,13 +12,11 @@ import { currentUserId } from "@/db/with-user";
 // rows for everyone and this always answered 503, "not connected", even for
 // a connected caller.
 //
-// processGCalOutbox itself is deliberately NOT scoped to the caller: each
-// outbox row records its own owner and is delivered with that owner's
-// credentials, so one drain correctly serves everybody. That is real,
-// pre-existing tension with row level security (it reads/writes sync_outbox
-// across every user from inside a single-user transaction context) rather
-// than an instance of this route's bug — see the PR description for why it
-// is out of scope here.
+// processGCalOutbox is scoped to the caller: it claims and drains only this
+// person's own pending rows (one transaction can only carry one app.user_id
+// — see that function's comment in sync-manager.ts), which is also the
+// semantically correct answer for a "force sync" button someone presses on
+// their own account.
 export const POST = withSession(async () => {
   if (!(await isConnected(currentUserId()))) {
     return Response.json(
@@ -28,7 +26,7 @@ export const POST = withSession(async () => {
   }
 
   try {
-    const result = await processGCalOutbox();
+    const result = await processGCalOutbox(currentUserId());
     return Response.json(result);
   } catch (err) {
     console.error("GCal sync error:", err);

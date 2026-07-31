@@ -1,21 +1,23 @@
-// cron/gcal predates withCronFanOut/forEachUser and, until this fix, ran every
+// cron/gcal predates withCronFanOut/forEachUser and, until #137, ran every
 // query on the pooled connection with no row level security context set. That
-// compiles, runs, and answers 200 every day (see the route's own file
-// comment): under FORCE row level security an unscoped SELECT matches zero
-// rows and an unscoped INSERT/UPDATE violates its WITH CHECK. Real
-// Postgres/RLS isn't available to vitest, so this test does what
+// compiles, runs, and answers 200 every day: under FORCE row level security
+// an unscoped SELECT matches zero rows and an unscoped INSERT/UPDATE violates
+// its WITH CHECK. #137 fixed every per-user check and job in this route but
+// left the two outbox drains (processGCalOutbox, processGarminOutbox) and the
+// failed-job requeue deliberately unscoped, flagged loudly in the file
+// comment, because a single claim spanning every user's queued jobs doesn't
+// fit inside one transaction's app.user_id. This reshape closes that gap by
+// making the claim itself per-user (see claimJobs in sync-manager.ts) and
+// looping it here the same way every other per-user block in this route
+// already runs.
+//
+// Real Postgres/RLS isn't available to vitest, so this test does what
 // strava/disconnect's route test does: mock db/with-user so currentUserId()
 // only resolves to a value WHILE a withUser callback is running, and prove
-// every per-user helper this route calls runs from inside that window. A
-// regression back to calling one of them on the ambient connection throws
-// here, rather than quietly reporting success.
-//
-// It also asserts the opposite for the two calls that are DELIBERATELY left
-// unscoped (processGCalOutbox, processGarminOutbox) and the outbox requeue —
-// see the route's file comment for why. If a future change wraps those in a
-// per-user scope without addressing the underlying "one transaction, one
-// app.user_id, many users' outbox rows" problem, this test should be revisited
-// rather than assumed to still be correct.
+// every per-user helper this route calls — now including the two drains and
+// the requeue — runs from inside that window. A regression back to calling
+// one of them on the ambient connection throws here, rather than quietly
+// reporting success.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
@@ -64,8 +66,8 @@ vi.mock("@/db/with-user", () => ({ withUser, forEachUser, currentUserId }));
 // ── @/db: keep the real schema exports (syncOutbox, OWNER_USER_ID — the
 // route's owner-only Garmin gate has to match a real constant), replace only
 // the query client so the requeue update never reaches Postgres. Recorded
-// with the scope at call time to prove it is the cross-user, deliberately
-// UNSCOPED write the file comment describes. ────────────────────────────────
+// with the scope at call time to prove the requeue now runs per user, inside
+// that user's own scope, instead of once on the ambient connection. ────────
 const requeueCalls: Array<{ scopedUserId: string | null }> = [];
 vi.mock("@/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db")>();
@@ -118,7 +120,10 @@ vi.mock("@/lib/sync/garmin-config", () => ({
   }),
 }));
 
-const processGarminOutboxCalls: Array<string | null> = [];
+// processGarminOutbox now takes a userId and, like the real implementation,
+// opens its own withUser scope around the drain — mocked here the same way
+// so the test can prove the ROUTE never has to open that scope itself.
+const processGarminOutboxCalls: Array<{ arg: string; scopedUserId: string | null }> = [];
 vi.mock("@/lib/sync/garmin-sync", () => ({
   resyncGarminWindow: vi.fn(async (userId: string) => {
     recordScope("resyncGarminWindow");
@@ -135,10 +140,13 @@ vi.mock("@/lib/sync/garmin-sync", () => ({
     currentUserId();
     return 1;
   }),
-  processGarminOutbox: vi.fn(async () => {
-    processGarminOutboxCalls.push(scopedUserId);
-    return { processed: 0, succeeded: 0, failed: 0, errors: [] };
-  }),
+  processGarminOutbox: vi.fn(async (userId: string) =>
+    withUser(userId, async () => {
+      processGarminOutboxCalls.push({ arg: userId, scopedUserId });
+      currentUserId();
+      return { processed: 0, succeeded: 0, failed: 0, errors: [] };
+    })
+  ),
 }));
 
 vi.mock("@/lib/sync/garmin-client", () => ({
@@ -182,12 +190,17 @@ vi.mock("@/lib/strength/schedule", () => ({
   }),
 }));
 
-const processGCalOutboxCalls: Array<string | null> = [];
+// processGCalOutbox now takes a userId and opens its own withUser scope
+// around the drain, same reasoning as processGarminOutbox above.
+const processGCalOutboxCalls: Array<{ arg: string; scopedUserId: string | null }> = [];
 vi.mock("@/lib/sync/sync-manager", () => ({
-  processGCalOutbox: vi.fn(async () => {
-    processGCalOutboxCalls.push(scopedUserId);
-    return { processed: 0, succeeded: 0, failed: 0, errors: [] };
-  }),
+  processGCalOutbox: vi.fn(async (userId: string) =>
+    withUser(userId, async () => {
+      processGCalOutboxCalls.push({ arg: userId, scopedUserId });
+      currentUserId();
+      return { processed: 0, succeeded: 0, failed: 0, errors: [] };
+    })
+  ),
 }));
 
 const { GET } = await import("../route");
@@ -250,14 +263,28 @@ describe("GET /api/cron/gcal", () => {
     }
     expect(body.garminSkippedNonOwner).toBe(1);
 
-    // The two outbox drains and the requeue are deliberately cross-user and
-    // deliberately unscoped (see the route's file comment) — this is the
-    // architectural gap the task asked to be reported, not mechanically
-    // fixed. Pinning it here means a future change to that shape is a
-    // decision this test forces someone to make consciously.
-    expect(processGCalOutboxCalls).toEqual([null]);
-    expect(processGarminOutboxCalls).toEqual([null]);
-    expect(requeueCalls).toEqual([{ scopedUserId: null }]);
+    // The requeue now runs once per user, and only ever writes while THAT
+    // user's own scope is active — a job belonging to the other user is
+    // never touched from inside this one's transaction.
+    expect(requeueCalls).toEqual([
+      { scopedUserId: OWNER_USER },
+      { scopedUserId: OTHER_USER },
+    ]);
+
+    // The gcal drain runs once per CONNECTED user (only the owner is
+    // connected in this fixture — see the isConnected mock), each call
+    // scoped to itself: the argument passed in and the scope active at call
+    // time are the same id.
+    expect(processGCalOutboxCalls).toEqual([
+      { arg: OWNER_USER, scopedUserId: OWNER_USER },
+    ]);
+
+    // The garmin drain runs once, for the owner only, scoped to the owner —
+    // never fanned out to the non-owner even though the route loops over
+    // every user elsewhere.
+    expect(processGarminOutboxCalls).toEqual([
+      { arg: OWNER_USER, scopedUserId: OWNER_USER },
+    ]);
 
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -268,6 +295,34 @@ describe("GET /api/cron/gcal", () => {
     // currentUserId() called OUTSIDE withUser's callback must throw, never
     // quietly resolve to a stale or missing id.
     expect(() => currentUserId()).toThrow(/outside a request context/);
+  });
+
+  it("drains the other user's outbox even when one user's drain throws, and still reports a non-2xx", async () => {
+    const { processGCalOutbox } = await import("@/lib/sync/sync-manager");
+    vi.mocked(processGCalOutbox).mockImplementationOnce(
+      // The mock module's declared type expects a UserId; the test only
+      // needs plain string scope-tracking, so this narrows back at the call
+      // boundary rather than fighting the branded type across the mock.
+      (async (userId: string) =>
+        withUser(userId, async () => {
+          processGCalOutboxCalls.push({ arg: userId, scopedUserId });
+          throw new Error("google calendar API unreachable");
+        })) as typeof processGCalOutbox
+    );
+
+    const res = await GET(fakeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
+    const body = await res.json();
+
+    // Both users still ran the connection check (isConnected), and — because
+    // only the owner is "connected" in this fixture — only the owner's drain
+    // was attempted and threw. Nothing about the failure should have stopped
+    // the rest of the route (garmin, strength prune, reminders, ...) from
+    // running for both users.
+    expect(scopeLog.isConnected.sort()).toEqual([...USER_IDS].sort());
+    expect(scopeLog.pruneStaleAdhocSessions.sort()).toEqual([...USER_IDS].sort());
+
+    expect(res.status).toBe(500);
+    expect(body.ok).toBe(false);
   });
 
   it("returns a non-2xx status when a per-user job fails, so the GitHub workflow and Cloudflare Worker both see it", async () => {

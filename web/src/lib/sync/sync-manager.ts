@@ -1,6 +1,7 @@
 import { db, syncOutbox, workouts, strengthSessions } from "@/db";
 import { eq, and, or, lt, isNull, sql } from "drizzle-orm";
 import { asUserId } from "@/lib/user-id";
+import { withUser, type UserId } from "@/db/with-user";
 import { STALE_CLAIM_MS, isMootFailure } from "./outbox-claims";
 import {
   createEvent,
@@ -54,8 +55,8 @@ export async function queueWorkoutSync(
       },
     });
 
-  // Fire-and-forget flush
-  processGCalOutbox().catch(console.error);
+  // Fire-and-forget flush, scoped to this job's own owner (see processGCalOutbox).
+  processGCalOutbox(asUserId(userId)).catch(console.error);
 }
 
 /**
@@ -96,7 +97,7 @@ export async function queueWorkoutEventDeletes(
         claimedAt: null,
       },
     });
-  processGCalOutbox().catch(console.error);
+  processGCalOutbox(asUserId(userId)).catch(console.error);
 }
 
 export async function queuePlanWorkoutsSync(
@@ -145,7 +146,7 @@ export async function queuePlanWorkoutsSync(
     });
 
   // Fire-and-forget flush
-  processGCalOutbox().catch(console.error);
+  processGCalOutbox(asUserId(userId)).catch(console.error);
 }
 
 export async function queueStrengthSessionSync(
@@ -184,7 +185,7 @@ export async function queueStrengthSessionSync(
       },
     });
 
-  processGCalOutbox().catch(console.error);
+  processGCalOutbox(asUserId(userId)).catch(console.error);
 }
 
 // ── Fetch workout with blocks for event creation ──────────────────────────────
@@ -233,10 +234,16 @@ export interface SyncResult {
 }
 
 /**
- * Atomically claim up to `limit` pending jobs for a target, ordering deletes
- * ahead of everything else. A stale entry left on the watch/calendar by a
- * replaced plan is far more confusing than a new one arriving a few seconds
- * late, so clearing it wins the race for outbox slots.
+ * Atomically claim up to `limit` pending jobs for a target BELONGING TO ONE
+ * USER, ordering deletes ahead of everything else. A stale entry left on the
+ * watch/calendar by a replaced plan is far more confusing than a new one
+ * arriving a few seconds late, so clearing it wins the race for outbox slots.
+ *
+ * `userId` is an explicit filter, not just a courtesy — this must be called
+ * from inside that same user's `withUser` scope (see processGCalOutbox /
+ * processGarminOutbox below) so row level security also restricts the claim
+ * to their rows. The filter here is the query-plan optimisation RLS's own
+ * doc comment asks for; RLS is what makes it impossible to get wrong.
  *
  * The claim is a single UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP
  * LOCKED) so two drains running at once (the daily cron, the 15-minute
@@ -250,6 +257,7 @@ export interface SyncResult {
  */
 export async function claimJobs(
   target: "gcal" | "garmin",
+  userId: UserId,
   limit = 50
 ): Promise<Array<typeof syncOutbox.$inferSelect>> {
   const rows = await db.execute<typeof syncOutbox.$inferSelect>(sql`
@@ -257,7 +265,7 @@ export async function claimJobs(
     SET status = 'processing', attempts = attempts + 1, claimed_at = now()
     WHERE id IN (
       SELECT id FROM sync_outbox
-      WHERE target = ${target} AND status = 'pending'
+      WHERE target = ${target} AND status = 'pending' AND user_id = ${userId}
       ORDER BY (action = 'delete') DESC, created_at ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
@@ -281,16 +289,33 @@ export async function claimJobs(
   return Array.from(rows as unknown as Array<typeof syncOutbox.$inferSelect>);
 }
 
-// A single drain now serves every connected user, not one owner: each job
-// carries its own `userId` (see claimJobs' SELECT and queueWorkoutSync /
-// queueStrengthSessionSync / queuePlanWorkoutsSync / queueWorkoutEventDeletes
-// above, which all require the caller to say whose job this is), and
-// processJob/processStrengthJob read that field to build the right person's
-// calendar client. There is no per-request userId to thread here the way
-// there is in an API route: the drain processes a batch spanning however
-// many people have jobs pending, so the job row itself is the only source of
-// truth for "which person's calendar does this belong to".
-export async function processGCalOutbox(): Promise<SyncResult> {
+// One transaction can carry exactly one app.user_id (db/with-user.ts), and an
+// outbox drain is genuinely cross-user by design — a claim has to span
+// whoever has jobs pending, not one caller's rows. Those two facts don't fit
+// together in a single query, so the drain is reshaped to match the caller's
+// own userId, one person at a time: claim only that user's pending rows
+// (claimJobs' explicit user_id filter, backed by row level security), process
+// them, then let the caller loop this over every user via forEachUser — the
+// same shape every other cron route already uses (see cron/gcal). See
+// PER_USER_CLAIM_LIMIT below for how a single user's backlog is kept from
+// starving everyone drained in the same pass.
+export async function processGCalOutbox(userId: UserId): Promise<SyncResult> {
+  return withUser(userId, () => drainGCalOutboxForUser(userId));
+}
+
+// Bounds how much of one drain call a single user's backlog can consume.
+// forEachUser visits every user on every pass regardless of any one person's
+// queue depth, so — unlike the old shared, table-wide LIMIT 50 that a single
+// prolific user's rows could exhaust before anyone else got a slot — this cap
+// only ever limits that ONE user's own claim. Fairness therefore falls out of
+// the per-user loop by construction, not from tuning this number. It exists
+// only to bound how long any one user's transaction stays open (see the "what
+// this costs" note in db/with-user.ts): a backlog deeper than this drains over
+// the next pass instead — drainOutboxNow fires after every plan change plus
+// the 15-minute safety-net cron, so it never waits long.
+const PER_USER_CLAIM_LIMIT = 50;
+
+async function drainGCalOutboxForUser(userId: UserId): Promise<SyncResult> {
   const result: SyncResult = {
     processed: 0,
     succeeded: 0,
@@ -298,9 +323,9 @@ export async function processGCalOutbox(): Promise<SyncResult> {
     errors: [],
   };
 
-  await resetStaleClaims("gcal");
+  await resetStaleClaims("gcal", userId);
 
-  const jobs = await claimJobs("gcal");
+  const jobs = await claimJobs("gcal", userId, PER_USER_CLAIM_LIMIT);
 
   for (const job of jobs) {
     result.processed++;
@@ -477,8 +502,14 @@ async function processJob(
  * invocation leaves a row in "processing" forever, and because its
  * idempotency key still exists it also swallows every later enqueue for
  * that entity.
+ *
+ * Scoped to one user for the same reason claimJobs is — must run inside that
+ * user's `withUser` scope, filtered explicitly here to match.
  */
-export async function resetStaleClaims(target: "gcal" | "garmin"): Promise<number> {
+export async function resetStaleClaims(
+  target: "gcal" | "garmin",
+  userId: UserId
+): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_CLAIM_MS);
   const rows = await db
     .update(syncOutbox)
@@ -487,6 +518,7 @@ export async function resetStaleClaims(target: "gcal" | "garmin"): Promise<numbe
       and(
         eq(syncOutbox.target, target),
         eq(syncOutbox.status, "processing"),
+        eq(syncOutbox.userId, userId),
         or(isNull(syncOutbox.claimedAt), lt(syncOutbox.claimedAt, cutoff))
       )
     )
