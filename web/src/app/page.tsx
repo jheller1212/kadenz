@@ -20,6 +20,7 @@ import {
   MapPin,
   Trophy,
   Flag,
+  X,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -39,6 +40,7 @@ import { requestLocationPermission, declineLocationPrimer } from "@/lib/permissi
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 import { useScrollRestoration } from "@/lib/useScrollRestoration";
 import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
+import { shouldPromptSetup } from "@/lib/device-setup";
 import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { PermissionPrimer } from "@/components/PermissionPrimer";
@@ -401,6 +403,10 @@ const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const workoutDotColor: Record<string, string> = Object.fromEntries(
   Object.entries(WORKOUT_COLORS).map(([k, v]) => [k, v.solid])
 );
+// Lift isn't in WORKOUT_COLORS (that palette is run types only), so it needs
+// its own entry — the CSS var, not a hex, because it's the one type token
+// that differs per theme.
+workoutDotColor.strength = "var(--k-type-lift)";
 
 const workoutBarColor = workoutDotColor;
 
@@ -642,6 +648,7 @@ const typeLabel: Record<string, string> = {
   interval: "Intervals",
   long: "Long Run",
   race: "Race",
+  strength: "Strength",
 };
 
 function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWorkout; planId?: string; onStatusChange?: (id: string, status: string) => void }) {
@@ -738,7 +745,13 @@ function WorkoutCard({ workout, planId, onStatusChange }: { workout: TodayApiWor
     >
       <div className="flex">
         {/* Colored left spine */}
-        <div className="w-[5px] shrink-0" style={{ backgroundImage: workoutColor(workout.type).grad, backgroundColor: barColor }} />
+        <div
+          className="w-[5px] shrink-0"
+          style={{
+            backgroundImage: workout.type === "strength" ? "var(--k-type-strength-grad)" : workoutColor(workout.type).grad,
+            backgroundColor: barColor,
+          }}
+        />
 
         <div className="min-w-0 flex-1 p-4">
           {/* Type label + title */}
@@ -1439,6 +1452,37 @@ export default function Home() {
       })
       .catch(() => {});
   }, []);
+  // Device/app connections prompt — the /create wizard's "connections" step
+  // (#121) only runs when an athlete builds a running plan. Someone who
+  // trains from Kraft alone never sees it, so this reads the same flag via
+  // the same shared helper (lib/device-setup.ts) rather than a second check,
+  // and offers the same answer here. Null until the fetch resolves, so it
+  // never flashes before we actually know.
+  const [showConnectionsPrompt, setShowConnectionsPrompt] = useState<boolean | null>(null);
+  useEffect(() => {
+    apiFetch("/api/user/device-setup")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setShowConnectionsPrompt(d ? shouldPromptSetup(d) : false))
+      .catch(() => {});
+  }, []);
+  async function dismissConnectionsPrompt(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Same PUT the wizard's "I'll record by hand" skip makes — an empty
+    // connections array still writes device_setup_at, which is the actual
+    // answer (see saveDeviceSetup). That's what stops this from returning.
+    setShowConnectionsPrompt(false);
+    try {
+      await apiFetch("/api/user/device-setup", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connections: [] }),
+      });
+    } catch {
+      // Best-effort: worst case the prompt reappears next load and they
+      // dismiss it again, not a stuck or broken state.
+    }
+  }
   // Strength for the visible week. Fetched on mount from the local week —
   // NOT gated on the run data — so strength cards render as fast as runs
   // instead of waiting for /api/today to resolve first. Deduped by week key
@@ -1881,6 +1925,33 @@ export default function Home() {
 
         {/* Missed-session adjustment tray */}
         <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />
+
+        {/* Device/app connections prompt — one line, not a modal or gate: an
+            athlete who wants to train now still can. Only on today's view;
+            it's a one-time global nudge, not something tied to a browsed day. */}
+        {viewingToday && showConnectionsPrompt && (
+          <div className="px-5">
+            <div className="flex items-center gap-1 rounded-[var(--radius-input)] bg-accent/10 pl-3.5 pr-2">
+              {/* A <button> can't nest inside the link, so the dismiss X is a
+                  sibling, not part of the TransitionLink's own row. */}
+              <TransitionLink
+                href="/settings/apps"
+                className="press flex flex-1 items-center justify-between gap-2 py-2.5 text-[13px] font-semibold text-accent-fg"
+              >
+                <span>Connect Strava, Garmin or your calendar so runs import automatically</span>
+                <ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} />
+              </TransitionLink>
+              <button
+                type="button"
+                aria-label="Dismiss, I'll record by hand"
+                onClick={dismissConnectionsPrompt}
+                className="press flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-accent-fg"
+              >
+                <X className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Section header + weather */}
         <div className="flex items-center justify-between px-5">

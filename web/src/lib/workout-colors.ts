@@ -43,7 +43,9 @@ const INK_VARS: Record<string, string> = {
   interval: "var(--vi-interval)",
   race: "var(--vi-interval)",
   long: "var(--vi-long)",
-  strength: "var(--vi-lift)",
+  // Lift already differs per theme (see --k-type-lift), so its badge text
+  // reads straight off the same var the graphics use, not a separate --vi-*.
+  strength: "var(--k-type-lift)",
 };
 
 export function workoutInk(type: string): string {
