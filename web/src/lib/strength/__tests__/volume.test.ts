@@ -70,4 +70,21 @@ describe("sessionVolume", () => {
     const v = sessionVolume([{ exerciseSlug: "overhead_press", weightKg: 10, reps: 10, kind: null }]);
     expect(v.kg).toBe(200);
   });
+
+  // toggleSetKind (GuidedSession.tsx) only ever flips this field — same
+  // shape either way, nothing else about the set changes. Confirms the flip
+  // is symmetric: marking a set as a warm-up excludes it, and unmarking it
+  // (flipping "warmup" back to "working") restores it to volume in full.
+  it("unmarking a warm-up set restores it to volume", () => {
+    const markedWarmup = sessionVolume([
+      { exerciseSlug: "overhead_press", weightKg: 10, reps: 10, kind: "warmup" },
+      { exerciseSlug: "overhead_press", weightKg: 10, reps: 10, kind: "working" },
+    ]);
+    const unmarked = sessionVolume([
+      { exerciseSlug: "overhead_press", weightKg: 10, reps: 10, kind: "working" },
+      { exerciseSlug: "overhead_press", weightKg: 10, reps: 10, kind: "working" },
+    ]);
+    expect(markedWarmup.kg).toBe(200); // one set counted
+    expect(unmarked.kg).toBe(400); // both sets counted once unmarked
+  });
 });

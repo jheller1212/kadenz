@@ -81,6 +81,11 @@ interface SessionDetail {
   targetDurationMinutes: number | null;
   plannedExercises: PlannedExercise[];
   exerciseOverrides?: ExerciseOverride[];
+  // This session's own "this session only" equipment choice, if the athlete
+  // set one from the pre-start sheet — see SessionStartOptions below. Wins
+  // over the profile's usual equipment when offering Exchange alternatives,
+  // same as it already wins when the plan itself is built (service.ts).
+  equipmentOverride?: Equipment[] | null;
 }
 
 // Session-level "this session only" overrides picked in the pre-start sheet
@@ -390,6 +395,22 @@ export default function StrengthPage() {
   // so abandoned picker taps don't linger as phantom "missed" sessions.
   const adHocIdRef = useRef<string | null>(null);
 
+  // Exchange made from the pre-start sheet, persisted the same way the
+  // guided session's exchange is (session row's exerciseOverrides — see
+  // lib/strength/session.ts applyExerciseOverrides), so a reload or a second
+  // device rebuilds the plan with this swap already applied instead of
+  // reverting to the template on the very next read. Seeded from whatever
+  // the session already carries whenever a session is (re)loaded into the
+  // overview, and appended to (never replaced) on each exchange here.
+  const overridesRef = useRef<ExerciseOverride[]>([]);
+  useEffect(() => {
+    overridesRef.current = session?.exerciseOverrides ?? [];
+    // Re-seed only on a session change, not on every override — the ref is
+    // meant to survive this effect re-running (exchangeExercise appends to
+    // it independently of session.exerciseOverrides).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
+
   // Backing out of an ad-hoc session deletes it without awaiting the response
   // (Back must feel instant), which leaves a window where the session still exists server-side.
   // Starting a session again inside that window used to re-adopt the very
@@ -563,6 +584,7 @@ export default function StrengthPage() {
           targetDurationMinutes: s.targetDurationMinutes,
           plannedExercises: created,
           exerciseOverrides: s.exerciseOverrides ?? [],
+          equipmentOverride: s.equipmentOverride ?? null,
         };
         adHocIdRef.current = s.id as string;
         setSession(detail);
@@ -796,9 +818,15 @@ export default function StrengthPage() {
   }
 
   // Exchange: keep the slot's sets/reps/rest (same training stimulus), swap
-  // the exercise identity and its load prefill. Not yet started, so this is
-  // as ephemeral as add/remove/reorder here — nothing is sent to the server
-  // until Start (see handleStart), same as the rest of this overview.
+  // the exercise identity and its load prefill. Not yet started, so the
+  // exercise LIST edit is local-only here, same as add/remove — but the
+  // override itself is recorded on overridesRef so persistExerciseOrder can
+  // send it to the server at Start (same durability point as the order),
+  // instead of silently dropping it the way this used to. Session-detail
+  // page.tsx and the guided session both re-derive the plan from the same
+  // stored exerciseOverrides column (lib/strength/session.ts
+  // applyExerciseOverrides), so a swap made here is indistinguishable from
+  // one made mid-session once it lands.
   function exchangeExercise(originalSlug: string, replacementSlug: string) {
     haptic("light");
     const cat = EXERCISES.find((e) => e.slug === replacementSlug);
@@ -824,6 +852,10 @@ export default function StrengthPage() {
         };
       })
     );
+    overridesRef.current = [
+      ...overridesRef.current,
+      { slug: originalSlug, action: "swapped", replacementSlug: cat.slug },
+    ];
     setActionsSlug(null);
   }
 
@@ -862,15 +894,18 @@ export default function StrengthPage() {
   // Store the order the athlete is about to work through, so a resume, a
   // reload or a second device rebuilds the plan in THIS order instead of the
   // template's (the plan itself is re-derived on every read, see
-  // lib/strength/session.ts). Adds and exchanges made in this sheet stay
-  // ephemeral, as they were before: a slug the rebuilt plan does not contain
-  // is ignored on read, and a plan exercise not in the stored order keeps its
-  // place rather than disappearing.
+  // lib/strength/session.ts). Sent alongside exerciseOverrides in the same
+  // PATCH — an exchange made in this sheet (exchangeExercise) is recorded on
+  // overridesRef but, same as the order itself, only reaches the server here
+  // at Start, not on every tap. A plain add stays purely local/ephemeral: a
+  // slug the rebuilt plan does not contain is ignored on read, and a plan
+  // exercise not in the stored order keeps its place rather than
+  // disappearing.
   //
   // Deliberately not awaited. Starting the workout must not wait on the
   // network, and must not fail because of it: if this call never lands, the
-  // session runs in the chosen order today exactly as it did before this was
-  // stored at all.
+  // session runs in the chosen order/exchanges today exactly as it did
+  // before this was stored at all.
   function persistExerciseOrder() {
     const sessionId = session?.id;
     if (!sessionId) return;
@@ -878,7 +913,7 @@ export default function StrengthPage() {
     apiFetch(`/api/strength/sessions/${sessionId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ exerciseOrder: order }),
+      body: JSON.stringify({ exerciseOrder: order, exerciseOverrides: overridesRef.current }),
     }).catch(() => {});
   }
 
@@ -1864,7 +1899,12 @@ export default function StrengthPage() {
           onClose={() => setActionsSlug(null)}
           exercise={actionsSlug ? exercises.find((e) => e.slug === actionsSlug) ?? null : null}
           otherSlugsInSession={exercises.filter((e) => e.slug !== actionsSlug).map((e) => e.slug)}
-          equipment={equipment}
+          // This session's own equipment choice (pre-start sheet, "gym today")
+          // wins over the profile's usual equipment for alternatives, exactly
+          // like it already wins when the plan itself gets built — otherwise
+          // Exchange would offer machines the athlete just said aren't
+          // available today.
+          equipment={session?.equipmentOverride ?? equipment}
           hasLoggedSets={false}
           onExchange={(replacementSlug) => actionsSlug && exchangeExercise(actionsSlug, replacementSlug)}
         />
