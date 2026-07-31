@@ -163,6 +163,24 @@ export async function resolveUserForEmailLogin(
     return asUserId(existingEmailIdentity.userId);
   }
 
+  // Residual risk, checked and accepted rather than overlooked: this matches
+  // against user_identities.email, which is NOT captured once and left to
+  // rot. resolveUserForLogin (above) refreshes it on every login of an
+  // existing identity -- `.set({ lastLoginAt: new Date(), ...(email ? {
+  // email } : {}) })` at line 51 -- and the Google callback
+  // (app/api/auth/google/callback/route.ts) passes the id_token's freshly
+  // verified email on every sign-in, not just the first. So a stored row is
+  // never more stale than "since this athlete's last Google sign-in to
+  // Kadenz", not "since account creation".
+  //
+  // That still leaves a real window: if the athlete's Google account changes
+  // email and they never sign in to Kadenz via Google again afterward, the
+  // old address sits here indefinitely, and whoever later acquires that
+  // released address (real risk on university/custom domains) could request
+  // a magic link and attach to this account. Narrower than an unrefreshed
+  // capture-once field, not zero. Closing it fully would mean re-verifying
+  // the email against Google live at match time, which the stored token here
+  // cannot do -- accepted as a follow-up, not solved by this change.
   const otherIdentitiesForEmail = await db
     .selectDistinct({ userId: userIdentities.userId })
     .from(userIdentities)
