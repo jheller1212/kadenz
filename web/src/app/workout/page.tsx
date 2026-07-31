@@ -17,6 +17,7 @@ import { haptic } from "@/lib/haptics";
 import { useSwipeBack } from "@/lib/useSwipeBack";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel, displaySpeed, speedUnitLabel, actualPaceSecKm } from "@/lib/units";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
+import { isMaterialEdit } from "@/lib/plan-engine/edit-impact";
 import { GuidedRun, type GuidedRunFinish } from "@/components/GuidedRun";
 import { AnimatePresence } from "motion/react";
 import { WorkoutCelebration } from "@/components/WorkoutCelebration";
@@ -279,6 +280,16 @@ function EditWorkoutSheet({
   const minOffset = minPaceField != null ? Math.max(-60, 120 - minPaceField) : -60;
   const kmChanged = km != null && workout.targetKm != null && km !== workout.targetKm;
   const dirty = (canEditDistance && kmChanged) || paceOffset !== 0;
+  // A key session (long/tempo/interval/race) is what the current training
+  // block is built around — a big enough change to one silently changes what
+  // the block is training, not just what one day looks like. Say so instead
+  // of absorbing it quietly (see edit-impact.ts).
+  const materialChange = isMaterialEdit({
+    type: workout.type,
+    originalTargetKm: workout.targetKm ?? null,
+    newTargetKm: canEditDistance ? km : (workout.targetKm ?? null),
+    paceOffsetSecKm: paceOffset,
+  });
 
   async function save() {
     if (!dirty || saving) return;
@@ -401,6 +412,13 @@ function EditWorkoutSheet({
               + is easier (slower), − is harder. Applies to every pace in this session.
             </p>
           </div>
+        )}
+
+        {dirty && materialChange && (
+          <p className="rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2.5 text-[13px] font-medium text-warn">
+            This is a big change to a key session. It changes what this block
+            is training, not just today&apos;s numbers.
+          </p>
         )}
 
         {err && (
