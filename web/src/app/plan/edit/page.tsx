@@ -515,7 +515,18 @@ function EditPlanInner() {
 
 export default function EditPlanPage() {
   return (
-    <Suspense fallback={<div className="min-h-dvh bg-bg" />}>
+    <Suspense
+      fallback={
+        <main className="min-h-dvh bg-bg">
+          <NavBar title="Edit plan" large />
+          <div className="flex flex-col gap-3 px-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        </main>
+      }
+    >
       <EditPlanInner />
     </Suspense>
   );

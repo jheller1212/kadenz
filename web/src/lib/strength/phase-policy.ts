@@ -47,6 +47,48 @@ export const RACE_WEEK_SET_DELTA = -3;
 /** Sets never drop below this when a phase backoff is applied — see the note above. */
 export const PHASE_MIN_SETS = 1;
 
+/** Same note vocabulary as PHASE_SET_POLICY, for the two week `type`s that
+ *  override phase (deload/race) rather than reading it — see setsDeltaFor. */
+const TYPE_NOTE: Record<"deload" | "race", string> = {
+  deload: "Whatever phase it falls in, a deload week deloads strength too.",
+  race: "Minimal, if a session exists at all — race week is about the race.",
+};
+
+const PHASE_LABEL: Record<RunPhase, string> = {
+  base: "Base",
+  build: "Build",
+  peak: "Peak",
+  taper: "Taper",
+};
+
+export interface PhaseSummary {
+  /** What the running plan's week.phase actually is, regardless of type override. */
+  phase: RunPhase | null;
+  /** Human label for that phase — "Base", "Build", "Peak", "Taper". */
+  phaseLabel: string;
+  /** One line: what this phase means for today's strength session, in the
+   *  same reason vocabulary as PHASE_SET_POLICY (and TYPE_NOTE for the
+   *  deload/race overrides — see setsDeltaFor for why type wins over phase). */
+  note: string;
+}
+
+/**
+ * One-line summary of the running phase strength is following, for surfacing
+ * on the Kraft hub / session overview — same inputs and same type-wins-over-
+ * phase precedence as setsDeltaFor, just returning the reason text instead of
+ * the numeric delta. Null with no active running plan (standalone block has
+ * no phase to report).
+ */
+export function phaseSummaryFor(weekInfo: WeekInfo | null | undefined): PhaseSummary | null {
+  if (!weekInfo) return null;
+  const phase = (PHASE_SET_POLICY[weekInfo.phase as RunPhase] ? weekInfo.phase : null) as RunPhase | null;
+  const phaseLabel = phase ? PHASE_LABEL[phase] : weekInfo.phase;
+  if (weekInfo.type === "race") return { phase, phaseLabel, note: TYPE_NOTE.race };
+  if (weekInfo.type === "deload") return { phase, phaseLabel, note: TYPE_NOTE.deload };
+  const policy = phase ? PHASE_SET_POLICY[phase] : null;
+  return { phase, phaseLabel, note: policy ? policy.note : "Normal load." };
+}
+
 /** Minimal week-info shape this module needs — matches `weeks.phase` / `weeks.type`. */
 export interface WeekInfo {
   phase: string;

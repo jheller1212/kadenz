@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setsDeltaFor } from "../phase-policy";
+import { setsDeltaFor, phaseSummaryFor } from "../phase-policy";
 
 describe("setsDeltaFor", () => {
   it("no active running plan leaves sets untouched (standalone block)", () => {
@@ -28,5 +28,36 @@ describe("setsDeltaFor", () => {
     const race = setsDeltaFor({ phase: "taper", type: "race" });
     const taper = setsDeltaFor({ phase: "taper", type: "normal" });
     expect(race).toBeLessThan(taper);
+  });
+});
+
+describe("phaseSummaryFor", () => {
+  it("no active running plan reports nothing (standalone block)", () => {
+    expect(phaseSummaryFor(null)).toBeNull();
+    expect(phaseSummaryFor(undefined)).toBeNull();
+  });
+
+  it("reports the phase the engine actually used, not the type override", () => {
+    const summary = phaseSummaryFor({ phase: "peak", type: "deload" });
+    expect(summary?.phase).toBe("peak");
+    expect(summary?.phaseLabel).toBe("Peak");
+  });
+
+  it("a deload week's note explains the override regardless of phase", () => {
+    const build = phaseSummaryFor({ phase: "build", type: "deload" });
+    const peak = phaseSummaryFor({ phase: "peak", type: "deload" });
+    expect(build?.note).toBe(peak?.note);
+    expect(build?.note).toMatch(/deload/i);
+  });
+
+  it("race week's note is distinct from a normal taper week's", () => {
+    const race = phaseSummaryFor({ phase: "taper", type: "race" });
+    const taper = phaseSummaryFor({ phase: "taper", type: "normal" });
+    expect(race?.note).not.toBe(taper?.note);
+  });
+
+  it("normal weeks use the phase's own note from PHASE_SET_POLICY", () => {
+    const build = phaseSummaryFor({ phase: "build", type: "normal" });
+    expect(build?.note).toBe("Normal load — this is the phase that does the work.");
   });
 });
