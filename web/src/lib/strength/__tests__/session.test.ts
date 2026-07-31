@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyExerciseOrder,
+  applyExerciseOverrides,
   buildSessionPlan,
   validateAchillesOrdering,
+  type ExerciseOverride,
   type PlannedExercise,
 } from "../session";
 import { SESSION_TEMPLATES } from "../program";
@@ -300,6 +302,73 @@ describe("applyExerciseOrder", () => {
   it("does not mutate the plan it was given", () => {
     applyExerciseOrder(plan, ["c", "b", "a"]);
     expect(slugs(plan)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("applyExerciseOverrides", () => {
+  const ctx = { historyBySlug: {}, lifterProfile: null };
+
+  it("swaps in the replacement exercise at the original slot, keeping sets/reps/rest", () => {
+    const plan = buildSessionPlan("lower");
+    const original = plan.find((p) => p.slug === "db_squat")!;
+    const overrides: ExerciseOverride[] = [
+      { slug: "db_squat", action: "swapped", replacementSlug: "romanian_deadlift" },
+    ];
+    const result = applyExerciseOverrides(plan, overrides, ctx);
+    const idx = plan.findIndex((p) => p.slug === "db_squat");
+    expect(result[idx].slug).toBe("romanian_deadlift");
+    expect(result[idx].sets).toBe(original.sets);
+    expect(result[idx].repLow).toBe(original.repLow);
+    expect(result[idx].repHigh).toBe(original.repHigh);
+    expect(result[idx].restSeconds).toBe(original.restSeconds);
+  });
+
+  // A swap made from the pre-start sheet (page.tsx exchangeExercise) is
+  // persisted the same way as one made mid-session (GuidedSession
+  // patchOverride): appended to the session's exerciseOverrides column and
+  // re-applied here on every GET. This mirrors exactly that read path — the
+  // plan rebuilt from scratch twice, from a stored override, both times.
+  it("a swap made before starting survives a rebuild of the plan", () => {
+    const overrides: ExerciseOverride[] = [
+      { slug: "db_squat", action: "swapped", replacementSlug: "single_leg_calf_raise" },
+    ];
+    const rebuiltOnce = applyExerciseOverrides(buildSessionPlan("lower"), overrides, ctx);
+    const rebuiltAgain = applyExerciseOverrides(buildSessionPlan("lower"), overrides, ctx);
+    expect(rebuiltOnce.some((p) => p.slug === "single_leg_calf_raise")).toBe(true);
+    expect(rebuiltAgain.some((p) => p.slug === "single_leg_calf_raise")).toBe(true);
+    expect(rebuiltOnce.some((p) => p.slug === "db_squat")).toBe(false);
+  });
+
+  it("chains a second exchange onto the slot the first exchange already produced", () => {
+    // wall_sit (not a "lower" template slot on its own) stands in as the
+    // intermediate so the second override's `slug` unambiguously targets
+    // the slot the first override just produced, not a same-named slot the
+    // template already had elsewhere (e.g. romanian_deadlift is its own
+    // slot in "lower" — swapping onto it would collide with that).
+    const overrides: ExerciseOverride[] = [
+      { slug: "db_squat", action: "swapped", replacementSlug: "wall_sit" },
+      { slug: "wall_sit", action: "swapped", replacementSlug: "single_leg_calf_raise" },
+    ];
+    const result = applyExerciseOverrides(buildSessionPlan("lower"), overrides, ctx);
+    expect(result.some((p) => p.slug === "single_leg_calf_raise")).toBe(true);
+    expect(result.some((p) => p.slug === "wall_sit")).toBe(false);
+    expect(result.some((p) => p.slug === "db_squat")).toBe(false);
+  });
+
+  it("never swaps in Achilles-role work — that's rehab, not filler", () => {
+    const overrides: ExerciseOverride[] = [
+      { slug: "db_squat", action: "swapped", replacementSlug: "explosive_box_step_up" },
+    ];
+    const result = applyExerciseOverrides(buildSessionPlan("lower"), overrides, ctx);
+    // The Achilles-role replacement is rejected, so the slot is untouched.
+    expect(result.some((p) => p.slug === "db_squat")).toBe(true);
+    expect(result.some((p) => p.slug === "explosive_box_step_up")).toBe(false);
+  });
+
+  it("drops a removed exercise instead of swapping it", () => {
+    const overrides: ExerciseOverride[] = [{ slug: "db_squat", action: "removed" }];
+    const result = applyExerciseOverrides(buildSessionPlan("lower"), overrides, ctx);
+    expect(result.some((p) => p.slug === "db_squat")).toBe(false);
   });
 });
 
