@@ -1,15 +1,21 @@
 import { NextRequest } from "next/server";
-import { db } from "@/db";
+import { db, workouts } from "@/db";
+import { withSession } from "@/lib/api/with-session";
+import { requireOwned } from "@/lib/api/owned";
 
 // ── GET /api/workouts/[workoutId] ─────────────────────────────────────────────
 // Returns a single workout with its blocks — used by the workout detail screen
 // so deep links work for any week, not just the current one.
 
-export async function GET(
+export const GET = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ workoutId: string }> }
-) {
+) => {
   const { workoutId } = await params;
+
+  // Was previously unscoped: any signed-in caller could read any workout's
+  // detail (including a completed run's actual pace) by guessing its id.
+  await requireOwned(workouts, workoutId);
 
   try {
     const workout = await db.query.workouts.findFirst({
@@ -29,4 +35,4 @@ export async function GET(
     console.error("DB error fetching workout:", err);
     return Response.json({ error: "Failed to fetch workout" }, { status: 500 });
   }
-}
+});

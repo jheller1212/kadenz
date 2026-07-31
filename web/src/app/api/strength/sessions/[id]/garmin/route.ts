@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, strengthSessions, plans } from "@/db";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { garminLabel, garminDescription, planWeekNumber } from "@/lib/sync/garmin-label";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 // ── POST /api/strength/sessions/[id]/garmin ───────────────────────────────────
 // Push THIS session to the watch with the exact exercises the athlete just set
@@ -23,11 +25,16 @@ const BodySchema = z.object({
   exercises: z.array(ExerciseSchema).min(1).max(30),
 });
 
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
+
+  // requireOwned before touching Garmin at all: without this, any signed-in
+  // caller who knew or guessed another athlete's session id could push that
+  // session's exercises to (whoever's watch this deployment is wired to).
+  const session = await requireOwned(strengthSessions, id);
 
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin isn't connected." }, { status: 400 });
@@ -41,22 +48,6 @@ export async function POST(
       { error: "Invalid request", details: err instanceof z.ZodError ? err.issues : undefined },
       { status: 400 }
     );
-  }
-
-  const [session] = await db
-    .select({
-      id: strengthSessions.id,
-      title: strengthSessions.title,
-      date: strengthSessions.date,
-      targetDurationMinutes: strengthSessions.targetDurationMinutes,
-      garminWorkoutId: strengthSessions.garminWorkoutId,
-      profileId: strengthSessions.profileId,
-    })
-    .from(strengthSessions)
-    .where(eq(strengthSessions.id, id));
-
-  if (!session) {
-    return Response.json({ error: "Session not found" }, { status: 404 });
   }
 
   // A household guest's session must never reach the owner's watch — every
@@ -77,7 +68,10 @@ export async function POST(
       planLengthWeeks: plans.planLengthWeeks,
     })
     .from(plans)
-    .where(eq(plans.status, "active"))
+    // The caller's active plan. Only used for the week number in the label, so
+    // an unscoped read would have put another athlete's plan start date into
+    // this athlete's watch workout title.
+    .where(and(ownedBy(plans), eq(plans.status, "active")))
     .limit(1);
 
   const weekNumber = activePlan ? planWeekNumber(session.date, activePlan.startDate) : null;
@@ -117,4 +111,4 @@ export async function POST(
     console.error("[strength garmin push] failed", err);
     return Response.json({ error: "Couldn't send to the watch. Try again." }, { status: 502 });
   }
-}
+});

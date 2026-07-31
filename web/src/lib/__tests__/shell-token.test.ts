@@ -8,9 +8,12 @@ import {
   validateSessionCookie,
 } from "../session";
 import { resolveRequestUserId } from "../request-user";
+import { asUserId, type UserId } from "../user-id";
 
-const USER_A = "11111111-1111-4111-8111-111111111111";
-const USER_B = "22222222-2222-4222-8222-222222222222";
+// Branded once here rather than at each call: a user id is a UserId, and
+// asUserId is the one validating way to make one from a literal.
+const USER_A = asUserId("11111111-1111-4111-8111-111111111111");
+const USER_B = asUserId("22222222-2222-4222-8222-222222222222");
 
 const ONE_DAY_MS = 1000 * 60 * 60 * 24;
 const NOW = 1_700_000_000_000;
@@ -92,8 +95,12 @@ describe("shell bearer token", () => {
   });
 
   it("refuses to mint a token with no user id", async () => {
-    await expect(makeShellToken("")).rejects.toThrow();
-    await expect(makeShellToken("authenticated")).rejects.toThrow();
+    // The casts are the point of the test: these are exactly the values the
+    // branded type stops a caller passing by accident, so the only way to reach
+    // the runtime guard is to defeat the type deliberately. The guard stays
+    // because this mints a credential the app trusts.
+    await expect(makeShellToken("" as UserId)).rejects.toThrow();
+    await expect(makeShellToken("authenticated" as UserId)).rejects.toThrow();
   });
 });
 

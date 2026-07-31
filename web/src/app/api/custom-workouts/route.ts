@@ -1,25 +1,27 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { CustomWorkoutBodySchema } from "@/lib/strength/custom-workout-schema";
 import {
   createCustomWorkout,
   listCustomWorkouts,
 } from "@/lib/strength/custom-workouts";
+import { withSession } from "@/lib/api/with-session";
 
-// Auth is enforced by the proxy middleware; profile comes from the cookie.
+// Auth is enforced by withSession, which also opens this request's row level
+// security context; profile (household member) comes from the cookie.
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request: NextRequest) => {
   try {
-    const templates = await listCustomWorkouts(getActiveProfileId(request));
+    const templates = await listCustomWorkouts(await getVerifiedProfileId(request));
     return Response.json(templates);
   } catch (err) {
     console.error("[custom-workouts] list failed", err);
     return Response.json({ error: "Failed to list workouts" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withSession(async (request: NextRequest) => {
   let data: z.infer<typeof CustomWorkoutBodySchema>;
   try {
     data = CustomWorkoutBodySchema.parse(await request.json());
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
   try {
     const template = await createCustomWorkout(
       data.name,
-      getActiveProfileId(request),
+      await getVerifiedProfileId(request),
       data.slots
     );
     return Response.json(template, { status: 201 });
@@ -44,4 +46,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

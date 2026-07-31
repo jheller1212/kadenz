@@ -2,7 +2,15 @@ import { test, expect } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { E2E_DATABASE_URL } from "../env";
 
-import { db, strengthSessions, strengthSets, strengthExercises } from "../../src/db/index";
+import {
+  db,
+  strengthSessions,
+  strengthSets,
+  strengthExercises,
+  OWNER_USER_ID,
+} from "../../src/db/index";
+import { withUser } from "../../src/db/with-user";
+import { asUserId } from "../../src/lib/user-id";
 
 // db is a lazy singleton (see src/db/index.ts) that only reads this on the
 // first real query, so setting it here — after the import above but before
@@ -26,28 +34,42 @@ test.describe("Unfinished Kraft session prompt", () => {
       .limit(1);
     expect(exercise).toBeTruthy();
 
+    // Seeded inside the owner's context, not on a bare connection. Phase 3
+    // forces row level security on strength_sessions and strength_sets, and the
+    // e2e harness applies those policies (e2e/apply-rls.ts) before any spec
+    // runs, so an insert with no context set matches no policy and is refused.
+    // The session must also name its owner explicitly now that the column
+    // default is gone; without it this is a not-null violation.
     const date = new Date();
-    const [session] = await db
-      .insert(strengthSessions)
-      .values({
-        date,
-        dayOfWeek: date.getDay(),
-        type: "full_body",
-        title: "Unfinished e2e session",
-        status: "planned",
-        watchEligible: false,
-        startedAt: new Date(Date.now() - 10 * 60_000),
-        endedAt: new Date(Date.now() - 5 * 60_000),
-      })
-      .returning({ id: strengthSessions.id });
+    const session = await withUser(asUserId(OWNER_USER_ID), async () => {
+      const [created] = await db
+        .insert(strengthSessions)
+        .values({
+          userId: OWNER_USER_ID,
+          date,
+          dayOfWeek: date.getDay(),
+          type: "full_body",
+          title: "Unfinished e2e session",
+          status: "planned",
+          watchEligible: false,
+          startedAt: new Date(Date.now() - 10 * 60_000),
+          endedAt: new Date(Date.now() - 5 * 60_000),
+        })
+        .returning({ id: strengthSessions.id });
 
-    await db.insert(strengthSets).values({
-      sessionId: session.id,
-      exerciseId: exercise.id,
-      setNumber: 1,
-      weightKg: 20,
-      reps: 10,
-      kind: "working",
+      // strength_sets carries no user_id of its own; its policy reaches through
+      // session_id to the parent's owner, so this only inserts because the
+      // parent above belongs to the same user whose context we are in.
+      await db.insert(strengthSets).values({
+        sessionId: created.id,
+        exerciseId: exercise.id,
+        setNumber: 1,
+        weightKg: 20,
+        reps: 10,
+        kind: "working",
+      });
+
+      return created;
     });
 
     // Matches GuidedSnapshot (see lib/strength/guided-snapshot.ts) — only the

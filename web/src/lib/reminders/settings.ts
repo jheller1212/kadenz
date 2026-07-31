@@ -9,6 +9,7 @@
 
 import { db, reminderSettings } from "@/db";
 import { eq } from "drizzle-orm";
+import { asUserId, type UserId } from "@/lib/user-id";
 
 export interface ReminderConfig {
   enabled: boolean;
@@ -23,7 +24,7 @@ const DEFAULT_CONFIG: ReminderConfig = {
   defaultTimeOfDay: "07:00",
 };
 
-export async function loadReminderConfig(userId: string): Promise<ReminderConfig> {
+export async function loadReminderConfig(userId: UserId): Promise<ReminderConfig> {
   const [row] = await db
     .select()
     .from(reminderSettings)
@@ -37,7 +38,7 @@ export async function loadReminderConfig(userId: string): Promise<ReminderConfig
   };
 }
 
-export async function saveReminderConfig(userId: string, config: ReminderConfig): Promise<void> {
+export async function saveReminderConfig(userId: UserId, config: ReminderConfig): Promise<void> {
   // One upsert rather than select-then-insert-or-update. The two-step version
   // could interleave with a concurrent save (two devices toggling at once) so
   // that both read "no row" and both inserted, leaving one user with two rows
@@ -54,7 +55,7 @@ export async function saveReminderConfig(userId: string, config: ReminderConfig)
 }
 
 export interface UserReminderConfig {
-  userId: string;
+  userId: UserId;
   config: ReminderConfig;
 }
 
@@ -69,7 +70,8 @@ export async function listEnabledReminderConfigs(): Promise<UserReminderConfig[]
     .from(reminderSettings)
     .where(eq(reminderSettings.enabled, true));
   return rows.map((row) => ({
-    userId: row.userId,
+    // A uuid column becomes an identity here, validated rather than cast.
+    userId: asUserId(row.userId),
     config: {
       enabled: row.enabled,
       leadMinutes: row.leadMinutes,

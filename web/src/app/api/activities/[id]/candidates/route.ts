@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { and, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { db, activities, plans, workouts, strengthSessions } from "@/db";
 import { sortSessionsByDateAsc } from "@/lib/training/session";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 // ── GET /api/activities/[id]/candidates ───────────────────────────────────────
 // Planned run workouts and strength sessions near the activity's date that a
@@ -10,20 +12,16 @@ import { sortSessionsByDateAsc } from "@/lib/training/session";
 
 const WINDOW_DAYS = 3;
 
-export async function GET(
+export const GET = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
-  try {
-    const [activity] = await db
-      .select()
-      .from(activities)
-      .where(eq(activities.id, id));
-    if (!activity) {
-      return Response.json({ error: "Activity not found" }, { status: 404 });
-    }
 
+  // Outside the try below so its 404 reaches withSession directly.
+  const activity = await requireOwned(activities, id);
+
+  try {
     const anchor = activity.startDate ?? activity.createdAt;
     const from = new Date(anchor);
     from.setDate(from.getDate() - WINDOW_DAYS);
@@ -46,6 +44,7 @@ export async function GET(
       .innerJoin(plans, eq(workouts.planId, plans.id))
       .where(
         and(
+          ownedBy(workouts),
           eq(plans.status, "active"),
           gte(workouts.date, from),
           lte(workouts.date, to),
@@ -66,6 +65,7 @@ export async function GET(
       .from(strengthSessions)
       .where(
         and(
+          ownedBy(strengthSessions),
           gte(strengthSessions.date, from),
           lte(strengthSessions.date, to),
           ne(strengthSessions.status, "skipped")
@@ -77,7 +77,7 @@ export async function GET(
       const linked = await db
         .select({ sid: activities.strengthSessionId, aid: activities.id })
         .from(activities)
-        .where(inArray(activities.strengthSessionId, sessions.map((s) => s.id)));
+        .where(and(ownedBy(activities), inArray(activities.strengthSessionId, sessions.map((s) => s.id))));
       linkedSessionIds = new Set(
         linked.filter((l) => l.aid !== id && l.sid != null).map((l) => l.sid!)
       );
@@ -98,4 +98,4 @@ export async function GET(
     console.error("DB error fetching link candidates:", err);
     return Response.json({ error: "Failed to fetch candidates" }, { status: 500 });
   }
-}
+});

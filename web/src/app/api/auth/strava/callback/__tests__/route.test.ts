@@ -13,6 +13,13 @@ const resolveUserForLogin = vi.fn();
 vi.mock("@/lib/sync/strava-client", () => ({ exchangeCode, saveTokens }));
 vi.mock("@/lib/users", () => ({ resolveUserForLogin }));
 
+// The route opens a real row level security context around saveTokens
+// (see db/with-user.ts) — this test only cares that saveTokens is called for
+// the resolved user, not that a real Postgres transaction runs, so withUser
+// is stubbed to just invoke its callback.
+const withUser = vi.fn((_userId: string, fn: () => unknown) => fn());
+vi.mock("@/db/with-user", () => ({ withUser }));
+
 const { GET } = await import("../route");
 
 const OWNER_ATHLETE = 123;
@@ -66,6 +73,16 @@ describe("Strava OAuth callback", () => {
     const setCookie = res.headers.get("Set-Cookie") ?? "";
     expect(setCookie).toContain(`session=${OWNER_USER}:`);
     expect(setCookie).not.toContain("authenticated");
+    // saveTokens must run inside the resolved user's row level security
+    // context, not on the ambient/unscoped connection.
+    expect(withUser).toHaveBeenCalledWith(OWNER_USER, expect.any(Function));
+    // Two arguments, and both matter: the user id says WHOSE credentials row
+    // this is (phase 4 gave every user their own), and withUser above is what
+    // lets that row be written at all under row level security.
+    expect(saveTokens).toHaveBeenCalledWith(
+      OWNER_USER,
+      expect.objectContaining({ athlete_id: OWNER_ATHLETE })
+    );
   });
 
   it("treats a second allowlisted athlete as a different user", async () => {

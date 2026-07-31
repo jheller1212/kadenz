@@ -3,6 +3,8 @@ import { exchangeCode, saveTokens } from "@/lib/sync/strava-client";
 import { makeSessionCookie } from "@/lib/session";
 import { isAllowedStravaAthleteId, ownerStravaAthleteId } from "@/lib/owner";
 import { resolveUserForLogin } from "@/lib/users";
+import { withUser } from "@/db/with-user";
+import type { UserId } from "@/lib/user-id";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let userId: string;
+  let userId: UserId;
   try {
     userId = await resolveUserForLogin({
       provider: "strava",
@@ -69,7 +71,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await saveTokens(userId, tokens);
+    // Inside the resolved user's context, not on the ambient connection.
+    // integration_credentials carries user_id, so phase 3's coverage migration
+    // (drizzle/0060) forces row level security on it, and a write with no
+    // context set matches no policy and is refused. Passing userId to
+    // saveTokens says WHOSE row it is; withUser is what lets the row be
+    // written at all.
+    await withUser(userId, () => saveTokens(userId, tokens));
   } catch (err) {
     console.error("Failed to save Strava tokens:", err);
     return NextResponse.redirect(`${base}/?strava=error`);

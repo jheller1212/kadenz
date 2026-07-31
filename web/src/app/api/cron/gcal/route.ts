@@ -17,6 +17,7 @@ import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 import { pruneStaleAdhocSessions, autoCloseAbandonedSessions } from "@/lib/strength/schedule";
 import { listAllUserIds } from "@/lib/users";
+import { asUserId } from "@/lib/user-id";
 
 // Failed jobs get one retry per cron run until this hard cap.
 const RETRY_CAP = 10;
@@ -131,7 +132,12 @@ export async function GET(request: NextRequest) {
           // gets recreated, then the window rolls forward as usual.
           const resync = await resyncGarminWindow(userId);
           repushed += resync.repushed;
-          queued += await queueGarminWindowSync(userId);
+          // Cron has no request session, so the acting user is whichever id
+          // this loop iteration is currently fanning out over, not
+          // currentUserId() (there is no request context here to read it
+          // from). userId came off the users table via listAllUserIds, so it
+          // is validated, not cast.
+          queued += await queueGarminWindowSync(asUserId(userId));
           // Kraft sessions ride the same rolling window as runs.
           strengthQueued += await queueGarminStrengthWindowSync(userId);
         } catch (err) {
@@ -185,7 +191,7 @@ export async function GET(request: NextRequest) {
       const imports: Record<string, unknown> = {};
       for (const userId of userIds) {
         try {
-          imports[userId] = await runGarminImport(userId);
+          imports[userId] = await runGarminImport(asUserId(userId));
         } catch (err) {
           console.error(`Garmin import failed for user ${userId}:`, err);
           imports[userId] = "failed";
@@ -202,7 +208,7 @@ export async function GET(request: NextRequest) {
     const wellness: Record<string, unknown> = {};
     for (const userId of userIds) {
       try {
-        wellness[userId] = await runWellnessSync(userId);
+        wellness[userId] = await runWellnessSync(asUserId(userId));
       } catch (err) {
         console.error(`Wellness sync failed for user ${userId}:`, err);
         wellness[userId] = "failed";

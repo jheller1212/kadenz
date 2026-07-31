@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { currentUserId } from "@/db/with-user";
 import { z } from "zod";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { loadGarminConfig, saveGarminConfig } from "@/lib/sync/garmin-config";
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     // Turning the toggle on pushes the current 14-day window right away
     // (fire-and-forget — the daily cron would catch up anyway).
     if (parsed.data.syncWorkouts && garminClient.isConfigured()) {
-      queueGarminWindowSync(userId).catch((err) =>
+      queueGarminWindowSync(currentUserId(), userId).catch((err) =>
         console.error("Failed to queue Garmin window sync:", err)
       );
     }

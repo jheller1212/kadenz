@@ -1,8 +1,10 @@
 import { db, plans, weeks, workouts } from "@/db";
 import { localWeekRange, localWeekdayIndex } from "@/lib/app-time";
 import { completedDistanceKm } from "@/lib/training/distance";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { workoutColor } from "@/lib/workout-colors";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/insights ────────────────────────────────────────────────────────
 // Returns mileage insights for two windows:
@@ -10,7 +12,7 @@ import { workoutColor } from "@/lib/workout-colors";
 //  - "current": the current calendar week, whole week planned — the same
 //    window the Today screen's mileage card uses, so the numbers match.
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     const [activePlan] = await db
       .select({
@@ -20,7 +22,7 @@ export async function GET() {
         planLengthWeeks: plans.planLengthWeeks,
       })
       .from(plans)
-      .where(eq(plans.status, "active"))
+      .where(and(ownedBy(plans), eq(plans.status, "active")))
       .limit(1);
 
     if (!activePlan) {
@@ -39,7 +41,7 @@ export async function GET() {
           targetKm: weeks.targetKm,
         })
         .from(weeks)
-        .where(eq(weeks.planId, activePlan.id))
+        .where(and(ownedBy(weeks), eq(weeks.planId, activePlan.id)))
         .orderBy(weeks.weekNumber),
 
       db
@@ -53,7 +55,7 @@ export async function GET() {
           date: workouts.date,
         })
         .from(workouts)
-        .where(eq(workouts.planId, activePlan.id))
+        .where(and(ownedBy(workouts), eq(workouts.planId, activePlan.id)))
         .orderBy(workouts.date),
     ]);
 
@@ -189,4 +191,4 @@ export async function GET() {
     console.error("DB error fetching insights:", err);
     return Response.json({ error: "Failed to fetch insights" }, { status: 500 });
   }
-}
+});

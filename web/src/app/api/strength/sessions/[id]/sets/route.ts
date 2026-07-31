@@ -5,8 +5,10 @@ import { db, strengthSessions, strengthSets, strengthExercises } from "@/db";
 import { snapToLevel } from "@/lib/strength/weights";
 import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { isNewSingleSetRecord, type PrSet } from "@/lib/strength/pr";
-import { getActiveProfileId } from "@/lib/profiles";
 import { freezeSessionComplaintsSql } from "@/lib/strength/service";
+import { getVerifiedProfileId } from "@/lib/profiles";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const SetSchema = z.object({
   exerciseId: z.string().uuid().optional(),
@@ -28,11 +30,16 @@ const SetSchema = z.object({
 // Upsert a logged set by (session, exercise, setNumber). Weights snap to the
 // dumbbell ladder server-side so history stays on real levels.
 
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
+
+  // strength_sets carries no user_id of its own — ownership resolves through
+  // the parent session, checked here before the body, same reasoning as the
+  // pain-log route above it.
+  await requireOwned(strengthSessions, id);
 
   let body: unknown;
   try {
@@ -57,14 +64,6 @@ export async function POST(
   }
 
   try {
-    const [session] = await db
-      .select({ id: strengthSessions.id })
-      .from(strengthSessions)
-      .where(eq(strengthSessions.id, id));
-    if (!session) {
-      return Response.json({ error: "Session not found" }, { status: 404 });
-    }
-
     let exerciseId = data.exerciseId;
     if (!exerciseId && data.exerciseSlug) {
       const [ex] = await db
@@ -161,7 +160,7 @@ export async function POST(
         .from(strengthExercises)
         .where(eq(strengthExercises.id, exerciseId!));
       if (exerciseRow) {
-        const profileId = getActiveProfileId(request);
+        const profileId = await getVerifiedProfileId(request);
         const priorRows = await db
           .select({
             weightKg: strengthSets.weightKg,
@@ -172,6 +171,7 @@ export async function POST(
           .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
           .where(
             and(
+              ownedBy(strengthSessions),
               eq(strengthSets.exerciseId, exerciseId!),
               eq(strengthSessions.status, "completed"),
               profileId
@@ -207,7 +207,7 @@ export async function POST(
     console.error("DB error logging set:", err);
     return Response.json({ error: "Failed to log set" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/strength/sessions/[id]/sets ───────────────────────────────────
 // No query params: discard a workout — remove every logged set of this
@@ -224,11 +224,16 @@ const DeleteQuerySchema = z.object({
   setNumber: z.coerce.number().int().positive().optional(),
 });
 
-export async function DELETE(
+export const DELETE = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
+
+  // Same reasoning as POST above: strength_sets has no owner of its own, so
+  // the parent session is what's checked, and it's checked before the query
+  // params are validated.
+  await requireOwned(strengthSessions, id);
 
   const url = new URL(request.url);
   const parsedQuery = DeleteQuerySchema.safeParse({
@@ -245,14 +250,6 @@ export async function DELETE(
   const { exerciseId: exerciseIdParam, exerciseSlug, setNumber } = parsedQuery.data;
 
   try {
-    const [session] = await db
-      .select({ id: strengthSessions.id })
-      .from(strengthSessions)
-      .where(eq(strengthSessions.id, id));
-    if (!session) {
-      return Response.json({ error: "Session not found" }, { status: 404 });
-    }
-
     if (setNumber != null && (exerciseIdParam || exerciseSlug)) {
       let exerciseId = exerciseIdParam;
       if (!exerciseId && exerciseSlug) {
@@ -293,4 +290,4 @@ export async function DELETE(
     console.error("DB error discarding sets:", err);
     return Response.json({ error: "Failed to discard sets" }, { status: 500 });
   }
-}
+});

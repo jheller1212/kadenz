@@ -88,7 +88,13 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("drizzle-orm", () => ({
+// Spread the real module rather than listing exports. An exhaustive mock has to
+// be updated whenever anything anywhere in the imported module graph starts
+// using a different drizzle export: this one broke on `relations`, which
+// db/schema.ts uses and this file never mentions. The operators below are still
+// stubbed, because the assertions match on their plain shapes.
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: (a: unknown, b: unknown) => ({ op: "eq", a, b }),
   and: (...args: unknown[]) => ({ op: "and", args }),
   gte: (a: unknown, b: unknown) => ({ op: "gte", a, b }),

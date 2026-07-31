@@ -10,6 +10,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import type { UserId } from "@/lib/user-id";
 
 export type DistanceUnit = "km" | "miles";
 export type WeightUnit = "kg" | "lbs";
@@ -28,7 +29,7 @@ export const DEFAULT_USER_UNITS: UserUnits = { distanceUnit: "km", weightUnit: "
  * is not worth failing a calendar sync over: km/kg is what that athlete would
  * have seen anyway, since it is also the localStorage default.
  */
-export async function loadUserUnits(userId: string): Promise<UserUnits> {
+export async function loadUserUnits(userId: UserId): Promise<UserUnits> {
   const [row] = await db
     .select({ distanceUnit: users.distanceUnit, weightUnit: users.weightUnit })
     .from(users)
@@ -44,7 +45,7 @@ export async function loadUserUnits(userId: string): Promise<UserUnits> {
   };
 }
 
-export async function saveUserUnits(userId: string, units: UserUnits): Promise<void> {
+export async function saveUserUnits(userId: UserId, units: UserUnits): Promise<void> {
   await db
     .update(users)
     .set({ distanceUnit: units.distanceUnit, weightUnit: units.weightUnit, updatedAt: new Date() })

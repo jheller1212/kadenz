@@ -3,6 +3,7 @@
 // import so it resolves after the mock factories below are in place.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asUserId } from "@/lib/user-id";
 
 const pushSubscriptions = { __t: "pushSubscriptions" } as Record<string, unknown>;
 for (const col of ["endpoint", "p256dh", "auth", "userId"]) {
@@ -54,8 +55,8 @@ beforeEach(() => {
 });
 
 describe("saveSubscription", () => {
-  const USER_A = "aaaaaaaa-0000-0000-0000-000000000001";
-  const USER_B = "bbbbbbbb-0000-0000-0000-000000000002";
+  const USER_A = asUserId("aaaaaaaa-0000-0000-0000-000000000001");
+  const USER_B = asUserId("bbbbbbbb-0000-0000-0000-000000000002");
   const sub = { endpoint: "https://push.example/ep1", p256dh: "key1", auth: "auth1" };
 
   it("files the row against the userId passed in", async () => {

@@ -1,8 +1,9 @@
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
-import type { NextRequest } from "next/server";
 import { db, strengthSets, strengthSessions, strengthExercises } from "@/db";
 import { csvRow } from "@/lib/csv";
-import { getActiveProfileId } from "@/lib/profiles";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
+import { getVerifiedProfileId } from "@/lib/profiles";
 
 // ── GET /api/export/strength-sets ──────────────────────────────────────────────
 // Streams every logged strength set as CSV, joined to its session (for the
@@ -22,7 +23,7 @@ const HEADER = [
   "feel",
 ];
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request) => {
   const encoder = new TextEncoder();
 
   // Scope to the active household profile, exactly as every other strength
@@ -30,11 +31,15 @@ export async function GET(request: NextRequest) {
   // export joined straight through to every profile's sets, so any household
   // member exporting their data received everyone else's as well, including
   // the owner's. A null profile means the owner, whose sessions carry a NULL
-  // profile_id, so the two cases need different predicates.
-  const profileId = getActiveProfileId(request);
-  const profileCond = profileId
-    ? eq(strengthSessions.profileId, profileId)
-    : isNull(strengthSessions.profileId);
+  // profile_id, so the two cases need different predicates. Verified, not
+  // raw: the profile id comes from a client-writable cookie, and this route
+  // also has to make sure that id is one of the caller's own profiles before
+  // it's used to filter anything (see getVerifiedProfileId).
+  const profileId = await getVerifiedProfileId(request);
+  const profileCond = and(
+    ownedBy(strengthSessions),
+    profileId ? eq(strengthSessions.profileId, profileId) : isNull(strengthSessions.profileId)
+  )!;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -100,4 +105,4 @@ export async function GET(request: NextRequest) {
       "Content-Disposition": 'attachment; filename="kadenz-strength-sets.csv"',
     },
   });
-}
+});

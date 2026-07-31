@@ -1,5 +1,6 @@
 import { db, syncOutbox, workouts, strengthSessions } from "@/db";
 import { eq, and, or, lt, isNull, sql } from "drizzle-orm";
+import { asUserId } from "@/lib/user-id";
 import { STALE_CLAIM_MS, isMootFailure } from "./outbox-claims";
 import {
   createEvent,
@@ -199,7 +200,7 @@ async function fetchWorkoutForSync(workoutId: string): Promise<WorkoutEventInput
   // The event summary and description are rebuilt in the owner's unit, so the
   // calendar stops being the one place in Kadenz still quoting km to a miles
   // athlete. One primary-key lookup per job.
-  const { distanceUnit } = await loadUserUnits(row.userId);
+  const { distanceUnit } = await loadUserUnits(asUserId(row.userId));
 
   return {
     workoutId: row.id,
@@ -368,7 +369,7 @@ async function fetchStrengthSessionForSync(
   );
   // The description lists every exercise's load, so it needs the owner's
   // weight unit for the same reason the run event needs the distance unit.
-  const { weightUnit } = await loadUserUnits(row.userId);
+  const { weightUnit } = await loadUserUnits(asUserId(row.userId));
 
   return {
     sessionId: row.id,

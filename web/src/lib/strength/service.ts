@@ -9,6 +9,7 @@ import {
   painLogs,
   weeks,
 } from "@/db";
+import { ownedBy } from "@/lib/api/owned";
 import {
   buildSessionPlan,
   estimateSessionMinutes,
@@ -106,6 +107,7 @@ export async function getExerciseHistoryBySlug(
     .innerJoin(strengthExercises, eq(strengthSets.exerciseId, strengthExercises.id))
     .where(
       and(
+        ownedBy(strengthSessions),
         eq(strengthSessions.status, "completed"),
         lte(strengthSessions.date, before),
         // Prefill loads only from the same person's history.
@@ -144,7 +146,16 @@ export async function getExerciseHistoryBySlug(
   return out;
 }
 
-/** Evaluate the Achilles pain gate from recent pain logs (last `days`). */
+/**
+ * Evaluate the Achilles pain gate from recent pain logs (last `days`).
+ *
+ * pain_logs carries no user_id of its own (see schema.ts) — it inherits
+ * isolation from the strength_sessions row it belongs to, so this joins to
+ * that parent and filters on it rather than reading pain_logs directly.
+ * Deliberately global across household profiles (same as the original
+ * behaviour): the Achilles gate is about the athlete's own body, not which
+ * profile logged the session.
+ */
 export async function getPainGate(
   before: Date,
   days = 10
@@ -158,7 +169,14 @@ export async function getPainGate(
       settledWithin24h: painLogs.settledWithin24h,
     })
     .from(painLogs)
-    .where(and(gte(painLogs.createdAt, since), lte(painLogs.createdAt, before)));
+    .innerJoin(strengthSessions, eq(painLogs.sessionId, strengthSessions.id))
+    .where(
+      and(
+        ownedBy(strengthSessions),
+        gte(painLogs.createdAt, since),
+        lte(painLogs.createdAt, before)
+      )
+    );
   return evaluatePainGate(logs);
 }
 
@@ -325,9 +343,12 @@ export async function getStrengthPlanSettingsRow(
     })
     .from(strengthPlanSettings)
     .where(
-      profileId
-        ? eq(strengthPlanSettings.profileId, profileId)
-        : isNull(strengthPlanSettings.profileId)
+      and(
+        ownedBy(strengthPlanSettings),
+        profileId
+          ? eq(strengthPlanSettings.profileId, profileId)
+          : isNull(strengthPlanSettings.profileId)
+      )
     );
   return row ?? null;
 }

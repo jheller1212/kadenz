@@ -13,10 +13,12 @@ import { SESSION_TEMPLATES, EXERCISE_BY_SLUG } from "@/lib/strength/program";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { resolveRequestUserId } from "@/lib/request-user";
 import type { Equipment, StrengthSessionType } from "@/lib/strength/types";
 import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
 import { alignSetHeartRate, type HeartRateStream } from "@/lib/sync/strength-hr";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const ExerciseOverrideSchema = z.discriminatedUnion("action", [
   z.object({ slug: z.string(), action: z.literal("removed") }),
@@ -60,11 +62,16 @@ function rejectsAchillesWork(overrides: ExerciseOverride[]): boolean {
 // Session with logged sets, plus the planned exercises (prescriptions,
 // progression prefill, pain-gate advisory) for the logger.
 
-export async function GET(
+export const GET = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
+  // Checked before the try block, not inside it: requireOwned throws a 404,
+  // and this route's catch below is a broad "DB error" 500 that would
+  // otherwise swallow that 404 and turn a not-owned id into a 500 (which
+  // still confirms the id exists — the opposite of what a 404 is for).
+  await requireOwned(strengthSessions, id);
   try {
     const session = await db.query.strengthSessions.findFirst({
       where: (s, { eq }) => eq(s.id, id),
@@ -212,19 +219,23 @@ export async function GET(
     console.error("DB error fetching strength session:", err);
     return Response.json({ error: "Failed to fetch session" }, { status: 500 });
   }
-}
+});
 
 // ── PATCH /api/strength/sessions/[id] ─────────────────────────────────────────
 // Update status / reschedule / duration. A date or status change re-syncs the
 // calendar event (the drag-and-drop fan-out).
 
-export async function PATCH(
+export const PATCH = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { id } = await params;
+
+  // Ownership before body validation: an ownership check that runs after a
+  // 400/422 on the body would answer "not owned" and "owned but malformed"
+  // identically (both are the body-validation error), which is exactly the
+  // ambiguity the phase 3 audit ran into on this route.
+  await requireOwned(strengthSessions, id);
 
   let body: unknown;
   try {
@@ -327,7 +338,7 @@ export async function PATCH(
     const [updated] = await db
       .update(strengthSessions)
       .set(set)
-      .where(eq(strengthSessions.id, id))
+      .where(and(ownedBy(strengthSessions), eq(strengthSessions.id, id)))
       .returning();
 
     // Completing a session absorbs any same-day planned twin of the same type
@@ -347,6 +358,10 @@ export async function PATCH(
         .from(strengthSessions)
         .where(
           and(
+            // Same tenant as well as same household profile — without this,
+            // two different accounts each starting an identical ad-hoc
+            // session on the same day could absorb each other's sets.
+            ownedBy(strengthSessions),
             eq(strengthSessions.type, updated.type),
             eq(strengthSessions.status, "planned"),
             gte(strengthSessions.date, dayStart),
@@ -370,10 +385,10 @@ export async function PATCH(
           .set({ sessionId: updated.id })
           .where(eq(painLogs.sessionId, twin.id));
         if (twin.gcalEventId) {
-          isConnected(userId)
+          isConnected(currentUserId())
             .then((connected) => {
               if (connected) {
-                return queueStrengthSessionSync(twin.id, "delete", userId, "gcal", {
+                return queueStrengthSessionSync(twin.id, "delete", currentUserId(), "gcal", {
                   gcalEventId: twin.gcalEventId,
                 });
               }
@@ -387,7 +402,7 @@ export async function PATCH(
         // uncleared id there would look, to the self-heal resync, like a
         // legitimate push that needs repair rather than a deliberate removal.
         if (twin.garminWorkoutId) {
-          queueGarminStrengthDelete(userId, twin.id, twin.garminWorkoutId).catch((err) =>
+          queueGarminStrengthDelete(currentUserId(), twin.id, twin.garminWorkoutId).catch((err) =>
             console.error("Failed to queue twin Garmin cleanup:", err)
           );
         }
@@ -414,7 +429,7 @@ export async function PATCH(
       // already reflects that on the device; this push-side copy is inert).
       if (updates.status === "completed" && updated?.garminWorkoutId) {
         const garminWorkoutId = updated.garminWorkoutId;
-        queueGarminStrengthDelete(userId, id, garminWorkoutId).catch((err) =>
+        queueGarminStrengthDelete(currentUserId(), id, garminWorkoutId).catch((err) =>
           console.error("Failed to queue Garmin strength delete on completion:", err)
         );
         // Clear it now, not just after the queued job runs — otherwise a
@@ -433,10 +448,10 @@ export async function PATCH(
           console.error("Failed to queue Garmin strength update:", err)
         );
       }
-      isConnected(userId)
+      isConnected(currentUserId())
         .then((connected) => {
           if (connected) {
-            queueStrengthSessionSync(id, "update", userId, "gcal").catch((err) =>
+            queueStrengthSessionSync(id, "update", currentUserId(), "gcal").catch((err) =>
               console.error("Failed to queue strength gcal update:", err)
             );
           }
@@ -449,40 +464,32 @@ export async function PATCH(
     console.error("DB error updating strength session:", err);
     return Response.json({ error: "Failed to update session" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/strength/sessions/[id] ────────────────────────────────────────
 // Remove a scheduled strength session and its calendar event.
 
-export async function DELETE(
-  request: NextRequest,
+export const DELETE = withSession(async (
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { id } = await params;
+  // requireOwned rather than a plain lookup — this is the confirmed leak from
+  // the phase 3 audit: any signed-in caller could delete another athlete's
+  // session by guessing or observing its id. Kept outside the try below so
+  // its 404 isn't swallowed by that block's broad 500 catch.
+  const existing = await requireOwned(strengthSessions, id);
   try {
-    const [existing] = await db
-      .select({
-        id: strengthSessions.id,
-        gcalEventId: strengthSessions.gcalEventId,
-        garminWorkoutId: strengthSessions.garminWorkoutId,
-      })
-      .from(strengthSessions)
-      .where(eq(strengthSessions.id, id));
-
-    if (!existing) {
-      return Response.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    await db.delete(strengthSessions).where(eq(strengthSessions.id, id));
+    await db
+      .delete(strengthSessions)
+      .where(and(ownedBy(strengthSessions), eq(strengthSessions.id, id)));
 
     // Fan out the calendar deletion if there was an event.
     if (existing.gcalEventId) {
-      isConnected(userId)
+      isConnected(currentUserId())
         .then((connected) => {
           if (connected) {
-            queueStrengthSessionSync(id, "delete", userId, "gcal", {
+            queueStrengthSessionSync(id, "delete", currentUserId(), "gcal", {
               gcalEventId: existing.gcalEventId!,
             }).catch((err) =>
               console.error("Failed to queue strength gcal delete:", err)
@@ -494,7 +501,7 @@ export async function DELETE(
 
     // ...and take it off the watch, or it lingers there after deletion here.
     if (existing.garminWorkoutId) {
-      queueGarminStrengthDelete(userId, id, existing.garminWorkoutId).catch((err) =>
+      queueGarminStrengthDelete(currentUserId(), id, existing.garminWorkoutId).catch((err) =>
         console.error("Failed to queue Garmin strength delete:", err)
       );
     }
@@ -504,4 +511,4 @@ export async function DELETE(
     console.error("DB error deleting strength session:", err);
     return Response.json({ error: "Failed to delete session" }, { status: 500 });
   }
-}
+});

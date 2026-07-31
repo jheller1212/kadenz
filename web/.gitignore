@@ -46,8 +46,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# e2e (Playwright) — local-only Postgres data dir and minted test session
+# e2e (Playwright) — local-only Postgres data dir, minted test sessions, and
+# the cross-user-isolation spec's seed-ids/cookies artifacts
 /e2e/.pgdata/
 /e2e/.auth/
+/e2e/.artifacts/
 /playwright-report/
 /test-results/

@@ -55,7 +55,12 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("drizzle-orm", () => ({
+// Spread the real module rather than listing exports: an exhaustive mock breaks
+// whenever anything in the imported module graph uses a different drizzle
+// export, which is how this one broke on `relations` (used by db/schema.ts, and
+// never mentioned in this file).
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: (a: unknown, b: unknown) => ({ op: "eq", a, b }),
   and: (...args: unknown[]) => ({ op: "and", args }),
 }));

@@ -13,6 +13,7 @@
 // gate changed or the route is public; either way the route must not guess.
 
 import { getSessionUserId, getShellTokenUserId } from "@/lib/session";
+import type { UserId } from "@/lib/user-id";
 
 /**
  * The authenticated user id for a request, or null if it carries no valid
@@ -25,7 +26,7 @@ import { getSessionUserId, getShellTokenUserId } from "@/lib/session";
  */
 export async function resolveRequestUserId(
   request: Request
-): Promise<string | null> {
+): Promise<UserId | null> {
   const fromCookie = await getSessionUserId(request.headers.get("cookie"));
   if (fromCookie) return fromCookie;
   return getShellTokenUserId(request.headers.get("authorization"));
@@ -46,7 +47,7 @@ export function unauthorized(): Response {
  */
 export async function requireRequestUser(
   request: Request
-): Promise<{ userId: string; response?: never } | { userId?: never; response: Response }> {
+): Promise<{ userId: UserId; response?: never } | { userId?: never; response: Response }> {
   const userId = await resolveRequestUserId(request);
   if (!userId) return { response: unauthorized() };
   return { userId };

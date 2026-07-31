@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { db, workouts, blocks } from "@/db";
+import { db, plans, workouts, blocks } from "@/db";
 import { queueWorkoutSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWorkoutMove } from "@/lib/sync/garmin-sync";
-import { resolveRequestUserId } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
+import { notFound } from "@/lib/api/errors";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const WorkoutPatchSchema = z.object({
   status: z.enum(["planned", "completed", "skipped", "missed"]).optional(),
@@ -35,13 +38,19 @@ const WorkoutPatchSchema = z.object({
 
 // ── PATCH /api/plans/[id]/workouts/[workoutId] ────────────────────────────────
 
-export async function PATCH(
+export const PATCH = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string; workoutId: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { id, workoutId } = await params;
+
+  // Both checks up front, before the body is even parsed: the plan must be
+  // the caller's, AND the workout must belong to that plan — otherwise a
+  // caller could address someone else's workout through one of their own
+  // plan ids, or their own workout through someone else's plan id.
+  await requireOwned(plans, id);
+  const targetWorkout = await requireOwned(workouts, workoutId);
+  if (targetWorkout.planId !== id) throw notFound();
 
   let body: unknown;
   try {
@@ -89,7 +98,7 @@ export async function PATCH(
       blockRows = await db
         .select()
         .from(blocks)
-        .where(eq(blocks.workoutId, workoutId));
+        .where(and(eq(blocks.workoutId, workoutId), ownedBy(blocks)));
 
       const plainWork = blockRows.filter(
         (b) => b.type === "work" && b.distanceKm != null && !b.reps
@@ -177,11 +186,14 @@ export async function PATCH(
       const [row] = await tx
         .update(workouts)
         .set(setValues)
-        .where(and(eq(workouts.id, workoutId), eq(workouts.planId, id)))
+        .where(and(eq(workouts.id, workoutId), eq(workouts.planId, id), ownedBy(workouts)))
         .returning();
       if (!row) return null;
       for (const { id: blockId, patch } of blockPatches) {
-        await tx.update(blocks).set(patch).where(eq(blocks.id, blockId));
+        await tx
+          .update(blocks)
+          .set(patch)
+          .where(and(eq(blocks.id, blockId), ownedBy(blocks)));
       }
       return row;
     });
@@ -194,10 +206,11 @@ export async function PATCH(
     // (same pattern as complete). A missing connection is not an error — the
     // time is still stored and shown, it just has nowhere else to sync to.
     if (date || parsed.data.timeOfDay !== undefined) {
-      isConnected(userId)
+      const rescheduleUserId = currentUserId();
+      isConnected(rescheduleUserId)
         .then((connected) => {
           if (connected) {
-            queueWorkoutSync(workoutId, "update", userId, "gcal").catch((err) =>
+            queueWorkoutSync(workoutId, "update", rescheduleUserId, "gcal").catch((err) =>
               console.error("Failed to queue gcal reschedule:", err)
             );
           }
@@ -216,4 +229,4 @@ export async function PATCH(
     console.error("DB error updating workout:", err);
     return Response.json({ error: "Failed to update workout" }, { status: 500 });
   }
-}
+});

@@ -1,15 +1,19 @@
 import { sql, eq, desc } from "drizzle-orm";
 import { db, syncOutbox } from "@/db";
+import { withSession } from "@/lib/api/with-session";
 
 // ── GET /api/sync/health ──────────────────────────────────────────────────────
 // Outbox health for the Settings "Sync" card: how many jobs are pending/stuck/
 // failed per target, when the last one processed, and the most recent errors —
 // so "did it actually sync?" is answerable at a glance. DB-only (fast); the
 // connection states come from the per-integration status endpoints.
+//
+// sync_outbox is tenanted (Phase 3) — every query below is the caller's own
+// outbox, via withSession's row level security context.
 
 type Counts = { pending: number; processing: number; failed: number; completed: number };
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     const rows = await db
       .select({
@@ -61,4 +65,4 @@ export async function GET() {
     console.error("[sync health] failed", err);
     return Response.json({ error: "Failed to load sync health" }, { status: 500 });
   }
-}
+});

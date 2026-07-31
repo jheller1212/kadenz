@@ -13,8 +13,10 @@ import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { queueRetireDeletes, retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
-import { drainOutboxNow, scheduleOutboxDrain } from "@/lib/sync/outbox-drain";
-import { requireRequestUser, resolveRequestUserId } from "@/lib/request-user";
+import { drainOutboxNow } from "@/lib/sync/outbox-drain";
+import { currentUserId, withUser } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra", "custom"]),
@@ -41,12 +43,18 @@ const PlanConfigSchema = z.object({
 // never block detail, so it asks for the summary. Today's week sheet and
 // plan/rearrange genuinely need every block and still get the full shape.
 
-export async function GET(
+export const GET = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
   const summary = request.nextUrl.searchParams.get("summary") === "1";
+
+  // Confirms both existence and ownership before the relational fetch below —
+  // RLS would filter an unowned plan to nothing either way, but this makes
+  // the intent explicit and gives an honest 404 instead of relying on the
+  // shape of a relational query returning empty.
+  await requireOwned(plans, id);
 
   try {
     const plan = summary
@@ -90,7 +98,7 @@ export async function GET(
     console.error("DB error fetching plan:", err);
     return Response.json({ error: "Failed to fetch plan" }, { status: 500 });
   }
-}
+});
 
 // ── PUT /api/plans/[id] — regenerate the plan in place ───────────────────────
 // Keeps the same plan id (stays the "current" plan) and swaps in freshly
@@ -105,13 +113,15 @@ export async function GET(
 // the row and takes it out of the auto-managed pool, regardless of status.
 // See regenerate-merge.ts for the full model and why.
 
-export async function PUT(
+export const PUT = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { id } = await params;
+
+  // Checked before the body is even parsed — a plan PUT for a resource the
+  // caller does not own must 404 regardless of whether the body is valid.
+  await requireOwned(plans, id);
 
   let body: unknown;
   try {
@@ -157,15 +167,9 @@ export async function PUT(
   }
 
   try {
-    const existing = await db
-      .select({ id: plans.id })
-      .from(plans)
-      .where(eq(plans.id, id));
-    if (existing.length === 0) {
-      return Response.json({ error: "Plan not found" }, { status: 404 });
-    }
-
-    // Update plan-level fields, keep it active.
+    // Ownership was already confirmed above (requireOwned). ownedBy is kept
+    // in this WHERE too, matching every other UPDATE in this handler — the
+    // filter is the intent at the call site, RLS is the guarantee.
     await db
       .update(plans)
       .set({
@@ -189,7 +193,7 @@ export async function PUT(
         status: "active",
         updatedAt: new Date(),
       })
-      .where(eq(plans.id, id));
+      .where(and(eq(plans.id, id), ownedBy(plans)));
 
     // A completed/skipped/missed workout is real history, and a still-planned
     // workout the athlete hand-tuned (edited=true) or gave a start time
@@ -215,6 +219,7 @@ export async function PUT(
       .where(
         and(
           eq(workouts.planId, id),
+          ownedBy(workouts),
           // Derived from untouchedPlanned rather than restated, so the two can
           // never drift apart. Spelling the inverse out by hand meant a future
           // change to what counts as "touched" could update one and not the
@@ -238,13 +243,15 @@ export async function PUT(
         userId: workouts.userId,
       })
       .from(workouts)
-      .where(and(eq(workouts.planId, id), untouchedPlanned));
+      .where(and(eq(workouts.planId, id), ownedBy(workouts), untouchedPlanned));
 
     // Replace the schedule, but only the part of it the athlete never
     // touched: delete untouched planned workouts (cascades their blocks),
     // leaving completed/skipped/missed workouts and any hand-edited or
     // timed workout (still "planned", but adopted by the athlete) alone.
-    await db.delete(workouts).where(and(eq(workouts.planId, id), untouchedPlanned));
+    await db
+      .delete(workouts)
+      .where(and(eq(workouts.planId, id), ownedBy(workouts), untouchedPlanned));
 
     // A week is only deleted once every workout it had was "planned" (i.e.
     // it's now empty). A week holding preserved history is kept in place —
@@ -260,11 +267,12 @@ export async function PUT(
         .where(
           and(
             eq(weeks.planId, id),
+            ownedBy(weeks),
             notInArray(weeks.weekNumber, [...merge.retainedWeekNumbers])
           )
         );
     } else {
-      await db.delete(weeks).where(eq(weeks.planId, id));
+      await db.delete(weeks).where(and(eq(weeks.planId, id), ownedBy(weeks)));
     }
 
     // Map every week number the new schedule needs to a week id: retained
@@ -275,7 +283,7 @@ export async function PUT(
       const retainedWeeks = await db
         .select({ id: weeks.id, weekNumber: weeks.weekNumber })
         .from(weeks)
-        .where(eq(weeks.planId, id));
+        .where(and(eq(weeks.planId, id), ownedBy(weeks)));
       for (const w of retainedWeeks) weekIdMap.set(w.weekNumber, w.id);
     }
 
@@ -287,6 +295,7 @@ export async function PUT(
         phase: week.phase,
         type: week.type,
         targetKm: week.targetKm,
+        userId: currentUserId(),
       }));
     if (weekValues.length > 0) {
       const insertedWeeks = await db.insert(weeks).values(weekValues).returning();
@@ -312,6 +321,7 @@ export async function PUT(
           targetKm: workout.targetKm ?? null,
           targetDurationMinutes: workout.targetDurationMinutes ?? null,
           sortOrder: workout.sortOrder,
+          userId: currentUserId(),
         }))
     );
     const insertedWorkouts =
@@ -342,6 +352,7 @@ export async function PUT(
             reps: block.reps ?? null,
             repDistanceKm: block.repDistanceKm ?? null,
             repRestSeconds: block.repRestSeconds ?? null,
+            userId: currentUserId(),
           }))
         )
     );
@@ -368,35 +379,46 @@ export async function PUT(
     // deletes were already awaited above via queueRetireDeletes, so this
     // drain flushes them first (deletes are prioritised — see claimJobs)
     // before pushing anything from the new schedule.
+    //
+    // ownerId is captured before after() is registered, and re-entered with
+    // withUser inside the callback: the response has already been sent by
+    // the time after() runs, which means both the AsyncLocalStorage context
+    // withSession entered AND the transaction it opened are gone (the
+    // transaction commits when the handler returns), so the callback opens
+    // its own fresh context rather than trying to inherit one that no
+    // longer exists.
     const insertedWorkoutIds = insertedWorkouts.map((wo) => wo.id);
+    const ownerId = currentUserId();
     after(async () => {
-      try {
-        if (await isConnected(userId)) {
-          // Only push the freshly inserted workouts — a preserved workout
-          // already has (or never had) its own event and must not be
-          // re-queued as a "create", which would push a duplicate event and
-          // overwrite the id of the one already on the calendar.
-          await queuePlanWorkoutsSync(id, userId, "gcal", insertedWorkoutIds);
+      await withUser(ownerId, async () => {
+        try {
+          if (await isConnected(ownerId)) {
+            // Only push the freshly inserted workouts — a preserved workout
+            // already has (or never had) its own event and must not be
+            // re-queued as a "create", which would push a duplicate event and
+            // overwrite the id of the one already on the calendar.
+            await queuePlanWorkoutsSync(id, ownerId, "gcal", insertedWorkoutIds);
+          }
+        } catch (err) {
+          console.error("Failed to queue gcal sync:", err);
         }
-      } catch (err) {
-        console.error("Failed to queue gcal sync:", err);
-      }
-      try {
-        if (garminClient.isConfigured() && (await isGarminWorkoutSyncEnabled(userId))) {
-          await queueGarminWindowSync(userId, id);
+        try {
+          if (garminClient.isConfigured() && (await isGarminWorkoutSyncEnabled(ownerId))) {
+            await queueGarminWindowSync(ownerId, id);
+          }
+        } catch (err) {
+          console.error("Failed to queue Garmin sync:", err);
         }
-      } catch (err) {
-        console.error("Failed to queue Garmin sync:", err);
-      }
-      // Runs after the queueing above so the rows it just wrote are included.
-      await drainOutboxNow(userId);
+        // Runs after the queueing above so the rows it just wrote are included.
+        await drainOutboxNow(ownerId);
+      });
     });
 
     // Rebuild the auto strength schedule around the regenerated run days.
     // Strength sessions have no plan FK — without this, the old schedule's
     // future auto-scheduled sessions linger and the top-up stacks new ones.
     try {
-      await reconcileStrengthSchedule(null, userId);
+      await reconcileStrengthSchedule(null, currentUserId());
     } catch (err) {
       console.error("Failed to reconcile strength schedule:", err);
     }
@@ -421,23 +443,24 @@ export async function PUT(
     console.error("DB error updating plan:", err);
     return Response.json({ error: "Failed to update plan" }, { status: 500 });
   }
-}
+});
 
 // ── DELETE /api/plans/[id] — soft-delete (archived) ──────────────────────────
 
-export async function DELETE(
-  request: NextRequest,
+export const DELETE = withSession(async (
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+) => {
   const { id } = await params;
 
   try {
+    // ownedBy(plans) in the WHERE, not a separate lookup: an unowned id
+    // simply matches nothing and updated stays empty, which the check below
+    // already turns into the honest 404.
     const [updated] = await db
       .update(plans)
       .set({ status: "archived", updatedAt: new Date() })
-      .where(eq(plans.id, id))
+      .where(and(eq(plans.id, id), ownedBy(plans)))
       .returning({ id: plans.id });
 
     if (!updated) {
@@ -454,12 +477,20 @@ export async function DELETE(
 
     // Flush those deletes promptly instead of waiting for the daily cron —
     // this is what actually clears the archived plan's workouts off the
-    // watch and calendar (see outbox-drain.ts).
-    scheduleOutboxDrain(userId);
+    // watch and calendar (see outbox-drain.ts). Not scheduleOutboxDrain():
+    // that helper's after() callback has no RLS context of its own to
+    // re-enter, so it would run drainOutboxNow(currentUserId()) (and the currentUserId()
+    // calls inside sync-manager.ts it reaches) after this handler's
+    // transaction has already committed and its context is gone. Capture
+    // the owner now, while the context is live, and re-enter it explicitly.
+    const ownerId = currentUserId();
+    after(async () => {
+      await withUser(ownerId, () => drainOutboxNow(ownerId));
+    });
 
     return Response.json({ id: updated.id, status: "archived" });
   } catch (err) {
     console.error("DB error archiving plan:", err);
     return Response.json({ error: "Failed to archive plan" }, { status: 500 });
   }
-}
+});

@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { validateSessionCookie } from "@/lib/session";
+import { withCronFanOut } from "@/lib/api/with-session";
 import {
   previewArchivedPlanSyncArtifacts,
   reconcileArchivedPlanSyncArtifacts,
@@ -16,29 +16,29 @@ import {
 // Trigger with `?dryRun=1` first to see the row count with no writes, then
 // call again without it to actually queue the deletes.
 //
-// Same auth as the daily cron: either CRON_SECRET (Bearer) or a signed-in
-// owner session, so this can be called from a browser tab while logged in.
+// plans/workouts/sync_outbox are tenanted (Phase 3), so this fans out per
+// user via withCronFanOut, same auth as the daily cron: either CRON_SECRET
+// (Bearer) or a signed-in session. Unlike the Garmin-specific reconcile
+// routes this needs no owner-only guard — a plan and its archived workouts
+// belong to whichever user is being iterated, and a non-owner user's own
+// garminWorkoutId column is never populated in the first place (Garmin push
+// is owner-gated — see cron/gcal), so their turn here just finds nothing to
+// queue on that surface.
 
-export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const fromCron =
-    Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
-  const fromOwner = await validateSessionCookie(request.headers.get("cookie"));
-  if (!fromCron && !fromOwner) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export function GET(request: NextRequest): Promise<Response> {
   const dryRun = request.nextUrl.searchParams.get("dryRun") === "1";
 
-  try {
-    if (dryRun) {
-      const preview = await previewArchivedPlanSyncArtifacts();
-      return Response.json({ dryRun: true, ...preview });
+  return withCronFanOut(async (userId) => {
+    try {
+      if (dryRun) {
+        const preview = await previewArchivedPlanSyncArtifacts();
+        return { dryRun: true, ...preview };
+      }
+      const result = await reconcileArchivedPlanSyncArtifacts();
+      return { dryRun: false, ...result };
+    } catch (err) {
+      console.error(`Failed to reconcile archived plan sync artifacts for user ${userId}:`, err);
+      return { ok: false, error: "Reconcile failed" };
     }
-    const result = await reconcileArchivedPlanSyncArtifacts();
-    return Response.json({ dryRun: false, ...result });
-  } catch (err) {
-    console.error("Failed to reconcile archived plan sync artifacts:", err);
-    return Response.json({ error: "Reconcile failed" }, { status: 500 });
-  }
+  }, "sync-reconcile-archived-plans")(request);
 }

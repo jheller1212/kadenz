@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { and, desc, eq, gte, isNotNull, isNull } from "drizzle-orm";
 import {
   db,
@@ -10,10 +9,12 @@ import {
   wellnessMetrics,
   workouts,
 } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
 import { resolveRequestUserId } from "@/lib/request-user";
 import { expectsPhysiology, isManualOnly, UNANSWERED_DEVICE_SETUP } from "@/lib/device-setup";
 import { loadDeviceSetup } from "@/lib/user-device-setup";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
+import { getVerifiedProfileId } from "@/lib/profiles";
 import { computeReadiness } from "@/lib/readiness";
 import { computePhysiologyReadinessAcrossSources, type WellnessNight } from "@/lib/physiology";
 import type { SourceNights } from "@/lib/wellness-source";
@@ -24,8 +25,8 @@ import { toGarminDate } from "@/lib/sync/garmin-client";
 // pain flags, recent strength RPE, and the run-load trend. Profile-scoped for
 // wellness/strength; run load is the owner's (guests have no runs).
 
-export async function GET(request: NextRequest) {
-  const profileId = getActiveProfileId(request);
+export const GET = withSession(async (request) => {
+  const profileId = await getVerifiedProfileId(request);
   const now = Date.now();
 
   try {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
     const [w] = await db
       .select()
       .from(wellnessLogs)
-      .where(and(gte(wellnessLogs.date, since48h), profCond(wellnessLogs.profileId)))
+      .where(and(ownedBy(wellnessLogs), gte(wellnessLogs.date, since48h), profCond(wellnessLogs.profileId)))
       .orderBy(desc(wellnessLogs.date))
       .limit(1);
 
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
       .from(painLogs)
       .innerJoin(strengthSessions, eq(painLogs.sessionId, strengthSessions.id))
       .where(
-        and(gte(painLogs.createdAt, since3d), profCond(strengthSessions.profileId))
+        and(ownedBy(strengthSessions), gte(painLogs.createdAt, since3d), profCond(strengthSessions.profileId))
       );
     const maxRecentPain = pains.length
       ? Math.max(...pains.map((p) => p.score))
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
       .from(strengthSets)
       .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
       .where(
-        and(gte(strengthSets.createdAt, since36h), profCond(strengthSessions.profileId))
+        and(ownedBy(strengthSessions), gte(strengthSets.createdAt, since36h), profCond(strengthSessions.profileId))
       );
     const rpeVals = rpes.map((r) => r.rpe).filter((v): v is number => v != null);
     const recentStrengthRpe = rpeVals.length
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
       const runRpes = await db
         .select({ rpe: workouts.rpe })
         .from(workouts)
-        .where(and(gte(workouts.updatedAt, since36h), isNotNull(workouts.rpe)));
+        .where(and(ownedBy(workouts), gte(workouts.updatedAt, since36h), isNotNull(workouts.rpe)));
       const vals = runRpes.map((r) => r.rpe).filter((v): v is number => v != null);
       recentRunRpe = vals.length ? Math.max(...vals) : null;
     }
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
       const runs = await db
         .select({ distanceKm: activities.distanceKm, startDate: activities.startDate })
         .from(activities)
-        .where(gte(activities.startDate, since28d));
+        .where(and(ownedBy(activities), gte(activities.startDate, since28d)));
       const weekAgo = now - 7 * 24 * 3600_000;
       let priorKm = 0;
       for (const r of runs) {
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
           source: wellnessMetrics.source,
         })
         .from(wellnessMetrics)
-        .where(gte(wellnessMetrics.date, since60d));
+        .where(and(ownedBy(wellnessMetrics), gte(wellnessMetrics.date, since60d)));
 
       // Group by source before handing off — the baseline math must only
       // ever see one source's nights at a time (see lib/wellness-source.ts).
@@ -176,4 +177,4 @@ export async function GET(request: NextRequest) {
     console.error("DB error computing readiness:", err);
     return Response.json({ error: "Failed to compute readiness" }, { status: 500 });
   }
-}
+});

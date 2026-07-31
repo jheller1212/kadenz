@@ -141,6 +141,15 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:54329/kadenz_e2e npm run tes
 - **`sheet-scroll.spec.ts`** — a real touch swipe on the exercise picker's
   result list scrolls the list instead of getting captured by the sheet's
   own drag-to-dismiss gesture recognizer.
+- **`cross-user-isolation.spec.ts`** — the phase 3 gate: enumerates every
+  `route.ts` under `src/app/api` and every HTTP method it exports, checks
+  each against an explicit manifest (hard-failing on anything unclassified,
+  so a new route can't silently skip review), then probes every tenanted
+  route as a second seeded user (`e2e/env.ts`'s `USER_B_ID`) against the
+  first user's ids and asserts it's refused — with a read-back proving a
+  refused write left the resource unchanged — plus a control call proving
+  the real owner's own request still succeeds. See the spec file's own
+  header comment for the full manifest shape.
 
 ## Auth: there is no bypass
 

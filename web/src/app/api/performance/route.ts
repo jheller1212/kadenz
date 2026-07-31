@@ -1,5 +1,7 @@
 import { db, activities } from "@/db";
 import { and, gte, isNotNull } from "drizzle-orm";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/performance ──────────────────────────────────────────────────────
 // Lifetime running stats, personal records, and achievement badges derived from
@@ -52,7 +54,7 @@ function fastestKmFromSplits(splitsJson: unknown): number | null {
   return best;
 }
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     // Splits only for the windowed subset — the only consumer is the 1K PR
     // below. Bounding this is what keeps the payload from growing forever.
@@ -80,7 +82,7 @@ export async function GET() {
           strengthSessionId: activities.strengthSessionId,
         })
         .from(activities)
-        .where(isNotNull(activities.startDate)),
+        .where(and(ownedBy(activities), isNotNull(activities.startDate))),
 
       db
         .select({
@@ -92,7 +94,9 @@ export async function GET() {
           strengthSessionId: activities.strengthSessionId,
         })
         .from(activities)
-        .where(and(isNotNull(activities.startDate), gte(activities.startDate, splitsCutoff))),
+        .where(
+          and(ownedBy(activities), isNotNull(activities.startDate), gte(activities.startDate, splitsCutoff))
+        ),
     ]);
 
     const runs = rows
@@ -258,7 +262,7 @@ export async function GET() {
     console.error("DB error building performance:", err);
     return Response.json({ error: "Failed to build performance" }, { status: 500 });
   }
-}
+});
 
 // ── Badge ladders ──────────────────────────────────────────────────────────────
 // Each ladder returns the highest tier earned + the next locked target, so the

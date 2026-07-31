@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db, activities } from "@/db";
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
 
 const ManualActivitySchema = z
   .object({
@@ -20,7 +22,7 @@ const ManualActivitySchema = z
 // session — with no Strava id. Runs carry distance + pace; strength sessions are
 // tagged sport_type="WeightTraining" so the unified feed renders them correctly.
 
-export async function POST(request: NextRequest) {
+export const POST = withSession(async (request: NextRequest) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -43,6 +45,7 @@ export async function POST(request: NextRequest) {
     const [created] = await db
       .insert(activities)
       .values({
+        userId: currentUserId(),
         name,
         startDate: new Date(date),
         sportType: isStrength ? "WeightTraining" : "Run",
@@ -60,4 +63,4 @@ export async function POST(request: NextRequest) {
     console.error("DB error creating manual activity:", err);
     return Response.json({ error: "Failed to create activity" }, { status: 500 });
   }
-}
+});

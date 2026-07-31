@@ -1,15 +1,21 @@
 import { NextRequest } from "next/server";
 import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, strengthExercises, strengthSessions, strengthSets } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { getVerifiedProfileId } from "@/lib/profiles";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/strength/exercises ───────────────────────────────────────────────
 // The seeded exercise catalogue, enriched with the athlete's last-used weight
 // and rep range (from the most recent session containing each exercise) so
 // pickers can prefill real numbers instead of catalogue defaults.
+//
+// strengthExercises itself is a global, shared catalogue (seeded once, no
+// owner column) — it is never scoped to a caller. Only the set-history join
+// below, which is real athlete data, needs ownership.
 
-export async function GET(request: NextRequest) {
-  const profileId = getActiveProfileId(request);
+export const GET = withSession(async (request: NextRequest) => {
+  const profileId = await getVerifiedProfileId(request);
   try {
     // The catalogue and the athlete's set history are independent lookups —
     // run them together instead of two serialised round trips.
@@ -32,6 +38,7 @@ export async function GET(request: NextRequest) {
         .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
         .where(
           and(
+            ownedBy(strengthSessions),
             isNotNull(strengthSets.reps),
             profileId
               ? eq(strengthSessions.profileId, profileId)
@@ -90,4 +97,4 @@ export async function GET(request: NextRequest) {
     console.error("DB error listing strength exercises:", err);
     return Response.json({ error: "Failed to fetch exercises" }, { status: 500 });
   }
-}
+});

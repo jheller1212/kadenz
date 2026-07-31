@@ -1,8 +1,10 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { and, asc, eq, gte, isNull, lte } from "drizzle-orm";
 import { db, wellnessLogs } from "@/db";
-import { getActiveProfileId } from "@/lib/profiles";
+import { currentUserId } from "@/db/with-user";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
+import { getVerifiedProfileId } from "@/lib/profiles";
 
 const UpsertSchema = z.object({
   date: z.string().datetime(),
@@ -24,13 +26,14 @@ function dayStart(d: Date): Date {
 
 // ── GET /api/wellness?from=&to= ───────────────────────────────────────────────
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request) => {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
-  const profileId = getActiveProfileId(request);
+  const profileId = await getVerifiedProfileId(request);
   try {
     const conds = [
+      ownedBy(wellnessLogs),
       profileId
         ? eq(wellnessLogs.profileId, profileId)
         : isNull(wellnessLogs.profileId),
@@ -47,12 +50,12 @@ export async function GET(request: NextRequest) {
     console.error("DB error listing wellness logs:", err);
     return Response.json({ error: "Failed to fetch wellness" }, { status: 500 });
   }
-}
+});
 
 // ── PUT /api/wellness ─────────────────────────────────────────────────────────
 // Upsert the daily check-in (one row per calendar day).
 
-export async function PUT(request: NextRequest) {
+export const PUT = withSession(async (request) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -69,7 +72,7 @@ export async function PUT(request: NextRequest) {
   }
   const data = parsed.data;
   const date = dayStart(new Date(data.date));
-  const profileId = getActiveProfileId(request);
+  const profileId = await getVerifiedProfileId(request);
 
   try {
     // Only fields the request actually sent. A partial update (one slider tap
@@ -89,6 +92,7 @@ export async function PUT(request: NextRequest) {
     const insertValues = {
       date,
       profileId,
+      userId: currentUserId(),
       restDay: data.restDay ?? false,
       illness: data.illness ?? false,
       injury: data.injury ?? false,
@@ -105,6 +109,7 @@ export async function PUT(request: NextRequest) {
       .from(wellnessLogs)
       .where(
         and(
+          ownedBy(wellnessLogs),
           eq(wellnessLogs.date, date),
           profileId
             ? eq(wellnessLogs.profileId, profileId)
@@ -116,7 +121,7 @@ export async function PUT(request: NextRequest) {
       ? await db
           .update(wellnessLogs)
           .set({ ...patch, updatedAt: new Date() })
-          .where(eq(wellnessLogs.id, existing.id))
+          .where(and(ownedBy(wellnessLogs), eq(wellnessLogs.id, existing.id)))
           .returning()
       : await db.insert(wellnessLogs).values(insertValues).returning();
     return Response.json(row);
@@ -124,4 +129,4 @@ export async function PUT(request: NextRequest) {
     console.error("DB error upserting wellness log:", err);
     return Response.json({ error: "Failed to save wellness" }, { status: 500 });
   }
-}
+});

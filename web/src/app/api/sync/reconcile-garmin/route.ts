@@ -1,7 +1,9 @@
 import { type NextRequest } from "next/server";
-import { validateSessionCookie } from "@/lib/session";
-import { db, workouts, strengthSessions } from "@/db";
+import { db, workouts, strengthSessions, OWNER_USER_ID } from "@/db";
 import { isNotNull } from "drizzle-orm";
+import { withUser } from "@/db/with-user";
+import { asUserId } from "@/lib/user-id";
+import { getSessionUserId } from "@/lib/session";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { ourOrphanIds, isListingPossiblyPartial } from "@/lib/sync/garmin-heal";
 
@@ -25,8 +27,24 @@ import { ourOrphanIds, isListingPossiblyPartial } from "@/lib/sync/garmin-heal";
 //     hold more than we can see — refuse to delete rather than treat a
 //     partial view as the whole account
 //
-// Auth mirrors /api/cron/gcal: CRON_SECRET bearer (for a scheduled run) or an
-// owner session cookie (so this can be triggered from a logged-in browser).
+// Auth mirrors /api/cron/gcal: CRON_SECRET bearer (for a scheduled run) or a
+// session cookie. Owner-only on top of that: garminClient talks to ONE
+// physical device via env-configured worker credentials, not per-user OAuth
+// (see cron/gcal's Garmin block for the full reasoning) — every row that
+// could ever legitimately carry a garminWorkoutId belongs to the owner, so
+// this does not fan out over every user via withCronFanOut; there is no
+// "each user's own Garmin" to iterate. A signed-in non-owner gets `skipped`,
+// never the owner's real reconcile data.
+//
+// NOT wrapped in one withUser() covering the whole handler: doing so would
+// hold Postgres's transaction (and this instance's only DB connection — see
+// db/index.ts) open across the Garmin listing call and up to
+// MAX_DELETES_PER_RUN sequential delete round-trips, risking an
+// idle-in-transaction timeout on a slow Garmin response. Instead: a short
+// withUser() read for the tracked-id set, then every Garmin call runs
+// unwrapped. This gives up atomicity between the DB read and the Garmin
+// work, but there wasn't any to begin with — a Garmin delete can't be rolled
+// back by Postgres regardless of how long the transaction stays open.
 
 // The worker's own hard cap (GET /workouts, limit param) — see garmin-worker/main.py.
 const LIST_LIMIT = 500;
@@ -40,37 +58,49 @@ export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const fromCron =
     Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
-  const fromOwner = await validateSessionCookie(request.headers.get("cookie"));
-  if (!fromCron && !fromOwner) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!fromCron) {
+    const sessionUserId = await getSessionUserId(request.headers.get("cookie"));
+    if (!sessionUserId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (sessionUserId !== OWNER_USER_ID) {
+      return Response.json({
+        skipped: true,
+        reason: "garmin is a single shared device, owner-only",
+      });
+    }
   }
 
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin worker not configured" }, { status: 503 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const apply = searchParams.get("apply") === "1";
+  const apply = request.nextUrl.searchParams.get("apply") === "1";
 
-  // Build the tracked-id set BEFORE listing Garmin. A read failure here is a
-  // hard abort — proceeding with an incomplete set could delete something
-  // that's still in use, e.g. the active plan's workouts.
+  // Build the tracked-id set BEFORE listing Garmin, inside a short-lived
+  // owner-scoped transaction released before any Garmin HTTP call (see file
+  // comment). A read failure here is a hard abort — proceeding with an
+  // incomplete set could delete something that's still in use, e.g. the
+  // active plan's workouts.
   let tracked: Set<string>;
   try {
-    const [runRows, strengthRows] = await Promise.all([
-      db
-        .select({ garminWorkoutId: workouts.garminWorkoutId })
-        .from(workouts)
-        .where(isNotNull(workouts.garminWorkoutId)),
-      db
-        .select({ garminWorkoutId: strengthSessions.garminWorkoutId })
-        .from(strengthSessions)
-        .where(isNotNull(strengthSessions.garminWorkoutId)),
-    ]);
-    tracked = new Set<string>();
-    for (const r of [...runRows, ...strengthRows]) {
-      if (r.garminWorkoutId) tracked.add(r.garminWorkoutId);
-    }
+    tracked = await withUser(asUserId(OWNER_USER_ID), async () => {
+      const [runRows, strengthRows] = await Promise.all([
+        db
+          .select({ garminWorkoutId: workouts.garminWorkoutId })
+          .from(workouts)
+          .where(isNotNull(workouts.garminWorkoutId)),
+        db
+          .select({ garminWorkoutId: strengthSessions.garminWorkoutId })
+          .from(strengthSessions)
+          .where(isNotNull(strengthSessions.garminWorkoutId)),
+      ]);
+      const t = new Set<string>();
+      for (const r of [...runRows, ...strengthRows]) {
+        if (r.garminWorkoutId) t.add(r.garminWorkoutId);
+      }
+      return t;
+    });
   } catch (err) {
     console.error("Reconcile aborted: failed to read tracked Garmin ids:", err);
     return Response.json(

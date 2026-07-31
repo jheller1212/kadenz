@@ -1,8 +1,9 @@
-import { asc, gt } from "drizzle-orm";
-import type { NextRequest } from "next/server";
+import { and, asc, gt } from "drizzle-orm";
 import { db, activities } from "@/db";
 import { csvRow } from "@/lib/csv";
-import { getActiveProfileId } from "@/lib/profiles";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
+import { getVerifiedProfileId } from "@/lib/profiles";
 
 // ── GET /api/export/activities ────────────────────────────────────────────────
 // Streams every logged activity as CSV. Paginated by a keyset cursor on `id`
@@ -23,7 +24,7 @@ const HEADER = [
   "elevation_gain_m",
 ];
 
-export async function GET(request: NextRequest) {
+export const GET = withSession(async (request) => {
   const encoder = new TextEncoder();
 
   // Strava is the owner's device, so a guest profile sees no activities at all
@@ -32,8 +33,11 @@ export async function GET(request: NextRequest) {
   // activity to whoever asked, handing a household guest the owner's entire
   // run history that the app itself never shows them. Scoping by a column is
   // not possible here because `activities` has no profile_id; ownership is the
-  // rule itself, so a guest gets a header-only file.
-  const isGuest = getActiveProfileId(request) != null;
+  // rule itself, so a guest gets a header-only file. Verified, not raw: an
+  // unverified cookie could name another athlete's profile id and would still
+  // read as "not the owner" here, so it wouldn't grant access on its own -- but
+  // it must not read as "owner" either just because it failed the guest check.
+  const isGuest = (await getVerifiedProfileId(request)) != null;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -61,7 +65,7 @@ export async function GET(request: NextRequest) {
               elevationGain: activities.elevationGain,
             })
             .from(activities)
-            .where(cursor ? gt(activities.id, cursor) : undefined)
+            .where(cursor ? and(ownedBy(activities), gt(activities.id, cursor)) : ownedBy(activities))
             .orderBy(asc(activities.id))
             .limit(BATCH_SIZE);
 
@@ -101,4 +105,4 @@ export async function GET(request: NextRequest) {
       "Content-Disposition": 'attachment; filename="kadenz-activities.csv"',
     },
   });
-}
+});

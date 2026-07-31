@@ -7,6 +7,8 @@ import { getPaceZones } from "@/lib/plan-engine/pace-zones";
 import { blendGoalWithCurrentFitness } from "@/lib/plan-engine/fitness-estimate";
 import { planDistanceMeters } from "@/lib/plan-engine/plan-generator";
 import type { PaceZones, PlanConfig } from "@/lib/plan-engine/types";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy, requireOwned } from "@/lib/api/owned";
 
 const ZONE_KEYS = ["E", "M", "T", "I", "R"] as const;
 type ZoneKey = (typeof ZONE_KEYS)[number];
@@ -41,20 +43,17 @@ function nearestZoneKey(paces: PaceZones, referencePaceSecKm: number): ZoneKey {
 // adjustment already baked into it — recalibrating shifts the fitness
 // baseline, it doesn't undo an athlete's manual tweak.
 
-export async function POST(
+export const POST = withSession(async (
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
 
-  try {
-    const plan = await db.query.plans.findFirst({
-      where: (p, { eq }) => eq(p.id, id),
-    });
-    if (!plan) {
-      return Response.json({ error: "Plan not found" }, { status: 404 });
-    }
+  // Confirms ownership before anything else — this route has no body to
+  // validate, but the check still comes first on principle.
+  const plan = await requireOwned(plans, id);
 
+  try {
     const estimate = await getCurrentFitnessEstimate();
     if (!estimate) {
       return Response.json(
@@ -90,6 +89,7 @@ export async function POST(
       .where(
         and(
           eq(workouts.planId, id),
+          ownedBy(workouts),
           eq(workouts.status, "planned"),
           ne(workouts.type, "race")
         )
@@ -146,9 +146,12 @@ export async function POST(
       await tx
         .update(plans)
         .set({ vdot: newVdot, updatedAt: new Date() })
-        .where(eq(plans.id, id));
+        .where(and(eq(plans.id, id), ownedBy(plans)));
       for (const { id: blockId, patch } of patches) {
-        await tx.update(blocks).set(patch).where(eq(blocks.id, blockId));
+        await tx
+          .update(blocks)
+          .set(patch)
+          .where(and(eq(blocks.id, blockId), ownedBy(blocks)));
       }
     });
 
@@ -168,4 +171,4 @@ export async function POST(
     console.error("DB error recalibrating plan:", err);
     return Response.json({ error: "Failed to recalibrate plan" }, { status: 500 });
   }
-}
+});

@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { db, strengthSessions, painLogs } from "@/db";
+import { db, painLogs, strengthSessions } from "@/db";
+import { withSession } from "@/lib/api/with-session";
+import { requireOwned } from "@/lib/api/owned";
 
 const PainSchema = z.object({
   score: z.number().int().min(0).max(10),
@@ -13,11 +14,18 @@ const PainSchema = z.object({
 // ── POST /api/strength/sessions/[id]/pain ─────────────────────────────────────
 // Log an Achilles pain check-in for a session. Feeds the (advisory) pain gate.
 
-export async function POST(
+export const POST = withSession(async (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { id } = await params;
+
+  // pain_logs has no user_id of its own — it inherits isolation from its
+  // parent session (see schema.ts), so ownership is resolved on the parent
+  // here, before the body is even parsed. Checked ahead of body validation
+  // for the same reason as the sessions PATCH route: a 422 on the body must
+  // not stand in for "not owned".
+  await requireOwned(strengthSessions, id);
 
   let body: unknown;
   try {
@@ -35,14 +43,6 @@ export async function POST(
   }
 
   try {
-    const [session] = await db
-      .select({ id: strengthSessions.id })
-      .from(strengthSessions)
-      .where(eq(strengthSessions.id, id));
-    if (!session) {
-      return Response.json({ error: "Session not found" }, { status: 404 });
-    }
-
     const [row] = await db
       .insert(painLogs)
       .values({
@@ -59,4 +59,4 @@ export async function POST(
     console.error("DB error logging pain:", err);
     return Response.json({ error: "Failed to log pain" }, { status: 500 });
   }
-}
+});

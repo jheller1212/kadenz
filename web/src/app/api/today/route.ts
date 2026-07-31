@@ -2,11 +2,13 @@ import { db, plans, weeks, workouts } from "@/db";
 import { isSameLocalDay, localWeekRange } from "@/lib/app-time";
 import { completedDistanceKm } from "@/lib/training/distance";
 import { eq, and, desc } from "drizzle-orm";
+import { withSession } from "@/lib/api/with-session";
+import { ownedBy } from "@/lib/api/owned";
 
 // ── GET /api/today ────────────────────────────────────────────────────────────
 // Returns the active plan's current week workouts + stats + week info
 
-export async function GET() {
+export const GET = withSession(async () => {
   try {
     // Find active plan
     const [activePlan] = await db
@@ -19,7 +21,7 @@ export async function GET() {
         intent: plans.intent,
       })
       .from(plans)
-      .where(eq(plans.status, "active"))
+      .where(and(eq(plans.status, "active"), ownedBy(plans)))
       .limit(1);
 
     if (!activePlan) {
@@ -33,9 +35,10 @@ export async function GET() {
     const { weekStart, weekEnd } = localWeekRange(now);
 
     let weekWorkouts = await db.query.workouts.findMany({
-      where: (wo, { eq, and, between }) =>
-        and(
+      where: (wo, { eq, and: andOp, between }) =>
+        andOp(
           eq(wo.planId, activePlan.id),
+          ownedBy(workouts),
           between(wo.date, weekStart, weekEnd)
         ),
       orderBy: (wo, { asc }) => [asc(wo.date), asc(wo.sortOrder)],
@@ -48,9 +51,10 @@ export async function GET() {
     // If no workouts this calendar week, find the first week with planned workouts
     if (weekWorkouts.length === 0) {
       const firstPlannedWorkout = await db.query.workouts.findFirst({
-        where: (wo, { eq, and, gte }) =>
-          and(
+        where: (wo, { eq, and: andOp, gte }) =>
+          andOp(
             eq(wo.planId, activePlan.id),
+            ownedBy(workouts),
             gte(wo.date, new Date())
           ),
         orderBy: (wo, { asc }) => [asc(wo.date)],
@@ -61,12 +65,12 @@ export async function GET() {
         const [weekRow] = await db
           .select({ id: weeks.id })
           .from(weeks)
-          .where(eq(weeks.id, firstPlannedWorkout.weekId))
+          .where(and(eq(weeks.id, firstPlannedWorkout.weekId), ownedBy(weeks)))
           .limit(1);
 
         if (weekRow) {
           weekWorkouts = await db.query.workouts.findMany({
-            where: (wo, { eq }) => eq(wo.weekId, weekRow.id),
+            where: (wo, { eq, and: andOp }) => andOp(eq(wo.weekId, weekRow.id), ownedBy(workouts)),
             orderBy: (wo, { asc }) => [asc(wo.date), asc(wo.sortOrder)],
             with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] }, activity: true },
           });
@@ -88,7 +92,7 @@ export async function GET() {
           actualKm: workouts.actualKm,
         })
         .from(workouts)
-        .where(eq(workouts.planId, activePlan.id));
+        .where(and(eq(workouts.planId, activePlan.id), ownedBy(workouts)));
 
       const completedRuns = allPlanWorkouts.filter(
         (w) => w.status === "completed" && w.type !== "rest"
@@ -100,7 +104,13 @@ export async function GET() {
           ? await db
               .select({ id: workouts.id, status: workouts.status })
               .from(workouts)
-              .where(and(eq(workouts.planId, activePlan.id), eq(workouts.type, "race")))
+              .where(
+                and(
+                  eq(workouts.planId, activePlan.id),
+                  ownedBy(workouts),
+                  eq(workouts.type, "race")
+                )
+              )
               .orderBy(desc(workouts.date))
               .limit(1)
           : [];
@@ -133,7 +143,7 @@ export async function GET() {
       const [weekRow] = await db
         .select({ weekNumber: weeks.weekNumber })
         .from(weeks)
-        .where(eq(weeks.id, weekId))
+        .where(and(eq(weeks.id, weekId), ownedBy(weeks)))
         .limit(1);
       if (weekRow) currentWeekNumber = weekRow.weekNumber;
     }
@@ -177,4 +187,4 @@ export async function GET() {
     console.error("DB error fetching today:", err);
     return Response.json({ error: "Failed to fetch today data" }, { status: 500 });
   }
-}
+});

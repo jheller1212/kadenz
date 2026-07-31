@@ -12,7 +12,9 @@
 // average is complete before the older baseline tail fills in.
 
 import { and, eq, gte, lt } from "drizzle-orm";
+import type { UserId } from "@/lib/user-id";
 import { db, wellnessMetrics } from "@/db";
+import { currentUserId } from "@/db/with-user";
 import { garminClient } from "./garmin-client";
 import { toGarminDate } from "./garmin-client";
 
@@ -46,7 +48,7 @@ function dateKey(d: Date): string {
  * never backfill them. No error and no empty screen, just a readiness
  * baseline stuck in its 21-night warm-up with no visible cause.
  */
-export async function runWellnessSync(userId: string): Promise<WellnessSyncResult> {
+export async function runWellnessSync(userId: UserId): Promise<WellnessSyncResult> {
   if (!garminClient.isConfigured()) {
     return { pulled: 0, missing: 0, failed: 0 };
   }
@@ -112,7 +114,11 @@ export async function runWellnessSync(userId: string): Promise<WellnessSyncResul
         // scopes its reads and writes by. Widening the constraint is a
         // migration, out of scope here; flagged, not fixed.
         .onConflictDoUpdate({
-          target: [wellnessMetrics.source, wellnessMetrics.date],
+          // The unique index gained user_id as its leading column in Phase 3
+          // (drizzle/0054) — the target list here has to name the same three
+          // columns or Postgres can't match this insert to that constraint at
+          // all, and onConflictDoUpdate throws instead of upserting.
+          target: [wellnessMetrics.userId, wellnessMetrics.source, wellnessMetrics.date],
           set: {
             sleepSeconds: w.sleepSeconds,
             restingHr: w.restingHr,

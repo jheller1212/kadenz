@@ -8,6 +8,7 @@
 // permanently swallowing the reminder.
 
 import { and, eq, inArray } from "drizzle-orm";
+import type { UserId } from "@/lib/user-id";
 import { db, sentReminders } from "@/db";
 import { localDayKey } from "@/lib/app-time";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
@@ -84,7 +85,7 @@ export async function dispatchDueReminders(now: Date = new Date()): Promise<Disp
 type UserDispatchResult = Omit<DispatchResult, "enabled" | "users">;
 
 async function dispatchForUser(
-  userId: string,
+  userId: UserId,
   config: ReminderConfig,
   now: Date,
   deadEndpoints: Set<string>
