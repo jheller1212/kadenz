@@ -1,0 +1,11 @@
+-- Why a session ended with fewer working sets logged than prescribed.
+--
+-- Asked once at Finish, not per exercise (see the strength summary screen) —
+-- "time" (had to leave) and "fatigue" (ran out of gas) mean opposite things
+-- for next session's suggested load, and until now the app couldn't tell them
+-- apart because a set that was never logged looked identical to one the
+-- athlete simply never reached. Null covers both "nothing was cut short" and
+-- "the athlete skipped the question" — lib/strength/progression.ts treats
+-- both the same as "time": only an explicit "fatigue" answer holds the next
+-- suggested load instead of increasing it.
+ALTER TABLE "strength_sessions" ADD COLUMN IF NOT EXISTS "cut_short_reason" text;

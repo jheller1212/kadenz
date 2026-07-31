@@ -41,6 +41,11 @@ const PatchSchema = z
     // exerciseOverrides above. An empty array clears it back to the plan's
     // own order.
     exerciseOrder: z.array(z.string()).optional(),
+    // Answered once at Finish, only when the athlete logged fewer working
+    // sets than prescribed (see the strength summary screen and db/schema.ts
+    // strengthSessions.cutShortReason). Not required — a skipped question
+    // reads the same as "time" downstream.
+    cutShortReason: z.enum(["time", "fatigue"]).nullable().optional(),
   })
   .strict();
 
