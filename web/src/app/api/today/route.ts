@@ -1,9 +1,10 @@
 import { db, plans, weeks, workouts } from "@/db";
 import { isSameLocalDay, localWeekRange } from "@/lib/app-time";
 import { completedDistanceKm } from "@/lib/training/distance";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte } from "drizzle-orm";
 import { withSession } from "@/lib/api/with-session";
 import { ownedBy } from "@/lib/api/owned";
+import { detectBehindPlan, ADHERENCE_WINDOW_DAYS } from "@/lib/plan-engine/adherence";
 
 // ── GET /api/today ────────────────────────────────────────────────────────────
 // Returns the active plan's current week workouts + stats + week info
@@ -166,6 +167,17 @@ export const GET = withSession(async () => {
     const daysCompleted = weekWorkouts.filter((w) => w.status === "completed").length;
     const totalDays = weekWorkouts.filter((w) => w.type !== "rest").length;
 
+    // "Behind plan" is a trend over a few weeks, not this-week's missed runs
+    // (PlanAdjustmentTray already covers that) — see adherence.ts.
+    const adherenceCutoff = new Date(now.getTime() - ADHERENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const recentWorkouts = await db
+      .select({ date: workouts.date, status: workouts.status, type: workouts.type })
+      .from(workouts)
+      .where(
+        and(eq(workouts.planId, activePlan.id), ownedBy(workouts), gte(workouts.date, adherenceCutoff))
+      );
+    const behindPlan = detectBehindPlan(recentWorkouts, now);
+
     return Response.json({
       activePlan: true,
       planId: activePlan.id,
@@ -182,6 +194,9 @@ export const GET = withSession(async () => {
         daysCompleted,
         totalDays,
       },
+      behindPlan: behindPlan.behind
+        ? { missedCount: behindPlan.missedCount, consideredCount: behindPlan.consideredCount }
+        : null,
     });
   } catch (err) {
     console.error("DB error fetching today:", err);

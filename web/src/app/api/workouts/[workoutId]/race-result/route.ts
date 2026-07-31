@@ -7,6 +7,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import { withSession } from "@/lib/api/with-session";
 import { currentUserId } from "@/db/with-user";
 import { ownedBy, requireOwned } from "@/lib/api/owned";
+import { pickPrDistance, recordRaceResultAsPersonalRecord } from "@/lib/personal-records";
 
 // A generous ceiling (48h) rather than a race-distance-specific one — ultras
 // exist, and rejecting a slow-but-real finish is worse than accepting a typo
@@ -93,6 +94,21 @@ export const POST = withSession(async (
       planStatus = updatedPlan?.status ?? null;
     } else if (plan) {
       planStatus = plan.status;
+    }
+
+    // Feed the result into personal_records through the shared helper (see
+    // personal-records.ts) rather than a second "is this a PR" calculation
+    // living here. Best-effort: a PR-bookkeeping failure must not turn a
+    // successfully logged race result into an error response.
+    if (plan && plan.intent === "race") {
+      const prDistance = pickPrDistance(plan.raceDistance);
+      if (prDistance) {
+        recordRaceResultAsPersonalRecord(
+          prDistance,
+          parsed.data.finishSeconds,
+          workout.date
+        ).catch((err) => console.error("Failed to record race result as a PR:", err));
+      }
     }
 
     isConnected(currentUserId())
