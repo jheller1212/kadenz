@@ -1170,6 +1170,23 @@ export default function GuidedSession({
           {ex.suggestedWeightKg != null && ex.suggestedWeightKg > 0 && (
             <span className="text-accent-fg"> · {formatLoad(ex.suggestedWeightKg, { dumbbells: ex.dumbbells, holdNote: ex.holdNote, perSide: ex.perSide })}</span>
           )}
+          {/* Reachable mid-exercise, not just from the completion screen — an
+              athlete who wants a 5th set on set 2 shouldn't have to finish
+              the prescribed 4 and pass through "Exercise complete" first.
+              Same addExtraSet as the completion-screen button below; safe to
+              call regardless of timer phase since it only appends to the
+              array (see addExtraSet's comment). Hidden once allLogged, which
+              already has its own, bigger version of this button. */}
+          {!allLogged && (
+            <button
+              type="button"
+              onClick={() => addExtraSet(ex.slug)}
+              style={{ touchAction: "manipulation" }}
+              className="text-accent-fg underline decoration-dotted underline-offset-2"
+            >
+              {" "}· + add a set
+            </button>
+          )}
         </p>
         {(ex.flatGroundOnly || ex.painGated) && (
           <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
