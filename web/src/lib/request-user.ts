@@ -44,6 +44,24 @@ export function unauthorized(): Response {
  * that forgets to handle the failure case fails to compile instead of writing
  * against `undefined`. That is the whole point: a request whose owner could not
  * be established must never reach a query.
+ *
+ * @deprecated This resolves WHO is calling, nothing more — it opens no
+ * database transaction and sets no row level security context. A route that
+ * calls this and then reads or writes a tenanted table (directly, or through
+ * any helper in src/lib) runs on the pooled connection with no `app.user_id`
+ * set, which under FORCE ROW LEVEL SECURITY reads back as empty and writes as
+ * a rejected insert/update — invisibly, no error, whatever status code the
+ * route happens to return. That is exactly the bug this comment exists to
+ * name: `/api/strava/disconnect` used this and reported `{ ok: true }` while
+ * deleting nothing.
+ *
+ * Use `withSession` (src/lib/api/with-session.ts) for any route that touches
+ * a tenanted table; get the id inside the handler via `currentUserId()`
+ * (src/db/with-user.ts) once wrapped. This function still has two honest
+ * uses: routes with no tenanted database access at all (see the "no-db"
+ * entries in e2e/specs/cross-user-isolation.spec.ts), and `withSession`
+ * itself, which is the one place `resolveRequestUserId` (not this) is
+ * supposed to be called directly.
  */
 export async function requireRequestUser(
   request: Request

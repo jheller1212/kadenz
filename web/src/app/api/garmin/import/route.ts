@@ -1,15 +1,24 @@
-import { type NextRequest } from "next/server";
 import { garminClient, GarminAuthError } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
-import { resolveRequestUserId } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
 
 // ── POST /api/garmin/import ───────────────────────────────────────────────────
 // Pull recent activities from the garmin-worker and store the new ones
-// (dedupe against Strava arrivals). Also invoked by the daily cron.
+// (dedupe against Strava arrivals). Also invoked by the daily cron (see
+// /api/cron/gcal, which fans out over users itself and calls
+// runGarminImport directly inside its own per-user loop, not through this
+// HTTP route).
+//
+// runGarminImport writes `activities` (tenanted, FORCE row level security),
+// so it needs withSession's transaction the same as every other route here.
+// It makes exactly one external call (garminClient.listActivities) before
+// its per-activity loop is DB-only, so holding the transaction for the whole
+// handler doesn't hold it over a slow multi-call round trip the way
+// strava/backfill's per-activity Strava fetches would.
 
-export async function POST(request: NextRequest) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export const POST = withSession(async () => {
+  const userId = currentUserId();
 
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin worker not configured" }, { status: 503 });
@@ -28,4 +37,4 @@ export async function POST(request: NextRequest) {
     console.error("Garmin import error:", err);
     return Response.json({ error: "Import failed" }, { status: 500 });
   }
-}
+});

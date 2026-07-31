@@ -1,15 +1,19 @@
-import { type NextRequest } from "next/server";
 import { resyncGarminWindow } from "@/lib/sync/garmin-sync";
 import { garminClient } from "@/lib/sync/garmin-client";
-import { resolveRequestUserId } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
 
 // ── POST /api/garmin/resync ──────────────────────────────────────────────────
 // Re-push whatever is missing on Garmin. Purely additive: workouts Kadenz
 // pushed that have since disappeared are recreated. Nothing is deleted here.
+//
+// resyncGarminWindow reads/writes `workouts`/`strength_sessions` (tenanted,
+// FORCE row level security) after one external call (listWorkouts), so it
+// needs withSession's transaction and is safe to hold it for, same reasoning
+// as garmin/import.
 
-export async function POST(request: NextRequest) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export const POST = withSession(async () => {
+  const userId = currentUserId();
 
   if (!garminClient.isConfigured()) {
     return Response.json({ error: "Garmin worker not configured" }, { status: 503 });
@@ -25,4 +29,4 @@ export async function POST(request: NextRequest) {
     }
     return Response.json({ error: "Failed to resync" }, { status: 500 });
   }
-}
+});

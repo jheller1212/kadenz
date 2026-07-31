@@ -1,14 +1,18 @@
-import { type NextRequest } from "next/server";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { loadGarminConfig } from "@/lib/sync/garmin-config";
-import { resolveRequestUserId } from "@/lib/request-user";
+import { withSession } from "@/lib/api/with-session";
+import { currentUserId } from "@/db/with-user";
 
 // ── GET /api/garmin/status ────────────────────────────────────────────────────
 // Worker deployment + health + the server-side "send workouts to watch" toggle.
+//
+// loadGarminConfig reads user_integration_state (tenanted, FORCE row level
+// security) — needs withSession's transaction, same shape/fix as
+// garmin/config and strava/disconnect. Before this, the toggle always
+// answered `false` here regardless of what was actually stored.
 
-export async function GET(request: NextRequest) {
-  const userId = await resolveRequestUserId(request);
-  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withSession(async () => {
+  const userId = currentUserId();
 
   try {
     const configured = garminClient.isConfigured();
@@ -30,4 +34,4 @@ export async function GET(request: NextRequest) {
     console.error("Garmin status error:", err);
     return Response.json({ error: "Failed to fetch Garmin status" }, { status: 500 });
   }
-}
+});
