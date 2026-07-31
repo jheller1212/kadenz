@@ -3,6 +3,8 @@ import { and, eq, gte, isNull } from "drizzle-orm";
 import { db, strengthSessions } from "@/db";
 import { getVerifiedProfileId } from "@/lib/profiles";
 import { sessionVolume, type VolumeSet } from "@/lib/strength/volume";
+import { getProgramWeekAndPhase } from "@/lib/strength/service";
+import { phaseSummaryFor } from "@/lib/strength/phase-policy";
 import { withSession } from "@/lib/api/with-session";
 import { ownedBy } from "@/lib/api/owned";
 
@@ -66,10 +68,17 @@ export const GET = withSession(async (request: NextRequest) => {
       );
     const volume = sessionVolume(setsThisWeek);
 
+    // What running-plan phase today's strength work is following, if any —
+    // same weekInfo lookup buildPlannedSession uses to drive the set-count
+    // backoff, just surfaced as the reason text instead of applied silently.
+    const { weekInfo } = await getProgramWeekAndPhase(now);
+    const phase = phaseSummaryFor(weekInfo);
+
     return Response.json({
       sessionsPerWeek: recentSessions.length > 0 ? sessionsPerWeek : null,
       volumeKg: volume.kg != null ? Math.round(volume.kg) : null,
       bodyweightReps: volume.bodyweightReps,
+      phase,
     });
   } catch (err) {
     console.error("DB error computing strength summary:", err);

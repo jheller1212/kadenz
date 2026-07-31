@@ -207,6 +207,10 @@ export default function StrengthPage() {
     sessionsPerWeek: number | null;
     volumeKg: number | null;
     bodyweightReps: number | null;
+    // What running-plan phase (base/build/peak/taper, or the deload/race
+    // override) today's strength work is following — null with no active
+    // running plan, see phase-policy.ts phaseSummaryFor.
+    phase: { phaseLabel: string; note: string } | null;
   } | null>(null);
   const [customBuilderOpen, setCustomBuilderOpen] = useState(false);
   // Today's scheduled strength session(s), surfaced at the top of the picker so
@@ -1089,6 +1093,17 @@ export default function StrengthPage() {
               </div>
             );
           })()}
+
+          {/* What running phase strength is following, in one line — the
+              engine already backs sets off by phase (phase-policy.ts); this
+              is just saying so, not a new decision. Absent with no active
+              running plan (standalone block has no phase to report). */}
+          {hubStats?.phase && (
+            <p className="mb-4 text-[13px] text-text-3">
+              <span className="font-bold text-text-2">{hubStats.phase.phaseLabel} phase.</span>{" "}
+              {hubStats.phase.note}
+            </p>
+          )}
 
           {/* Stat row — real aggregates only; no invented numbers. Loaded
               volume (kg) and bodyweight work (reps) are two separate tiles,

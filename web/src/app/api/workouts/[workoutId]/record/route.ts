@@ -8,6 +8,7 @@ import { completesOnRecord } from "@/lib/workout-record";
 import { currentUserId } from "@/db/with-user";
 import { withSession } from "@/lib/api/with-session";
 import { ownedBy, requireOwned } from "@/lib/api/owned";
+import { weekMilestoneForCompletedWorkout } from "@/lib/plan-engine/week-milestone-service";
 
 // ── POST /api/workouts/[workoutId]/record ─────────────────────────────────────
 // A guided phone run finished with GPS: persist it as an activity (route +
@@ -85,10 +86,11 @@ export const POST = withSession(async (
     // endpoint's job. Marking "completed" here would let the athlete dismiss
     // that sheet with a race that's server-side done but has no
     // raceFinishSeconds and a plan that never closed.
+    const completesWorkout = completesOnRecord(workout.type);
     await db
       .update(workouts)
       .set({
-        ...(completesOnRecord(workout.type) ? { status: "completed" as const } : {}),
+        ...(completesWorkout ? { status: "completed" as const } : {}),
         actualKm: data.distanceKm,
         actualDurationSeconds: data.durationSeconds,
         updatedAt: new Date(),
@@ -104,7 +106,14 @@ export const POST = withSession(async (
       })
       .catch(() => {});
 
-    return Response.json({ ok: true, activityId: activity?.id }, { status: 201 });
+    // Only worth checking the week's completion state if this recording
+    // actually closed the workout out — a race workout doesn't (see the
+    // comment above), so it has nothing to report here yet.
+    const weekMilestone = completesWorkout
+      ? await weekMilestoneForCompletedWorkout(workout.weekId)
+      : null;
+
+    return Response.json({ ok: true, activityId: activity?.id, weekMilestone }, { status: 201 });
   } catch (err) {
     console.error("DB error recording guided run:", err);
     return Response.json({ error: "Failed to record run" }, { status: 500 });

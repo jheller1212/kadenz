@@ -74,7 +74,7 @@ async function getActivePlanRef(): Promise<{ id: string; startDate: Date } | nul
  * their template/ability prescribes (see schedule.ts's `block` branch, which
  * never touches this).
  */
-async function getProgramWeekAndPhase(
+export async function getProgramWeekAndPhase(
   date: Date
 ): Promise<{ programWeek: number; weekInfo: { phase: string; type: string } | null }> {
   const plan = await getActivePlanRef();

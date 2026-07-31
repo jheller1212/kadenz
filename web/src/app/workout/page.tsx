@@ -1073,8 +1073,10 @@ function WorkoutDetailPageInner() {
         body: "{}",
       });
       if (res.ok) {
+        const data = await res.json().catch(() => null);
         haptic("success");
         setWorkout((prev) => prev ? { ...prev, status: "completed" } : prev);
+        applyWeekMilestone(data?.weekMilestone ?? null);
         setCelebrating(true);
       } else {
         setActionError("Couldn't save your workout. Please try again.");
@@ -1089,6 +1091,18 @@ function WorkoutDetailPageInner() {
   // Fires on a fresh completion only, so revisiting a done workout is quiet.
   const [celebrating, setCelebrating] = useState(false);
   const [celebrationDetail, setCelebrationDetail] = useState<string | null>(null);
+  // Defaults to the plain per-session beat; a genuinely complete week (or a
+  // complete peak week) overrides it — see applyWeekMilestone.
+  const [celebrationTitle, setCelebrationTitle] = useState("Nice work");
+
+  // The longer-arc beat, layered onto whichever completion path just ran.
+  // Only ever raises the title above the per-session default — it never
+  // hides the session detail line underneath it.
+  function applyWeekMilestone(milestone: "week" | "peak-week" | null) {
+    if (milestone === "peak-week") setCelebrationTitle("Peak week done");
+    else if (milestone === "week") setCelebrationTitle("Week complete");
+    else setCelebrationTitle("Nice work");
+  }
 
   const [rpeSaving, setRpeSaving] = useState(false);
   async function handleRpe(rpe: number) {
@@ -1113,7 +1127,7 @@ function WorkoutDetailPageInner() {
     }
   }
 
-  function markCompletedLocally(summary: GuidedRunFinish) {
+  function markCompletedLocally(summary: GuidedRunFinish, weekMilestone: "week" | "peak-week" | null = null) {
     const km = summary.distanceKm;
     const mins = Math.round(summary.elapsedSeconds / 60);
     setCelebrationDetail(
@@ -1123,6 +1137,7 @@ function WorkoutDetailPageInner() {
           ? `${mins} min`
           : null
     );
+    applyWeekMilestone(weekMilestone);
     setCelebrating(true);
     setWorkout((prev) =>
       prev
@@ -1162,6 +1177,7 @@ function WorkoutDetailPageInner() {
           }),
         });
         if (res.ok) {
+          const data = await res.json().catch(() => null);
           haptic("success");
           // A race workout still needs the deliberate result-logging step —
           // the recorded activity is evidence (map, splits), not the result
@@ -1171,7 +1187,7 @@ function WorkoutDetailPageInner() {
             setRaceResultPrefillSeconds(summary.elapsedSeconds > 0 ? summary.elapsedSeconds : null);
             setRaceResultOpen(true);
           } else {
-            markCompletedLocally(summary);
+            markCompletedLocally(summary, data?.weekMilestone ?? null);
           }
           return;
         }
@@ -1194,8 +1210,9 @@ function WorkoutDetailPageInner() {
         }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => null);
         haptic("success");
-        markCompletedLocally(summary);
+        markCompletedLocally(summary, data?.weekMilestone ?? null);
       } else {
         setActionError("Run saved locally, but we couldn't mark it complete. Try again.");
       }
@@ -1773,8 +1790,12 @@ function WorkoutDetailPageInner() {
       <AnimatePresence>
         {celebrating && (
           <WorkoutCelebration
+            title={celebrationTitle}
             detail={celebrationDetail}
-            onDone={() => setCelebrating(false)}
+            onDone={() => {
+              setCelebrating(false);
+              setCelebrationTitle("Nice work");
+            }}
           />
         )}
       </AnimatePresence>

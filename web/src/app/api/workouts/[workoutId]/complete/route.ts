@@ -7,6 +7,7 @@ import { isConnected } from "@/lib/sync/gcal-client";
 import { withSession } from "@/lib/api/with-session";
 import { currentUserId } from "@/db/with-user";
 import { ownedBy, requireOwned } from "@/lib/api/owned";
+import { weekMilestoneForCompletedWorkout } from "@/lib/plan-engine/week-milestone-service";
 
 const CompleteSchema = z.object({
   actualKm: z.number().nonnegative().optional(),
@@ -72,7 +73,12 @@ export const PATCH = withSession(async (
       }
     }).catch(() => {});
 
-    return Response.json(updated);
+    // Did this completion finish the week it's in? Checked against every
+    // sibling workout's real status (not a counter) — see celebrations.ts
+    // for why a mostly-missed week must never read as a win.
+    const weekMilestone = await weekMilestoneForCompletedWorkout(updated.weekId);
+
+    return Response.json({ ...updated, weekMilestone });
   } catch (err) {
     console.error("DB error completing workout:", err);
     return Response.json({ error: "Failed to complete workout" }, { status: 500 });
