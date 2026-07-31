@@ -1,159 +1,165 @@
-# Claude Design brief: Kadenz Kraft screens
+# Claude Design brief: Kadenz screens
 
-Paste the section below into Claude Design. Everything in it is real: the
-programme names, colours, equipment presets and durations are taken from the
-shipped code, so the design lands on data that actually exists.
+Paste the section below into Claude Design. Every number, colour, label and
+constraint is taken from shipped code as of 2026-07-31, so the design lands on
+what the app actually does.
 
 ---
 
 ## The prompt
 
-Design three mobile screens for **Kadenz**, a training app for runners who also
-lift. Mobile-first, target 390px wide, one-handed use. The app is a dark-themed
-PWA installed on a phone. There is a fixed bottom navigation bar with five
-tabs: Today, Plan, Kraft, Activities, Stats. These screens live under the
-**Kraft** tab, which is the strength training section. Design for dark mode as
-the primary, and light mode as a secondary.
+Design five mobile screens for **Kadenz**, a training app for runners who also
+lift. Mobile-first, target 390px wide, one-handed use. It is a dark-themed PWA
+installed on a phone, with a fixed bottom navigation bar of five tabs: Today,
+Plan, Kraft, Activities, Stats. Design dark mode as primary and light mode as
+secondary.
 
-Athletes open Kraft standing in a gym, often mid-session, sometimes with cold
-hands. Tap targets should be generous and the primary action should sit within
-thumb reach at the bottom.
+Athletes open these screens standing in a gym, often mid-session, sometimes
+with cold hands. Tap targets are generous, minimum 44px, and the primary action
+sits within thumb reach at the bottom.
 
 ### Screen 1: Kraft hub
 
-The screen a user lands on when they tap Kraft. It has to answer one question
-fast: what am I training today, and can I start it right now.
+The screen behind the Kraft tab. It answers one question fast: what am I
+training today, and can I start it now.
 
-Contents:
+**A. Today's state, at the top.** Three cases, design all three:
+- a session already planned for today, with resuming or starting it as the one
+  obvious action
+- a session left partway, offering to continue, complete or discard it
+- nothing planned, falling through to the programme grid
 
-**A. Today's state, at the top.** One of three cases, design all three:
-- A session is already planned for today. Show it and make resuming or
-  starting it the single obvious action.
-- A session is in progress and was left partway. Show progress and offer to
-  resume.
-- Nothing planned. Fall through to the programme grid as the main content.
+**B. Programme grid.** Two columns, exactly three cards:
 
-**B. Programme grid.** A 2-column grid of cards. There are exactly three:
-
-| Title | Subtitle | Accent colour |
+| Title | Subtitle | Accent |
 |---|---|---|
-| Full Body | 6 lifts, about 38 min | `#34D399` green |
-| Upper | 6 lifts, about 40 min | `#93C5FD` blue |
-| Lower | 4 lifts, about 35 min | `#D8B4FE` purple |
+| Full Body | 6 lifts, about 38 min | `#34D399` |
+| Upper | 6 lifts, about 40 min | `#93C5FD` |
+| Lower | 4 lifts, about 35 min | `#D8B4FE` |
 
-The lift count and duration are computed per user and change, so treat them as
-live values, not fixed labels. Each card needs a title, that subtitle line, and
-the accent colour as an identifying element. A dumbbell icon is currently used
-for all three, so if you want per-programme iconography, propose it.
+Lift counts and durations are computed per athlete and change, so treat them as
+live values. A dumbbell icon is used for all three today; propose per-programme
+iconography if you want it.
 
-**C. Custom workouts.** A separate section below the grid listing workouts the
-user built themselves. Each row needs start, edit and delete. Design the empty
-state too, since most users will have none, plus an entry point to build one.
+**C. Custom workouts.** Their own section below, each row with start, edit and
+delete, plus the empty state, which is what most athletes see.
 
-**D. A way into settings** for the strength plan (equipment, ability, injuries).
+**D. A way into Kraft settings.**
 
 ### Screen 2: Pre-start sheet
 
-Tapping a programme card opens this before anything begins. It exists so the
-user can see and adjust what was generated for them, since the app tailors the
-session to their equipment, injuries, ability and time.
-
-Contents:
+Opens on tapping a programme, before anything begins. It exists so the athlete
+can see and adjust what was generated for them.
 
 **A. The generated exercise list.** Each row: exercise name, sets by reps, and
-the suggested working weight. Rows should be reorderable and individually
-swappable for an alternative. Show a live total duration estimate that visibly
-updates as the list changes, because the whole point is matching the time
-available.
+suggested working weight. Reorderable and individually swappable. A live total
+duration estimate that visibly updates as the list changes.
 
-**B. Duration selector.** Three choices: 30, 45, 60 minutes. Applies to this
-session only, does not change the user's saved default. Make that scoping
-legible without a paragraph of explanation.
+**B. Duration.** 30, 45 or 60 minutes, applying to **this session only**,
+without changing the athlete's saved default.
 
-**C. Equipment for this session.** Three presets, again for this session only:
-- "Home or bodyweight": no equipment
-- "CrossFit or Hyrox box": free weights, boxes, bands, benches, pull-up bars,
-  no machines
-- "Full gym": everything a box has, plus machines
+**C. Equipment for this session only.** Three presets: "Home or bodyweight",
+"CrossFit or Hyrox box", "Full gym". Below them the nine individual items stay
+editable: Dumbbells, Chair, Box or step, Bench, Barbell, Kettlebell, Pull-up
+bar, Resistance band, Machines. Presets tick those boxes rather than being a
+separate concept, so show that relationship.
 
-Below the presets, the individual equipment remains editable: Dumbbells, Chair,
-Box / step, Bench, Barbell, Kettlebell, Pull-up bar, Resistance band, Machines.
-Presets are a shortcut that ticks those boxes, not a separate concept, so the
-relationship between the two should be visually obvious.
+**D. A clear primary action** to start.
 
-**D. A clear primary action** to start the session.
+After starting, the applied choices appear on the session overview, for example
+"45 min today, Gym today", so the athlete can confirm they took effect.
 
-### Screen 3: Add exercise (inside the custom workout builder)
+### Screen 3: Add exercise
 
-Reached from the custom workout builder when the user adds an exercise. It
-picks from an inventory of **88 exercises**, so scrolling the whole list is the
-current problem and the reason this screen is being redesigned.
+Reached from the custom workout builder. It picks from **88 exercises**, so
+scrolling is the problem being solved.
 
-Contents:
+**A. Search pinned at the top**, staying reachable while results scroll.
 
-**A. Search field, pinned at the top** so it stays reachable while results
-scroll. Filters by exercise name as the user types.
+**B. Ten muscle group chips:** Quads, Hamstrings, Glutes, Calves and shins,
+Chest, Back, Shoulders, Biceps, Triceps, Core.
 
-**B. Muscle group filter chips.** Ten groups, each with at least five
-exercises behind it:
+Ten chips do not fit one row at 390px. Solve that deliberately and say how.
+The groups are deliberately uneven: Glutes, Core and Shoulders have around 30
+exercises each, Calves and shins has 8. An exercise can belong to several
+groups, so a chip filters rather than partitions and the same exercise
+legitimately appears under more than one.
 
-Quads, Hamstrings, Glutes, Calves and shins, Chest, Back, Shoulders, Biceps,
-Triceps, Core.
+**C. Results rows:** name, the muscle it trains, the equipment it needs. Some
+rows carry the athlete's last used weight and how often they have done it, and
+**any exercise they have never done has neither**, so the row must survive that
+being absent.
 
-The groups are uneven by design, because the inventory is. Glutes, Core and
-Shoulders each have around 30 exercises while Calves and shins has 8 and Chest
-has 9. Ten chips will not fit one row at 390px, so the design has to solve for
-that: a wrapping two-row set, a horizontally scrolling row, or a compact
-expandable control. Say which you chose and why.
+**D. Sorting already exists** and must not compete with the filter for
+attention.
 
-An exercise can belong to several groups, since most compound lifts train more
-than one muscle. A chip therefore filters rather than partitions, and the same
-exercise legitimately appears under multiple chips. Make sure that does not
-read as a bug.
+**E. Empty state** when nothing matches, clearing search and filter together.
 
-**C. Results list.** Each row: exercise name, the muscle it trains, and the
-equipment it needs. Some exercises show the user's last used weight and how
-often they have done it, so design a row that can carry that without breaking
-when it is absent, which is the case for any exercise they have never done.
+### Screen 4: Connections
 
-**D. Sorting** already exists on this screen and must survive. It should sit
-alongside the filter without the two competing for attention.
+Used twice, in onboarding and in settings, sharing one design. Nothing here may
+imply a device is required.
 
-**E. Empty state** when a search matches nothing, with a one-tap way to clear
-the search and filter together.
+**"Bring your runs in"**
+- **Strava.** "Your runs import automatically, with pace, heart rate and the
+  route."
+- **Garmin.** Only appears for athletes who can actually use it. Sends workouts
+  to the watch, and returns sleep, resting heart rate and HRV that feed the
+  readiness score.
+- **Apple Health.** A **non-interactive row**, not a toggle: "Apple Health has
+  no web connection, it needs the phone app", with a "Not yet" pill.
 
-Search and filter combine, so the design needs to show both active at once and
-make clearing either one obvious.
+**"Send your sessions out"**
+- **Google Calendar.** "Your sessions appear in your calendar. Nothing comes
+  back in." It is a destination, not a source, so keep it visually distinct
+  from the group above.
+
+**"Or record by hand"**
+- A **full-width card**, the same weight as the options above, never a grey
+  link: "I'll record by hand. You log runs from the Activities tab, and
+  readiness comes from your daily check-in."
+
+An athlete with no device is normal, not lapsed. Skipping must feel equal to
+connecting.
+
+### Screen 5: Kraft settings
+
+Where an athlete changes what the generator does.
+
+**A. Complaints.** A switch per running complaint, each row naming the exercises
+that complaint adds. Turning one off opens a confirmation naming exactly what
+stops, stating that logged sets and pain scores are kept, and warning that
+re-reporting restarts the calf protocol from week 1.
+
+**B. Equipment, ability, session length, rest**, as saved defaults, clearly
+distinct from the per-session overrides on Screen 2.
+
+**C. An entry point to the full setup wizard** for an athlete who has not run it.
 
 ### Constraints
 
-- **No em dashes anywhere in the copy.** Use commas, colons or full stops.
-- Do not invent metrics, charts or scores. If a number is not named above, the
+- **No em dashes anywhere in the copy.** Commas, colons or full stops.
+- Do not invent metrics, charts or scores. If a number is not named here, the
   app does not have it.
-- Do not design the in-session set logger. That is a separate existing screen.
-- On Screen 3, do not invent exercise imagery or illustrations. There are 99
-  exercises and no artwork exists for them.
+- Do not design the in-session set logger. It exists and is out of scope.
+- No exercise imagery. There are 88 exercises and no artwork exists.
 - Never reference or resemble another training app by name.
-- Keep copy short and plain. These are read standing up, not sitting down.
-- Assume the exercise list can be as short as 4 rows or as long as 12.
+- Copy is short and plain. These are read standing up.
+- Exercise lists run from 4 to 12 rows.
+- Nothing may imply a device, a watch or a connected account is required.
 
 ### What I want back
 
-All three screens, in dark and light, including the three states of the top
-section on Screen 1, and the empty states for custom workouts and for a search
-that matches nothing. Call out anything you think is wrong with this structure
-rather than only executing it.
+All five screens in dark and light, including the three states on Screen 1, the
+empty states on Screens 1 and 3, and the confirmation on Screen 5. Call out
+anything you think is wrong with this structure rather than only executing it.
 
 ---
 
-## After the design exists
+## Notes for whoever implements the result
 
-The functional work behind these screens is already shipped in PR #75:
-per-session duration and equipment overrides are stored on `strength_sessions`
-(`duration_override_minutes`, `equipment_override`), the picker already renders
-`PICKER_TYPES` (`full_body`, `upper`, `lower`), and Achilles rehab now arrives
-as a complaint reshaping those three rather than as its own cards.
-
-So this is a reskin plus the exercise-list editing affordances, not new
-plumbing. The one genuinely new build is the swap and reorder interaction on
-the pre-start list, if the design calls for it.
+The plumbing exists. Per-session duration and equipment overrides are stored on
+`strength_sessions`, the picker renders `full_body`, `upper` and `lower`,
+complaints are editable through `settings/kraft`, and the connections
+preference is persisted per user. This is a reskin plus the swap and reorder
+affordances on Screen 2, not new backend work.
