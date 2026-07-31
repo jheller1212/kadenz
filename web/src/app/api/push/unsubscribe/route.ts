@@ -7,7 +7,10 @@ import { currentUserId } from "@/db/with-user";
 // Called when the athlete turns reminders off on this device, or when the
 // notification permission gets revoked at the OS level.
 
-const BodySchema = z.object({ endpoint: z.string().url() }).strict();
+// `endpoint` is a URL for a browser subscription and an opaque FCM token for
+// the native shell, so it cannot be validated as a URL any more. It is only
+// ever used as an exact-match delete key, never dereferenced.
+const BodySchema = z.object({ endpoint: z.string().min(1) }).strict();
 
 export const POST = withSession(async (request) => {
   let body: unknown;

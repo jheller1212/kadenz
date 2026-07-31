@@ -1,0 +1,33 @@
+{
+  "name": "kadenz-native",
+  "version": "0.1.0",
+  "private": true,
+  "comment": "The `firebase` JS SDK is an optional peer of @capacitor-firebase/messaging and is deliberately absent: it is only used by that plugin's web platform, and on the web Kadenz sends push with VAPID through web-push instead. Adding it would pull a large unused dependency and pin us to its major version.",
+  "description": "Capacitor shell wrapping the Kadenz web front end for iOS and Android",
+  "scripts": {
+    "build:web": "npm --prefix ../web run build:shell",
+    "sync": "cap sync",
+    "build": "npm run build:web && cap sync",
+    "add:ios": "cap add ios",
+    "add:android": "cap add android",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android",
+    "run:ios": "cap run ios",
+    "run:android": "cap run android",
+    "doctor": "cap doctor"
+  },
+  "dependencies": {
+    "@capacitor-firebase/messaging": "^7.4.0",
+    "@capacitor/android": "^7.4.4",
+    "@capacitor/app": "^7.1.0",
+    "@capacitor/core": "^7.4.4",
+    "@capacitor/ios": "^7.4.4",
+    "@capacitor/push-notifications": "^7.0.4",
+    "@capacitor/splash-screen": "^7.0.4",
+    "@capacitor/status-bar": "^7.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.4",
+    "typescript": "^5.9.3"
+  }
+}

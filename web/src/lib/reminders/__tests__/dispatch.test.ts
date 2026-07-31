@@ -99,8 +99,8 @@ const listSubscriptions = vi.fn();
 const removeExpiredSubscriptions = vi.fn();
 vi.mock("../subscriptions", () => ({ listSubscriptions, removeExpiredSubscriptions }));
 
-const sendPush = vi.fn();
-vi.mock("../push", () => ({ sendPush }));
+const sendToSubscription = vi.fn();
+vi.mock("../push", () => ({ sendToSubscription }));
 
 const { dispatchDueReminders } = await import("../dispatch");
 
@@ -132,7 +132,7 @@ beforeEach(() => {
   listEnabledReminderConfigs.mockReset();
   listSubscriptions.mockReset();
   removeExpiredSubscriptions.mockReset().mockResolvedValue(undefined);
-  sendPush.mockReset();
+  sendToSubscription.mockReset();
 });
 
 describe("dispatchDueReminders", () => {
@@ -147,7 +147,7 @@ describe("dispatchDueReminders", () => {
       [USER_B]: [{ endpoint: "https://push.example/b-phone", p256dh: "kB", auth: "aB" }],
     };
     listSubscriptions.mockImplementation((userId: string) => Promise.resolve(subsByUser[userId] ?? []));
-    sendPush.mockResolvedValue({ ok: true, expired: false });
+    sendToSubscription.mockResolvedValue({ ok: true, expired: false });
 
     // One findMany per user (their own candidate workouts), then one select
     // per user for existing sent_reminders claims.
@@ -161,10 +161,10 @@ describe("dispatchDueReminders", () => {
     const result = await dispatchDueReminders(NOW);
 
     expect(result.sent).toBe(2);
-    expect(sendPush).toHaveBeenCalledTimes(2);
+    expect(sendToSubscription).toHaveBeenCalledTimes(2);
 
     // A's push went only to A's endpoint, B's only to B's.
-    const endpointsCalled = sendPush.mock.calls.map((c) => c[0].endpoint);
+    const endpointsCalled = sendToSubscription.mock.calls.map((c) => c[0].endpoint);
     expect(endpointsCalled).toEqual([
       "https://push.example/a-phone",
       "https://push.example/b-phone",
@@ -188,7 +188,7 @@ describe("dispatchDueReminders", () => {
             { endpoint: "https://push.example/b-phone", p256dh: "kB", auth: "aB" },
           ])
     );
-    sendPush.mockResolvedValue({ ok: true, expired: false });
+    sendToSubscription.mockResolvedValue({ ok: true, expired: false });
 
     findMany.mockResolvedValue([dueWorkout("workout-b", "B's easy run")]);
     queueSelect([]); // B: no existing claim
@@ -198,7 +198,7 @@ describe("dispatchDueReminders", () => {
 
     expect(result.sent).toBe(1);
     expect(result.errors).toBeGreaterThanOrEqual(1); // A's failure is counted, not swallowed silently
-    expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0][0].endpoint).toBe("https://push.example/b-phone");
+    expect(sendToSubscription).toHaveBeenCalledTimes(1);
+    expect(sendToSubscription.mock.calls[0][0].endpoint).toBe("https://push.example/b-phone");
   });
 });

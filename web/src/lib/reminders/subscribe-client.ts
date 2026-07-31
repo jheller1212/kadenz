@@ -4,6 +4,8 @@
 // does not re-check, exactly like requestNotificationPermission's contract.
 
 import { apiFetch } from "@/lib/api";
+import { isNativeShell } from "@/lib/native/bridge";
+import { registerNativePush, unregisterNativePush } from "@/lib/native/push";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -15,6 +17,9 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
 }
 
 export function pushSupported(): boolean {
+  // The native shell always supports push, and does it through the OS rather
+  // than the Push API, so it must not be measured by browser capabilities.
+  if (isNativeShell()) return true;
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
@@ -23,8 +28,15 @@ export function pushSupported(): boolean {
   );
 }
 
-/** Subscribes this device to push and registers it with the server. */
+/**
+ * Subscribes this device to push and registers it with the server.
+ *
+ * Inside the native shell this goes to APNs/FCM instead of the Push API. That
+ * choice lives here rather than at the call sites so the settings screen has
+ * one function to call and no knowledge of which transport it got.
+ */
 export async function subscribeToPush(): Promise<boolean> {
+  if (isNativeShell()) return registerNativePush();
   if (!pushSupported()) return false;
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   if (!publicKey) {
@@ -61,6 +73,7 @@ export async function subscribeToPush(): Promise<boolean> {
 
 /** Unsubscribes this device locally and tells the server to drop it. */
 export async function unsubscribeFromPush(): Promise<void> {
+  if (isNativeShell()) return unregisterNativePush();
   if (!pushSupported()) return;
   try {
     const registration = await navigator.serviceWorker.ready;
