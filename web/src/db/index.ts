@@ -20,9 +20,9 @@ function getDb(): DrizzleDb {
   // short-lived function instance, and a single Today-screen load fans out ~9
   // parallel API calls — each a separate instance. postgres.js defaults to a
   // pool of 10 per client, so without a cap a burst opens dozens of connections
-  // at once and Neon rejects them ("too many database connection attempts …",
+  // at once and Supabase rejects them ("too many database connection attempts …",
   // CONNECT_TIMEOUT). One connection per instance keeps the burst bounded; the
-  // pooled Neon endpoint (…-pooler.…) multiplexes them safely.
+  // pooled Supabase endpoint (…-pooler.…) multiplexes them safely.
   const client = postgres(url, {
     max: 1,
     idle_timeout: 20,
