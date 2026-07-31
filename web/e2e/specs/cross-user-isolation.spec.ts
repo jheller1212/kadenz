@@ -400,6 +400,7 @@ const manifest: Record<string, ManifestEntry> = {
       return { url: `/api/stats/hr-zones?month=${month}&bounds=120,140,160,175&max=190` };
     },
   },
+  "GET /api/stats/training-load": { kind: "tenanted-list" },
   "GET /api/fitness-estimate": { kind: "tenanted-list" },
   "GET /api/plan/adjustments": { kind: "tenanted-list" },
   "GET /api/race-times": { kind: "tenanted-list" },

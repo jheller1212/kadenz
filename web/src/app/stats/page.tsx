@@ -12,6 +12,7 @@ import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel, displayPace, paceUnitLabel } from "@/lib/units";
 import { HR_ZONE_META, getUserZoneBounds, formatZoneDuration, zonesArePersonalized } from "@/lib/hr-zone-time";
+import type { WeeklyLoad } from "@/lib/training-load";
 import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from "@/lib/settings";
 import { SPORT_LABEL, SPORT_ORDER, type SportBucket } from "@/lib/sport";
 import { workoutColor } from "@/lib/workout-colors";
@@ -504,6 +505,77 @@ function TrainingDistribution({ seconds }: { seconds: number[] }) {
   );
 }
 
+// ── Training load (trailing 8 weeks, session-RPE method) ─────────────────────
+// Bar per week, most recent last. A week with zero load genuinely had no
+// session with both an RPE and a recorded duration — see
+// /api/stats/training-load — so it renders as an empty bar, not a hidden one,
+// once at least one week in the window has something to show.
+
+function TrainingLoadCard({ weekly }: { weekly: WeeklyLoad[] }) {
+  const maxLoad = Math.max(...weekly.map((w) => w.load), 1);
+  const thisWeek = weekly[weekly.length - 1];
+  const lastWeek = weekly[weekly.length - 2];
+  const trendPct =
+    lastWeek && lastWeek.load > 0
+      ? Math.round(((thisWeek.load - lastWeek.load) / lastWeek.load) * 100)
+      : null;
+
+  return (
+    <section className="k-card p-4">
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-[13px] font-semibold uppercase tracking-wide text-text-3">
+          Training load
+        </p>
+        <p className="text-[11px] text-text-3">last {weekly.length} weeks</p>
+      </div>
+      <p className="mb-4 text-[11px] leading-snug text-text-3">
+        Effort × duration for each run and lift, from your logged RPE.
+      </p>
+
+      <div className="mt-1 grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-[28px] font-display tabular-nums leading-none text-text-1">
+            {Math.round(thisWeek.load)}
+          </p>
+          <p className="mt-1.5 text-[13px] text-text-3">This week</p>
+        </div>
+        {trendPct != null && (
+          <div>
+            <p
+              className="text-[28px] font-display tabular-nums leading-none"
+              style={{ color: trendPct >= 0 ? "var(--vi-interval)" : "var(--vi-cyan)" }}
+            >
+              {trendPct > 0 ? "+" : ""}
+              {trendPct}%
+            </p>
+            <p className="mt-1.5 text-[13px] text-text-3">vs last week</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex items-end gap-1 h-20">
+        {weekly.map((w, i) => {
+          const pct = (w.load / maxLoad) * 100;
+          const isCurrent = i === weekly.length - 1;
+          return (
+            <div key={w.weekStart} className="flex-1 flex flex-col items-center justify-end h-full">
+              <div
+                className="w-full rounded-sm transition-all"
+                style={{
+                  height: w.load > 0 ? `${Math.max(pct, 3)}%` : "2px",
+                  backgroundColor: "var(--k-accent)",
+                  opacity: isCurrent ? 1 : 0.4,
+                }}
+                title={`Week of ${w.weekStart}: ${Math.round(w.load)} AU, ${w.sessions} session${w.sessions === 1 ? "" : "s"}`}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 // ── Monthly distance trend (trailing 12 months) ──────────────────────────────
 
 function MonthlyChart({ monthly }: { monthly: { label: string; km: number }[] }) {
@@ -612,6 +684,7 @@ export default function StatsPage() {
   const [hadHrData, setHadHrData] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trainingLoad, setTrainingLoad] = useState<WeeklyLoad[] | null>(null);
   // Bumps whenever settings change (e.g. the athlete sets their age), so the
   // zone breakdown re-fetches with their real bounds instead of the estimate.
   const [settingsTick, setSettingsTick] = useState(0);
@@ -671,6 +744,25 @@ export default function StatsPage() {
     })();
     return () => { alive = false; };
   }, [zoneRange, zoneSport, settingsTick]);
+
+  // Training load — trailing 8 weeks, session-RPE method (see the route's
+  // module doc). Fails silently, same convention as the zone card above: no
+  // evidence means no card, not an empty one.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await apiFetch("/api/stats/training-load?weeks=8");
+        if (!res.ok) return;
+        const data = (await res.json()) as { weekly: WeeklyLoad[] };
+        if (!alive) return;
+        setTrainingLoad(data.weekly.some((w) => w.load > 0) ? data.weekly : null);
+      } catch {
+        // offline / no sessions with a load in this window — hide the card
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -866,6 +958,9 @@ export default function StatsPage() {
                 availableSports={availableSports}
               />
             )}
+
+            {/* Training load (session-RPE trend) */}
+            {trainingLoad && <TrainingLoadCard weekly={trainingLoad} />}
 
             {/* Personal records */}
             {perf.records && perf.records.some((r) => r.timeSeconds != null) && (
