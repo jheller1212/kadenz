@@ -3,9 +3,10 @@
 // the garmin-worker. Everything is queued through sync_outbox (target "garmin")
 // so retries and the daily cron top-up reuse the same machinery as gcal.
 
-import { db, syncOutbox, workouts, plans, strengthSessions } from "@/db";
+import { db, syncOutbox, workouts, plans, strengthSessions, OWNER_USER_ID } from "@/db";
 import { eq, and, gte, lte, ne, isNull, isNotNull, inArray } from "drizzle-orm";
 import { asUserId } from "@/lib/user-id";
+import { withUser, type UserId } from "@/db/with-user";
 import { garminClient, toGarminDate } from "./garmin-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import type { SyncResult } from "./sync-manager";
@@ -90,7 +91,7 @@ export async function queueGarminWorkoutMove(workoutId: string): Promise<void> {
       target: syncOutbox.idempotencyKey,
       set: { status: "pending", attempts: 0, lastError: null, userId: row.userId },
     });
-  processGarminOutbox().catch(console.error);
+  processGarminOutbox(asUserId(row.userId)).catch(console.error);
 }
 
 function startOfToday(): Date {
@@ -137,7 +138,7 @@ export async function queueGarminWorkoutDeletes(
         },
       });
   }
-  processGarminOutbox().catch(console.error);
+  processGarminOutbox(asUserId(userId)).catch(console.error);
 }
 
 /**
@@ -192,7 +193,7 @@ export async function queueGarminWindowSync(userId: string, planId?: string): Pr
     )
     .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
 
-  processGarminOutbox().catch(console.error);
+  processGarminOutbox(asUserId(userId)).catch(console.error);
   return upcoming.length;
 }
 
@@ -254,7 +255,7 @@ export async function queueGarminStrengthWindowSync(userId: string): Promise<num
       set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId },
     });
 
-  processGarminOutbox().catch(console.error);
+  processGarminOutbox(asUserId(userId)).catch(console.error);
   return upcoming.length;
 }
 
@@ -314,7 +315,7 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
       set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId: row.userId },
     });
 
-  processGarminOutbox().catch(console.error);
+  processGarminOutbox(asUserId(row.userId)).catch(console.error);
 }
 
 /**
@@ -348,7 +349,7 @@ export async function queueGarminStrengthDelete(
       set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId },
     });
 
-  processGarminOutbox().catch(console.error);
+  processGarminOutbox(asUserId(userId)).catch(console.error);
 }
 
 /**
@@ -413,16 +414,34 @@ export async function resyncGarminWindow(userId: string): Promise<{
   };
 }
 
-export async function processGarminOutbox(): Promise<SyncResult> {
-  await resetStaleClaims("garmin");
+const EMPTY_RESULT: SyncResult = { processed: 0, succeeded: 0, failed: 0, errors: [] };
+
+// Same one-user-per-transaction constraint as processGCalOutbox (see that
+// function's comment in sync-manager.ts) — with one further restriction on
+// top: Garmin is reached through a single installation-level worker
+// connection, not per-user OAuth (garmin-config.ts), so only the owner's rows
+// can ever legitimately carry a garminWorkoutId. A non-owner iteration is
+// skipped outright rather than fanned into, the same shape
+// sync/reconcile-garmin already uses for the same reason — there is no "each
+// user's own Garmin" to drain.
+export async function processGarminOutbox(userId: UserId): Promise<SyncResult> {
+  if (userId !== OWNER_USER_ID) return EMPTY_RESULT;
+  return withUser(userId, () => drainGarminOutboxForUser(userId));
+}
+
+async function drainGarminOutboxForUser(userId: UserId): Promise<SyncResult> {
+  await resetStaleClaims("garmin", userId);
 
   const result: SyncResult = { processed: 0, succeeded: 0, failed: 0, errors: [] };
 
   // Atomic claim (see claimJobs in sync-manager.ts) — safe against two
   // drains running at once, and orders deletes ahead of creates so a stale
   // watch entry from a replaced plan clears before the new plan's workouts
-  // compete for outbox slots.
-  const jobs = await claimJobs("garmin");
+  // compete for outbox slots. Capped per user for the same fairness/cost
+  // reasons as the gcal drain (see PER_USER_CLAIM_LIMIT in sync-manager.ts) —
+  // moot in practice today since only the owner ever reaches this function,
+  // but kept so a second Garmin-connected user doesn't change that.
+  const jobs = await claimJobs("garmin", userId, 50);
 
   // List Garmin at most once per drain, and only when this batch actually
   // has something to create — an update/delete-only drain (the common case)

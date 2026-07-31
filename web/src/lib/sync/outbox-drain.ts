@@ -20,6 +20,7 @@ import { processGCalOutbox } from "./sync-manager";
 import { processGarminOutbox, queueGarminStrengthWindowSync } from "./garmin-sync";
 import { isConnected } from "./gcal-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
+import { asUserId } from "@/lib/user-id";
 
 /**
  * Top up the Garmin side of the strength schedule, then drain both outboxes.
@@ -40,15 +41,23 @@ import { isGarminWorkoutSyncEnabled } from "./garmin-config";
  * (/api/cron/sync-drain) — claimJobs() in sync-manager.ts claims outbox rows
  * with `FOR UPDATE SKIP LOCKED`, so overlapping drains can never process the
  * same row twice.
+ *
+ * Returns whether both drains completed without throwing, so a caller that
+ * fans this out over every user (cron/sync-drain) can tell a real failure
+ * apart from "nothing to do" and surface it as a non-2xx response. Callers
+ * that fire this from inside after() (plans routes) run after the response
+ * is already sent and have nothing to report the result to, so they ignore
+ * it — which is fine, since a failure here is still logged either way.
  */
-export async function drainOutboxNow(userId: string): Promise<void> {
-  // `userId` is only needed for the two QUEUEING decisions below: whether this
-  // person has watch sync on, and whether they have a calendar connected. The
-  // drains themselves take no user, because an outbox row already records its
-  // own owner and each job is delivered with that owner's credentials. Passing
-  // a user into the drain would be the wrong shape: one request's drain
-  // legitimately picks up rows queued by anyone, since it claims whatever is
-  // pending with FOR UPDATE SKIP LOCKED.
+export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
+  // `userId` picks two things: whose pending rows each drain claims (see
+  // processGCalOutbox / processGarminOutbox — one transaction can only carry
+  // one app.user_id, so each drain is scoped to this person's own queue, not
+  // "whatever is pending" the way it used to be), and the two QUEUEING
+  // decisions below (does this person have watch sync on, do they have a
+  // calendar connected).
+  const uid = asUserId(userId);
+
   try {
     if (await isGarminWorkoutSyncEnabled(userId)) {
       await queueGarminStrengthWindowSync(userId);
@@ -57,19 +66,22 @@ export async function drainOutboxNow(userId: string): Promise<void> {
     console.error("Failed to queue Garmin strength top-up:", err);
   }
 
-  const drains: Promise<unknown>[] = [processGarminOutbox()];
+  const drains: Promise<unknown>[] = [processGarminOutbox(uid)];
   try {
-    if (await isConnected(userId)) drains.push(processGCalOutbox());
+    if (await isConnected(userId)) drains.push(processGCalOutbox(uid));
   } catch (err) {
     console.error("gcal connection check failed:", err);
   }
 
   const settled = await Promise.allSettled(drains);
+  let ok = true;
   for (const outcome of settled) {
     if (outcome.status === "rejected") {
       console.error("Post-plan-change outbox drain failed:", outcome.reason);
+      ok = false;
     }
   }
+  return { ok };
 }
 
 /**

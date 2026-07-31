@@ -36,27 +36,37 @@ export async function GET(request: NextRequest) {
 
   const out: Record<string, unknown> = { ok: true };
 
-  // A cron run carries no session, so it has no single user to act as. The two
-  // queueing decisions inside drainOutboxNow (is watch sync on, is a calendar
-  // connected) are per person, so this fans out over users. The drains it
-  // performs are not per person: an outbox row records its own owner.
+  // A cron run carries no session, so it has no single user to act as. Both
+  // drainOutboxNow's queueing decisions (is watch sync on, is a calendar
+  // connected) and, as of the outbox reshape, the drains themselves are per
+  // person now — one transaction can only carry one app.user_id, so each
+  // user's claim is scoped to their own rows (see processGCalOutbox /
+  // processGarminOutbox in sync-manager.ts / garmin-sync.ts).
   //
   // One user's failure must not stop the ones queued behind them, hence the
-  // catch inside the loop rather than around it. Superseded by withCronFanOut
-  // once phase 3 lands; see listAllUserIds in lib/users.ts.
+  // catch inside the loop rather than around it — but it must still flip the
+  // overall response to a non-2xx, since both the GitHub workflow and the
+  // Cloudflare Worker in cron-worker/ key off the HTTP status. Superseded by
+  // withCronFanOut once phase 3 lands; see listAllUserIds in lib/users.ts.
   try {
     const userIds = await listAllUserIds();
     let drained = 0;
+    let anyUserFailed = false;
     for (const userId of userIds) {
       try {
-        await drainOutboxNow(userId);
-        drained++;
+        const { ok } = await drainOutboxNow(userId);
+        if (ok) drained++;
+        else anyUserFailed = true;
       } catch (err) {
         console.error(`Sync drain failed for user ${userId}:`, err);
+        anyUserFailed = true;
       }
     }
     out.drain = { users: userIds.length, drained };
-    if (drained < userIds.length) out.drainError = "some users failed";
+    if (anyUserFailed) {
+      out.drainError = "some users failed";
+      out.ok = false;
+    }
   } catch (err) {
     console.error("Sync drain cron error:", err);
     out.ok = false;
