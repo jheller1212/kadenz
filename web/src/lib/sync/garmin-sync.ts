@@ -610,7 +610,12 @@ async function processGarminStrengthJob(
     row.profileId,
     fitMinutes,
     [],
-    settingsRow
+    settingsRow,
+    undefined,
+    undefined,
+    // A started session's frozen complaints, so the watch workout keeps
+    // matching what the athlete is actually doing.
+    row.complaints
   );
   if (!isCustom && row.targetDurationMinutes !== estimatedDurationMinutes) {
     await db

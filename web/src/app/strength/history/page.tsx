@@ -15,6 +15,8 @@ import { useSettings } from "@/lib/useSettings";
 import { formatWeightKg, displayWeight, weightUnitLabel } from "@/lib/units";
 import { formatRecency } from "@/lib/recency";
 import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
+import { complaintListLabel, isPainTrackedExercise } from "@/lib/strength/complaint-work";
+import { STRENGTH_COMPLAINTS, type Complaint } from "@/lib/strength/types";
 import { EQUIPMENT_OPTIONS } from "@/lib/strength/equipment";
 import { getVideoId } from "@/lib/strength/videos";
 import { strengthHistoryUrl } from "@/lib/routes";
@@ -71,7 +73,28 @@ function Sparkline({ points, pain }: { points: ListPoint[]; pain: { date: string
 
 function StrengthHistoryList() {
   const [items, setItems] = useState<ListHistoryResp[]>([]);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // The athlete's own complaints decide which exercises carry a pain overlay
+  // (see lib/strength/complaint-work.ts) — this screen used to assume Achilles.
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/api/strength/plan-settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (!alive || !s || !Array.isArray(s.complaints)) return;
+        setComplaints(
+          (s.complaints as string[]).filter((c): c is Complaint =>
+            (STRENGTH_COMPLAINTS as readonly string[]).includes(c)
+          )
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -93,6 +116,10 @@ function StrengthHistoryList() {
     })();
   }, []);
 
+  const anyPainTracked = items.some((it) =>
+    isPainTrackedExercise(it.exercise.slug, complaints, it.pain.length > 0)
+  );
+
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar
@@ -107,8 +134,19 @@ function StrengthHistoryList() {
       />
       <div className="px-4 pb-tabbar">
         <p className="text-[13px] text-text-2">
-          Load per exercise over time. Achilles lifts overlay <span className="text-danger">pain scores</span> on the load
-          curve.
+          Load per exercise over time.
+          {complaints.length > 0 ? (
+            <>
+              {" "}
+              <span className="text-danger">Pain scores</span> you log are overlaid on your{" "}
+              {complaintListLabel(complaints)} work.
+            </>
+          ) : anyPainTracked ? (
+            <>
+              {" "}
+              <span className="text-danger">Pain scores</span> you logged are overlaid on the work they relate to.
+            </>
+          ) : null}
         </p>
 
         {loading ? (
@@ -132,6 +170,7 @@ function StrengthHistoryList() {
               const last = it.points.at(-1)?.topWeightKg ?? 0;
               const delta = Math.round((last - first) * 10) / 10;
               const col = delta > 0 ? "#4ADE80" : delta < 0 ? "#FF4D4D" : "var(--color-text-2)";
+              const painTracked = isPainTrackedExercise(it.exercise.slug, complaints, it.pain.length > 0);
               return (
                 <TransitionLink
                   key={it.exercise.id}
@@ -142,10 +181,10 @@ function StrengthHistoryList() {
                     <p className="truncate text-[15px] font-bold text-text-1">{it.exercise.name}</p>
                     <p className="mt-0.5 text-[12px] text-text-3">
                       {it.points.length} sessions · now {displayWeight(last)} {weightUnitLabel()}
-                      {it.exercise.category === "achilles" && it.pain.length > 0 ? " · pain tracked" : ""}
+                      {painTracked && it.pain.length > 0 ? " · pain tracked" : ""}
                     </p>
                   </div>
-                  <Sparkline points={it.points} pain={it.exercise.category === "achilles" ? it.pain : []} />
+                  <Sparkline points={it.points} pain={painTracked ? it.pain : []} />
                   <span className="w-11 shrink-0 text-right text-[13px] font-extrabold tabular-nums" style={{ color: col }}>
                     {delta > 0 ? "+" : ""}
                     {delta}

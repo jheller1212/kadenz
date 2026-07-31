@@ -1423,6 +1423,7 @@ export default function StrengthPage() {
         }}
         exercises={exercises}
         exerciseOverrides={session.exerciseOverrides ?? []}
+        complaints={complaints}
         resume={resume}
         onExit={handleExitGuided}
         onDiscard={handleDiscardGuided}

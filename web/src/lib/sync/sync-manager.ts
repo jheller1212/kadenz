@@ -356,7 +356,15 @@ async function fetchStrengthSessionForSync(
   const { exercises: plan } = await buildPlannedSession(
     row.type as StrengthSessionType,
     row.date,
-    row.profileId
+    row.profileId,
+    undefined,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    // A started session's frozen complaints, so the calendar description
+    // keeps matching what the athlete is actually doing.
+    row.complaints
   );
   // The description lists every exercise's load, so it needs the owner's
   // weight unit for the same reason the run event needs the distance unit.

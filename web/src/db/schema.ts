@@ -791,6 +791,14 @@ export const strengthSessions = pgTable(
     // heavy calf work) and stays editable mid-session.
     // Null = no custom order, the plan's own order stands.
     exerciseOrder: text("exercise_order").array(),
+    // The complaints this session was built for, frozen when the athlete
+    // starts it (migration 0062). Complaints are a template input, so an
+    // unstarted session follows whatever the athlete currently reports and
+    // picks up a settings change for free. A started session must not: its
+    // logged sets belong to exercises the current settings might no longer
+    // prescribe, and rebuilding it from the new settings would orphan them.
+    // Null = not started yet, use strength_plan_settings.complaints.
+    complaints: text("complaints").array(),
     // Per-session overrides ("I'm at the gym today", "only got 30 min today")
     // — apply to THIS session only, never written back to
     // strength_plan_settings. Null = no override, use the profile's default
@@ -1009,6 +1017,14 @@ export const strengthPlanSettings = pgTable(
     // default, no targeted or Achilles work. Values are Complaint slugs (see
     // lib/strength/types.ts STRENGTH_COMPLAINTS).
     complaints: text("complaints").array(),
+    // When "achilles" was added to complaints (migration 0063). The HSR calf
+    // ramp counts weeks from here rather than from the running plan's week
+    // number, so an athlete who reports Achilles pain in week 14 of a block
+    // still starts the protocol at its week 1 load. Cleared when the complaint
+    // is removed, which is why re-reporting restarts the ramp. Null = no
+    // Achilles complaint, and the ramp falls back to the running plan week
+    // (see lib/strength/complaint-work.ts achillesProgramWeek).
+    achillesStartedAt: timestamp("achilles_started_at", { withTimezone: true }),
     // Preferred rest between sets (seconds). null = use the program's
     // per-exercise defaults; set = override every non-rehab exercise's rest so
     // the athlete's rest-timer choice is what the plan actually prescribes.

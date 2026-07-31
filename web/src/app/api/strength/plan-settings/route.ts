@@ -6,6 +6,7 @@ import { getActiveProfileId } from "@/lib/profiles";
 import {
   ensureStrengthSchedule,
   pruneAutoSchedule,
+  resyncPlannedStrengthSessions,
 } from "@/lib/strength/schedule";
 import { requireRequestUser } from "@/lib/request-user";
 
@@ -79,10 +80,25 @@ export async function PUT(request: NextRequest) {
     // Update-first, insert-on-miss; the partial unique index (0015) makes the
     // insert race-safe, and a lost race falls through to the update.
     const { blockStartDate, blockWeeks, ...rest } = data;
+    const complaints = [...new Set(data.complaints ?? [])];
+    // Same Achilles clock the PATCH keeps (see below): re-running setup and
+    // reporting Achilles starts the HSR ramp at week 1 from now, and finishing
+    // setup without it clears the clock. Only touched when the answer changes,
+    // so re-running the wizard and leaving the complaint on does not restart a
+    // protocol the athlete is part-way through.
+    const [before] = await db
+      .select({ complaints: strengthPlanSettings.complaints })
+      .from(strengthPlanSettings)
+      .where(profCond(profileId));
+    const hadAchilles = (before?.complaints ?? []).includes("achilles");
+    const hasAchilles = complaints.includes("achilles");
     const values = {
       ...rest,
       availableDays: [...new Set(data.availableDays)],
-      complaints: [...new Set(data.complaints ?? [])],
+      complaints,
+      ...(hasAchilles === hadAchilles
+        ? {}
+        : { achillesStartedAt: hasAchilles ? new Date() : null }),
       blockWeeks: blockWeeks ?? null,
       // A block needs a start; default to today so the athlete's week 1 is
       // the week they set it up.
@@ -127,14 +143,27 @@ export async function PUT(request: NextRequest) {
 
 // ── PATCH /api/strength/plan-settings ─────────────────────────────────────────
 // Partial update of plan-affecting preferences that live outside the setup
-// wizard (currently just the rest-timer length, changed from Kraft settings).
-// Only touches an EXISTING plan — a no-op if the athlete has no strength plan —
-// and reconciles the upcoming schedule so the change reaches the app, calendar
-// and watch immediately.
+// wizard: the rest-timer length and the reported complaints, both changed from
+// Kraft settings. Only touches an EXISTING plan — a no-op if the athlete has no
+// strength plan — and reconciles the upcoming schedule so the change reaches
+// the app, calendar and watch immediately.
+//
+// Complaints were previously write-once, set in the setup wizard and never
+// exposed again, so an athlete whose injury had healed had no way to stop the
+// rehab work it added to every session. Sessions are rebuilt from their
+// template on every read, so a change here reshapes everything still planned;
+// sessions the athlete has already started keep what they were built with
+// (schema.ts strengthSessions.complaints).
 
 const PatchSchema = z
-  .object({ restSeconds: z.number().int().min(15).max(300).nullable() })
-  .strict();
+  .object({
+    restSeconds: z.number().int().min(15).max(300).nullable().optional(),
+    complaints: z.array(z.enum(COMPLAINT_VALUES)).max(COMPLAINT_VALUES.length).optional(),
+  })
+  .strict()
+  .refine((d) => d.restSeconds !== undefined || d.complaints !== undefined, {
+    message: "Nothing to update",
+  });
 
 export async function PATCH(request: NextRequest) {
   const { userId, response } = await requireRequestUser(request);
@@ -152,25 +181,62 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const updated = await db
+    const [existing] = await db
+      .select({
+        id: strengthPlanSettings.id,
+        complaints: strengthPlanSettings.complaints,
+        achillesStartedAt: strengthPlanSettings.achillesStartedAt,
+      })
+      .from(strengthPlanSettings)
+      .where(profCond(profileId));
+
+    // No plan yet → nothing to update or reconcile; the rest preference will
+    // apply once a plan is set up (it is also kept client-side for the guided
+    // timer), and complaints are collected by the setup wizard.
+    if (!existing) return Response.json({ ok: true, hadPlan: false });
+
+    const values: Partial<typeof strengthPlanSettings.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (data.restSeconds !== undefined) values.restSeconds = data.restSeconds;
+    if (data.complaints !== undefined) {
+      const next = [...new Set(data.complaints)];
+      values.complaints = next;
+      // The HSR calf ramp counts weeks from when the Achilles complaint was
+      // reported, not from the running plan's week (see complaint-work.ts
+      // achillesProgramWeek). Adding the complaint starts that clock; removing
+      // it clears it, so re-reporting later restarts the protocol at week 1
+      // rather than resuming a ramp on a tendon that has not been loaded since.
+      const had = (existing.complaints ?? []).includes("achilles");
+      const has = next.includes("achilles");
+      if (has && !had) values.achillesStartedAt = new Date();
+      if (!has && had) values.achillesStartedAt = null;
+    }
+
+    const [updated] = await db
       .update(strengthPlanSettings)
-      .set({ restSeconds: data.restSeconds, updatedAt: new Date() })
+      .set(values)
       .where(profCond(profileId))
-      .returning({ id: strengthPlanSettings.id, active: strengthPlanSettings.active });
+      .returning({ active: strengthPlanSettings.active });
 
-    // No plan yet → nothing to reconcile; the preference will apply once a plan
-    // is set up (the value is also kept client-side for the guided timer).
-    if (updated.length === 0) return Response.json({ ok: true, hadPlan: false });
-
-    // Prescriptions are derived at read time, so no session rows need rewriting —
-    // but re-run ensure so the calendar/watch descriptions (which bake the rest
-    // in) refresh to the new value.
-    if (updated[0].active) await ensureStrengthSchedule(profileId, userId);
+    // Prescriptions are derived at read time, so no session rows need
+    // rewriting: every still-planned session already reflects the new value on
+    // its next read. The calendar event and the watch workout are copies
+    // though, so they have to be pushed again.
+    if (updated?.active) {
+      await ensureStrengthSchedule(profileId, userId);
+      // ensureStrengthSchedule only re-pushes a session whose duration
+      // estimate changed, which a complaint change can leave identical while
+      // the exercise list is completely different.
+      if (data.complaints !== undefined) {
+        await resyncPlannedStrengthSessions(profileId, userId);
+      }
+    }
 
     return Response.json({ ok: true, hadPlan: true });
   } catch (err) {
-    console.error("[plan-settings] rest patch failed", err);
-    return Response.json({ error: "Failed to update rest preference" }, { status: 500 });
+    console.error("[plan-settings] patch failed", err);
+    return Response.json({ error: "Failed to update Kraft settings" }, { status: 500 });
   }
 }
 

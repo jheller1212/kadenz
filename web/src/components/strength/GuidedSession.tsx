@@ -29,7 +29,8 @@ export { unlockGuidedAudio };
 import { formatLoad, loadUnitLabel, stepWeight } from "@/lib/strength/weights";
 import { PAIN_SCORE_THRESHOLD } from "@/lib/strength/progression";
 import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
-import { workingSetNumber } from "@/lib/strength/types";
+import { hasAchillesOrdering } from "@/lib/strength/complaint-work";
+import { workingSetNumber, type Complaint } from "@/lib/strength/types";
 import { useStrengthEquipment } from "@/hooks/useStrengthEquipment";
 import type { LoadFeel } from "@/lib/strength/guided-snapshot";
 import type { ExerciseOverride } from "@/lib/strength/session";
@@ -89,6 +90,9 @@ interface Props {
    *  detail/overview screens) — Exchange/Remove here append to this same
    *  array so a minimize/resume or a later detail view stays in sync. */
   exerciseOverrides?: ExerciseOverride[];
+  /** The athlete's reported complaints — decides which pain wording applies
+   *  (see AdjustLoadSheet's easesCalfWork). Empty when none are reported. */
+  complaints?: Complaint[];
   /** Restore a previously saved in-progress session at its saved position. */
   resume?: { exIndex: number; work: Record<string, WorkSet[]>; startedAt: number } | null;
   /**
@@ -210,6 +214,7 @@ export default function GuidedSession({
   session,
   exercises: exercisesProp,
   exerciseOverrides: initialOverrides,
+  complaints = [],
   resume,
   onExit,
   onDiscard,
@@ -1077,7 +1082,7 @@ export default function GuidedSession({
         </button>
       )}
 
-      {session.type === "lower_achilles" && (
+      {hasAchillesOrdering(exercises.map((e) => e.slug)) && (
         <div className="mx-4 mt-2 rounded-[var(--radius-input)] bg-warn/10 px-3.5 py-2 text-center text-[12px] font-medium text-warn">
           Order locked: explosive work first, slow heavy HSR calf work last.
         </div>
@@ -1407,6 +1412,7 @@ export default function GuidedSession({
         weightKg={adjustOpen != null ? arr[adjustOpen]?.kg ?? 0 : 0}
         previousWeightKg={ex.suggestedWeightKg ?? null}
         dumbbells={ex.dumbbells}
+        easesCalfWork={complaints.includes("achilles")}
         selected={adjustOpen != null ? arr[adjustOpen]?.feel ?? null : null}
         onSave={(feel) => {
           if (adjustOpen != null) saveLoadReason(ex.slug, adjustOpen, feel);
