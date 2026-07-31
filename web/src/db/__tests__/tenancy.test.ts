@@ -125,7 +125,7 @@ describe("tenancy: every table in the schema is accounted for", () => {
 // agree with a stale duplicate. One source of truth, checked from the other end.
 
 const DRIZZLE_DIR = join(__dirname, "..", "..", "..", "drizzle");
-const COVERAGE_MIGRATION = "0064_rls_covers_every_tenanted_table.sql";
+const COVERAGE_MIGRATION = "0066_rls_covers_every_tenanted_table.sql";
 
 function readCoverageMigration(): string {
   return readFileSync(join(DRIZZLE_DIR, COVERAGE_MIGRATION), "utf8");

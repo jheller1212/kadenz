@@ -198,6 +198,13 @@ export default function StrengthPage() {
   const [painLogged, setPainLogged] = useState(false);
   const [painSaving, setPainSaving] = useState(false);
   const [painError, setPainError] = useState<string | null>(null);
+  // "Why fewer sets than prescribed" — asked once per session, only when
+  // GuidedSession reports something was left unlogged at Finish (see
+  // GuidedFinishSummary.skippedWorkingSets). null = not answered/dismissed
+  // yet; "time"/"fatigue" once tapped. A tap that fails to save still hides
+  // the prompt (skippable, not required) — see logCutShortReason below.
+  const [cutShortAnswered, setCutShortAnswered] = useState(false);
+  const [cutShortSaving, setCutShortSaving] = useState<"time" | "fatigue" | null>(null);
 
   // Kraft hub stat row — real aggregates only (sessions/wk, weekly volume);
   // no invented "load delta" tile, see /api/strength/summary. volumeKg and
@@ -378,6 +385,28 @@ export default function StrengthPage() {
       setPainError("Couldn't save. Try again.");
     } finally {
       setPainSaving(false);
+    }
+  }
+
+  // One tap, skippable: saves best-effort and always dismisses the prompt
+  // either way — this is a nudge for next session's progression, not a form
+  // the athlete has to get past. See progression.ts for how "time" vs
+  // "fatigue" actually change the next suggested load.
+  async function logCutShortReason(reason: "time" | "fatigue") {
+    if (!session || cutShortSaving) return;
+    setCutShortSaving(reason);
+    try {
+      await apiFetch(`/api/strength/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cutShortReason: reason }),
+      });
+    } catch {
+      /* best-effort — see the comment above */
+    } finally {
+      haptic("light");
+      setCutShortSaving(null);
+      setCutShortAnswered(true);
     }
   }
 
@@ -982,6 +1011,7 @@ export default function StrengthPage() {
     setSummary(s);
     setPainLogged(false);
     setPainError(null);
+    setCutShortAnswered(false);
     setPhase("summary");
   }
 
@@ -1441,6 +1471,47 @@ export default function StrengthPage() {
           <p className="mt-2 text-[15px] text-text-2">
             {summary.setsLogged}/{summary.totalSets} sets logged · {summary.durationMinutes} min
           </p>
+
+          {/* Cut-short reason — only when GuidedSession left prescribed sets
+              unlogged at Finish, never for a fully completed session (that
+              would be a nag with nothing to ask about) and never per
+              exercise (see progression.ts for why one session-level answer
+              is enough). One tap, always dismissible via "Not sure". */}
+          {session && summary.skippedWorkingSets > 0 && !cutShortAnswered && (
+            <div className="mt-4 rounded-[var(--radius-input)] bg-elevated p-4 text-left">
+              <p className="text-[13px] font-semibold text-text-2">
+                Didn&apos;t finish every set — why?
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  busy={cutShortSaving === "time"}
+                  disabled={cutShortSaving != null}
+                  onClick={() => logCutShortReason("time")}
+                >
+                  Ran out of time
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  busy={cutShortSaving === "fatigue"}
+                  disabled={cutShortSaving != null}
+                  onClick={() => logCutShortReason("fatigue")}
+                >
+                  Too fatigued
+                </Button>
+              </div>
+              <button
+                type="button"
+                className="press mt-2 text-[12px] font-semibold text-text-3"
+                disabled={cutShortSaving != null}
+                onClick={() => setCutShortAnswered(true)}
+              >
+                Not sure
+              </button>
+            </div>
+          )}
 
           {/* Complaint-driven pain check-in — only for the areas the athlete
               flagged (feeds the pain gate + history sparkline). No complaints,

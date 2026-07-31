@@ -171,8 +171,15 @@ export interface SessionTemplate {
 }
 
 /** A logged set as returned to progression/history logic. */
-/** A warm-up ramp set, or a real working set. Absent means working. */
-export type SetKind = "warmup" | "working";
+/**
+ * A warm-up ramp set, a real working set, a working set the athlete added
+ * beyond the prescription ("extra" — capacity evidence, see progression.ts),
+ * or a prescribed working set the athlete finished the session without
+ * logging ("skipped" — see the strength_sets.kind comment in db/schema.ts for
+ * why this is its own value rather than just a missing row). Absent means
+ * working, so every row logged before "extra"/"skipped" existed is unchanged.
+ */
+export type SetKind = "warmup" | "working" | "extra" | "skipped";
 
 export interface LoggedSet {
   exerciseId?: string;
@@ -185,11 +192,23 @@ export interface LoggedSet {
   kind?: SetKind | null;
 }
 
+/** Why a session ended with fewer working sets logged than prescribed — see
+ *  strength_sessions.cutShortReason in db/schema.ts. Only meaningful when
+ *  this exercise actually had a skipped set in this session; the history
+ *  query only sets it in that case (see service.ts getExerciseHistoryBySlug),
+ *  so a session that fully completed this exercise never carries one even if
+ *  another exercise that day was cut short — the signal belongs to the
+ *  exercise, not the session. */
+export type CutShortReason = "time" | "fatigue";
+
 /** A prior session's sets for one exercise, newest-first by session date. */
 export interface ExerciseSessionHistory {
   sessionId: string;
   date: Date;
   sets: LoggedSet[];
+  /** See CutShortReason above. Undefined/null = this exercise wasn't cut
+   *  short in this session (or the athlete answered/implied "time"). */
+  cutShortReason?: CutShortReason | null;
 }
 
 /**

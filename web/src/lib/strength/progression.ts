@@ -39,7 +39,22 @@ export interface ProgressionSuggestion {
  */
 function workingSets(session: ExerciseSessionHistory | undefined): LoggedSet[] {
   if (!session) return [];
-  return session.sets.filter((s) => s.reps != null && s.kind !== "warmup");
+  // reps == null already excludes "skipped" rows (they're logged with no
+  // reps — see db/schema.ts strength_sets.kind), but kind is checked
+  // explicitly too so that stays true even if a future caller ever sends a
+  // skipped row with a stray reps value.
+  return session.sets.filter(
+    (s) => s.reps != null && s.kind !== "warmup" && s.kind !== "skipped"
+  );
+}
+
+/** Working sets logged beyond the prescription this session ("log one
+ *  more" — see guided-sets.ts). Evidence of capacity, read separately from
+ *  workingSets() below so it can nudge a `hold` toward `increase` without
+ *  being required for the ordinary top-of-range check to pass. */
+function extraSets(session: ExerciseSessionHistory | undefined): LoggedSet[] {
+  if (!session) return [];
+  return session.sets.filter((s) => s.reps != null && s.kind === "extra");
 }
 
 /** True when every working set met or exceeded the top of the rep range. */
@@ -128,12 +143,54 @@ export function suggestProgression(
         atCeiling,
       };
     }
+    // A session cut short by fatigue holds the load instead of increasing it
+    // — the athlete hit the rep target on every set they DID do, but "ran out
+    // of gas" is not the same evidence as "had room to spare". This is not a
+    // decrease: the pain gate already owns that when there's actual pain.
+    if (last.cutShortReason === "fatigue") {
+      return {
+        action: "hold",
+        currentWeightKg: current,
+        suggestedWeightKg: current,
+        reason: `Held at ${current} kg, you cut last session short from fatigue.`,
+        atCeiling,
+      };
+    }
     const suggested = current != null ? nextWeight(current) : null;
     return {
       action: "increase",
       currentWeightKg: current,
       suggestedWeightKg: suggested,
       reason: `All sets reached ${repHigh} reps, add one level.`,
+      atCeiling,
+    };
+  }
+
+  // Rule 3 — extra sets are evidence of capacity, not proof of it: only nudge
+  // toward an increase when the sets logged BEYOND the prescription also hit
+  // the top of the range (an extra set that petered out early says nothing).
+  // Never fires on top of Rule 1 above (that's already an increase) or past
+  // the ceiling (there's nowhere to go), and a fatigue cut-short still holds
+  // — logging extra sets after running out of gas on the prescribed ones
+  // isn't the scenario this rule is for, and fatigue's "no increase" reading
+  // should win regardless of how that combination could arise.
+  const extra = extraSets(last);
+  if (extra.length > 0 && extra.every((s) => (s.reps ?? 0) >= repHigh) && !atCeiling) {
+    if (last.cutShortReason === "fatigue") {
+      return {
+        action: "hold",
+        currentWeightKg: current,
+        suggestedWeightKg: current,
+        reason: `Held at ${current} kg, you cut last session short from fatigue.`,
+        atCeiling,
+      };
+    }
+    const suggested = current != null ? nextWeight(current) : null;
+    return {
+      action: "increase",
+      currentWeightKg: current,
+      suggestedWeightKg: suggested,
+      reason: `Logged an extra set at ${repHigh} reps, showing room to add load.`,
       atCeiling,
     };
   }

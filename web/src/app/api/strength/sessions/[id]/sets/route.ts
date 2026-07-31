@@ -20,10 +20,14 @@ const SetSchema = z.object({
   durationSeconds: z.number().int().nonnegative().nullable().optional(),
   // Reason chip from the "Adjust load" sheet — see schema.ts strengthSets.feel.
   feel: z.enum(["too_heavy", "easy", "niggle"]).nullable().optional(),
-  // Warm-up ramp vs real working set. Absent reads as working, so older
-  // clients keep behaving exactly as before. Warm-ups are excluded from the
-  // progression signal (lib/strength/progression.ts workingSets).
-  kind: z.enum(["warmup", "working"]).nullable().optional(),
+  // Warm-up ramp / real working set / an "extra" set logged beyond the
+  // prescription / a "skipped" prescribed set the athlete finished the
+  // session without logging (weightKg/reps stay null on those rows — see
+  // db/schema.ts strength_sets.kind). Absent reads as working, so older
+  // clients keep behaving exactly as before. Warm-ups and skipped rows are
+  // excluded from the progression signal; extra rows feed it separately as
+  // capacity evidence (lib/strength/progression.ts workingSets/extraSets).
+  kind: z.enum(["warmup", "working", "extra", "skipped"]).nullable().optional(),
 });
 
 // ── POST /api/strength/sessions/[id]/sets ─────────────────────────────────────

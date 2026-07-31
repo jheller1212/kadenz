@@ -79,6 +79,11 @@ export interface GuidedFinishSummary {
   setsLogged: number;
   totalSets: number;
   durationMinutes: number;
+  /** Prescribed working sets left unlogged at Finish (warm-ups and unlogged
+   *  "extra" sets don't count — neither was prescribed). Gates the post-
+   *  session "why" question: 0 means the athlete completed everything, so
+   *  the summary screen never asks (see the strength page's summary phase). */
+  skippedWorkingSets: number;
 }
 
 type WorkSet = GuidedWorkSet;
@@ -936,6 +941,23 @@ export default function GuidedSession({
     }
   }
 
+  // ── Marking cut-short sets on Finish ──────────────────────────────────────
+  // A prescribed working set (never a warm-up, never a "log one more" extra —
+  // neither was ever promised) left unlogged when the athlete taps Finish was
+  // skipped, not merely unstarted: writing it as kind "skipped" is what makes
+  // it distinguishable later from a set that plain doesn't exist yet (see
+  // db/schema.ts strengthSets.kind). Same upsert key as postSet — setIndex+1
+  // — so this can never collide with a set the athlete did log.
+  function unloggedPrescribedSets(): Array<{ slug: string; setIndex: number }> {
+    const out: Array<{ slug: string; setIndex: number }> = [];
+    for (const [slug, arr] of Object.entries(work)) {
+      arr.forEach((s, i) => {
+        if (!s.logged && s.kind !== "warmup" && !s.extra) out.push({ slug, setIndex: i });
+      });
+    }
+    return out;
+  }
+
   async function finish() {
     if (finishing) return;
     setFinishing(true);
@@ -943,6 +965,28 @@ export default function GuidedSession({
     haptic("success");
     const setsLogged = Object.values(work).flat().filter((s) => s.logged).length;
     const totalSets = Object.values(work).flat().length;
+    // Gates the post-session "why" question (see strength/page.tsx summary
+    // phase) — only fires when something prescribed was actually left
+    // undone, never for a session the athlete fully completed.
+    const skipped = unloggedPrescribedSets();
+    await Promise.all(
+      skipped.map(({ slug, setIndex }) =>
+        mutateWithQueue(`/api/strength/sessions/${session.id}/sets`, {
+          method: "POST",
+          body: JSON.stringify({
+            exerciseSlug: slug,
+            setNumber: setIndex + 1,
+            weightKg: null,
+            reps: null,
+            kind: "skipped",
+          }),
+        }).catch(() => {
+          /* best-effort, same as postSet — a missed skip marker only means
+             next session's progression reads that set's absence as ordinary
+             history-free silence, never a hard failure of Finish. */
+        })
+      )
+    );
     // Sent as a fallback only (a session with zero logged sets has no
     // server-side startedAt/endedAt to derive from). Whenever the session
     // has real logged sets, the PATCH route recomputes and overrides this
@@ -996,7 +1040,12 @@ export default function GuidedSession({
         window.addEventListener("kadenz:queue-flushed", clearWhenDrained);
         void flushQueue();
       }
-      onFinish({ setsLogged, totalSets, durationMinutes: savedDurationMinutes });
+      onFinish({
+        setsLogged,
+        totalSets,
+        durationMinutes: savedDurationMinutes,
+        skippedWorkingSets: skipped.length,
+      });
     } catch {
       setError("Network error. Couldn't finish the session.");
       setFinishing(false);

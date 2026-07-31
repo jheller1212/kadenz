@@ -818,6 +818,14 @@ export const strengthSessions = pgTable(
     // the session's real finish time.
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // Why the athlete logged fewer working sets than the plan prescribed —
+    // asked once at Finish (see the strength summary screen), never per
+    // exercise. "time" = had to leave, "fatigue" = ran out of gas. Null means
+    // either nothing was cut short or the athlete skipped the question — both
+    // read the same way downstream (lib/strength/progression.ts): only
+    // "fatigue" holds the next suggested load instead of increasing it, so
+    // silence and "time" never cost the athlete progress they earned.
+    cutShortReason: text("cut_short_reason"),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
@@ -859,10 +867,25 @@ export const strengthSets = pgTable(
     // pain-log endpoint (see GuidedSession.tsx), which feeds the existing
     // Achilles/HSR pain gate (lib/strength/progression.ts evaluatePainGate).
     feel: text("feel"),
-    // "warmup" | "working". Null means working, so every row logged before this
-    // column existed keeps its current meaning. Warm-ups are excluded from the
-    // progression signal: counting them made a light ramp set look like a
-    // failed working set and pushed the suggested load DOWN.
+    // "warmup" | "working" | "extra" | "skipped". Null means working, so every
+    // row logged before this column existed keeps its current meaning.
+    // - "warmup": excluded from the progression signal (see progression.ts
+    //   workingSets) — counting it made a light ramp set look like a failed
+    //   working set and pushed the suggested load DOWN.
+    // - "extra": a set the athlete added beyond the prescription ("log one
+    //   more" — see guided-sets.ts). Still a working set for the existing
+    //   allSetsAtTop/anySetBelowFloor checks, but also its own capacity
+    //   signal: extra sets that hit the top of the rep range make the next
+    //   suggestion more likely to increase (never forced — see
+    //   progression.ts).
+    // - "skipped": a prescribed working set the athlete finished the session
+    //   without logging (weightKg/reps null). Written at Finish so a cut-short
+    //   set is distinguishable from a set that simply doesn't exist yet — an
+    //   absent row is ambiguous (never logged vs. abandoned), a "skipped" row
+    //   is not. reps is already null on these rows, so the existing
+    //   `reps != null` filter in workingSets excludes them without any extra
+    //   check; the explicit kind is what makes them recoverable as a signal
+    //   later instead of silently indistinguishable from "nothing happened".
     kind: text("kind"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

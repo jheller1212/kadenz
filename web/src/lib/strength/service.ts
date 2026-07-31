@@ -105,6 +105,12 @@ export async function getExerciseHistoryBySlug(
       reps: strengthSets.reps,
       rpe: strengthSets.rpe,
       kind: strengthSets.kind,
+      // Session-level answer to "why fewer sets than prescribed" (see
+      // db/schema.ts strengthSessions.cutShortReason) — only attached to this
+      // exercise's history below when one of ITS OWN rows is "skipped": the
+      // signal belongs to the exercise that was actually cut short, not every
+      // exercise in a session where something else ran long.
+      sessionCutShortReason: strengthSessions.cutShortReason,
     })
     .from(strengthSets)
     .innerJoin(strengthSessions, eq(strengthSets.sessionId, strengthSessions.id))
@@ -131,16 +137,25 @@ export async function getExerciseHistoryBySlug(
       sess = { sessionId: r.sessionId, date: new Date(r.date), sets: [] };
       slugMap.set(r.sessionId, sess);
     }
+    // Carried through as-is (not collapsed to warmup/null) so progression can
+    // also read "extra" (capacity evidence) and "skipped" (cut-short) rows —
+    // any other/unrecognised value still reads as working, same as null.
+    const kind =
+      r.kind === "warmup" || r.kind === "extra" || r.kind === "skipped" ? r.kind : null;
     const set: LoggedSet = {
       setNumber: r.setNumber,
       weightKg: r.weightKg,
       reps: r.reps,
       rpe: r.rpe,
-      // Carried through so progression can exclude warm-ups. Null reads as
-      // working, which is what every pre-existing row is.
-      kind: r.kind === "warmup" ? "warmup" : null,
+      kind,
     };
     sess.sets.push(set);
+    // The exercise this row belongs to was cut short in this session — carry
+    // the session's answer onto its history entry (see the query comment
+    // above for why only a skipped row for THIS exercise earns it).
+    if (kind === "skipped" && r.sessionCutShortReason) {
+      sess.cutShortReason = r.sessionCutShortReason as ExerciseSessionHistory["cutShortReason"];
+    }
   }
 
   const out: Record<string, ExerciseSessionHistory[]> = {};

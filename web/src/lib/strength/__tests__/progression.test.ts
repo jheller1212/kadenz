@@ -225,3 +225,119 @@ describe("warm-up sets are excluded from the progression signal", () => {
     expect(s.suggestedWeightKg).toBe(12.5);
   });
 });
+
+describe("extra sets and cut-short sessions", () => {
+  /** A session with mid-range prescribed sets, plus one or more extra sets
+   *  logged beyond the prescription (kind "extra" — see guided-sets.ts). */
+  function withExtra(
+    date: string,
+    working: number[],
+    extraReps: number[],
+    weightKg: number
+  ): ExerciseSessionHistory {
+    return {
+      sessionId: date,
+      date: new Date(date),
+      sets: [
+        ...working.map((r, i) => ({ setNumber: i + 1, reps: r, weightKg })),
+        ...extraReps.map((r, i) => ({
+          setNumber: working.length + i + 1,
+          reps: r,
+          weightKg,
+          kind: "extra" as const,
+        })),
+      ],
+    };
+  }
+
+  /** A session with a skipped prescribed set (kind "skipped", no reps/weight
+   *  — see db/schema.ts strengthSets.kind), optionally with a cut-short
+   *  reason on the session it belongs to. */
+  function withSkip(
+    date: string,
+    working: number[],
+    weightKg: number,
+    cutShortReason?: "time" | "fatigue" | null
+  ): ExerciseSessionHistory {
+    return {
+      sessionId: date,
+      date: new Date(date),
+      sets: [
+        ...working.map((r, i) => ({ setNumber: i + 1, reps: r, weightKg })),
+        { setNumber: working.length + 1, reps: null, weightKg: null, kind: "skipped" as const },
+      ],
+      cutShortReason,
+    };
+  }
+
+  it("extra sets that hit the top of the range make an increase more likely", () => {
+    // Prescribed sets alone are mid-range (would hold), but the athlete
+    // tacked on an extra set at the rep ceiling — capacity evidence.
+    const s = suggestProgression(squat, [withExtra("2026-06-10", [10, 9, 9], [12], 12)]);
+    expect(s.action).toBe("increase");
+    expect(s.suggestedWeightKg).toBe(12.5);
+  });
+
+  it("does not increase off an extra set that didn't reach the top of the range", () => {
+    const s = suggestProgression(squat, [withExtra("2026-06-10", [10, 9, 9], [9], 12)]);
+    expect(s.action).toBe("hold");
+  });
+
+  it("a time cut-short does not suppress the next increase", () => {
+    // Only 2 of 3 prescribed sets logged, both at the rep ceiling — the
+    // missing third set must not count against the athlete.
+    const s = suggestProgression(squat, [withSkip("2026-06-10", [12, 12], 12, "time")]);
+    expect(s.action).toBe("increase");
+  });
+
+  it("no answer behaves like time — never penalised", () => {
+    const s = suggestProgression(squat, [withSkip("2026-06-10", [12, 12], 12, null)]);
+    expect(s.action).toBe("increase");
+  });
+
+  it("a fatigue cut-short holds rather than increases", () => {
+    const s = suggestProgression(squat, [withSkip("2026-06-10", [12, 12], 12, "fatigue")]);
+    expect(s.action).toBe("hold");
+    expect(s.suggestedWeightKg).toBe(12); // held, not dropped
+  });
+
+  it("a fatigue cut-short is per exercise, not per session", () => {
+    // cutShortReason lives on the exercise's OWN history entry (see
+    // service.ts getExerciseHistoryBySlug: only an exercise with its own
+    // "skipped" row in a session gets that session's answer attached). A
+    // different exercise from the same cut-short session, with no
+    // cutShortReason on its own history, is unaffected — same history shape
+    // that squat's fatigue case above uses, just without the skip.
+    const unaffected = suggestProgression(ohp, [
+      session("2026-06-10", [12, 12, 12], 8),
+      session("2026-06-03", [12, 12, 12], 8),
+    ]);
+    expect(unaffected.action).toBe("increase");
+  });
+
+  it("an old fatigue signal decays behind a newer clean session", () => {
+    // The rushed session is now `prev`, not `last` — only the latest session
+    // gates the suggestion, so two solid weeks outweigh one rushed one.
+    const s = suggestProgression(squat, [
+      session("2026-06-17", [12, 12, 12], 12),
+      withSkip("2026-06-10", [12, 12], 12, "fatigue"),
+    ]);
+    expect(s.action).toBe("increase");
+  });
+
+  it("warm-ups still never count toward extra-set capacity evidence", () => {
+    const s = suggestProgression(squat, [
+      {
+        sessionId: "2026-06-10",
+        date: new Date("2026-06-10"),
+        sets: [
+          { setNumber: 1, reps: 12, weightKg: 6, kind: "warmup" },
+          { setNumber: 2, reps: 10, weightKg: 12 },
+          { setNumber: 3, reps: 9, weightKg: 12 },
+          { setNumber: 4, reps: 9, weightKg: 12 },
+        ],
+      },
+    ]);
+    expect(s.action).toBe("hold");
+  });
+});
