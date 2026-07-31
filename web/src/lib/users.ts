@@ -1,9 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { OWNER_USER_ID, userIdentities, users } from "@/db/schema";
 import { asUserId, type UserId } from "@/lib/user-id";
 
-export type AuthProvider = "strava" | "google";
+export type AuthProvider = "strava" | "google" | "email";
 
 export type LoginIdentity = {
   provider: AuthProvider;
@@ -97,6 +97,147 @@ export async function resolveUserForLogin(
     .returning({ userId: userIdentities.userId });
 
   return asUserId(linked.userId);
+}
+
+/**
+ * Resolves a consumed email magic-link to the user it belongs to. Deliberately
+ * separate from resolveUserForLogin rather than a third branch inside it: the
+ * decision here -- may this create a new account, and may it attach to an
+ * account another provider already created -- has no equivalent for Strava or
+ * Google, both of which are pure "match or create" with no merge step.
+ *
+ * `isOwner` from LoginIdentity is not accepted here on purpose. A magic link
+ * proves control of an inbox, nothing more, and the owner allowlist exists
+ * precisely because an OAuth login (or an email login) on its own is not
+ * proof of being Jonas. This path can never mint a session over the owner's
+ * data -- see OWNER_USER_ID below, never referenced.
+ *
+ * ── The merge decision ───────────────────────────────────────────────────────
+ * If this exact address already signed in by email before, it is the same
+ * returning user: log in, no gate check (closing sign-up later must not lock
+ * out someone who already has an account).
+ *
+ * If this address has never signed in by email but DOES match the email on
+ * an existing Google identity (Google verifies its id_token's email before
+ * ever reaching resolveUserForLogin -- see the callback route), the link is
+ * attached to that SAME user rather than creating a second one. This is the
+ * one deliberate case where a magic link is allowed to reach an account
+ * created by another provider: the address has now been proven twice, once
+ * by Google's verified id_token and once by this link, which is strictly
+ * more assurance than either proof alone, and the alternative -- a Google
+ * user who later tries email sign-in getting a second, empty account -- is
+ * worse for a real athlete than it is safer for anyone else. If more than one
+ * user shares the address (edge case: two Google identities recorded the
+ * same email at different times), this refuses to guess and creates a new
+ * account instead, the same fail-closed shape as resolveOwner in owner.ts.
+ *
+ * Otherwise: a genuinely new address, gated by isEmailSignupOpen().
+ */
+export async function resolveUserForEmailLogin(
+  email: string,
+  signupOpen: boolean
+): Promise<UserId> {
+  const normalized = email.trim().toLowerCase();
+
+  const [existingEmailIdentity] = await db
+    .select({ userId: userIdentities.userId })
+    .from(userIdentities)
+    .where(
+      and(
+        eq(userIdentities.provider, "email"),
+        eq(userIdentities.providerAccountId, normalized)
+      )
+    )
+    .limit(1);
+
+  if (existingEmailIdentity) {
+    await db
+      .update(userIdentities)
+      .set({ lastLoginAt: new Date() })
+      .where(
+        and(
+          eq(userIdentities.provider, "email"),
+          eq(userIdentities.providerAccountId, normalized)
+        )
+      );
+    return asUserId(existingEmailIdentity.userId);
+  }
+
+  // Residual risk, checked and accepted rather than overlooked: this matches
+  // against user_identities.email, which is NOT captured once and left to
+  // rot. resolveUserForLogin (above) refreshes it on every login of an
+  // existing identity -- `.set({ lastLoginAt: new Date(), ...(email ? {
+  // email } : {}) })` at line 51 -- and the Google callback
+  // (app/api/auth/google/callback/route.ts) passes the id_token's freshly
+  // verified email on every sign-in, not just the first. So a stored row is
+  // never more stale than "since this athlete's last Google sign-in to
+  // Kadenz", not "since account creation".
+  //
+  // That still leaves a real window: if the athlete's Google account changes
+  // email and they never sign in to Kadenz via Google again afterward, the
+  // old address sits here indefinitely, and whoever later acquires that
+  // released address (real risk on university/custom domains) could request
+  // a magic link and attach to this account. Narrower than an unrefreshed
+  // capture-once field, not zero. Closing it fully would mean re-verifying
+  // the email against Google live at match time, which the stored token here
+  // cannot do -- accepted as a follow-up, not solved by this change.
+  const otherIdentitiesForEmail = await db
+    .selectDistinct({ userId: userIdentities.userId })
+    .from(userIdentities)
+    .where(
+      and(
+        eq(userIdentities.email, normalized),
+        // Only a provider that verifies the email before recording it. Today
+        // that is Google; Strava never supplies one (resolveUserForLogin is
+        // called with email undefined for it), so this can only ever match a
+        // Google identity in practice, but is written against "provider !=
+        // email" rather than "provider = google" so the reasoning covers
+        // Apple sign-in too once it lands (both verify server-side, per
+        // NATIVE_APP_PLAN.md).
+        ne(userIdentities.provider, "email")
+      )
+    )
+    .limit(2);
+
+  let userId: UserId;
+  if (otherIdentitiesForEmail.length === 1) {
+    // Exactly one existing account claims this verified email -- attach.
+    userId = asUserId(otherIdentitiesForEmail[0].userId);
+  } else {
+    // Zero matches (new address) or two-plus (ambiguous, refuse to guess):
+    // a fresh account, subject to the signup gate.
+    if (!signupOpen) {
+      throw new EmailSignupClosedError();
+    }
+    const [created] = await db
+      .insert(users)
+      .values({ email: normalized })
+      .returning({ id: users.id });
+    userId = asUserId(created.id);
+  }
+
+  await db
+    .insert(userIdentities)
+    .values({
+      userId,
+      provider: "email",
+      providerAccountId: normalized,
+      email: normalized,
+      lastLoginAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [userIdentities.provider, userIdentities.providerAccountId],
+      set: { lastLoginAt: new Date() },
+    });
+
+  return userId;
+}
+
+/** Thrown by resolveUserForEmailLogin when the address is new and sign-up is closed. */
+export class EmailSignupClosedError extends Error {
+  constructor() {
+    super("Email sign-up is not open yet.");
+  }
 }
 
 /**

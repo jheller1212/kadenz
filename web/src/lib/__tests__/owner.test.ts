@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   isAllowedGoogleEmail,
   isAllowedStravaAthleteId,
+  isEmailSignupOpen,
   isGoogleSignupOpen,
   ownerGoogleEmail,
   ownerStravaAthleteId,
@@ -21,6 +22,7 @@ afterEach(() => {
   delete process.env.KADENZ_OWNER_STRAVA_ID;
   delete process.env.KADENZ_OWNER_GOOGLE_EMAIL;
   delete process.env.KADENZ_GOOGLE_SIGNUP_OPEN;
+  delete process.env.KADENZ_EMAIL_SIGNUP_OPEN;
 });
 
 describe("isAllowedStravaAthleteId", () => {
@@ -79,6 +81,24 @@ describe("Google sign-up switch", () => {
   it("does not affect Strava, which stays allowlist-only regardless", () => {
     process.env.KADENZ_GOOGLE_SIGNUP_OPEN = "true";
     expect(isAllowedStravaAthleteId(999)).toBe(false);
+  });
+});
+
+describe("isEmailSignupOpen", () => {
+  it("defaults closed when unset", () => {
+    expect(isEmailSignupOpen()).toBe(false);
+  });
+
+  it("stays closed for anything other than the literal string 'true'", () => {
+    process.env.KADENZ_EMAIL_SIGNUP_OPEN = "1";
+    expect(isEmailSignupOpen()).toBe(false);
+    process.env.KADENZ_EMAIL_SIGNUP_OPEN = "TRUE";
+    expect(isEmailSignupOpen()).toBe(false);
+  });
+
+  it("opens only on the literal string 'true'", () => {
+    process.env.KADENZ_EMAIL_SIGNUP_OPEN = "true";
+    expect(isEmailSignupOpen()).toBe(true);
   });
 });
 

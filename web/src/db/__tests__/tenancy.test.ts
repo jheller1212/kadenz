@@ -40,6 +40,10 @@ const TENANTED_TABLES = {
 
 // Deliberately not tenanted:
 //   - users: the identity table itself, not a user's data.
+//   - emailLoginTokens: identity infrastructure, same category as
+//     user_identities below -- a requested magic-link token exists before we
+//     know which user (if any) it will resolve to, so it cannot carry a
+//     user_id. See drizzle/0067_email_login_tokens.sql.
 //   - strengthExercises: a shared catalogue, not anyone's data.
 //   - strengthSets, painLogs, customWorkoutSlots: each reachable only through
 //     an already-tenanted parent row (strengthSessions or
@@ -54,6 +58,7 @@ const TENANTED_TABLES = {
 // an unrelated reason. It is not a table with a Phase 2 tenancy column.
 const EXCLUDED_TABLES = {
   users: schema.users,
+  emailLoginTokens: schema.emailLoginTokens,
   strengthExercises: schema.strengthExercises,
   strengthSets: schema.strengthSets,
   painLogs: schema.painLogs,
@@ -125,7 +130,7 @@ describe("tenancy: every table in the schema is accounted for", () => {
 // agree with a stale duplicate. One source of truth, checked from the other end.
 
 const DRIZZLE_DIR = join(__dirname, "..", "..", "..", "drizzle");
-const COVERAGE_MIGRATION = "0066_rls_covers_every_tenanted_table.sql";
+const COVERAGE_MIGRATION = "0068_rls_covers_every_tenanted_table.sql";
 
 function readCoverageMigration(): string {
   return readFileSync(join(DRIZZLE_DIR, COVERAGE_MIGRATION), "utf8");

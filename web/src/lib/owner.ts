@@ -57,6 +57,24 @@ export function isAllowedGoogleEmail(email: string | null | undefined): boolean 
   return allowed.includes(email.toLowerCase());
 }
 
+// ── Opening email magic-link sign-up ──────────────────────────────────────────
+//
+// Same shape as KADENZ_GOOGLE_SIGNUP_OPEN (PLAN_OF_ATTACK.md 2.5): a dedicated
+// switch rather than an allowlist, because there is nothing to allowlist --
+// email has no account id to enumerate ahead of time the way a Strava athlete
+// id or a Google email address does. Read on every request rather than cached,
+// so Jonas can close it again from the host's env panel with no deploy the
+// moment it looks wrong.
+//
+// Default closed: an unset or unrecognised value refuses every new signup,
+// same fail-closed rule as the allowlists. This only gates NEW accounts --
+// see resolveUserForEmailLogin in lib/users.ts, which still lets an address
+// that already has an email identity sign back in regardless, the same way an
+// existing session isn't revoked by later closing this switch.
+export function isEmailSignupOpen(): boolean {
+  return process.env.KADENZ_EMAIL_SIGNUP_OPEN === "true";
+}
+
 /** True only if `athleteId` is on KADENZ_ALLOWED_STRAVA_ATHLETE_IDS. */
 export function isAllowedStravaAthleteId(
   athleteId: number | null | undefined

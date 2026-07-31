@@ -296,6 +296,8 @@ const manifest: Record<string, ManifestEntry> = {
   "GET /api/auth/google/callback": { kind: "public" },
   "GET /api/auth/strava": { kind: "public" },
   "GET /api/auth/google": { kind: "public" },
+  "POST /api/auth/email/request": { kind: "public" },
+  "GET /api/auth/email/consume": { kind: "public" },
   "GET /api/strava/webhook": { kind: "public" },
   "POST /api/strava/webhook": { kind: "public" },
 

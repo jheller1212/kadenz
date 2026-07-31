@@ -7,6 +7,13 @@ const PUBLIC_API_ROUTES: string[] = [
   "/api/auth/google/callback",
   "/api/auth/strava",
   "/api/auth/google",
+  // Email magic-link sign-in. Both legs are necessarily unauthenticated:
+  // request happens before any token exists, and consume is what MINTS the
+  // session, so it cannot require one first. Each verifies its own input
+  // (rate limit + token hash) rather than relying on the proxy for anything
+  // beyond letting the request through at all.
+  "/api/auth/email/request",
+  "/api/auth/email/consume",
   // Strava webhook — GET (subscription handshake) and POST (event delivery, HMAC-verified in handler)
   "/api/strava/webhook",
 ];
