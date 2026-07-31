@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "seed:strength": "tsx src/db/seed-strength.ts",
     "splash:generate": "node scripts/generate-splash.mjs",
+    "report:capabilities": "tsx scripts/generate-capability-report.ts",
     "test:e2e": "playwright test",
     "test:e2e:seed": "tsx e2e/seed.ts"
   },
