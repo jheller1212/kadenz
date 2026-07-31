@@ -21,6 +21,7 @@ import {
   Trophy,
   Flag,
   X,
+  TrendingDown,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -113,6 +114,10 @@ interface TodayApiResponse {
   planFinished?: boolean;
   raceWorkoutId?: string | null;
   achieved?: { completedKm: number; completedRuns: number };
+  // A multi-week trend (see adherence.ts), not this week's missed runs —
+  // PlanAdjustmentTray already covers those. Null unless the athlete is
+  // visibly behind.
+  behindPlan?: { missedCount: number; consideredCount: number } | null;
 }
 
 // ── Weather ─────────────────────────────────────────────────────────────────
@@ -1925,6 +1930,26 @@ export default function Home() {
 
         {/* Missed-session adjustment tray */}
         <PlanAdjustmentTray onApplied={() => loadData({ silent: true })} />
+
+        {/* Behind-plan trend — this week's misses are PlanAdjustmentTray's job;
+            this is "training hasn't been happening for a few weeks", a
+            different, plainer thing to say. Only on today's view: it's a
+            plan-level read, not tied to whichever day is being browsed. */}
+        {viewingToday && data.behindPlan && (
+          <div className="mx-5 flex items-start gap-3 rounded-[var(--radius-card)] border border-warn/40 bg-warn/10 p-4">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warn/20">
+              <TrendingDown className="h-5 w-5 text-warn" strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-bold text-text-1">Behind on training</p>
+              <p className="mt-0.5 text-[13px] leading-snug text-text-2">
+                {data.behindPlan.missedCount} of the last {data.behindPlan.consideredCount} sessions
+                didn&apos;t happen. Recalibrate the plan to your current fitness, or just pick the
+                next session back up.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Device/app connections prompt — one line, not a modal or gate: an
             athlete who wants to train now still can. Only on today's view;
