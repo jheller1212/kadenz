@@ -321,8 +321,6 @@ const manifest: Record<string, ManifestEntry> = {
   "POST /api/auth/shell/token": { kind: "no-db" },
   "GET /api/session": { kind: "no-db" },
   "GET /api/geo": { kind: "no-db" },
-  "POST /api/gcal/disconnect": { kind: "no-db", note: "single stored gcal token, app-wide" },
-  "POST /api/strava/disconnect": { kind: "no-db", note: "single stored strava token, app-wide" },
   "GET /api/strava/subscription": { kind: "no-db", note: "one Strava webhook subscription for the whole app" },
   "POST /api/strava/subscription": { kind: "no-db" },
   "POST /api/strava/backfill": { kind: "no-db", note: "single connected Strava account, app-wide, not yet per-user" },
@@ -338,6 +336,24 @@ const manifest: Record<string, ManifestEntry> = {
   "GET /api/integrations/strava/status": { kind: "no-db" },
 
   // ── Self-scoped destructive ─────────────────────────────────────────────────
+  // Both were "no-db" ("single stored token, app-wide") before per-user
+  // credentials landed (Phase 4, integration_credentials/sync_outbox's
+  // idempotencyKey rows are now tenanted). #135 flagged the label as stale
+  // without correcting it. Both routes are withSession(...), so the delete
+  // they issue only ever removes the CALLER's own row — the guarantee is
+  // FORCE row level security on the transaction withSession opens (see
+  // db/with-user.ts), not a userId filter written at the call site, since
+  // neither query has a user-owned id to filter by in the first place. No id
+  // anywhere in the request, so, like DELETE /api/user/account below, there
+  // is no cross-user id to attack.
+  "POST /api/gcal/disconnect": {
+    kind: "self-scoped-destructive",
+    note: "deletes the caller's own stored gcal token row (src/app/api/gcal/disconnect/route.ts). Scoped by withSession's row level security transaction; no userId is threaded through the query because the tenant isolation is enforced at the database layer, not the call site.",
+  },
+  "POST /api/strava/disconnect": {
+    kind: "self-scoped-destructive",
+    note: "deletes the caller's own Strava credentials via deleteCredentials(currentUserId(), \"strava\") (src/app/api/strava/disconnect/route.ts). Scoping is asserted directly in src/app/api/strava/disconnect/__tests__/route.test.ts, which mocks db/with-user so deleteCredentials being called with any id proves it ran inside withUser's scope.",
+  },
   "DELETE /api/user/account": {
     kind: "self-scoped-destructive",
     note: "erases the CALLER's account and every row they own, via lib/account-deletion.ts. Scoping is asserted in src/lib/__tests__/account-deletion.test.ts (every delete filtered by the given userId, discovered from the same tenancy metadata 0064's RLS coverage migration uses) and src/app/api/user/account/__tests__/route.test.ts (the route always deletes the SESSION's own id, never a body/param value, and the owner is refused before anything runs).",

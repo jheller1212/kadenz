@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { inArray } from "drizzle-orm";
 import { db, activities, deletedActivities } from "@/db";
+import { withUser } from "@/db/with-user";
 import {
   getAccessToken,
   processActivity,
@@ -8,6 +9,30 @@ import {
   type StravaActivity,
 } from "@/lib/sync/strava-client";
 import { requireRequestUser } from "@/lib/request-user";
+
+// ── Scoping, and why it is per call rather than one transaction for the
+// whole request ──────────────────────────────────────────────────────────────
+//
+// integration_credentials/activities/deleted_activities are all tenanted
+// (FORCE row level security — drizzle/0053_rls.sql,
+// 0066_rls_covers_every_tenanted_table.sql), so every db call here needs an
+// app.user_id set on the transaction it runs on (db/with-user.ts) or it
+// matches nothing. This route used to resolve `userId` and pass it straight
+// to getAccessToken/processActivity/updateActivity without ever opening one,
+// so under FORCE RLS the credential read, the dedupe pre-check, and every
+// stored activity all silently matched zero rows: the athlete saw
+// `{ ok: true, inserted: 0 }` and nothing was ever imported.
+//
+// The fix is NOT one withUser wrapping the whole handler. db/with-user.ts's
+// own file comment warns against that: a transaction held open across an
+// await on a third party turns a slow external call into a database problem,
+// and this route can make up to MAX_NEW_PER_RUN (80) sequential Strava round
+// trips. Each processActivity/updateActivity call already makes exactly one
+// such round trip (fetchActivity) fused with its own reads/writes, so it is
+// scoped individually below — 80 short-lived transactions opened and closed
+// one at a time, never one held across all 80. The credential read and the
+// batch dedupe pre-check are each their own short scope for the same reason,
+// just with no network call inside them at all.
 
 const STRAVA_API = "https://www.strava.com/api/v3";
 const DEFAULT_LOOKBACK_DAYS = 30;
@@ -61,7 +86,7 @@ export async function POST(request: NextRequest) {
 
   let token: string;
   try {
-    token = await getAccessToken(userId);
+    token = await withUser(userId, () => getAccessToken(userId));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return Response.json(
@@ -100,24 +125,29 @@ export async function POST(request: NextRequest) {
   }
 
   // Which of the fetched activities are actually NEW? Pre-check stored ids
-  // so the result reports real work, not the fetch-window size.
+  // so the result reports real work, not the fetch-window size. No network
+  // call in this pair of selects, so one short scope covers both.
   const fetchedIds = stravaActivities.map((a) => String(a.id));
-  const existing = fetchedIds.length
-    ? await db
-        .select({ stravaId: activities.stravaId })
-        .from(activities)
-        .where(inArray(activities.stravaId, fetchedIds))
-    : [];
-  const knownActivityIds = new Set(existing.map((e) => e.stravaId));
-  // Tombstoned (user-deleted) activities are treated as already handled —
-  // `refresh` never touches these, they stay gone regardless.
-  const tombstones = fetchedIds.length
-    ? await db
-        .select({ stravaId: deletedActivities.stravaId })
-        .from(deletedActivities)
-        .where(inArray(deletedActivities.stravaId, fetchedIds))
-    : [];
-  const tombstoneIds = new Set(tombstones.map((t) => t.stravaId));
+  const { knownActivityIds, tombstoneIds } = await withUser(userId, async () => {
+    const existing = fetchedIds.length
+      ? await db
+          .select({ stravaId: activities.stravaId })
+          .from(activities)
+          .where(inArray(activities.stravaId, fetchedIds))
+      : [];
+    // Tombstoned (user-deleted) activities are treated as already handled —
+    // `refresh` never touches these, they stay gone regardless.
+    const tombstones = fetchedIds.length
+      ? await db
+          .select({ stravaId: deletedActivities.stravaId })
+          .from(deletedActivities)
+          .where(inArray(deletedActivities.stravaId, fetchedIds))
+      : [];
+    return {
+      knownActivityIds: new Set(existing.map((e) => e.stravaId)),
+      tombstoneIds: new Set(tombstones.map((t) => t.stravaId)),
+    };
+  });
   const known = new Set([...knownActivityIds, ...tombstoneIds]);
 
   let inserted = 0;
@@ -153,7 +183,9 @@ export async function POST(request: NextRequest) {
       if (isKnown) {
         if (needsRefresh(id)) {
           processedNew++;
-          const result = await updateActivity(userId, activity.id);
+          // One activity, one scope, one Strava round trip — see the file
+          // comment on why this is per call, not one scope for the loop.
+          const result = await withUser(userId, () => updateActivity(userId, activity.id));
           if (result === "updated") refreshed++;
           else alreadySynced++; // not_found / trashed — nothing to refresh
         } else {
@@ -162,7 +194,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
       processedNew++;
-      const result = await processActivity(userId, activity.id);
+      const result = await withUser(userId, () => processActivity(userId, activity.id));
       if (result === "stored") inserted++;
       else if (result === "skipped") skippedTypes++;
       else alreadySynced++;

@@ -1,7 +1,8 @@
 import { type NextRequest } from "next/server";
 import { validateSessionCookie } from "@/lib/session";
 import { eq, and, lt } from "drizzle-orm";
-import { db, syncOutbox } from "@/db";
+import { db, syncOutbox, OWNER_USER_ID } from "@/db";
+import { forEachUser, withUser } from "@/db/with-user";
 import { processGCalOutbox } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
@@ -16,34 +17,7 @@ import { runGarminImport } from "@/lib/sync/garmin-activity-import";
 import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 import { pruneStaleAdhocSessions, autoCloseAbandonedSessions } from "@/lib/strength/schedule";
-import { listAllUserIds } from "@/lib/users";
 import { asUserId } from "@/lib/user-id";
-
-// Failed jobs get one retry per cron run until this hard cap.
-const RETRY_CAP = 10;
-
-/**
- * The subset of `userIds` for which `predicate` holds.
- *
- * Sequential rather than Promise.all: these predicates each hit the database,
- * and the pooled client is capped at one connection per function instance, so
- * firing them together would queue on the pool anyway while making a single
- * failure harder to attribute to a user.
- */
-async function filterUsers(
-  userIds: string[],
-  predicate: (userId: string) => Promise<boolean>
-): Promise<string[]> {
-  const out: string[] = [];
-  for (const userId of userIds) {
-    try {
-      if (await predicate(userId)) out.push(userId);
-    } catch (err) {
-      console.error(`Connection check failed for user ${userId}:`, err);
-    }
-  }
-  return out;
-}
 
 // ── GET /api/cron/gcal ────────────────────────────────────────────────────────
 // The single daily cron (Vercel Hobby allows one — see vercel.json).
@@ -65,6 +39,39 @@ async function filterUsers(
 //      see dispatch.ts) and only catches sessions whose window happens to
 //      overlap this once-a-day run, or the rare day the GitHub workflow is
 //      broken end to end.
+//
+// ── Per-user scope, and the two drains that deliberately stay outside it ────
+//
+// Every read/write under FORCE row level security (drizzle/0053_rls.sql,
+// 0066_rls_covers_every_tenanted_table.sql) needs an app.user_id set on the
+// transaction it runs on, or it matches nothing (db/with-user.ts). A cron run
+// carries no session, so there is no single user to act as, and most of what
+// this route does is genuinely per person: is THIS user's calendar connected,
+// has THIS user turned on watch sync, prune THIS user's stale sessions. Those
+// blocks fan out over every user via forEachUser, each iteration running
+// inside that user's own transaction.
+//
+// Two calls do not fit that shape and are left unscoped, on purpose, not by
+// oversight: processGCalOutbox() and processGarminOutbox() each drain a
+// single outbox spanning every user's queued jobs in one claim (FOR UPDATE
+// SKIP LOCKED), because a job row already carries its own owner and there is
+// no way to split "drain everyone's outbox" into one transaction per user
+// without either claiming the same table N times or reinventing the claim
+// inside a loop. Under FORCE RLS an unscoped claim matches nothing, so these
+// two calls do not drain anything in production today. That is a real
+// architectural gap — one transaction can only carry one app.user_id, and an
+// outbox drain is intentionally cross-user — and it needs a decision (e.g. a
+// service-role connection scoped to sync_outbox specifically, or reshaping
+// the drain to claim per user) rather than a mechanical fix here. Left as is,
+// flagged loudly rather than silently patched over. The failed-job requeue
+// just above them has the same shape and the same gap.
+//
+// Garmin is reached through one installation-level worker connection, not
+// per-user OAuth (see garmin-config.ts), so only the owner's rows can ever
+// legitimately carry a garminWorkoutId. The push/resync block below mirrors
+// sync/reconcile-garmin's shape for that reason: it does not fan out the
+// actual push over every enabled user, it runs once, for the owner, inside
+// the owner's own scope.
 
 export async function GET(request: NextRequest) {
   // Either the cron secret (Vercel scheduler) or a signed-in session — the
@@ -78,39 +85,46 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const out: Record<string, unknown> = { ok: true };
-
-  // A cron run carries no session, so it has no single user to act as. Every
-  // integration it touches is now per person, so it fans out over users.
-  // Superseded by withCronFanOut once phase 3 lands; see lib/users.ts.
-  let userIds: string[];
-  try {
-    userIds = await listAllUserIds();
-  } catch (err) {
-    console.error("GCal cron could not list users:", err);
-    return Response.json({ ok: false, error: "user list failed" }, { status: 500 });
-  }
+  const out: Record<string, unknown> = {};
+  // Set on the first per-user failure. A caught failure must still surface as
+  // a non-2xx response: both the GitHub workflow and the Cloudflare Worker in
+  // cron-worker/ key off the HTTP status, not the body, and that signal was
+  // deliberately restored once already (see with-session.ts's
+  // withCronFanOut, which this route predates and does not use directly —
+  // see the file comment on why this route's shape doesn't fit one uniform
+  // per-user handler).
+  let anyUserFailed = false;
 
   try {
     // Give permanently-failed jobs another chance, up to RETRY_CAP attempts
-    // (covers both gcal and garmin targets).
+    // (covers both gcal and garmin targets). Cross-user by nature (see file
+    // comment above) — left unscoped, not converted to a fan-out.
+    const RETRY_CAP = 10;
     const requeued = await db
       .update(syncOutbox)
       .set({ status: "pending" })
       .where(and(eq(syncOutbox.status, "failed"), lt(syncOutbox.attempts, RETRY_CAP)))
       .returning({ id: syncOutbox.id });
     out.requeued = requeued.length;
+  } catch (err) {
+    console.error("GCal cron requeue error:", err);
+    out.requeuedError = "requeue failed";
+  }
 
-    // "Is a calendar connected" is now a per-person fact, so the gate asks
-    // whether ANYONE is connected. The drain itself stays global on purpose:
-    // every outbox row records its own owner and is delivered with that
-    // owner's credentials, so one drain correctly serves everybody.
-    const connected = await filterUsers(userIds, isConnected);
-    if (connected.length > 0) {
-      out.gcal = await processGCalOutbox();
-    } else {
-      out.gcal = "not connected";
-    }
+  try {
+    // "Is a calendar connected" is now a per-person fact, checked inside each
+    // user's own scope, so the gate asks whether ANYONE is connected. The
+    // drain itself stays cross-user on purpose — see the file comment.
+    const connectedResults = await forEachUser(async (_tx, userId) => {
+      try {
+        return await isConnected(userId);
+      } catch (err) {
+        console.error(`Connection check failed for user ${userId}:`, err);
+        return false;
+      }
+    });
+    const anyConnected = connectedResults.some((r) => r.result);
+    out.gcal = anyConnected ? await processGCalOutbox() : "not connected";
   } catch (err) {
     console.error("GCal cron error:", err);
     out.gcalError = "failed";
@@ -118,37 +132,58 @@ export async function GET(request: NextRequest) {
 
   try {
     // Garmin is reached through installation-level worker credentials rather
-    // than per-user OAuth, so in practice only the owner has a watch. The loop
-    // is still per user because the toggle and the queueing are per user, and
-    // a user with the toggle off simply contributes nothing.
-    const enabled = await filterUsers(userIds, isGarminWorkoutSyncEnabled);
+    // than per-user OAuth, so in practice only the owner has a watch. The
+    // toggle is still checked per user (it is per-user state), but only the
+    // OWNER's iteration actually resyncs/queues — see the file comment and
+    // sync/reconcile-garmin, whose shape this copies.
+    const enabledResults = await forEachUser(async (_tx, userId) => {
+      try {
+        return await isGarminWorkoutSyncEnabled(userId);
+      } catch (err) {
+        console.error(`Garmin toggle check failed for user ${userId}:`, err);
+        return false;
+      }
+    });
+    const enabled = enabledResults.filter((r) => r.result).map((r) => r.userId);
+
     if (enabled.length > 0) {
       let repushed = 0;
       let queued = 0;
       let strengthQueued = 0;
+      let skippedNonOwner = 0;
+
       for (const userId of enabled) {
+        if (userId !== OWNER_USER_ID) {
+          // A non-owner's toggle being on means nothing to push to, since only
+          // the owner's rows can ever carry a garminWorkoutId (see file
+          // comment). Skipped rather than fanned out over, same as
+          // sync/reconcile-garmin.
+          skippedNonOwner++;
+          continue;
+        }
         try {
-          // Self-heal first: anything we pushed that has vanished from Garmin
-          // gets recreated, then the window rolls forward as usual.
-          const resync = await resyncGarminWindow(userId);
-          repushed += resync.repushed;
-          // Cron has no request session, so the acting user is whichever id
-          // this loop iteration is currently fanning out over, not
-          // currentUserId() (there is no request context here to read it
-          // from). userId came off the users table via listAllUserIds, so it
-          // is validated, not cast.
-          queued += await queueGarminWindowSync(asUserId(userId));
-          // Kraft sessions ride the same rolling window as runs.
-          strengthQueued += await queueGarminStrengthWindowSync(userId);
+          await withUser(asUserId(userId), async () => {
+            // Self-heal first: anything we pushed that has vanished from
+            // Garmin gets recreated, then the window rolls forward as usual.
+            const resync = await resyncGarminWindow(userId);
+            repushed += resync.repushed;
+            queued += await queueGarminWindowSync(userId);
+            // Kraft sessions ride the same rolling window as runs.
+            strengthQueued += await queueGarminStrengthWindowSync(userId);
+          });
         } catch (err) {
           // Per user, so one athlete's Garmin outage cannot skip everyone
           // queued behind them.
           console.error(`Garmin window sync failed for user ${userId}:`, err);
+          anyUserFailed = true;
         }
       }
+
       out.garminResync = repushed;
       out.garminQueued = queued;
       out.garminStrengthQueued = strengthQueued;
+      if (skippedNonOwner > 0) out.garminSkippedNonOwner = skippedNonOwner;
+      // Cross-user by nature (see file comment) — left unscoped.
       out.garmin = await processGarminOutbox();
     } else {
       out.garmin = "disabled";
@@ -162,8 +197,19 @@ export async function GET(request: NextRequest) {
     // Abandoned Kraft-picker/custom-workout ad-hoc sessions (opened, never
     // started or logged, day now past) — DB hygiene independent of whether
     // Garmin is configured, since these can exist without ever having
-    // reached the watch. See lib/strength/schedule.ts pruneStaleAdhocSessions.
-    out.strengthAdhocPruned = await pruneStaleAdhocSessions();
+    // reached the watch. Per user because pruneStaleAdhocSessions filters by
+    // ownedBy(strengthSessions), i.e. currentUserId() — see
+    // lib/strength/schedule.ts.
+    const results = await forEachUser(async (_tx, userId) => {
+      try {
+        return await pruneStaleAdhocSessions();
+      } catch (err) {
+        console.error(`Stale ad-hoc strength session prune failed for user ${userId}:`, err);
+        anyUserFailed = true;
+        return { removed: 0 };
+      }
+    });
+    out.strengthAdhocPruned = results.reduce((sum, r) => sum + r.result.removed, 0);
   } catch (err) {
     console.error("Stale ad-hoc strength session prune error:", err);
     out.strengthAdhocPruneError = "prune failed";
@@ -174,7 +220,17 @@ export async function GET(request: NextRequest) {
     // that route). Cheap and idempotent, so calling it again here is harmless
     // on a normal day and catches abandoned sessions if that faster cron is
     // ever broken end to end (same reasoning as dispatchDueReminders below).
-    out.strengthAutoClosed = await autoCloseAbandonedSessions();
+    // Per user for the same reason as the prune above.
+    const results = await forEachUser(async (_tx, userId) => {
+      try {
+        return await autoCloseAbandonedSessions();
+      } catch (err) {
+        console.error(`Strength auto-close failed for user ${userId}:`, err);
+        anyUserFailed = true;
+        return { closed: 0 };
+      }
+    });
+    out.strengthAutoClosed = results.reduce((sum, r) => sum + r.result.closed, 0);
   } catch (err) {
     console.error("Strength auto-close cron error:", err);
     out.strengthAutoCloseError = "auto-close failed";
@@ -188,15 +244,17 @@ export async function GET(request: NextRequest) {
       // point of migration 0059: with one shared bookmark, each iteration
       // would overwrite the previous one's position and every athlete would
       // re-import or skip activities depending on who ran last.
-      const imports: Record<string, unknown> = {};
-      for (const userId of userIds) {
+      const results = await forEachUser(async (_tx, userId) => {
         try {
-          imports[userId] = await runGarminImport(asUserId(userId));
+          return await runGarminImport(asUserId(userId));
         } catch (err) {
           console.error(`Garmin import failed for user ${userId}:`, err);
-          imports[userId] = "failed";
+          anyUserFailed = true;
+          return "failed" as const;
         }
-      }
+      });
+      const imports: Record<string, unknown> = {};
+      for (const r of results) imports[r.userId] = r.result;
       out.garminImport = imports;
     }
   } catch (err) {
@@ -205,15 +263,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const wellness: Record<string, unknown> = {};
-    for (const userId of userIds) {
+    const results = await forEachUser(async (_tx, userId) => {
       try {
-        wellness[userId] = await runWellnessSync(asUserId(userId));
+        return await runWellnessSync(asUserId(userId));
       } catch (err) {
         console.error(`Wellness sync failed for user ${userId}:`, err);
-        wellness[userId] = "failed";
+        anyUserFailed = true;
+        return "failed" as const;
       }
-    }
+    });
+    const wellness: Record<string, unknown> = {};
+    for (const r of results) wellness[r.userId] = r.result;
     out.wellnessSync = wellness;
   } catch (err) {
     console.error("Garmin wellness sync error:", err);
@@ -221,11 +281,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    out.reminders = await dispatchDueReminders();
+    // Per user: dispatchDueReminders reads reminder_settings/sent_reminders,
+    // both tenanted (see lib/reminders/dispatch.ts). The frequent 15-minute
+    // dispatch already fans out via withCronFanOut (see cron/reminders); this
+    // is just the once-a-day backstop, same reasoning as the strength
+    // auto-close above.
+    const results = await forEachUser(async (_tx, userId) => {
+      try {
+        return await dispatchDueReminders();
+      } catch (err) {
+        console.error(`Reminder dispatch failed for user ${userId}:`, err);
+        anyUserFailed = true;
+        return { ok: false as const };
+      }
+    });
+    out.reminders = Object.fromEntries(results.map((r) => [r.userId, r.result]));
   } catch (err) {
     console.error("Reminder dispatch error:", err);
     out.remindersError = "dispatch failed";
   }
 
-  return Response.json(out);
+  const hasBlockError = Object.keys(out).some((k) => k.endsWith("Error"));
+  out.ok = !anyUserFailed && !hasBlockError;
+  return Response.json(out, { status: out.ok ? 200 : 500 });
 }
