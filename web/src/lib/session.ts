@@ -66,13 +66,17 @@ export function isSessionFresh(
   return age >= -CLOCK_SKEW_TOLERANCE_MS && age <= maxAgeMs;
 }
 
-function getSecret(): string {
+// Exported (not just used internally) so lib/email/tokens.ts can hash and
+// verify magic-link tokens with the same primitive and the same secret rather
+// than growing a second HMAC implementation. One signing secret, one way to
+// sign and verify with it.
+export function getSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET env var is not set");
   return secret;
 }
 
-async function hmacSign(value: string, secret: string): Promise<string> {
+export async function hmacSign(value: string, secret: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -88,7 +92,7 @@ async function hmacSign(value: string, secret: string): Promise<string> {
     .replace(/=+$/, "");
 }
 
-async function hmacVerify(value: string, signature: string, secret: string): Promise<boolean> {
+export async function hmacVerify(value: string, signature: string, secret: string): Promise<boolean> {
   const expected = await hmacSign(value, secret);
   if (expected.length !== signature.length) return false;
   // Constant-time compare via XOR

@@ -235,6 +235,29 @@ export const userIdentities = pgTable(
   ]
 );
 
+// One requested email magic-link, see drizzle/0067_email_login_tokens.sql for
+// the full reasoning. Identity infrastructure like user_identities above, not
+// tenanted data: no user_id, no row level security policy, readable before
+// any session exists (the consume route has to read it to mint one).
+export const emailLoginTokens = pgTable(
+  "email_login_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    requestedIp: text("requested_ip"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("email_login_tokens_email_created_idx").on(t.email, t.createdAt),
+    index("email_login_tokens_ip_created_idx").on(t.requestedIp, t.createdAt),
+  ]
+);
+
 // One person's OAuth credentials for one external service. Phase 4 of the
 // multi-user plan (see drizzle/0058_integration_credentials.sql): these tokens
 // used to be a single row in sync_outbox under a fixed idempotency key, so the
