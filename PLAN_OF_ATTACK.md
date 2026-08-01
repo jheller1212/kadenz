@@ -16,42 +16,11 @@ of the links. Last updated 2026-08-01.
 
 ## 1. Only Jonas can do these
 
-- **Decide how migrations get permission to run. Nothing is broken today, but
-  the next migration you write will silently not apply.** Every production
-  deploy runs `scripts/migrate.mjs`, and on Supabase almost every file fails:
-
-  ```
-  [migrate] 0011_run_rpe.sql: FAILED at statement 1: must be owner of table workouts
-  [migrate] 0014_strength_plan_settings.sql: FAILED: permission denied for schema public
-  ```
-
-  All 27 tables are owned by `postgres`. The app connects as `kadenz_app`,
-  which is `NOBYPASSRLS` — correct, and the reason tenancy holds — but it
-  therefore cannot run DDL. `migrate.mjs` never fails the build by design, so
-  the deploy goes green regardless.
-
-  **The current schema is fine.** Every migration through 0068 is applied,
-  because the cutover ran the schema directly as `postgres`, and all 23
-  tenanted tables have `relforcerowsecurity` set. This is a trap, not an
-  outage: the failure only bites the next time a migration adds something the
-  code depends on, and it will look like a passing deploy and a missing column.
-
-  Two ways out, both needing a decision rather than a patch:
-
-  1. **Give `kadenz_app` ownership** (`REASSIGN OWNED BY postgres TO
-     kadenz_app` within `public`). Simplest, one connection string. Safe with
-     respect to isolation: `FORCE ROW LEVEL SECURITY` applies to the table
-     owner too, which is exactly why it is set, and `kadenz_app` stays
-     `NOBYPASSRLS`. Recommended.
-  2. **A separate privileged `MIGRATION_DATABASE_URL`** used only by the build
-     step, with runtime still on `kadenz_app`. Keeps DDL rights out of the
-     serverless runtime, but needs `ALTER DEFAULT PRIVILEGES` so tables a
-     future migration creates are still reachable by the app — miss that and a
-     new table is invisible to the app while every test passes.
-
-  Whichever is chosen, once migrations can actually apply, make a failed
-  migration fail the build. It cannot be done first: today that would block
-  every deploy.
+- **Make a failed migration fail the build.** Now possible and not before. See
+  "Migrations can apply again" in section 5b for why it was impossible until
+  1 August: every file failed, so a strict runner would have blocked every
+  deploy. Left undone deliberately — the first replay under the new ownership
+  needs to be observed before the build is allowed to hard-fail on it.
 
 - **Delete the Neon project, once you are satisfied Supabase is solid.** The
   app moved to Supabase and Neon is now only a rollback copy, deliberately left
@@ -215,6 +184,30 @@ orphans every strength set pointing at the source's; and Supabase's `postgres`
 role carries `BYPASSRLS`, so the isolation test passed against it while proving
 nothing. The app runs as `kadenz_app`, created `NOBYPASSRLS` — never as
 `postgres`.
+
+**Migrations can apply again.** Since the cutover, `scripts/migrate.mjs` failed
+on almost every file on every production deploy (`must be owner of table
+workouts`, `permission denied for schema public`) because all 27 tables were
+owned by `postgres` while the app connects as `kadenz_app`. The runner never
+fails the build, so nothing surfaced it. The schema stayed correct only because
+the cutover applied it directly as `postgres`.
+
+Fixed by giving `kadenz_app` ownership of the 27 tables and 19 enums in
+`public`, plus `CREATE` on the schema, with `postgres` granted membership of
+`kadenz_app` so the dashboard keeps full control.
+
+**Ownership does not weaken isolation, and this was verified rather than
+assumed.** `FORCE ROW LEVEL SECURITY` binds the table owner too — that is
+exactly why it is set — and `kadenz_app` remains `NOBYPASSRLS`. Measured
+against production after the change: as `kadenz_app` with no `app.user_id`, a
+tenanted table returns **0** of its 165 rows; with the owner's id set, it
+returns all 165.
+
+One consequence to know about: roughly fifty migrations that had been failing
+for weeks now genuinely run. The ordered replay converges, because each
+superseding file drops its predecessor first (0042 → 0049 → 0054 on
+`wellness_metrics`), and every statement is idempotent, so the already-correct
+objects are no-ops.
 
 **Today screen fan-out collapsed** to a single bootstrap call (#145).
 
