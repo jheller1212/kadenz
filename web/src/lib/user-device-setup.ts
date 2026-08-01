@@ -8,13 +8,26 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, OWNER_USER_ID } from "@/db/schema";
 import {
   parseConnections,
   UNANSWERED_DEVICE_SETUP,
   type ConnectionId,
   type DeviceSetup,
 } from "@/lib/device-setup";
+import { garminClient } from "@/lib/sync/garmin-client";
+
+/**
+ * Whether Garmin is honest to offer this caller at all.
+ *
+ * Not a per-user connection: it's a single physical watch reached through
+ * installation-level worker credentials, so only the owner's workouts can
+ * ever carry a garminWorkoutId. Shared by /api/user/device-setup and
+ * /api/today/bootstrap so both answer the same question the same way.
+ */
+export function garminOfferedTo(userId: string): boolean {
+  return userId === OWNER_USER_ID && garminClient.isConfigured();
+}
 
 /**
  * The athlete's answer, or the unanswered state if the row is missing.

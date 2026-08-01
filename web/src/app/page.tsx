@@ -46,8 +46,8 @@ import { PullIndicator } from "@/components/ui/PullIndicator";
 import { PlanAdjustmentTray } from "@/components/PlanAdjustmentTray";
 import { PermissionPrimer } from "@/components/PermissionPrimer";
 import { FirstRunWalkthrough } from "@/components/FirstRunWalkthrough";
-import { ReadinessCard } from "@/components/ReadinessCard";
-import { WellnessCheckIn } from "@/components/WellnessCheckIn";
+import { ReadinessCard, type Readiness } from "@/components/ReadinessCard";
+import { WellnessCheckIn, type WellnessLog } from "@/components/WellnessCheckIn";
 import { haptic } from "@/lib/haptics";
 import { readCache, writeCache } from "@/lib/client-cache";
 import { mutateWithQueue, installQueueFlush } from "@/lib/offline-queue";
@@ -867,7 +867,7 @@ function WeekOverviewCard({
 
 // ── My Insights Section ──────────────────────────────────────────────────────
 
-function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget }: {
+function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget, paceInitial }: {
   stats: TodayStats;
   weather: WeatherData | null;
   selectedDate: Date | null;
@@ -876,6 +876,10 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
   weekWorkouts: DayInfo[];
   weekStrength: StrengthSessionLite[];
   strengthTarget: number | null;
+  // Seeded from the Today screen's one bootstrap call (/api/today/bootstrap)
+  // — `undefined` (bootstrap didn't run yet, or its pace section failed)
+  // falls back to this component's own fetch, same as before.
+  paceInitial?: { status: string; inBandPct: number | null } | null;
 }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -883,8 +887,9 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
   // Sessions done beyond the weekly Kraft target count as a bonus, not a
   // moving goalpost.
   const strengthExtra = strengthTarget != null ? Math.max(0, strengthDone - strengthTarget) : 0;
-  const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(null);
+  const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(paceInitial ?? null);
   useEffect(() => {
+    if (paceInitial !== undefined) return;
     const cached = readCache<{ status: string; inBandPct: number | null }>("pace_verdict");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init from storage
     if (cached) setPace(cached);
@@ -898,6 +903,7 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
         }
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `paceInitial` is a one-time seed, checked only for its presence
   }, []);
   const paceTitle =
     pace === null || pace.status === "no_data"
@@ -1437,6 +1443,14 @@ function TodaySkeleton() {
 // the session. Self-contained — checks the snapshot on mount and focus.
 
 
+// A section of /api/today/bootstrap's response that failed server-side comes
+// back as `{ error: true }` instead of aborting the whole request (see that
+// route's comment) — this is how the client tells "this section is missing
+// because it broke" apart from "this section is legitimately empty".
+function bootstrapSectionFailed(value: unknown): value is { error: true } {
+  return !!value && typeof value === "object" && (value as { error?: unknown }).error === true;
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -1448,28 +1462,16 @@ export default function Home() {
   // Calendar-day keys of this week's strength sessions (2nd dot).
   const [strengthDays, setStrengthDays] = useState<Record<string, string>>({});
   const [weekStrength, setWeekStrength] = useState<StrengthSessionLite[]>([]);
+  // Seeded by the mount-time /api/today/bootstrap call below (see
+  // loadBootstrap) — no standalone mount fetch here any more.
   const [strengthTarget, setStrengthTarget] = useState<number | null>(null);
-  useEffect(() => {
-    apiFetch("/api/strength/plan-settings")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d && typeof d.sessionsPerWeek === "number") setStrengthTarget(d.sessionsPerWeek);
-      })
-      .catch(() => {});
-  }, []);
   // Device/app connections prompt — the /create wizard's "connections" step
   // (#121) only runs when an athlete builds a running plan. Someone who
   // trains from Kraft alone never sees it, so this reads the same flag via
   // the same shared helper (lib/device-setup.ts) rather than a second check,
-  // and offers the same answer here. Null until the fetch resolves, so it
-  // never flashes before we actually know.
+  // and offers the same answer here. Null until loadBootstrap resolves, so
+  // it never flashes before we actually know.
   const [showConnectionsPrompt, setShowConnectionsPrompt] = useState<boolean | null>(null);
-  useEffect(() => {
-    apiFetch("/api/user/device-setup")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setShowConnectionsPrompt(d ? shouldPromptSetup(d) : false))
-      .catch(() => {});
-  }, []);
   async function dismissConnectionsPrompt(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -1488,6 +1490,14 @@ export default function Home() {
       // dismiss it again, not a stuck or broken state.
     }
   }
+  // Seeds for the three cards below that used to fetch themselves on mount
+  // (ReadinessCard, WellnessCheckIn, InsightsSection's pace card) — set by
+  // loadBootstrap. `undefined` means "bootstrap didn't cover this (yet, or
+  // that section failed)", which each component reads as "fetch it
+  // yourself", same as their pre-bootstrap behaviour.
+  const [paceInitial, setPaceInitial] = useState<{ status: string; inBandPct: number | null } | undefined>(undefined);
+  const [readinessInitial, setReadinessInitial] = useState<Readiness | undefined>(undefined);
+  const [wellnessInitial, setWellnessInitial] = useState<WellnessLog[] | undefined>(undefined);
   // Strength for the visible week. Fetched on mount from the local week —
   // NOT gated on the run data — so strength cards render as fast as runs
   // instead of waiting for /api/today to resolve first. Deduped by week key
@@ -1524,11 +1534,11 @@ export default function Home() {
       });
   }, []);
 
-  // Fire immediately for the current local week, parallel to the run fetch.
-  useEffect(() => {
-    loadWeekStrength(getMondayOfWeek(new Date()));
-  }, [loadWeekStrength]);
-
+  // The current week's sessions are seeded by loadBootstrap below (which
+  // also presets lastStrengthKey so this doesn't re-fetch them the moment
+  // `days` populates) — this effect only fires again once paging actually
+  // moves the strip to a different week.
+  //
   // Re-fetch when the strip moves to a different week.
   useEffect(() => {
     if (days.length > 0) loadWeekStrength(getMondayOfWeek(days[0].date));
@@ -1626,6 +1636,117 @@ export default function Home() {
       setLoading(false);
     }
   }, [applyToday]);
+
+  // ── The one call the Today screen actually makes on mount ──────────────────
+  // Replaces nine separate cold serverless functions (today, the dependent
+  // plans/[id], plan-settings, device-setup, strength/sessions, pace-insights,
+  // readiness, wellness — see /api/today/bootstrap) with one. Each section of
+  // the response is applied independently, and a section that failed
+  // server-side (`{ error: true }`, see bootstrapSectionFailed) falls back to
+  // that piece's own standalone endpoint instead of leaving the screen blank
+  // — the same endpoints loadData and the child cards already know how to call.
+  const loadBootstrap = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    setLoadError(false);
+    try {
+      const res = await apiFetch("/api/today/bootstrap");
+      if (!res.ok) throw new Error("Failed");
+      const boot = await res.json();
+
+      if (bootstrapSectionFailed(boot.today)) {
+        // The one section every other section on this screen is anchored
+        // to — if it broke, fall back to the standalone endpoint (which
+        // covers the dependent plan fetch too) rather than patch it up here.
+        await loadData({ silent: opts?.silent });
+      } else {
+        const json: TodayApiResponse = boot.today;
+        applyToday(json, { keepSelection: opts?.silent });
+        writeCache("today", json);
+        setLoading(false);
+
+        if (json.activePlan && json.planId) {
+          if (!bootstrapSectionFailed(boot.plan) && boot.plan) {
+            const plan = boot.plan;
+            const wo: TodayApiWorkout[] = [];
+            for (const week of plan.weeks ?? []) for (const w of week.workouts ?? []) wo.push(w);
+            setAllWorkouts((prev) => (JSON.stringify(prev) === JSON.stringify(wo) ? prev : wo));
+            writeCache("today_all_workouts", wo);
+          } else {
+            // Bootstrap's plan section failed — fetch it directly so the
+            // week browser still gets data instead of staying empty.
+            apiFetch(`/api/plans/${json.planId}`)
+              .then((r) => (r.ok ? r.json() : null))
+              .then((plan) => {
+                if (!plan) return;
+                const wo: TodayApiWorkout[] = [];
+                for (const week of plan.weeks ?? []) for (const w of week.workouts ?? []) wo.push(w);
+                setAllWorkouts((prev) => (JSON.stringify(prev) === JSON.stringify(wo) ? prev : wo));
+                writeCache("today_all_workouts", wo);
+              })
+              .catch(() => {});
+          }
+        }
+      }
+
+      if (!bootstrapSectionFailed(boot.strengthPlanSettings)) {
+        if (boot.strengthPlanSettings && typeof boot.strengthPlanSettings.sessionsPerWeek === "number") {
+          setStrengthTarget(boot.strengthPlanSettings.sessionsPerWeek);
+        }
+      } else {
+        apiFetch("/api/strength/plan-settings")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d && typeof d.sessionsPerWeek === "number") setStrengthTarget(d.sessionsPerWeek);
+          })
+          .catch(() => {});
+      }
+
+      if (!bootstrapSectionFailed(boot.deviceSetup)) {
+        setShowConnectionsPrompt(shouldPromptSetup(boot.deviceSetup));
+      } else {
+        apiFetch("/api/user/device-setup")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => setShowConnectionsPrompt(d ? shouldPromptSetup(d) : false))
+          .catch(() => {});
+      }
+
+      if (!bootstrapSectionFailed(boot.strengthSessions)) {
+        const active = (boot.strengthSessions as StrengthSessionLite[]).filter((s) => s.status !== "skipped");
+        setWeekStrength(active);
+        const map: Record<string, string> = {};
+        for (const sess of active) map[new Date(sess.date).toDateString()] = sess.status;
+        setStrengthDays(map);
+        // Preset the week-paging dedup key to the current week so the
+        // "re-fetch when the strip moves" effect (loadWeekStrength) treats
+        // this week as already loaded instead of firing a second request
+        // the moment `days` populates from applyToday above.
+        const monday = getMondayOfWeek(new Date());
+        monday.setHours(0, 0, 0, 0);
+        lastStrengthKey.current = `strength_week:${monday.toISOString().slice(0, 10)}`;
+      } else {
+        loadWeekStrength(getMondayOfWeek(new Date()));
+      }
+
+      // Pace/readiness/wellness: seed the cards that render them, or leave
+      // the seed `undefined` on a section failure so each falls back to its
+      // own fetch (see their `initial` props).
+      setPaceInitial(
+        !bootstrapSectionFailed(boot.paceInsights) && boot.paceInsights?.paceStatus
+          ? { status: boot.paceInsights.paceStatus, inBandPct: boot.paceInsights.inBandPct ?? null }
+          : undefined
+      );
+      setReadinessInitial(!bootstrapSectionFailed(boot.readiness) ? boot.readiness : undefined);
+      setWellnessInitial(!bootstrapSectionFailed(boot.wellness) ? boot.wellness : undefined);
+    } catch {
+      setLoadError(true);
+      // Never let a failed background/silent refresh wipe a good cached
+      // screen — only fall back to "no plan" when we truly have nothing yet.
+      setData((prev) => prev ?? { activePlan: false });
+      setLoading(false);
+    }
+    // loadWeekStrength and lastStrengthKey are stable (useCallback([]) / useRef).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyToday, loadData]);
 
   // Post-run celebration: when a background refresh shows a workout that a
   // Strava sync flipped to completed (not ticked by hand here), celebrate once.
@@ -1748,11 +1869,11 @@ export default function Home() {
       const cachedAll = readCache<TodayApiWorkout[]>("today_all_workouts");
       if (cachedAll) setAllWorkouts(cachedAll);
       setLoading(false);
-      loadData({ silent: true });
+      loadBootstrap({ silent: true });
     } else {
-      loadData();
+      loadBootstrap();
     }
-  }, [loadData, applyToday]);
+  }, [loadBootstrap, applyToday]);
 
   const { pull, refreshing } = usePullToRefresh(() => loadData({ silent: true }));
   useScrollRestoration(!loading);
@@ -1818,7 +1939,7 @@ export default function Home() {
   if (!data?.activePlan)
     return (
       <>
-        <NoPlanCTA error={loadError} onRetry={loadData} />
+        <NoPlanCTA error={loadError} onRetry={loadBootstrap} />
         {onboardingOverlay}
       </>
     );
@@ -2002,7 +2123,7 @@ export default function Home() {
             loading flash. */}
         {viewingToday && (
           <div className="px-5">
-            <ReadinessCard />
+            <ReadinessCard initial={readinessInitial} />
           </div>
         )}
 
@@ -2025,7 +2146,7 @@ export default function Home() {
         {/* Check-in feeding the readiness score above — collapsed by
             default so it doesn't compete with the workout for space.
             (Own mx-5 margin, matching the px-5 siblings above.) */}
-        {viewingToday && <WellnessCheckIn />}
+        {viewingToday && <WellnessCheckIn initial={wellnessInitial} />}
 
         {/* Week Overview */}
         <div className="px-5">
@@ -2037,7 +2158,7 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* My Insights */}
-        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} />
+        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} paceInitial={paceInitial} />
       </div>
 
       {/* Sticky Bottom Button */}

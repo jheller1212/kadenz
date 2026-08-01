@@ -8,7 +8,7 @@ import { wellnessSourceLabel } from "@/lib/wellness-source";
 // Score ring + band headline + why. Recomputes when the wellness check-in
 // below it is saved (kadenz:wellness-saved event).
 
-interface Readiness {
+export interface Readiness {
   score: number;
   band: "ready" | "easy" | "rest";
   reasons: { label: string; delta: number }[];
@@ -26,8 +26,11 @@ const BAND_META: Record<Readiness["band"], { label: string; color: string }> = {
   rest: { label: "Recovery day", color: "var(--k-danger)" },
 };
 
-export function ReadinessCard() {
-  const [data, setData] = useState<Readiness | null>(null);
+// `initial` lets the Today screen's one bootstrap call (/api/today/bootstrap)
+// seed this card without a second request on mount — see page.tsx. Still
+// fetches its own refresh on a wellness save, same as before.
+export function ReadinessCard({ initial }: { initial?: Readiness | null }) {
+  const [data, setData] = useState<Readiness | null>(initial ?? null);
 
   const load = useCallback(() => {
     apiFetch("/api/readiness")
@@ -37,9 +40,12 @@ export function ReadinessCard() {
   }, []);
 
   useEffect(() => {
-    load();
+    // A bootstrap-provided snapshot already IS the mount-time fetch — only
+    // fall back to fetching here when the caller has nothing to seed with.
+    if (initial === undefined) load();
     window.addEventListener("kadenz:wellness-saved", load);
     return () => window.removeEventListener("kadenz:wellness-saved", load);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `initial` is a one-time seed, not a value this effect should re-run for
   }, [load]);
 
   if (!data) return null;

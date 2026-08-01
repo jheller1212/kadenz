@@ -428,6 +428,10 @@ const manifest: Record<string, ManifestEntry> = {
   "GET /api/pace-insights": { kind: "tenanted-list" },
   "GET /api/readiness": { kind: "tenanted-list" },
   "GET /api/today": { kind: "tenanted-list" },
+  "GET /api/today/bootstrap": {
+    kind: "tenanted-list",
+    note: "one request bundling today/plan/plan-settings/device-setup/strength-sessions/pace-insights/readiness/wellness/geo — every section is one of the caller's own reads (see route.ts), same as calling each endpoint above individually. No id in the request; a section that fails server-side comes back as { error: true } rather than another caller's data.",
+  },
   "GET /api/insights": { kind: "tenanted-list" },
   "GET /api/performance": { kind: "tenanted-list" },
   "GET /api/stats/hr-zones": {

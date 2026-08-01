@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
 import { getVerifiedProfileId } from "@/lib/profiles";
 import { withSession } from "@/lib/api/with-session";
 import { currentUserId } from "@/db/with-user";
 import { ownedBy } from "@/lib/api/owned";
+import { listStrengthSessions } from "./service";
 import { SESSION_TEMPLATES } from "@/lib/strength/program";
 import { EQUIPMENT_KEYS } from "@/lib/strength/equipment";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
@@ -61,38 +62,11 @@ export const GET = withSession(async (request: NextRequest) => {
   const profileId = await getVerifiedProfileId(request);
 
   try {
-    const conds = [
-      ownedBy(strengthSessions),
-      profileId
-        ? eq(strengthSessions.profileId, profileId)
-        : isNull(strengthSessions.profileId),
-    ];
-    if (from) conds.push(gte(strengthSessions.date, new Date(from)));
-    if (to) conds.push(lte(strengthSessions.date, new Date(to)));
-
-    const rows = includeSets
-      ? await db.query.strengthSessions.findMany({
-          where: and(...conds),
-          orderBy: (s, { desc }) => [desc(s.date)],
-          with: { sets: { orderBy: (st, { asc }) => [asc(st.setNumber)] } },
-        })
-      : await db.query.strengthSessions.findMany({
-          where: and(...conds),
-          orderBy: (s, { desc }) => [desc(s.date)],
-          // List/calendar consumers use only these scalars — no set join.
-          columns: {
-            id: true,
-            date: true,
-            dayOfWeek: true,
-            type: true,
-            title: true,
-            status: true,
-            targetDurationMinutes: true,
-            durationMinutes: true,
-            gcalEventId: true,
-            garminWorkoutId: true,
-          },
-        });
+    const rows = await listStrengthSessions(profileId, {
+      from: from ? new Date(from) : null,
+      to: to ? new Date(to) : null,
+      includeSets,
+    });
     return Response.json(rows);
   } catch (err) {
     console.error("DB error listing strength sessions:", err);

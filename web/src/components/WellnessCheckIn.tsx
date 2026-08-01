@@ -5,7 +5,7 @@ import { ChevronDown, Check } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
 
-interface WellnessLog {
+export interface WellnessLog {
   date: string;
   energy: number | null;
   sleepQuality: number | null;
@@ -25,20 +25,40 @@ function todayIso(): string {
   return d.toISOString();
 }
 
-export function WellnessCheckIn() {
+/** Today's window, latest row wins — shared by the mount fetch and the
+ * bootstrap-seeded path so both pick the same row the same way. */
+function latestOf(rows: WellnessLog[]): WellnessLog | undefined {
+  return rows[rows.length - 1];
+}
+
+// `initial` lets the Today screen's one bootstrap call (/api/today/bootstrap)
+// seed today's check-in without a second request on mount — see page.tsx.
+// `undefined` (bootstrap didn't cover this, or its wellness section failed)
+// falls back to the original self-fetch.
+export function WellnessCheckIn({ initial }: { initial?: WellnessLog[] }) {
   const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(initial !== undefined);
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [values, setValues] = useState<Record<string, number | null>>({
-    energy: null,
-    sleepQuality: null,
-    soreness: null,
+  const [savedAt, setSavedAt] = useState<number | null>(() => {
+    const log = initial ? latestOf(initial) : undefined;
+    return log ? Date.now() : null;
   });
-  const [weight, setWeight] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<string, number | null>>(() => {
+    const log = initial ? latestOf(initial) : undefined;
+    return {
+      energy: log?.energy ?? null,
+      sleepQuality: log?.sleepQuality ?? null,
+      soreness: log?.soreness ?? null,
+    };
+  });
+  const [weight, setWeight] = useState<string>(() => {
+    const log = initial ? latestOf(initial) : undefined;
+    return log?.bodyweightKg ? String(log.bodyweightKg) : "";
+  });
 
   useEffect(() => {
+    if (initial !== undefined) return;
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date();
@@ -46,7 +66,7 @@ export function WellnessCheckIn() {
     apiFetch(`/api/wellness?from=${start.toISOString()}&to=${end.toISOString()}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: WellnessLog[]) => {
-        const log = rows[rows.length - 1];
+        const log = latestOf(rows);
         if (log) {
           setValues({
             energy: log.energy,
@@ -59,6 +79,7 @@ export function WellnessCheckIn() {
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `initial` is a one-time seed, checked only for its presence
   }, []);
 
   async function save(next: Record<string, number | null>, weightStr: string) {
