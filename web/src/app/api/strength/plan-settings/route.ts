@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq, isNull } from "drizzle-orm";
 import { db, strengthPlanSettings } from "@/db";
 import { getVerifiedProfileId } from "@/lib/profiles";
 import {
@@ -10,7 +9,7 @@ import {
 } from "@/lib/strength/schedule";
 import { withSession } from "@/lib/api/with-session";
 import { currentUserId } from "@/db/with-user";
-import { ownedBy } from "@/lib/api/owned";
+import { profCond, getPlanSettings } from "./service";
 
 const EQUIPMENT_VALUES = [
   "dumbbell", "barbell", "bench", "chair", "box", "kettlebell", "pullup_bar", "band",
@@ -44,22 +43,10 @@ const SettingsSchema = z.object({
   message: "Pick at least as many distinct days as sessions per week",
 });
 
-function profCond(profileId: string | null) {
-  return and(
-    ownedBy(strengthPlanSettings),
-    profileId
-      ? eq(strengthPlanSettings.profileId, profileId)
-      : isNull(strengthPlanSettings.profileId)
-  );
-}
-
 export const GET = withSession(async (request: NextRequest) => {
   try {
-    const [settings] = await db
-      .select()
-      .from(strengthPlanSettings)
-      .where(profCond(await getVerifiedProfileId(request)));
-    return Response.json(settings ?? null);
+    const settings = await getPlanSettings(await getVerifiedProfileId(request));
+    return Response.json(settings);
   } catch (err) {
     console.error("[plan-settings] get failed", err);
     return Response.json({ error: "Failed to load settings" }, { status: 500 });

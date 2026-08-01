@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { and, asc, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, wellnessLogs } from "@/db";
 import { currentUserId } from "@/db/with-user";
 import { withSession } from "@/lib/api/with-session";
 import { ownedBy } from "@/lib/api/owned";
 import { getVerifiedProfileId } from "@/lib/profiles";
+import { listWellnessLogs } from "./service";
 
 const UpsertSchema = z.object({
   date: z.string().datetime(),
@@ -32,19 +33,10 @@ export const GET = withSession(async (request) => {
   const to = searchParams.get("to");
   const profileId = await getVerifiedProfileId(request);
   try {
-    const conds = [
-      ownedBy(wellnessLogs),
-      profileId
-        ? eq(wellnessLogs.profileId, profileId)
-        : isNull(wellnessLogs.profileId),
-    ];
-    if (from) conds.push(gte(wellnessLogs.date, new Date(from)));
-    if (to) conds.push(lte(wellnessLogs.date, new Date(to)));
-    const rows = await db
-      .select()
-      .from(wellnessLogs)
-      .where(and(...conds))
-      .orderBy(asc(wellnessLogs.date));
+    const rows = await listWellnessLogs(profileId, {
+      from: from ? new Date(from) : null,
+      to: to ? new Date(to) : null,
+    });
     return Response.json(rows);
   } catch (err) {
     console.error("DB error listing wellness logs:", err);

@@ -17,6 +17,7 @@ import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { currentUserId, withUser } from "@/db/with-user";
 import { withSession } from "@/lib/api/with-session";
 import { ownedBy, requireOwned } from "@/lib/api/owned";
+import { getPlanById } from "../service";
 
 const PlanConfigSchema = z.object({
   raceDistance: z.enum(["5k", "10k", "half", "marathon", "ultra", "custom"]),
@@ -57,43 +58,13 @@ export const GET = withSession(async (
   await requireOwned(plans, id);
 
   try {
-    const plan = summary
-      ? await db.query.plans.findFirst({
-          where: (p, { eq }) => eq(p.id, id),
-          with: {
-            weeks: {
-              orderBy: (w, { asc }) => [asc(w.weekNumber)],
-              with: {
-                workouts: { orderBy: (wo, { asc }) => [asc(wo.sortOrder)] },
-              },
-            },
-          },
-        })
-      : await db.query.plans.findFirst({
-          where: (p, { eq }) => eq(p.id, id),
-          with: {
-            weeks: {
-              orderBy: (w, { asc }) => [asc(w.weekNumber)],
-              with: {
-                workouts: {
-                  orderBy: (wo, { asc }) => [asc(wo.sortOrder)],
-                  with: { blocks: { orderBy: (b, { asc }) => [asc(b.sortOrder)] } },
-                },
-              },
-            },
-          },
-        });
+    const plan = await getPlanById(id, { summary });
 
     if (!plan) {
       return Response.json({ error: "Plan not found" }, { status: 404 });
     }
 
-    // See /api/plans (list) for why "still active past race day" implies
-    // unlogged rather than needing a separate lookup.
-    const pastRaceDayUnlogged =
-      plan.intent === "race" && plan.status === "active" && plan.raceDate < new Date();
-
-    return Response.json({ ...plan, pastRaceDayUnlogged });
+    return Response.json(plan);
   } catch (err) {
     console.error("DB error fetching plan:", err);
     return Response.json({ error: "Failed to fetch plan" }, { status: 500 });

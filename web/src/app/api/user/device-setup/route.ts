@@ -1,10 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { OWNER_USER_ID } from "@/db/schema";
 import { resolveRequestUserId, unauthorized } from "@/lib/request-user";
 import { CONNECTION_IDS } from "@/lib/device-setup";
-import { loadDeviceSetup, saveDeviceSetup } from "@/lib/user-device-setup";
-import { garminClient } from "@/lib/sync/garmin-client";
+import { loadDeviceSetup, saveDeviceSetup, garminOfferedTo } from "@/lib/user-device-setup";
 
 // ── /api/user/device-setup ───────────────────────────────────────────────────
 // What the athlete wants connected, and which of those options it is honest to
@@ -28,10 +26,6 @@ const DeviceSetupSchema = z
     connections: z.array(z.enum(CONNECTION_IDS)).max(CONNECTION_IDS.length),
   })
   .strict();
-
-function garminOfferedTo(userId: string): boolean {
-  return userId === OWNER_USER_ID && garminClient.isConfigured();
-}
 
 export async function GET(request: NextRequest) {
   const userId = await resolveRequestUserId(request);
