@@ -10,10 +10,18 @@ type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 // on a missing DATABASE_URL at import time breaks the build in any environment
 // without the secret (CI). Deferring the check keeps the fail-fast guarantee
 // where it matters — the first real query — while letting the build proceed.
+type PostgresClient = ReturnType<typeof postgres>;
+
+let cachedClient: PostgresClient | null = null;
 let cached: DrizzleDb | null = null;
 
-function getDb(): DrizzleDb {
-  if (cached) return cached;
+// The raw postgres.js client behind `db`, for with-user.ts only: it needs
+// `.reserve()` to hold one physical connection across a hand-written
+// BEGIN/COMMIT so it can fold the RLS `set_config` call into the same round
+// trip as BEGIN (see the comment on `withUser`). Nothing else should import
+// this — every ordinary query goes through `db`.
+function getClient(): PostgresClient {
+  if (cachedClient) return cachedClient;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL env var is not set");
   // Serverless connection hygiene. On Vercel every route runs in its own
@@ -23,15 +31,22 @@ function getDb(): DrizzleDb {
   // at once and Supabase rejects them ("too many database connection attempts …",
   // CONNECT_TIMEOUT). One connection per instance keeps the burst bounded; the
   // pooled Supabase endpoint (…-pooler.…) multiplexes them safely.
-  const client = postgres(url, {
+  cachedClient = postgres(url, {
     max: 1,
     idle_timeout: 20,
     connect_timeout: 15,
     prepare: false,
   });
-  cached = drizzle(client, { schema });
+  return cachedClient;
+}
+
+function getDb(): DrizzleDb {
+  if (cached) return cached;
+  cached = drizzle(getClient(), { schema });
   return cached;
 }
+
+export { getClient };
 
 // A thin proxy so `db.select(...)`, `db.query.x`, `db.insert(...)` etc. all work
 // exactly as before, but the underlying client is built on first access.

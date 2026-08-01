@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
-import { db } from "./index";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { db, getClient } from "./index";
+import * as schema from "./schema";
 import { users } from "./schema";
 import { txStore } from "./tx-store";
 import { asUserId, type UserId } from "@/lib/user-id";
@@ -29,8 +30,11 @@ import { asUserId, type UserId } from "@/lib/user-id";
 // The fix is that the setting is never session-scoped here. Three properties,
 // together, are what make it safe:
 //
-//   1. `db.transaction(...)` opens an explicit BEGIN before anything else runs,
-//      so there is always a transaction in progress to scope the setting to.
+//   1. A hand-rolled `BEGIN` (sent on a connection reserved via
+//      getClient().reserve(), together with the set_config call below -- see
+//      "Why BEGIN and set_config share a round trip" further down) opens an
+//      explicit transaction before anything else runs, so there is always one
+//      in progress to scope the setting to.
 //   2. `set_config(..., true)` is the function form of SET LOCAL. The third
 //      argument, `is_local`, is what makes the value transaction-scoped:
 //      Postgres reverts it on COMMIT and on ROLLBACK alike. There is no path
@@ -81,9 +85,15 @@ import { asUserId, type UserId } from "@/lib/user-id";
 //
 // Postgres does not accept a bind parameter in `SET LOCAL app.user_id = $1`,
 // so writing it that way forces the user id to be interpolated into SQL text.
-// `set_config()` is an ordinary function call and takes a real parameter, so
-// the id is bound, never concatenated. The assertion below is a second layer:
-// even a bound value should not reach the database unless it is a uuid.
+// `set_config()` is an ordinary function call and normally takes a real bound
+// parameter. Below it is folded into the same wire round trip as BEGIN (see
+// "Why BEGIN and set_config share a round trip"), which Postgres's simple
+// query protocol only allows for literal text, not bind parameters -- so the
+// id IS interpolated there. That is safe only because it happens after the
+// UUID_RE assertion a few lines down: by the time the string is built, it has
+// already been proven to contain nothing but hex digits and dashes, so there
+// is no SQL text an attacker could smuggle through it. Do not move this
+// interpolation earlier than that check.
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -96,13 +106,12 @@ export type { UserId } from "@/lib/user-id";
 export { asUserId } from "@/lib/user-id";
 
 /**
- * The database handle passed to a `withUser` callback. It is a transaction,
+ * The database handle passed to a `withUser` callback. It is bound to one
+ * reserved connection with a hand-rolled BEGIN...COMMIT around it (see below),
  * not the pooled client, and it is the only handle inside the callback that
  * carries the caller's identity.
  */
-export type UserScopedDb = Parameters<
-  Parameters<typeof db.transaction>[0]
->[0];
+export type UserScopedDb = ReturnType<typeof drizzle<typeof schema>>;
 
 
 /**
@@ -150,19 +159,51 @@ export async function withUser<T>(
   // Exiting the store means every withUser gets its own transaction with its own
   // context and its own lifetime, which is the only version of this that is
   // safe to call from anywhere.
-  return txStore.exit(() =>
-    db.transaction(async (tx) => {
-      // Third argument true => transaction-scoped. See the note above; this
-      // single boolean is what stops the value outliving the request.
-      await tx.execute(
-        sql`SELECT set_config('app.user_id', ${userId.toLowerCase()}, true)`
+  //
+  // ── Why BEGIN and set_config share a round trip ────────────────────────────
+  //
+  // drizzle's db.transaction() sends BEGIN and waits for it before the
+  // callback runs, so a first statement issued from inside the callback (the
+  // set_config call) is a second, separate wire round trip -- and over the
+  // Supabase pooler each round trip measures ~50ms, which a Today-screen load
+  // pays nine times over (see db/index.ts). sql.reserve() hands back one
+  // physical connection with nothing sent on it yet, which makes it possible
+  // to write BEGIN and the set_config call as one multi-statement string and
+  // ship them together. Everything after that -- the callback's queries, and
+  // COMMIT/ROLLBACK -- still costs the same round trips it always did; this
+  // removes exactly one, the one that was pure fixed overhead before any real
+  // query ran.
+  //
+  // The transaction-scoping guarantee is identical to db.transaction(): BEGIN
+  // opens it, set_config's third argument still scopes the value to it, and
+  // COMMIT/ROLLBACK still end it -- verified directly (a second, unrelated
+  // "request" reserving the same physical connection afterwards sees no
+  // context at all). The only thing that changed is which round trip BEGIN's
+  // acknowledgement travels in.
+  const lowerUserId = userId.toLowerCase();
+  return txStore.exit(async () => {
+    const reserved = await getClient().reserve();
+    try {
+      await reserved.unsafe(
+        `BEGIN; SELECT set_config('app.user_id', '${lowerUserId}', true);`
       );
-      // Publish the transaction for the duration of `fn` so that plain `db`
+      const tx: UserScopedDb = drizzle(reserved, { schema });
+      // Publish the handle for the duration of `fn` so that plain `db`
       // usage underneath it runs here, on the connection that carries the
       // context, rather than on a pooled connection that does not.
-      return txStore.run({ tx, userId: userId.toLowerCase() }, () => fn(tx));
-    })
-  );
+      const result = await txStore.run({ tx, userId: lowerUserId }, () => fn(tx));
+      await reserved`COMMIT`;
+      return result;
+    } catch (err) {
+      // Best-effort: the connection is dropped either way (release() below
+      // returns it to the pool only once idle), so a ROLLBACK that itself
+      // fails here does not leave the transaction open on a reused connection.
+      await reserved`ROLLBACK`.catch(() => {});
+      throw err;
+    } finally {
+      reserved.release();
+    }
+  });
 }
 
 /**
