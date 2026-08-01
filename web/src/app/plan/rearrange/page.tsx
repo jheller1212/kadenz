@@ -731,28 +731,23 @@ function PlanPageInner() {
   useEffect(() => {
     async function loadPlan() {
       try {
-        let url: string;
-        let effectiveId = planId;
         if (planId) {
-          url = `/api/plans/${planId}`;
+          setResolvedPlanId(planId);
+          const res = await apiFetch(`/api/plans/${planId}`);
+          if (!res.ok) { setLoading(false); return; }
+          const raw = await res.json();
+          setPlan(adaptApiPlan(raw));
         } else {
-          const listRes = await apiFetch("/api/plans");
-          if (!listRes.ok) throw new Error("Failed to fetch plans");
-          const plans = await listRes.json();
-          const active = (plans as { id: string; status: string }[]).find(
-            (p) => p.status === "active"
-          );
-          if (!active) { setLoading(false); return; }
-          effectiveId = active.id;
-          url = `/api/plans/${active.id}`;
+          // Was /api/plans (full list) -> /api/plans/[id], purely to find
+          // "whichever one is active" and then fetch it — /api/plans/active
+          // resolves and returns that plan in the one call.
+          const res = await apiFetch("/api/plans/active");
+          if (!res.ok) throw new Error("Failed to fetch active plan");
+          const bundle = await res.json();
+          if (!bundle.activePlan || !bundle.plan) { setLoading(false); return; }
+          setResolvedPlanId(bundle.plan.id);
+          setPlan(adaptApiPlan(bundle.plan));
         }
-        setResolvedPlanId(effectiveId);
-
-        const res = await apiFetch(url);
-        if (!res.ok) { setLoading(false); return; }
-
-        const raw = await res.json();
-        setPlan(adaptApiPlan(raw));
       } catch {
         // silent
       } finally {

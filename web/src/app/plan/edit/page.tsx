@@ -64,22 +64,22 @@ function EditPlanInner() {
     let cancelled = false;
     (async () => {
       try {
-        let id = planIdParam;
-        if (!id) {
-          const listRes = await apiFetch("/api/plans");
-          const list = listRes.ok ? await listRes.json() : [];
-          id = (list as { id: string; status: string }[]).find((p) => p.status === "active")?.id ?? null;
+        let p;
+        if (planIdParam) {
+          const res = await apiFetch(`/api/plans/${planIdParam}`);
+          p = res.ok ? await res.json() : null;
+        } else {
+          // Was /api/plans (full list) -> /api/plans/[id], purely to find
+          // "whichever one is active" and then fetch it — /api/plans/active
+          // resolves and returns that plan in the one call.
+          const res = await apiFetch("/api/plans/active");
+          const bundle = res.ok ? await res.json() : null;
+          p = bundle?.activePlan ? bundle.plan : null;
         }
-        if (!id) {
+        if (!p) {
           if (!cancelled) setLoading(false);
           return;
         }
-        const res = await apiFetch(`/api/plans/${id}`);
-        if (!res.ok) {
-          if (!cancelled) setLoading(false);
-          return;
-        }
-        const p = await res.json();
         if (cancelled) return;
         const total = p.goalTimeSeconds as number;
         setForm({
