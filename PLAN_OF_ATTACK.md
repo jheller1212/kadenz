@@ -1,7 +1,7 @@
 # Kadenz plan of attack
 
 **Start here.** This is the index. Everything open lives below, or behind one
-of the links. Last updated 2026-07-29.
+of the links. Last updated 2026-08-01.
 
 | Document | What it is |
 |---|---|
@@ -16,18 +16,15 @@ of the links. Last updated 2026-07-29.
 
 ## 1. Only Jonas can do these
 
-- **Rotate the Neon database password.** The connection string was pasted into
-  a chat, so treat it as public. Neon console, Roles, `neondb_owner`, Reset.
-  Then replace `DATABASE_URL` in Vercel: it is sensitive, so delete and
-  re-create rather than edit. Keep the `-pooler` host and the
-  `?sslmode=require&channel_binding=require` suffix. Losing that suffix broke
-  the app once already, with "connection is insecure". `neonctl` credentials on
-  this machine have expired, so this needs a browser.
-- **Decide on the Neon plan.** The free tier autosuspends after about 5
-  minutes, which is the measured 2.5s cold start, and it is not adjustable. A
-  keep-alive was investigated and rejected on arithmetic: preventing suspension
-  means keeping compute continuously alive, roughly 240 compute-hours a month
-  for an 8 hour window against a free budget of about 192.
+- **Delete the Neon project, once you are satisfied Supabase is solid.** The
+  app moved to Supabase and Neon is now only a rollback copy, deliberately left
+  untouched and therefore going stale by the day. Its connection string was
+  pasted into a chat, so it should be treated as public: deleting the project
+  is a cleaner end than rotating a password on a database nothing reads. Keep
+  it until you have used the app for a week without surprises, then remove it.
+  This also retires the free-tier 2.5s cold start that the old plan agonised
+  over: Supabase does not autosuspend the way Neon did, so that whole line of
+  investigation is closed.
 - **Reconnect Google Calendar.** The OAuth grant is dead. Safe now that the 403
   stale queued jobs were cancelled.
 - **Prompt Claude Design** with `KRAFT_DESIGN_BRIEF.md`.
@@ -61,15 +58,28 @@ Know what a per-set number means before designing around it: an average over a
 window ending roughly when the set was logged, using the set's time under load
 where known and a 30 second fallback otherwise. It is not a per-rep reading.
 
-### 2.3 Wire Playwright into CI
-The harness exists in `web/e2e/` and was deliberately left out of the CI
-workflow so browser-runner setup could be its own change. Until it runs
-automatically it only catches what someone remembers to run.
+### 2.3 Screen transitions: the remaining tabs
+The Today screen fired **nine** independent authenticated calls on mount, one
+of them serially dependent. On Vercel each is a separate function invocation
+costing roughly 0.3 to 1.1s of pure overhead before any query runs, measured
+against production. That fan-out, not the database, is the 10 second
+transition Jonas reported. Queries themselves are single-digit ms.
 
-### 2.4 Fix the flaky e2e spec
-`kraft-duration-equipment.spec.ts` has an estimate-threshold assertion that
-fails intermittently on clean main, verified independently of any change. A
-flaky test in a day-old suite gets ignored fast, and then the suite dies.
+`/api/today/bootstrap` (#145) collapses those nine into one, with each section
+falling back to its own endpoint if it fails server-side, so a partial failure
+degrades instead of blanking the screen. **The other tabs were never audited
+for the same shape** — `/activities` alone has 12 `apiFetch` call sites. That
+audit is the next piece of work, and any tab with the same fan-out gets the
+same treatment.
+
+**Do not chase this in the database layer.** Saving one round trip inside
+`withUser` was tried in #144 and closed: `sql.reserve()` returns a deliberately
+minimal connection missing both `options` (which Drizzle reads for its type
+parsers) and `begin` (which the four routes that nest a transaction inside
+`withUser` need for their SAVEPOINT). Making it imitate the full client means
+chasing internals to save 50ms, against a 750ms problem, at the risk of quietly
+breaking the transaction guarantee that keeps `SET LOCAL app.user_id` from
+leaking across pooled requests. Wrong lever, and the closed PR says so in full.
 
 ---
 
@@ -157,6 +167,28 @@ Not nice-to-haves. See `NATIVE_APP_PLAN.md`.
 
 ---
 
+## 5b. Shipped 30 July to 1 August, do not redo
+
+**Neon to Supabase, complete.** Schema, then a driver-level data copy in FK
+topological order with a schema diff before any write and per-table row counts
+after (`web/scripts/supabase-migration/`). Two things that bit and are worth
+remembering: the copy must clear the migration-seeded `strength_exercises`
+rows first, or `ON CONFLICT DO NOTHING` keeps the target's fresh UUIDs and
+orphans every strength set pointing at the source's; and Supabase's `postgres`
+role carries `BYPASSRLS`, so the isolation test passed against it while proving
+nothing. The app runs as `kadenz_app`, created `NOBYPASSRLS` — never as
+`postgres`.
+
+**Today screen fan-out collapsed** to a single bootstrap call (#145).
+
+**Playwright runs in CI**, against a production build rather than `next dev`,
+which both removed the flake and cut the job from 5m30s to 2m50s. The flake was
+never `kraft-duration-equipment.spec.ts` being a bad assertion, as the old
+version of this document assumed — it was `/_error` being unwarmable under
+`next dev`.
+
+---
+
 ## 5. Shipped 28 to 29 July, do not redo
 
 Wellness from the watch folded into readiness behind a 21 night warm-up.
@@ -200,5 +232,16 @@ what was actually done; strength activity linking and the heart rate chart.
   stale history date, the blank heart rate chart and the link that appeared to
   do nothing all passed every test. Browser-level tests catch some of it. Using
   the app catches the rest.
+- **Typecheck, lint and unit tests do not prove a database wiring change
+  works.** #144 passed all three and every API route on it returned a 500,
+  because nothing in those gates drives a real request through the real client.
+  Only the browser suite caught it, and it caught a second, different break
+  after the first was patched. Any change to `db/index.ts` or `with-user.ts`
+  runs `npm run test:e2e` before it is pushed.
+- **A green signal over work that is not happening is this project's
+  characteristic failure.** `rowsecurity` reading true while the owner bypassed
+  it; a tenancy tripwire asserting a column instead of a policy; CI not running
+  on stacked PRs while reporting clean; a cron job silently doing nothing in
+  production for days. When something passes, check that it could have failed.
 - **Worktree disk fills fast**, roughly 800MB each. Remove merged, clean
   worktrees rather than only clearing `node_modules`.
