@@ -159,20 +159,23 @@ export default function ManagePlanPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [todayRes, settingsRes] = await Promise.all([
-          apiFetch("/api/today"),
+        // Was Promise.all([/api/today, /api/strength/plan-settings]) with
+        // /api/plans/[id] fired serially inside the today branch, so the
+        // whole render still waited on a today -> plan hop even though the
+        // outer shape looked parallel. /api/plans/active resolves the same
+        // "which plan, if any" lookup /api/today did, so both requests below
+        // now genuinely run together.
+        const [planRes, settingsRes] = await Promise.all([
+          apiFetch("/api/plans/active"),
           apiFetch("/api/strength/plan-settings"),
         ]);
         if (settingsRes.ok && !cancelled) {
           const s = await settingsRes.json();
           if (s) setSettings(s as StrengthSettings);
         }
-        if (todayRes.ok) {
-          const today = await todayRes.json();
-          if (today.activePlan && !cancelled) {
-            const planRes = await apiFetch(`/api/plans/${today.planId}`);
-            if (planRes.ok && !cancelled) setPlan((await planRes.json()) as ApiPlanRow);
-          }
+        if (planRes.ok && !cancelled) {
+          const bundle = await planRes.json();
+          if (bundle.activePlan && bundle.plan) setPlan(bundle.plan as ApiPlanRow);
         }
       } catch {
         /* silent */

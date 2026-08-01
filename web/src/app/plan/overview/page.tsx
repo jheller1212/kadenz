@@ -200,29 +200,31 @@ export default function PlanOverviewPage() {
     let cancelled = false;
     (async () => {
       try {
-        const todayRes = await apiFetch("/api/today");
-        if (!todayRes.ok) return;
-        const today = await todayRes.json();
-        if (!today.activePlan || cancelled) return;
-
-        const planRes = await apiFetch(`/api/plans/${today.planId}`);
-        if (!planRes.ok || cancelled) return;
-        const p = (await planRes.json()) as ApiPlanRow;
+        // Was /api/today -> /api/plans/[id] -> /api/strength/sessions, three
+        // serial round trips purely to learn the active plan's id and then
+        // its own date range. One call now — see api/plans/active/route.ts.
+        const res = await apiFetch("/api/plans/active?sessions=1");
+        if (!res.ok || cancelled) return;
+        const bundle = await res.json();
+        if (!bundle.activePlan || !bundle.plan || cancelled) return;
+        const p = bundle.plan as ApiPlanRow;
         setPlan(p);
-        if (today.currentWeek) setWeekNum(today.currentWeek);
-
-        const firstDate = p.weeks[0]?.workouts[0]?.date;
-        if (firstDate) {
-          const from = mondayOf(new Date(firstDate));
-          const to = addDays(mondayOf(new Date(p.raceDate)), 6);
-          to.setHours(23, 59, 59, 999);
-          const sRes = await apiFetch(
-            `/api/strength/sessions?from=${from.toISOString()}&to=${to.toISOString()}`
-          );
-          if (sRes.ok && !cancelled) {
-            setSessions((await sRes.json()) as StrengthSessionRow[]);
-          }
+        if (bundle.strengthSessions) {
+          setSessions(bundle.strengthSessions as StrengthSessionRow[]);
         }
+
+        // The week containing "now" — /api/today used to hand this over
+        // ready-made; derived here the same way plan/page.tsx's hub already
+        // does, from the plan we just got, rather than a second server round
+        // trip for one number.
+        const now = new Date();
+        const current = p.weeks.find((w) => {
+          const first = w.workouts[0]?.date;
+          if (!first) return false;
+          const monday = mondayOf(new Date(first));
+          return monday <= now && now < addDays(monday, 7);
+        });
+        if (current) setWeekNum(current.weekNumber);
       } catch {
         /* silent */
       } finally {

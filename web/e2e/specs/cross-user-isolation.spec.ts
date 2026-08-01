@@ -451,6 +451,10 @@ const manifest: Record<string, ManifestEntry> = {
   "GET /api/plan/adjustments": { kind: "tenanted-list" },
   "GET /api/race-times": { kind: "tenanted-list" },
   "GET /api/plans": { kind: "tenanted-list" },
+  "GET /api/plans/active": {
+    kind: "tenanted-list",
+    note: "resolves the caller's own active plan (same lookup /api/today does) and optionally its strength sessions — no id in the request. Backs the /plan/* screens' mount-time fetch; see api/plans/service.ts's getActivePlanBundle.",
+  },
   "POST /api/plans": {
     kind: "tenanted-create",
     request: () => ({

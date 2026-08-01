@@ -289,36 +289,19 @@ export default function PlanHubPage() {
     let cancelled = false;
     (async () => {
       try {
-        const todayRes = await apiFetch("/api/today");
-        if (!todayRes.ok) {
+        // Was /api/today -> /api/plans/[id] -> /api/strength/sessions, three
+        // serial round trips purely to learn the active plan's id and then
+        // its own date range. One call now — see api/plans/active/route.ts.
+        const res = await apiFetch("/api/plans/active?sessions=1");
+        if (!res.ok) {
           if (!cancelled) setFailed(true);
           return;
         }
-        const today = await todayRes.json();
-        if (!today.activePlan || cancelled) return;
-
-        const planRes = await apiFetch(`/api/plans/${today.planId}`);
-        if (!planRes.ok) {
-          if (!cancelled) setFailed(true);
-          return;
-        }
-        if (cancelled) return;
-        const p = (await planRes.json()) as ApiPlanRow;
-        setPlan(p);
-
-        // One call for the whole plan window (Monday of week 1 → Sunday of
-        // the race week) — the sessions API takes an arbitrary range.
-        const firstDate = p.weeks[0]?.workouts[0]?.date;
-        if (firstDate) {
-          const from = mondayOf(new Date(firstDate));
-          const to = addDays(mondayOf(new Date(p.raceDate)), 6);
-          to.setHours(23, 59, 59, 999);
-          const sRes = await apiFetch(
-            `/api/strength/sessions?from=${from.toISOString()}&to=${to.toISOString()}`
-          );
-          if (sRes.ok && !cancelled) {
-            setSessions((await sRes.json()) as StrengthSessionRow[]);
-          }
+        const bundle = await res.json();
+        if (cancelled || !bundle.activePlan || !bundle.plan) return;
+        setPlan(bundle.plan as ApiPlanRow);
+        if (bundle.strengthSessions) {
+          setSessions(bundle.strengthSessions as StrengthSessionRow[]);
         }
       } catch {
         if (!cancelled) setFailed(true);
