@@ -421,6 +421,10 @@ const manifest: Record<string, ManifestEntry> = {
   "GET /api/strength/sessions": { kind: "tenanted-list" },
   "GET /api/strength/summary": { kind: "tenanted-list" },
   "GET /api/strength/exercises": { kind: "tenanted-list" },
+  "GET /api/strength/history/list": {
+    kind: "tenanted-list",
+    note: "every exercise's sparkline history in one pass (see service.ts listExerciseHistories) — same completed-sessions-owned-by-caller scoping as GET /api/strength/history/[exerciseId], just not filtered to one exercise. No id in the request.",
+  },
   "GET /api/custom-workouts": { kind: "tenanted-list" },
   "GET /api/activities/trash": { kind: "tenanted-list" },
   "GET /api/export/activities": { kind: "tenanted-list" },
