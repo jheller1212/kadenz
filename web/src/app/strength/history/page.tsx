@@ -96,20 +96,35 @@ function StrengthHistoryList() {
     };
   }, []);
 
+  // Single round trip for every exercise's sparkline data (see
+  // /api/strength/history/list). Falls back to the old one-request-per-
+  // exercise path — /api/strength/exercises, then /api/strength/history/[id]
+  // for each — only if the bulk route itself fails, so the screen degrades
+  // instead of going blank.
   useEffect(() => {
     (async () => {
       try {
-        const exsRes = await apiFetch("/api/strength/exercises");
-        const exs: ListExercise[] = exsRes.ok ? await exsRes.json() : [];
-        const results = await Promise.all(
-          exs.map(async (e) => {
-            const r = await apiFetch(`/api/strength/history/${e.id}`);
-            return r.ok ? ((await r.json()) as ListHistoryResp) : null;
-          })
-        );
-        setItems(results.filter((r): r is ListHistoryResp => r !== null && r.points.length > 0));
+        const listRes = await apiFetch("/api/strength/history/list");
+        if (listRes.ok) {
+          const results: ListHistoryResp[] = await listRes.json();
+          setItems(results.filter((r) => r.points.length > 0));
+          return;
+        }
+        throw new Error("bulk history failed");
       } catch {
-        /* ignore */
+        try {
+          const exsRes = await apiFetch("/api/strength/exercises");
+          const exs: ListExercise[] = exsRes.ok ? await exsRes.json() : [];
+          const results = await Promise.all(
+            exs.map(async (e) => {
+              const r = await apiFetch(`/api/strength/history/${e.id}`);
+              return r.ok ? ((await r.json()) as ListHistoryResp) : null;
+            })
+          );
+          setItems(results.filter((r): r is ListHistoryResp => r !== null && r.points.length > 0));
+        } catch {
+          /* ignore */
+        }
       } finally {
         setLoading(false);
       }
