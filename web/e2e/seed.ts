@@ -340,6 +340,14 @@ async function ensureRehabWeekFixtures(): Promise<void> {
     .where(eq(strengthPlanSettings.userId, OWNER_USER_ID))
     .limit(1);
   if (!existingSettings) {
+    // active: false — deliberately. WeeklyStrengthPlan's opportunistic
+    // top-up (POST /api/strength/plan-settings/ensure) only fires when
+    // active, and that endpoint's weekly rehab-day reconcile pass would see
+    // no "achilles" complaint here (complaints stays unset, for the same
+    // reason above: setting it would change what every OTHER Kraft spec's
+    // freshly-started session contains) and flip the attached fixture below
+    // back off. The target (sessionsPerWeek) still reads regardless of
+    // active — see WeeklyStrengthPlan.tsx and page.tsx's Strength row.
     await db.insert(strengthPlanSettings).values({
       userId: OWNER_USER_ID,
       profileId: null,
@@ -349,9 +357,7 @@ async function ensureRehabWeekFixtures(): Promise<void> {
       ability: "intermediate",
       availableDays: [1, 2, 3, 4, 5],
       equipment: [],
-      active: true,
-      complaints: ["achilles"],
-      achillesStartedAt: daysAgo(30),
+      active: false,
     });
   }
 

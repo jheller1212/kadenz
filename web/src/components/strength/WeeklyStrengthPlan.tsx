@@ -57,7 +57,9 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
         const s = await res.json();
         if (cancelled) return;
         setSettings(s);
-        // Opportunistic top-up of the next two weeks of auto sessions.
+        // Opportunistic top-up of the next two weeks of auto sessions — only
+        // while the plan is active; a paused plan should not get new
+        // sessions scheduled just because the athlete opened this card.
         if (s?.active) {
           apiFetch("/api/strength/plan-settings/ensure", { method: "POST" })
             .then((r) => (r.ok ? r.json() : null))
@@ -65,7 +67,13 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
               if (!cancelled && body?.shortWeeks) setShortWeeks(body.shortWeeks);
             })
             .catch(() => {});
+        }
 
+        // What's actually on the calendar this week reads regardless of
+        // active/paused — a paused plan can still carry sessions scheduled
+        // before it was paused, and this card must never claim the bare
+        // target as if it were reality (see weekCount.ts).
+        if (s) {
           const monday = mondayOf(new Date());
           const sunday = new Date(monday);
           sunday.setDate(sunday.getDate() + 7);
