@@ -67,4 +67,29 @@ describe("placeStrengthWeek", () => {
     const placed = placeStrengthWeek(days, [3, 4], ["upper"]); // only Wed (d2) and Thu (d3) available
     expect(placed).toHaveLength(0);
   });
+
+  it("places all 4 sessions in a Mon-Fri week even though 5 days can't fully space 4 (regression)", () => {
+    // Mon-Thu easy runs, Fri rest, Sat long, Sun rest — weekday-only
+    // availability. Back-to-back avoidance used to compound with the
+    // doubling-with-easy-run penalty past the veto threshold and silently
+    // drop the 4th session; adjacency is a preference now, never a veto, so
+    // all 4 configured sessions must come back.
+    const days = week({ 0: "easy", 1: "easy", 2: "easy", 3: "easy", 5: "long" });
+    const availableDows = [1, 2, 3, 4, 5]; // Mon-Fri
+    const placed = placeStrengthWeek(days, availableDows, [
+      "upper",
+      "lower",
+      "full_body",
+      "upper",
+    ]);
+    expect(placed).toHaveLength(4);
+  });
+
+  it("still shows the real shortfall when the athlete genuinely can't fit the target", () => {
+    // Only 2 available days for 4 sessions — no amount of preference-tuning
+    // can conjure two more days; this must legitimately come back short.
+    const days = week({ 0: "easy", 3: "easy" });
+    const placed = placeStrengthWeek(days, [1, 4], ["lower", "upper", "full_body", "upper"]); // Mon + Thu only
+    expect(placed.length).toBeLessThan(4);
+  });
 });

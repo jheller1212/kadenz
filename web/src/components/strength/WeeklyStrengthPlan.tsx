@@ -20,6 +20,11 @@ interface StrengthPlanSettings {
 export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
   // undefined = loading (render nothing), null = no plan configured yet.
   const [settings, setSettings] = useState<StrengthPlanSettings | null | undefined>(undefined);
+  // Weeks in the upcoming top-up that couldn't fit the full weekly count
+  // without breaking a hard rule (heavy legs on/before a hard run, race
+  // blackout) — a real constraint, but it must surface here rather than be
+  // discovered later as an unexplained gap in the calendar.
+  const [shortWeeks, setShortWeeks] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,7 +39,14 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
         if (cancelled) return;
         setSettings(s);
         // Opportunistic top-up of the next two weeks of auto sessions.
-        if (s?.active) apiFetch("/api/strength/plan-settings/ensure", { method: "POST" }).catch(() => {});
+        if (s?.active) {
+          apiFetch("/api/strength/plan-settings/ensure", { method: "POST" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((body) => {
+              if (!cancelled && body?.shortWeeks) setShortWeeks(body.shortWeeks);
+            })
+            .catch(() => {});
+        }
       } catch {
         if (!cancelled) setSettings(null);
       }
@@ -59,6 +71,12 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
               ? `${settings.sessionsPerWeek}×/week · ~${settings.durationMinutes} min · ${settings.goal === "running_focus" ? "Running focus" : "All-round"}${settings.active ? "" : " · paused"}`
               : "A recurring schedule built around your running"}
           </span>
+          {settings && shortWeeks > 0 ? (
+            <span className="mt-0.5 block text-[12px] text-amber-500">
+              {shortWeeks === 1 ? "1 upcoming week" : `${shortWeeks} upcoming weeks`} couldn&apos;t fit
+              the full {settings.sessionsPerWeek}/week without landing on a hard-run day.
+            </span>
+          ) : null}
         </span>
         <ChevronRight className="h-5 w-5 shrink-0 text-text-3" strokeWidth={1.9} />
       </span>
