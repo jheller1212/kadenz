@@ -166,7 +166,7 @@ export default function ManagePlanPage() {
         // "which plan, if any" lookup /api/today did, so both requests below
         // now genuinely run together.
         const [planRes, settingsRes] = await Promise.all([
-          apiFetch("/api/plans/active"),
+          apiFetch("/api/plans/active?summary=1"),
           apiFetch("/api/strength/plan-settings"),
         ]);
         if (settingsRes.ok && !cancelled) {

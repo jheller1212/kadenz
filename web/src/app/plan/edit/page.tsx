@@ -72,7 +72,7 @@ function EditPlanInner() {
           // Was /api/plans (full list) -> /api/plans/[id], purely to find
           // "whichever one is active" and then fetch it — /api/plans/active
           // resolves and returns that plan in the one call.
-          const res = await apiFetch("/api/plans/active");
+          const res = await apiFetch("/api/plans/active?summary=1");
           const bundle = res.ok ? await res.json() : null;
           p = bundle?.activePlan ? bundle.plan : null;
         }
