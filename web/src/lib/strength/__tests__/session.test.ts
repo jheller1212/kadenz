@@ -8,6 +8,7 @@ import {
   type PlannedExercise,
 } from "../session";
 import { SESSION_TEMPLATES } from "../program";
+import type { ExerciseSessionHistory } from "../types";
 
 describe("buildSessionPlan", () => {
   it("places explosive Achilles work before slow-heavy HSR work", () => {
@@ -271,6 +272,121 @@ describe("running-plan phase backoff", () => {
     expect(calf.painGated).toBe(true);
     // ...and the peak-week backoff still reduces ordinary lower-body volume.
     expect(squat.sets).toBe(2); // 3 (template) - 1 (peak)
+  });
+});
+
+describe("running-plan phase intensity", () => {
+  function threeWorkingSets(weightKg: number, reps: number, date = new Date("2026-01-01")): ExerciseSessionHistory {
+    return {
+      sessionId: "s1",
+      date,
+      sets: [1, 2, 3].map((setNumber) => ({
+        setNumber,
+        weightKg,
+        reps,
+        rpe: null,
+        kind: null,
+      })),
+    };
+  }
+
+  it("compresses a build-phase primary slot's rep range, unlike base", () => {
+    const base = buildSessionPlan("lower", { weekInfo: { phase: "base", type: "normal" } });
+    const build = buildSessionPlan("lower", { weekInfo: { phase: "build", type: "normal" } });
+    const baseSquat = base.find((p) => p.slug === "db_squat")!;
+    const buildSquat = build.find((p) => p.slug === "db_squat")!;
+    expect(baseSquat.repLow).toBe(8);
+    expect(baseSquat.repHigh).toBe(12);
+    expect(buildSquat.repLow).toBe(4);
+    expect(buildSquat.repHigh).toBe(6);
+  });
+
+  it("peak and taper keep build's compressed range rather than reverting toward base", () => {
+    for (const phase of ["build", "peak", "taper"] as const) {
+      const plan = buildSessionPlan("lower", { weekInfo: { phase, type: "normal" } });
+      const squat = plan.find((p) => p.slug === "db_squat")!;
+      expect(squat.repLow).toBe(4);
+      expect(squat.repHigh).toBe(6);
+    }
+  });
+
+  it("leaves an accessory slot's rep range untouched by phase", () => {
+    const plan = buildSessionPlan("lower", { weekInfo: { phase: "build", type: "normal" } });
+    const splitSquat = plan.find((p) => p.slug === "bulgarian_split_squat")!;
+    expect(splitSquat.repLow).toBe(15);
+    expect(splitSquat.repHigh).toBe(25);
+  });
+
+  it("leaves HSR calf work untouched by phase", () => {
+    const plan = buildSessionPlan("lower_achilles", {
+      weekInfo: { phase: "build", type: "normal" },
+      programWeek: 1,
+    });
+    const hsr = plan.find((p) => p.slug === "straight_knee_calf_raise")!;
+    expect(hsr.repLow).toBe(12);
+    expect(hsr.repHigh).toBe(12);
+  });
+
+  it("a deload/race week keeps whatever phase's range it sits inside", () => {
+    const normal = buildSessionPlan("lower", { weekInfo: { phase: "build", type: "normal" } });
+    const deload = buildSessionPlan("lower", { weekInfo: { phase: "build", type: "deload" } });
+    const race = buildSessionPlan("lower", { weekInfo: { phase: "build", type: "race" } });
+    const squatN = normal.find((p) => p.slug === "db_squat")!;
+    const squatD = deload.find((p) => p.slug === "db_squat")!;
+    const squatR = race.find((p) => p.slug === "db_squat")!;
+    expect([squatD.repLow, squatD.repHigh]).toEqual([squatN.repLow, squatN.repHigh]);
+    expect([squatR.repLow, squatR.repHigh]).toEqual([squatN.repLow, squatN.repHigh]);
+  });
+
+  it("threads the phase-resolved range into suggestProgression, not just the display", () => {
+    // Three sets at 6 reps: at the top of the compressed build range (4-6)
+    // but well below the top of base's range (8-12).
+    const historyBySlug = { db_squat: [threeWorkingSets(20, 6)] };
+    const base = buildSessionPlan("lower", {
+      weekInfo: { phase: "base", type: "normal" },
+      historyBySlug,
+    });
+    const build = buildSessionPlan("lower", {
+      weekInfo: { phase: "build", type: "normal" },
+      historyBySlug,
+    });
+    const baseSquat = base.find((p) => p.slug === "db_squat")!;
+    const buildSquat = build.find((p) => p.slug === "db_squat")!;
+    // Judged against base's 8-12, 6 reps doesn't reach the top → hold.
+    expect(baseSquat.progression.action).not.toBe("increase");
+    // Judged against build's own 4-6 (what's actually displayed), 6 reps IS
+    // the top of every working set → increase. If progression were still
+    // judging against the static 8-12, this would incorrectly hold too.
+    expect(buildSquat.progression.action).toBe("increase");
+  });
+
+  it("holds instead of suggesting an increase across a base→build transition", () => {
+    // history[0] was logged in a base-phase session (8-12), now judged
+    // against build's 4-6 — 6 reps trivially clears build's rep-high, but
+    // that's a phase-transition artefact, not real evidence at this range.
+    const lastSessionDate = new Date("2026-01-01");
+    const historyBySlug = { db_squat: [threeWorkingSets(20, 6, lastSessionDate)] };
+    const plan = buildSessionPlan("lower", {
+      weekInfo: { phase: "build", type: "normal" },
+      historyBySlug,
+      weekInfoForDate: (date) =>
+        date.getTime() === lastSessionDate.getTime() ? { phase: "base", type: "normal" } : null,
+    });
+    const squat = plan.find((p) => p.slug === "db_squat")!;
+    expect(squat.progression.action).toBe("hold");
+    expect(squat.progression.reason).toMatch(/new rep range/i);
+  });
+
+  it("without a resolvable last-session phase, the guard stays inert (pre-existing behaviour)", () => {
+    const lastSessionDate = new Date("2026-01-01");
+    const historyBySlug = { db_squat: [threeWorkingSets(20, 6, lastSessionDate)] };
+    const plan = buildSessionPlan("lower", {
+      weekInfo: { phase: "build", type: "normal" },
+      historyBySlug,
+      // No weekInfoForDate supplied — matches every call site before this option existed.
+    });
+    const squat = plan.find((p) => p.slug === "db_squat")!;
+    expect(squat.progression.action).toBe("increase");
   });
 });
 

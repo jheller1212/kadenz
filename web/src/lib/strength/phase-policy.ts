@@ -1,6 +1,6 @@
 // ── Strength volume vs. running-plan phase ───────────────────────────────────
 //
-// Two independent levers pull on strength load as a running plan moves
+// Three independent levers pull on strength load as a running plan moves
 // through its phases:
 //
 //   1. How many strength sessions a week carries — reconcile.weekBudgetFor.
@@ -10,6 +10,14 @@
 //      volume lever: a per-phase set-count delta applied to every exercise
 //      in a session (see session.ts), skipping Achilles-role and HSR work,
 //      which is rehab, not a training-load knob.
+//   3. How heavy each working set itself is — also this module. The
+//      intensity lever: a per-phase rep-range shift (PHASE_REP_POLICY /
+//      repRangeFor below), applied in session.ts only to primary compound
+//      lifts (not accessory, targeted, HSR or Achilles work — see
+//      session.ts buildSessionPlan). Kept as its own table, not folded into
+//      PHASE_SET_POLICY, so each lever stays independently reviewable: sets
+//      and reps move for different reasons and don't always move together
+//      (peak/taper cut sets but hold intensity — see the table below).
 //
 // A coach should be able to read this table and agree with it:
 //
@@ -46,6 +54,46 @@ export const RACE_WEEK_SET_DELTA = -3;
 
 /** Sets never drop below this when a phase backoff is applied — see the note above. */
 export const PHASE_MIN_SETS = 1;
+
+export interface PhaseRepRange {
+  repLow: number;
+  repHigh: number;
+}
+
+/**
+ * Intensity lever (see header, item 3). Base keeps the standard hypertrophy
+ * range; build compresses to a maximal-strength rep range for the phase
+ * that's actually meant to build strength. Peak and taper deliberately keep
+ * BUILD's range rather than reverting toward base — cutting intensity in
+ * those phases would lose the adaptation build just paid for; PHASE_SET_
+ * POLICY above is what sheds fatigue instead (peak -1, taper -2 sets), so
+ * the two knobs stay orthogonal on the same phase.
+ */
+export const PHASE_REP_POLICY: Record<RunPhase, PhaseRepRange> = {
+  base: { repLow: 8, repHigh: 12 },
+  build: { repLow: 4, repHigh: 6 },
+  peak: { repLow: 4, repHigh: 6 },
+  taper: { repLow: 4, repHigh: 6 },
+};
+
+/**
+ * Rep range for the week a session falls in, or null with no active running
+ * plan / an unrecognised phase (standalone block — same "no phase concept"
+ * case setsDeltaFor/phaseSummaryFor return early on).
+ *
+ * Unlike setsDeltaFor, week `type` (deload/race) is NOT read here and never
+ * overrides this: a deload or race week keeps whatever phase's rep range it
+ * sits inside and only cuts sets — setsDeltaFor already handles that half.
+ * Splitting sets and reps into two functions (rather than one that reads
+ * both phase and type) is what keeps that asymmetry visible instead of
+ * baking it into a shared branch that's easy to edit for one and forget the
+ * other.
+ */
+export function repRangeFor(weekInfo: WeekInfo | null | undefined): PhaseRepRange | null {
+  if (!weekInfo) return null;
+  const policy = PHASE_REP_POLICY[weekInfo.phase as RunPhase];
+  return policy ? { repLow: policy.repLow, repHigh: policy.repHigh } : null;
+}
 
 /** Same note vocabulary as PHASE_SET_POLICY, for the two week `type`s that
  *  override phase (deload/race) rather than reading it — see setsDeltaFor. */

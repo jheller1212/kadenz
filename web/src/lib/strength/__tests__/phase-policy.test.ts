@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setsDeltaFor, phaseSummaryFor } from "../phase-policy";
+import { setsDeltaFor, phaseSummaryFor, repRangeFor } from "../phase-policy";
 
 describe("setsDeltaFor", () => {
   it("no active running plan leaves sets untouched (standalone block)", () => {
@@ -59,5 +59,36 @@ describe("phaseSummaryFor", () => {
   it("normal weeks use the phase's own note from PHASE_SET_POLICY", () => {
     const build = phaseSummaryFor({ phase: "build", type: "normal" });
     expect(build?.note).toBe("Normal load — this is the phase that does the work.");
+  });
+});
+
+describe("repRangeFor", () => {
+  it("no active running plan leaves the range unresolved (standalone block)", () => {
+    expect(repRangeFor(null)).toBeNull();
+    expect(repRangeFor(undefined)).toBeNull();
+  });
+
+  it("base keeps the standard hypertrophy range", () => {
+    expect(repRangeFor({ phase: "base", type: "normal" })).toEqual({ repLow: 8, repHigh: 12 });
+  });
+
+  it("build compresses to a maximal-strength range", () => {
+    expect(repRangeFor({ phase: "build", type: "normal" })).toEqual({ repLow: 4, repHigh: 6 });
+  });
+
+  it("peak and taper keep build's range rather than reverting toward base", () => {
+    const build = repRangeFor({ phase: "build", type: "normal" });
+    const peak = repRangeFor({ phase: "peak", type: "normal" });
+    const taper = repRangeFor({ phase: "taper", type: "normal" });
+    expect(peak).toEqual(build);
+    expect(taper).toEqual(build);
+  });
+
+  it("unlike setsDeltaFor, a deload/race week does NOT override the range — it keeps whatever phase it sits inside", () => {
+    const normal = repRangeFor({ phase: "build", type: "normal" });
+    const deload = repRangeFor({ phase: "build", type: "deload" });
+    const race = repRangeFor({ phase: "build", type: "race" });
+    expect(deload).toEqual(normal);
+    expect(race).toEqual(normal);
   });
 });

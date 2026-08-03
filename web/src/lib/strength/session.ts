@@ -14,10 +14,11 @@ import {
   applyPainGate,
   type ProgressionSuggestion,
   type PainGateResult,
+  type PrescribedRepRange,
 } from "./progression";
 import { estimateWorkoutDuration } from "./estimate";
 import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
-import { PHASE_MIN_SETS, setsDeltaFor, type WeekInfo } from "./phase-policy";
+import { PHASE_MIN_SETS, setsDeltaFor, repRangeFor, type WeekInfo } from "./phase-policy";
 import type {
   Complaint,
   Equipment,
@@ -145,6 +146,19 @@ export interface BuildSessionOptions {
    */
   weekInfo?: WeekInfo | null;
   /**
+   * Resolves the running plan's week phase/type for an arbitrary PAST date
+   * (typically a primary exercise's most recent completed session, i.e.
+   * `history[0].date`) — the same shape `weekInfo` carries for THIS
+   * session's own date, just queryable for any date. Used only to derive
+   * `lastSessionRepRange` for `suggestProgression` below, so PR1's
+   * phase-transition guard can hold the weight on the first heavy session
+   * of a new phase instead of judging it against a range it wasn't
+   * prescribed under. Absent = caller can't resolve it (e.g. no active
+   * plan), which leaves the guard inert, matching every call site before
+   * this option existed.
+   */
+  weekInfoForDate?: (date: Date) => WeekInfo | null;
+  /**
    * The athlete's strength goal (Kraft setup wizard). "running_focus" trims
    * a set from ordinary upper-body work and adds one to posterior-chain/
    * unilateral lower work (see program.ts RUNNING_FOCUS_POSTERIOR_CHAIN_
@@ -259,9 +273,50 @@ export function buildSessionPlan(
     if (!isHsrExercise(slot.exerciseSlug) && !ex.achillesRole) {
       sets = Math.max(PHASE_MIN_SETS, sets + setsDeltaFor(opts.weekInfo));
     }
+
+    // Running-plan phase intensity (see phase-policy.ts repRangeFor) — the
+    // third lever, narrower than the set backoff above: only the primary
+    // compound lift in a slot gets its rep range compressed by phase.
+    // Accessory/targeted work (including a knee/hamstring complaint's own
+    // exercises) keeps its designed range regardless of phase — compressing
+    // e.g. a targeted single-leg exercise into a heavy 4-6 scheme it was
+    // never programmed for would be quietly wrong, not "the system working".
+    // HSR/Achilles-role work is excluded by the same guard as the set
+    // backoff, for the same reason (rehab, not a training-load knob).
+    let progRepLow = ex.repLow ?? 8;
+    let progRepHigh = ex.repHigh ?? 12;
+    let lastSessionRepRange: PrescribedRepRange | null = null;
+    if (
+      !isHsrExercise(slot.exerciseSlug) &&
+      !ex.achillesRole &&
+      (slot.priority ?? "primary") === "primary"
+    ) {
+      const phaseRange = repRangeFor(opts.weekInfo);
+      if (phaseRange) {
+        repLow = phaseRange.repLow;
+        repHigh = phaseRange.repHigh;
+        progRepLow = phaseRange.repLow;
+        progRepHigh = phaseRange.repHigh;
+      }
+      // The previous session for THIS exercise may have been prescribed
+      // under a different phase's range (a real phase transition, not a
+      // guess from the reps it logged) — when the caller can resolve that
+      // past date's phase, hand it to suggestProgression so its dormant
+      // transition guard (see progression.ts) activates exactly there.
+      if (opts.weekInfoForDate && history[0]) {
+        lastSessionRepRange = repRangeFor(opts.weekInfoForDate(history[0].date));
+      }
+    }
     let prescription = repRangeLabel(sets, repLow, repHigh);
 
-    let progression = suggestProgression(ex, history, ex.repLow ?? 8, ex.repHigh ?? 12, lifterProfile);
+    let progression = suggestProgression(
+      ex,
+      history,
+      progRepLow,
+      progRepHigh,
+      lifterProfile,
+      lastSessionRepRange
+    );
     let suggestedWeightKg = progression.suggestedWeightKg;
     const lastWeightKg = progression.currentWeightKg;
 
