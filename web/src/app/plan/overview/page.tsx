@@ -203,7 +203,7 @@ export default function PlanOverviewPage() {
         // Was /api/today -> /api/plans/[id] -> /api/strength/sessions, three
         // serial round trips purely to learn the active plan's id and then
         // its own date range. One call now — see api/plans/active/route.ts.
-        const res = await apiFetch("/api/plans/active?sessions=1");
+        const res = await apiFetch("/api/plans/active?sessions=1&summary=1");
         if (!res.ok || cancelled) return;
         const bundle = await res.json();
         if (!bundle.activePlan || !bundle.plan || cancelled) return;

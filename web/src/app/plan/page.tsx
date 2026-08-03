@@ -292,7 +292,14 @@ export default function PlanHubPage() {
         // Was /api/today -> /api/plans/[id] -> /api/strength/sessions, three
         // serial round trips purely to learn the active plan's id and then
         // its own date range. One call now — see api/plans/active/route.ts.
-        const res = await apiFetch("/api/plans/active?sessions=1");
+        //
+        // summary=1 drops every workout's blocks (warm-up, rep detail,
+        // cooldown), which are the bulk of the response: ~101KB full against a
+        // few KB summarised. This screen renders week and workout rows only
+        // and never reads .blocks, so the full shape was download and parse
+        // cost for data that was thrown away. plan/rearrange is the one
+        // /plan/* screen that genuinely needs blocks and still asks for them.
+        const res = await apiFetch("/api/plans/active?sessions=1&summary=1");
         if (!res.ok) {
           if (!cancelled) setFailed(true);
           return;
