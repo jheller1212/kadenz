@@ -110,7 +110,7 @@ describe("extra sets count as real work", () => {
         { setNumber: 4, reps: 12, weightKg: 12.5 }, // the extra set, also at the top
       ],
     };
-    const s = suggestProgression(squat, [withExtraAtTop]);
+    const s = suggestProgression(squat, [withExtraAtTop], 8, 12);
     expect(s.action).toBe("increase");
   });
 
@@ -140,7 +140,7 @@ describe("extra sets count as real work", () => {
         { setNumber: 1, reps: 7, weightKg: 12.5 },
       ],
     };
-    const s = suggestProgression(squat, [last, prev]);
+    const s = suggestProgression(squat, [last, prev], 8, 12);
     expect(s.action).toBe("decrease");
   });
 });
