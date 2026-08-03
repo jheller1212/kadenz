@@ -6,7 +6,7 @@
 // spines and CalendarStrip dots disagreed on what "easy" looks like.
 
 import type { WorkoutType } from "@/lib/plan-engine/types";
-import { WORKOUT_COLORS, STRENGTH_COLOR } from "@/lib/workout-colors";
+import { WORKOUT_COLORS, STRENGTH_COLOR, strengthSessionLabel } from "@/lib/workout-colors";
 import { isCompletedSession, isPastDuePlanned, type SessionStatus } from "@/lib/training/session";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
@@ -80,6 +80,10 @@ export interface StrengthSessionRow {
   title: string;
   status: string;
   targetDurationMinutes: number | null;
+  // Whether the weekly rehab pass attached the Achilles/HSR block to THIS
+  // session (strength_sessions.achilles_attached) — absent on older/unrelated
+  // API responses, treated as false until present.
+  achillesAttached?: boolean;
 }
 
 // ── Date helpers (weeks start Monday in Kadenz) ───────────────────────────────
@@ -233,8 +237,9 @@ export function itemState(item: DaySpecItem, now: Date = new Date()): ItemState 
 export function itemSpec(item: DaySpecItem, state?: ItemState): string {
   const base = (() => {
     if (item.kind === "strength") {
+      const label = strengthSessionLabel(item.session);
       const d = item.session.targetDurationMinutes;
-      return d ? `${item.session.title} · ${durationWindow(d)}` : item.session.title;
+      return d ? `${label} · ${durationWindow(d)}` : label;
     }
     const w = item.workout;
     const title = displayWorkoutTitle(w);

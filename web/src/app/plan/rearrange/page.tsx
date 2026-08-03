@@ -43,6 +43,7 @@ import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import { haptic } from "@/lib/haptics";
 import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
+import { REHAB_COLOR } from "@/lib/workout-colors";
 import type {
   GeneratedPlan,
   GeneratedWeek,
@@ -211,13 +212,13 @@ interface Violation {
 }
 
 // Family-aligned colors (match the Kraft picker): upper = blues, lower =
-// purples, standalone Achilles orange, full body green.
+// purples, standalone rehab = the rehab token, full body green.
 const STRENGTH_META: Record<SessionType, { label: string; color: string }> = {
   upper: { label: "Upper", color: "#93C5FD" },
-  upper_achilles: { label: "Upper + Achilles", color: "#3B82F6" },
+  upper_achilles: { label: "Upper + Rehab", color: "#3B82F6" },
   lower: { label: "Lower", color: "#D8B4FE" },
-  lower_achilles: { label: "Lower + Achilles", color: "#A855F7" },
-  achilles: { label: "Achilles", color: "#FB923C" },
+  lower_achilles: { label: "Lower + Rehab", color: "#A855F7" },
+  achilles: { label: "Rehab", color: REHAB_COLOR.solid },
   full_body: { label: "Full Body", color: "#34D399" },
 };
 
@@ -1513,7 +1514,7 @@ function PlanPageInner() {
                 options={[
                   { value: "upper", label: "Upper" },
                   { value: "lower", label: "Lower" },
-                  { value: "lower_achilles", label: "L+Ach" },
+                  { value: "lower_achilles", label: "L+Rehab" },
                   { value: "full_body", label: "Full" },
                 ]}
               />

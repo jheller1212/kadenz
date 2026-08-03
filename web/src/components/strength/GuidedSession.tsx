@@ -1087,8 +1087,15 @@ export default function GuidedSession({
   const nonAchillesComplaint = complaints
     .filter((c) => c !== "achilles")
     .find((c) => complaintWorkSlugs(c).includes(ex.slug));
+  // isHsrExercise(ex.slug) already means this exercise is IN this session's
+  // resolved plan as HSR/calf work — the session was only built with it if
+  // achillesAttached (or, for a brand-new ad-hoc session, the complaint
+  // fallback) actually put it there. Gating on complaints.includes("achilles")
+  // too used to disagree with that: a session built while achillesAttached
+  // could still show calf-work exercises after the athlete turned the
+  // complaint off, and this label would then wrongly go generic.
   const easesWorkLabel =
-    isHsrExercise(ex.slug) && complaints.includes("achilles")
+    isHsrExercise(ex.slug)
       ? "calf work"
       : nonAchillesComplaint
         ? `${COMPLAINT_SHORT_LABELS[nonAchillesComplaint]} work`

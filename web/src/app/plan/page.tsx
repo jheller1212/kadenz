@@ -23,7 +23,7 @@ import { KadenzMark } from "@/components/ui/KadenzMark";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
-import { workoutColor, STRENGTH_COLOR } from "@/lib/workout-colors";
+import { workoutColor, STRENGTH_COLOR, strengthColor } from "@/lib/workout-colors";
 import { WeeklyStrengthPlan } from "@/components/strength/WeeklyStrengthPlan";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
@@ -64,6 +64,11 @@ function DayChip({ items }: { items: DayItem[] }) {
   const run = items.find((i) => i.kind === "run");
   const strength = items.find((i) => i.kind === "strength");
 
+  // Rehab reads as its own thing, not folded into the ordinary Kraft blue —
+  // see docs/DESIGN.md and lib/workout-colors.ts strengthColor().
+  const strengthDayColor =
+    strength && strength.kind === "strength" ? strengthColor(strength.session) : STRENGTH_COLOR;
+
   let style: React.CSSProperties;
   if (allSkipped) {
     style = { backgroundColor: "var(--k-elevated)" };
@@ -71,12 +76,12 @@ function DayChip({ items }: { items: DayItem[] }) {
     // Two-tone split: left half strength, right half the run color.
     const runSolid = workoutColor(run.workout.type).solid;
     style = {
-      background: `linear-gradient(135deg, ${STRENGTH_COLOR.solid} 0%, ${STRENGTH_COLOR.solid} 50%, ${runSolid} 50%, ${runSolid} 100%)`,
+      background: `linear-gradient(135deg, ${strengthDayColor.solid} 0%, ${strengthDayColor.solid} 50%, ${runSolid} 50%, ${runSolid} 100%)`,
     };
   } else if (run && run.kind === "run") {
     style = { background: workoutColor(run.workout.type).grad };
   } else {
-    style = { background: STRENGTH_COLOR.grad };
+    style = { background: strengthDayColor.grad };
   }
 
   return (

@@ -22,6 +22,7 @@ import {
   Flag,
   X,
   TrendingDown,
+  HeartPulse,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
@@ -31,7 +32,19 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
-import { WORKOUT_COLORS, workoutColor, workoutInk } from "@/lib/workout-colors";
+import {
+  WORKOUT_COLORS,
+  workoutColor,
+  workoutInk,
+  strengthColor,
+  strengthSessionLabel,
+  REHAB_COLOR,
+  STRENGTH_COLOR,
+} from "@/lib/workout-colors";
+import {
+  strengthWeekShortfallReason,
+  type StrengthPhaseInfo,
+} from "@/components/strength/weekCount";
 import { displayTemp, displayDistance, distanceUnitLabel, actualPaceSecKm } from "@/lib/units";
 import { completedDistanceKm } from "@/lib/training/distance";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
@@ -93,6 +106,9 @@ interface StrengthSessionLite {
   id: string;
   date: string;
   type: string;
+  // Whether the weekly rehab pass attached the Achilles/HSR block to THIS
+  // session (strength_sessions.achilles_attached).
+  achillesAttached?: boolean;
   title: string;
   status: string;
   targetDurationMinutes: number | null;
@@ -531,7 +547,7 @@ function CalendarStrip({
   onSwipeRight,
 }: {
   days: DayInfo[];
-  strengthDays: Record<string, string>;
+  strengthDays: Record<string, { status: string; isRehab: boolean }>;
   selectedDate: Date | null;
   onSelectDate: (d: DayInfo) => void;
   onSwipeLeft: () => void;
@@ -602,13 +618,16 @@ function CalendarStrip({
             </div>
             {/* Fixed 6px height regardless of dot count so rest days keep alignment. */}
             <div className="flex h-[6px] items-center gap-[3px]">
-              {/* Strength dot first (left), uniform blue gradient */}
+              {/* Strength dot first (left) — rehab orange, ordinary Kraft
+                  blue otherwise (see lib/workout-colors.ts strengthColor). */}
               {strengthStatus && (
                 <div
                   className="h-[5px] w-[5px] rounded-[1.5px]"
                   style={{
-                    backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)",
-                    opacity: strengthStatus === "completed" ? 1 : 0.85,
+                    backgroundImage: strengthStatus.isRehab
+                      ? REHAB_COLOR.grad
+                      : STRENGTH_COLOR.grad,
+                    opacity: strengthStatus.status === "completed" ? 1 : 0.85,
                   }}
                 />
               )}
@@ -867,7 +886,7 @@ function WeekOverviewCard({
 
 // ── My Insights Section ──────────────────────────────────────────────────────
 
-function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget, paceInitial }: {
+function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget, strengthPhase, paceInitial }: {
   stats: TodayStats;
   weather: WeatherData | null;
   selectedDate: Date | null;
@@ -876,6 +895,7 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
   weekWorkouts: DayInfo[];
   weekStrength: StrengthSessionLite[];
   strengthTarget: number | null;
+  strengthPhase?: StrengthPhaseInfo | null;
   // Seeded from the Today screen's one bootstrap call (/api/today/bootstrap)
   // — `undefined` (bootstrap didn't run yet, or its pace section failed)
   // falls back to this component's own fetch, same as before.
@@ -887,6 +907,19 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
   // Sessions done beyond the weekly Kraft target count as a bonus, not a
   // moving goalpost.
   const strengthExtra = strengthTarget != null ? Math.max(0, strengthDone - strengthTarget) : 0;
+  // Why this week's SCHEDULED count (weekStrength.length) might sit below the
+  // configured target — same fact and same reasoning as WeeklyStrengthPlan's
+  // card on the Plan hub (see weekCount.ts), so the two screens never
+  // disagree about whether a shortfall means something's wrong.
+  const strengthShortfallReason =
+    strengthTarget != null
+      ? strengthWeekShortfallReason({
+          scheduled: weekStrength.length,
+          target: strengthTarget,
+          weekPartElapsed: new Date().getDay() !== 1, // today isn't Monday
+          phase: strengthPhase,
+        })
+      : null;
   const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(paceInitial ?? null);
   useEffect(() => {
     if (paceInitial !== undefined) return;
@@ -1119,13 +1152,19 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
                         style={{
                           backgroundColor:
                             i < weekStrength.filter((x) => x.status === "completed").length
-                              ? "#3B82F6"
+                              ? strengthColor(sess).solid
                               : "var(--k-elevated)",
                         }}
                       />
                     ))}
                     {weekStrength.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
                   </div>
+                  {strengthTarget != null && weekStrength.length < strengthTarget && (
+                    <p className="mt-1 text-[10px] leading-snug text-text-3">
+                      {weekStrength.length} of {strengthTarget} this week
+                      {strengthShortfallReason ? ` — ${strengthShortfallReason}` : "."}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1175,15 +1214,6 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
 
 // ── Rest Day ────────────────────────────────────────────────────────────────
 
-const STRENGTH_TYPE_COLORS: Record<string, string> = {
-  upper: "#93C5FD",
-  upper_achilles: "#3B82F6",
-  lower: "#D8B4FE",
-  lower_achilles: "#A855F7",
-  achilles: "#FB923C",
-  full_body: "#34D399",
-};
-
 // The selected day's Kraft session, shown alongside the run.
 function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessionLite; onStatusChange?: (id: string, status: string) => void }) {
   const router = useRouter();
@@ -1216,7 +1246,8 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
   }
 
   if (!session) return null;
-  const color = STRENGTH_TYPE_COLORS[session.type] ?? "#94A3B8";
+  const isRehab = session.type === "achilles" || session.achillesAttached;
+  const { solid: color, grad } = strengthColor(session);
   const done = session.status === "completed";
 
   return (
@@ -1227,14 +1258,23 @@ function StrengthTodayCard({ initial, onStatusChange }: { initial: StrengthSessi
       className="w-full overflow-hidden k-card text-left"
     >
       <div className="flex">
-        <div className="w-[5px] shrink-0" style={{ backgroundImage: "linear-gradient(180deg, #60A5FA, #2563EB)", backgroundColor: color }} />
+        <div className="w-[5px] shrink-0" style={{ backgroundImage: grad, backgroundColor: color }} />
         <div className="flex flex-1 items-center gap-3 p-4">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-elevated">
-            <Dumbbell className="h-4 w-4 text-text-1" strokeWidth={2} />
+            {isRehab ? (
+              <HeartPulse className="h-4 w-4 text-text-1" strokeWidth={2} />
+            ) : (
+              <Dumbbell className="h-4 w-4 text-text-1" strokeWidth={2} />
+            )}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: "var(--vi-lift)" }}>Strength</p>
-            <p className="mt-0.5 truncate text-base font-bold text-text-1">{session.title}</p>
+            <p
+              className="text-[10px] font-extrabold uppercase tracking-widest"
+              style={{ color: isRehab ? "var(--vi-rehab)" : "var(--vi-lift)" }}
+            >
+              {isRehab ? "Rehab" : "Strength"}
+            </p>
+            <p className="mt-0.5 truncate text-base font-bold text-text-1">{strengthSessionLabel(session)}</p>
             <p className="mt-0.5 text-xs text-text-3">
               {new Date(session.date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
               {session.targetDurationMinutes != null && (
@@ -1460,11 +1500,16 @@ export default function Home() {
   const [loadError, setLoadError] = useState(false);
   const [days, setDays] = useState<DayInfo[]>([]);
   // Calendar-day keys of this week's strength sessions (2nd dot).
-  const [strengthDays, setStrengthDays] = useState<Record<string, string>>({});
+  const [strengthDays, setStrengthDays] = useState<Record<string, { status: string; isRehab: boolean }>>({});
   const [weekStrength, setWeekStrength] = useState<StrengthSessionLite[]>([]);
   // Seeded by the mount-time /api/today/bootstrap call below (see
   // loadBootstrap) — no standalone mount fetch here any more.
   const [strengthTarget, setStrengthTarget] = useState<number | null>(null);
+  // The running-plan phase strength is following this week — the same fact
+  // the Kraft screen already surfaces (see /api/strength/summary), fetched
+  // here too so the "why is this week short" reason agrees everywhere
+  // instead of Today inventing its own guess (see weekCount.ts).
+  const [strengthPhase, setStrengthPhase] = useState<StrengthPhaseInfo | null>(null);
   // Device/app connections prompt — the /create wizard's "connections" step
   // (#121) only runs when an athlete builds a running plan. Someone who
   // trains from Kraft alone never sees it, so this reads the same flag via
@@ -1515,8 +1560,13 @@ export default function Home() {
     function apply(sessions: StrengthSessionLite[]) {
       const active = sessions.filter((sess) => sess.status !== "skipped");
       setWeekStrength(active);
-      const map: Record<string, string> = {};
-      for (const sess of active) map[new Date(sess.date).toDateString()] = sess.status;
+      const map: Record<string, { status: string; isRehab: boolean }> = {};
+      for (const sess of active) {
+        map[new Date(sess.date).toDateString()] = {
+          status: sess.status,
+          isRehab: sess.type === "achilles" || Boolean(sess.achillesAttached),
+        };
+      }
       setStrengthDays(map);
     }
     const cached = readCache<StrengthSessionLite[]>(cacheKey);
@@ -1701,6 +1751,15 @@ export default function Home() {
           .catch(() => {});
       }
 
+      // Not in the bootstrap bundle yet — small, infrequent, only needed for
+      // the shortfall reason text (see weekCount.ts).
+      apiFetch("/api/strength/summary")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.phase) setStrengthPhase(d.phase);
+        })
+        .catch(() => {});
+
       if (!bootstrapSectionFailed(boot.deviceSetup)) {
         setShowConnectionsPrompt(shouldPromptSetup(boot.deviceSetup));
       } else {
@@ -1713,8 +1772,13 @@ export default function Home() {
       if (!bootstrapSectionFailed(boot.strengthSessions)) {
         const active = (boot.strengthSessions as StrengthSessionLite[]).filter((s) => s.status !== "skipped");
         setWeekStrength(active);
-        const map: Record<string, string> = {};
-        for (const sess of active) map[new Date(sess.date).toDateString()] = sess.status;
+        const map: Record<string, { status: string; isRehab: boolean }> = {};
+        for (const sess of active) {
+          map[new Date(sess.date).toDateString()] = {
+            status: sess.status,
+            isRehab: sess.type === "achilles" || Boolean(sess.achillesAttached),
+          };
+        }
         setStrengthDays(map);
         // Preset the week-paging dedup key to the current week so the
         // "re-fetch when the strip moves" effect (loadWeekStrength) treats
@@ -1823,8 +1887,13 @@ export default function Home() {
   const applyStrengthStatus = useCallback((id: string, status: string) => {
     setWeekStrength((prev) => {
       const next = prev.map((sess) => (sess.id === id ? { ...sess, status } : sess));
-      const map: Record<string, string> = {};
-      for (const sess of next) map[new Date(sess.date).toDateString()] = sess.status;
+      const map: Record<string, { status: string; isRehab: boolean }> = {};
+      for (const sess of next) {
+        map[new Date(sess.date).toDateString()] = {
+          status: sess.status,
+          isRehab: sess.type === "achilles" || Boolean(sess.achillesAttached),
+        };
+      }
       setStrengthDays(map);
       return next;
     });
@@ -2158,7 +2227,7 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* My Insights */}
-        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} paceInitial={paceInitial} />
+        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} strengthPhase={strengthPhase} paceInitial={paceInitial} />
       </div>
 
       {/* Sticky Bottom Button */}

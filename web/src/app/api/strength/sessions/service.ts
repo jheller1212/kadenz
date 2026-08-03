@@ -39,6 +39,12 @@ export async function listStrengthSessions(
           durationMinutes: true,
           gcalEventId: true,
           garminWorkoutId: true,
+          // Whether the weekly rehab pass attached the Achilles/HSR block to
+          // THIS session (see reconcile.ts computeAchillesRehabDays) — was
+          // missing here, so #155's attached-rehab case never reached any
+          // list/calendar UI (Today, Plan, Kraft picker) even though it was
+          // fully implemented server-side.
+          achillesAttached: true,
         },
       });
 }

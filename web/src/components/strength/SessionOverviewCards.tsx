@@ -1,5 +1,5 @@
-import { CheckCircle2, SkipForward, Dumbbell } from "lucide-react";
-import { STRENGTH_COLOR } from "@/lib/workout-colors";
+import { CheckCircle2, SkipForward, Dumbbell, HeartPulse } from "lucide-react";
+import { STRENGTH_COLOR, REHAB_COLOR } from "@/lib/workout-colors";
 
 // ── Hero card + summary stat row ─────────────────────────────────────────────
 // The top of the session detail screen: title/date/status, then
@@ -25,6 +25,7 @@ export function SessionOverviewCards({
   exerciseCount,
   totalSets,
   volume,
+  isRehab = false,
 }: {
   title: string;
   dateStr: string;
@@ -41,22 +42,31 @@ export function SessionOverviewCards({
   exerciseCount: number;
   totalSets: number;
   volume: Volume;
+  /** A standalone Rehab session, or one with the Achilles/HSR block
+   *  attached — the eyebrow badge must say so instead of the generic
+   *  "Strength" every other session gets, the same distinction every other
+   *  surface makes (see lib/workout-colors.ts strengthColor). */
+  isRehab?: boolean;
 }) {
-  const color = STRENGTH_COLOR.solid;
+  const color = isRehab ? REHAB_COLOR.solid : STRENGTH_COLOR.solid;
 
   return (
     <>
-      {/* Hero card with the strength-blue accent */}
+      {/* Hero card with the strength-blue (or rehab-orange) accent */}
       <section className="rounded-[var(--radius-card)] p-4" style={{ backgroundColor: `${color}1A` }}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span
                 className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold text-white"
-                style={{ backgroundImage: STRENGTH_COLOR.grad }}
+                style={{ backgroundImage: isRehab ? REHAB_COLOR.grad : STRENGTH_COLOR.grad }}
               >
-                <Dumbbell className="h-3 w-3" strokeWidth={2.4} />
-                Strength
+                {isRehab ? (
+                  <HeartPulse className="h-3 w-3" strokeWidth={2.4} />
+                ) : (
+                  <Dumbbell className="h-3 w-3" strokeWidth={2.4} />
+                )}
+                {isRehab ? "Rehab" : "Strength"}
               </span>
             </div>
             <h1 className="mt-1.5 text-[22px] font-bold tracking-tight text-text-1">{title}</h1>

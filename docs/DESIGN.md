@@ -31,10 +31,17 @@ Red is reserved for intervals and races. Kraft is blue.
 | Long | `#C084FC` | `#9B6BFF` to `#7C5CFF` |
 | Race | `#FF4D4D` | `#FF4D4D` to `#FF8A3D` |
 | Lift / Kraft | dark `#5AA0FF`, light `#2563EB` | `#5AA0FF` to `#2563EB` |
+| Rehab | `#FB923C` | `#FDBA74` to `#FB923C` |
 
 `--k-type-lift` is the only type token that differs per theme, because `WorkoutCard`
 uses one value for both graphics and 12px badge text and the light blue fails AA on a
 dark card.
+
+Rehab (`--k-type-rehab` / `--k-grad-rehab`) is the Achilles/HSR session type: a
+standalone short session on a free day, or a block attached to an existing strength
+session (`strength_sessions.achilles_attached`). It reads as its own thing — not a
+strength sub-case — because the athlete asked to see it separately. Orange was picked
+because red is reserved for intervals/races and Kraft already owns blue.
 
 ## Flats are graphics, `--vi-*` is text
 
@@ -43,7 +50,7 @@ Ramps and flat type colours are for spines, dots and bars. Type-coloured TEXT re
 
 ```
 light  --vi-volt:#3F6100  --vi-cyan:#0C6A62  --vi-easy:#17803D  --vi-tempo:#755C00
-       --vi-interval:#C81E1E  --vi-long:#7E3AF2  --vi-lift:#1D4ED8
+       --vi-interval:#C81E1E  --vi-long:#7E3AF2  --vi-lift:#1D4ED8  --vi-rehab:#9A3412
 dark   the flats themselves
 ```
 

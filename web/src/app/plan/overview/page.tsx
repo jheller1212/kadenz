@@ -22,8 +22,6 @@ import { workoutUrl, strengthSessionUrl } from "@/lib/routes";
 import { haptic } from "@/lib/haptics";
 import {
   runSpine,
-  STRENGTH_SPINE,
-  STRENGTH_BLUE,
   phaseSummary,
   type ApiPlanRow,
   type ApiWorkoutRow,
@@ -34,6 +32,7 @@ import {
   sameDay,
   durationWindow,
 } from "@/lib/plan-ui";
+import { strengthColor, strengthSessionLabel } from "@/lib/workout-colors";
 
 const PHASE_LABEL: Record<WeekPhase, string> = {
   base: "Base",
@@ -92,9 +91,13 @@ function DayRow({
     ? "var(--k-hairline)"
     : item.kind === "run"
     ? runSpine(item.workout.type)
-    : STRENGTH_SPINE;
+    : strengthColor(item.session).grad;
   const spineIsGradient = spine.startsWith("linear-gradient");
-  const title = item ? (item.kind === "run" ? item.workout.title : item.session.title) : "Rest";
+  const title = item
+    ? item.kind === "run"
+      ? item.workout.title
+      : strengthSessionLabel(item.session)
+    : "Rest";
   const spec = !item
     ? "Recovery is part of the plan."
     : item.kind === "run"
@@ -114,7 +117,7 @@ function DayRow({
   const stateColor = item
     ? item.kind === "run"
       ? runSpine(item.workout.type)
-      : STRENGTH_BLUE
+      : strengthColor(item.session).solid
     : undefined;
 
   const rowClass = `flex items-center gap-3 rounded-2xl px-[15px] py-[13px] ${
