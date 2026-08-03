@@ -8,12 +8,56 @@ import {
   isAutoCloseDue,
   isPrunable,
   isStaleAdhoc,
+  rotationForEmphasis,
   twinAbsorptionUpdate,
   weekKeyOf,
   weekBudgetFor,
 } from "../reconcile";
 import type { PlacementDay } from "../schedule-place";
 import type { StrengthSessionType } from "../types";
+
+// ── Session-type rotation, derived from frequency + goal ─────────────────────
+// rotationForEmphasis is the source of truth the old hand-typed ROTATIONS
+// table was replaced with — the load-bearing invariant is "never the same
+// emphasis twice in a row" (the ~48h-per-muscle-group rule), for every
+// frequency and goal it's asked to produce.
+
+describe("rotationForEmphasis", () => {
+  const GOALS = ["running_focus", "all_round"];
+
+  it("never repeats the same emphasis on consecutive sessions, for every frequency 1-6 and both goals", () => {
+    for (const goal of GOALS) {
+      for (let n = 1; n <= 6; n++) {
+        const seq = rotationForEmphasis(goal, n);
+        expect(seq).toHaveLength(n);
+        for (let i = 1; i < seq.length; i++) {
+          expect(seq[i]).not.toBe(seq[i - 1]);
+        }
+      }
+    }
+  });
+
+  it("running_focus is biased toward lower-body/posterior-chain work", () => {
+    for (let n = 1; n <= 6; n++) {
+      const seq = rotationForEmphasis("running_focus", n);
+      const lowerCount = seq.filter((e) => e === "lower").length;
+      const upperCount = seq.filter((e) => e === "upper").length;
+      expect(lowerCount).toBeGreaterThanOrEqual(upperCount);
+    }
+  });
+
+  it("frequency 4 is a clean lower/upper alternation for a balanced goal", () => {
+    expect(rotationForEmphasis("all_round", 4)).toEqual(["lower", "upper", "lower", "upper"]);
+  });
+
+  it("frequency 0 returns an empty sequence", () => {
+    expect(rotationForEmphasis("all_round", 0)).toEqual([]);
+  });
+
+  it("clamps above 6 rather than growing without bound", () => {
+    expect(rotationForEmphasis("all_round", 10)).toHaveLength(6);
+  });
+});
 
 // ── Day/week key math ────────────────────────────────────────────────────────
 

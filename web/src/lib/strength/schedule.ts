@@ -224,7 +224,8 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     rotation,
     settings.availableDays,
     sessionsByWeek,
-    weekBudget
+    weekBudget,
+    complaints
   );
 
   // A week can legitimately place fewer sessions than its budget: the

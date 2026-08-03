@@ -254,7 +254,9 @@ describe("targeted work still appears for an athlete with no box or chair", () =
 
 describe("existing rows with no complaints behave like 'none'", () => {
   it("rotationFor treats an empty complaints array as the general default", () => {
-    expect(rotationFor("running_focus", 2, [])).toEqual(["lower", "full_body"]);
+    // 2/week is lower/upper regardless of goal (see reconcile.ts
+    // rotationForEmphasis) — the complaints argument shouldn't change that.
+    expect(rotationFor("running_focus", 2, [])).toEqual(["lower", "upper"]);
   });
 
   it("buildSessionPlan with complaints omitted behaves identically to an empty array", () => {
