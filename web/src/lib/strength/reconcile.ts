@@ -5,9 +5,13 @@ import {
 } from "./schedule-place";
 import type { Complaint, StrengthSessionType } from "./types";
 
-// ── Session-type rotation ─────────────────────────────────────────────────────
-// Per goal and sessions/week. Running focus keeps upper body minimal;
-// all-round mixes upper and lower evenly.
+// ── Session-type rotation, derived from frequency + goal ─────────────────────
+// Not a hand-typed lookup table: the actual rule this needs to satisfy is
+// "no two scheduled sessions in a row share a muscle-group emphasis" (the
+// ~48h-per-group recovery window), same as any upper/lower or push-pull-legs
+// split. rotationForEmphasis below builds each frequency's sequence from
+// that rule directly, so adding a 5th or 6th day never needs a new
+// hand-written row.
 //
 // The dedicated Achilles/HSR session TYPES (achilles, lower_achilles,
 // upper_achilles) are no longer scheduled going forward — an "achilles"
@@ -17,29 +21,49 @@ import type { Complaint, StrengthSessionType } from "./types";
 // hamstring, hip/glute) already added targeted work without needing its own
 // session type. The old types stay valid StrengthSessionType values purely
 // so historic sessions of those types still load (see types.ts
-// STRENGTH_SESSION_TYPES) — this rotation table just never produces them.
-// The 4-day rows deliberately alternate muscle groups rather than doubling
-// up on a group-conflicting type: the placement engine (schedule-place.ts)
-// now scores adjacency by muscle-group overlap, so a row that alternates
-// lower/upper gives it a clean Mon/Tue/Thu/Fri-style split to work with on
-// weekday-only availability, instead of forcing it to fight two same-group
-// sessions (or full_body, which overlaps almost every group) into a 5-day
-// window. running_focus keeps its lower-body/posterior-chain bias (2 lower +
-// 1 full_body vs 1 upper) since these are runners, not a symmetric split.
-const ROTATIONS: Record<string, Record<number, StrengthSessionType[]>> = {
-  running_focus: {
-    1: ["lower"],
-    2: ["lower", "full_body"],
-    3: ["lower", "full_body", "lower"],
-    4: ["lower", "upper", "lower", "full_body"],
-  },
-  all_round: {
-    1: ["full_body"],
-    2: ["upper", "lower"],
-    3: ["upper", "lower", "full_body"],
-    4: ["lower", "upper", "lower", "upper"],
-  },
+// STRENGTH_SESSION_TYPES) — this rotation just never produces them.
+//
+// The placement engine (schedule-place.ts) does the actual day-by-day work —
+// reading the real week's run schedule, hard vetoes, and muscle-group
+// overlap on the resolved (complaint-inclusive) exercise list — so this only
+// has to decide *how many of each emphasis* the week gets, not which
+// calendar day each lands on.
+export type Emphasis = "lower" | "upper" | "full";
+
+const EMPHASIS_TYPE: Record<Emphasis, StrengthSessionType> = {
+  lower: "lower",
+  upper: "upper",
+  full: "full_body",
 };
+
+/**
+ * The week's emphasis sequence for a frequency/goal, satisfying "never the
+ * same emphasis twice in a row":
+ *   1 → lower alone for a runner (the highest-transfer single session);
+ *       full_body alone otherwise (touches everything in one session).
+ *   2 → lower/upper.
+ *   3 → lower/upper/lower for runners (extra leg exposure); upper/lower/full
+ *       for a balanced goal.
+ *   4 → strictly alternating lower/upper (never doubles up a group, so it
+ *       fits a 5-day weekday week without a spacing conflict) — runners get
+ *       a posterior-chain-biased variant (lower/upper/lower/full) instead of
+ *       a second upper day.
+ *   5-6 → keep alternating and add a second lower (runners) or a full day
+ *       (balanced) rather than ever repeating an emphasis back-to-back — six
+ *       days a week is a legitimate split, not a scheduling edge case.
+ */
+export function rotationForEmphasis(goal: string, sessionsPerWeek: number): Emphasis[] {
+  const runningFocus = goal === "running_focus";
+  const n = Math.max(0, Math.min(6, Math.round(sessionsPerWeek)));
+  if (n === 0) return [];
+  if (n === 1) return runningFocus ? ["lower"] : ["full"];
+  if (n === 2) return ["lower", "upper"];
+  if (n === 3) return runningFocus ? ["lower", "upper", "lower"] : ["upper", "lower", "full"];
+  const pattern: Emphasis[] = runningFocus
+    ? ["lower", "upper", "lower", "full", "lower", "upper"]
+    : ["lower", "upper", "lower", "upper", "full", "lower"];
+  return pattern.slice(0, n);
+}
 
 /**
  * Session-type rotation for a goal/frequency. `complaints` is accepted for
@@ -53,7 +77,9 @@ export function rotationFor(
   sessionsPerWeek: number,
   _complaints: Complaint[]
 ): StrengthSessionType[] {
-  return ROTATIONS[goal]?.[sessionsPerWeek] ?? ROTATIONS.running_focus[2];
+  const emphases = rotationForEmphasis(goal, sessionsPerWeek);
+  if (emphases.length === 0) return rotationForEmphasis("running_focus", 2).map((e) => EMPHASIS_TYPE[e]);
+  return emphases.map((e) => EMPHASIS_TYPE[e]);
 }
 
 // ── Reconcile invariants (pure, unit-tested) ─────────────────────────────────
@@ -212,7 +238,8 @@ export function computeTopUpPlacements(
   rotation: StrengthSessionType[],
   availableDays: number[],
   sessionsByWeek: Map<string, number>,
-  weekBudget?: WeekBudget
+  weekBudget?: WeekBudget,
+  complaints: Complaint[] = []
 ): Placement[] {
   const placements: Placement[] = [];
   let week: PlacementDay[] = [];
@@ -225,7 +252,7 @@ export function computeTopUpPlacements(
     const allowed = Math.max(0, Math.min(budget, rotation.length) - already);
     const remaining = rotation.slice(Math.min(already, rotation.length)).slice(0, allowed);
     if (remaining.length > 0) {
-      placements.push(...placeStrengthWeek(week, availableDays, remaining));
+      placements.push(...placeStrengthWeek(week, availableDays, remaining, complaints));
     }
     week = [];
   };

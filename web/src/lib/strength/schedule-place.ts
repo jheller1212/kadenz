@@ -1,6 +1,6 @@
-import type { StrengthSessionType } from "./types";
+import type { Complaint, StrengthSessionType } from "./types";
 import { HARD_RUN_TYPES, hasAchillesBlock } from "./constraints";
-import { EXERCISE_BY_SLUG, SESSION_TEMPLATES } from "./program";
+import { EXERCISE_BY_SLUG, sessionTemplateFor } from "./program";
 import { muscleGroupFor, type MuscleGroup } from "./muscle-groups";
 
 // ── Coach-style weekly placement (pure, unit-tested) ─────────────────────────
@@ -52,37 +52,51 @@ const PLACEMENT_WEIGHT: Record<StrengthSessionType, number> = {
 // same group), not "no strength on consecutive days" — an upper/lower split
 // works fine on back-to-back days, which is why the flat adjacency penalty
 // this used to be was wrong: it punished Mon lower → Tue upper exactly as
-// hard as Mon lower → Tue lower. Derived from SESSION_TEMPLATES +
-// EXERCISE_BY_SLUG (program.ts) and the same muscleGroupFor mapping the
-// exercise picker uses, rather than a second hand-maintained type-pair table
-// that could drift from what these sessions actually train.
+// hard as Mon lower → Tue lower.
 //
-// Only each exercise's *primary* muscle counts toward a session's group set.
-// Secondary muscles are true (a squat's core bracing, an overhead press's
-// core/triceps involvement) but including them made nearly every pair of
-// session types "overlap" via incidental Core/Back secondaries — exactly the
-// over-broad conflict this rule exists to avoid. Primary-only matches how a
-// coach actually reads a split: an upper day and a lower day don't compete
-// for the same recovery window just because both braced their core.
-const SESSION_MUSCLE_GROUPS: Record<StrengthSessionType, Set<MuscleGroup>> = (() => {
-  const out = {} as Record<StrengthSessionType, Set<MuscleGroup>>;
-  for (const type of Object.keys(SESSION_TEMPLATES) as StrengthSessionType[]) {
-    const groups = new Set<MuscleGroup>();
-    for (const slot of SESSION_TEMPLATES[type].slots) {
-      const exercise = EXERCISE_BY_SLUG[slot.exerciseSlug];
-      if (!exercise) continue;
-      groups.add(muscleGroupFor(exercise.primaryMuscle));
-    }
-    out[type] = groups;
+// Groups must be derived from `sessionTemplateFor(type, complaints)` — the
+// resolved slot list an athlete actually gets — not from the bare type. An
+// "achilles" complaint appends the same explosive/HSR calf block to EVERY
+// session type unconditionally (see program.ts sessionTemplateFor; unlike
+// every other complaint, it isn't gated on TARGETED_WORK[complaint]
+// .sessionTypes), so for that athlete a plain "upper" session also loads the
+// healing tendon. A group model keyed on type alone would conclude "Mon
+// lower → Tue upper, no conflict" while both days actually load the same
+// tissue — precisely the pattern the spacing rule exists to catch. Deriving
+// from the resolved template (program.ts + EXERCISE_BY_SLUG's primary
+// muscle, the same catalogue exercise-search already uses) keeps this to one
+// definition instead of a second, staler one.
+function sessionMuscleGroups(type: StrengthSessionType, complaints: Complaint[]): Set<MuscleGroup> {
+  const groups = new Set<MuscleGroup>();
+  for (const slot of sessionTemplateFor(type, complaints).slots) {
+    const exercise = EXERCISE_BY_SLUG[slot.exerciseSlug];
+    if (!exercise) continue;
+    // Only the primary muscle counts — see groupsOverlap below for why
+    // secondary muscles are deliberately excluded.
+    groups.add(muscleGroupFor(exercise.primaryMuscle));
   }
-  return out;
-})();
+  return groups;
+}
 
-/** Whether two session types train any of the same muscle group. */
-function groupsOverlap(a: StrengthSessionType, b: StrengthSessionType): boolean {
-  const ga = SESSION_MUSCLE_GROUPS[a];
-  const gb = SESSION_MUSCLE_GROUPS[b];
-  if (!ga || !gb) return true; // unknown type — stay conservative
+/**
+ * Whether two session types (as this athlete's complaints actually shape
+ * them) train any of the same muscle group.
+ *
+ * Only each exercise's *primary* muscle counts toward a session's group set.
+ * Secondary muscles are real (a squat's core bracing, an overhead press's
+ * core/triceps involvement) but including them made nearly every pair of
+ * session types "overlap" via incidental Core/Back secondaries — exactly the
+ * over-broad conflict this rule exists to avoid. Primary-only matches how a
+ * coach actually reads a split: an upper day and a lower day don't compete
+ * for the same recovery window just because both braced their core.
+ */
+function groupsOverlap(
+  a: StrengthSessionType,
+  b: StrengthSessionType,
+  complaints: Complaint[]
+): boolean {
+  const ga = sessionMuscleGroups(a, complaints);
+  const gb = sessionMuscleGroups(b, complaints);
   for (const g of ga) if (gb.has(g)) return true;
   return false;
 }
@@ -93,8 +107,13 @@ function groupsOverlap(a: StrengthSessionType, b: StrengthSessionType): boolean 
  * preference: it shapes *which* day wins, but on its own must never be able
  * to eliminate a session the athlete configured.
  */
-export function isHardVeto(day: PlacementDay, type: StrengthSessionType): boolean {
+export function isHardVeto(
+  day: PlacementDay,
+  type: StrengthSessionType,
+  complaints: Complaint[] = []
+): boolean {
   const isLower = LOWER_TYPES.has(type);
+  const hasAchillesComplaint = complaints.includes("achilles");
   const hardToday = day.runType != null && HARD_RUN_TYPES.has(day.runType);
   const longToday = day.runType === "long";
   const hardTomorrow =
@@ -102,9 +121,11 @@ export function isHardVeto(day: PlacementDay, type: StrengthSessionType): boolea
     (HARD_RUN_TYPES.has(day.nextDayRunType) || day.nextDayRunType === "long");
 
   // Heavy legs on a hard/long run day, or the day before a hard/long run:
-  // real pre-fatigue/interference risk, not just a bad fit.
+  // real pre-fatigue/interference risk, not just a bad fit. An achilles
+  // complaint puts the same HSR calf load on every session type (see
+  // sessionMuscleGroups above), so that veto has to apply to those too.
   if ((hardToday || longToday) && isLower) return true;
-  if (hardTomorrow && (isLower || hasAchillesBlock(type))) return true;
+  if (hardTomorrow && (isLower || hasAchillesBlock(type, hasAchillesComplaint))) return true;
 
   // Race day and the day before it are off-limits for every session type —
   // in practice the whole race week already carries zero strength sessions
@@ -122,10 +143,12 @@ export function scorePlacement(
   /** Key of every already-occupied strength day (placed or pre-taken) mapped
    * to its session type, when known. */
   strengthDays: Map<string, StrengthSessionType | undefined>,
-  allDays: PlacementDay[]
+  allDays: PlacementDay[],
+  complaints: Complaint[] = []
 ): number {
   let score = 0;
   const isLower = LOWER_TYPES.has(type);
+  const hasAchillesComplaint = complaints.includes("achilles");
   const hardToday = day.runType != null && HARD_RUN_TYPES.has(day.runType);
   const longToday = day.runType === "long";
   const hardTomorrow =
@@ -136,7 +159,7 @@ export function scorePlacement(
   // isHardVeto); anything else is merely a poor fit.
   if (hardToday || longToday) score += isLower ? -100 : -30;
   // Day before a hard or long run: don't pre-fatigue the legs.
-  if (hardTomorrow) score += isLower || hasAchillesBlock(type) ? -70 : -10;
+  if (hardTomorrow) score += isLower || hasAchillesBlock(type, hasAchillesComplaint) ? -70 : -10;
   // Doubling with any run costs a little even when it's easy.
   if (day.runType != null && !hardToday && !longToday) score += isLower ? -20 : -8;
   // A true rest day is the best home for strength.
@@ -144,7 +167,10 @@ export function scorePlacement(
 
   // Avoid a neighbouring strength day that trains the same muscle group —
   // Mon lower → Tue upper is fine and gets no penalty; Mon lower → Tue lower
-  // (or → full_body, which overlaps almost everything) does.
+  // (or → full_body, which overlaps almost everything) does. For an athlete
+  // with an achilles complaint every session shares the calf/tendon group,
+  // so this legitimately discourages back-to-back regardless of type — see
+  // groupsOverlap.
   const idx = allDays.findIndex((d) => d.key === day.key);
   const prev = allDays[idx - 1];
   const next = allDays[idx + 1];
@@ -152,7 +178,7 @@ export function scorePlacement(
     if (key == null || !strengthDays.has(key)) return false;
     const neighborType = strengthDays.get(key);
     if (neighborType == null) return true; // unknown existing session — stay conservative
-    return groupsOverlap(type, neighborType);
+    return groupsOverlap(type, neighborType, complaints);
   };
   if (prev && neighborConflicts(prev.key)) score -= 30;
   if (next && neighborConflicts(next.key)) score -= 30;
@@ -164,12 +190,16 @@ export function scorePlacement(
  * Assign the rotation's session types to the week's candidate days.
  * `days` must cover the week in order (including non-candidate days so
  * adjacency is visible); candidates are the untaken entries whose `dow` is
- * in `availableDows`.
+ * in `availableDows`. `complaints` shapes which muscle groups each session
+ * type actually trains (see sessionMuscleGroups) — pass the athlete's
+ * reported complaints so an achilles complaint's every-session calf load is
+ * accounted for in both the hard vetoes and the spacing preference.
  */
 export function placeStrengthWeek(
   days: PlacementDay[],
   availableDows: number[],
-  rotation: StrengthSessionType[]
+  rotation: StrengthSessionType[],
+  complaints: Complaint[] = []
 ): Placement[] {
   const placements: Placement[] = [];
   const strengthDays = new Map<string, StrengthSessionType | undefined>(
@@ -186,8 +216,8 @@ export function placeStrengthWeek(
       if (day.taken) continue;
       if (!availableDows.includes(day.dow)) continue;
       if (strengthDays.has(day.key)) continue;
-      if (isHardVeto(day, type)) continue; // genuine conflict — never a candidate
-      const score = scorePlacement(day, type, strengthDays, days);
+      if (isHardVeto(day, type, complaints)) continue; // genuine conflict — never a candidate
+      const score = scorePlacement(day, type, strengthDays, days, complaints);
       if (!best || score > best.score) best = { day, score };
     }
     // No veto-free day left this week — a real shortfall, not a preference

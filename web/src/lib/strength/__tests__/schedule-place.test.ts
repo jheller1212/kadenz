@@ -111,4 +111,46 @@ describe("placeStrengthWeek", () => {
     const placed = placeStrengthWeek(days, [1, 4], ["lower", "upper", "lower", "upper"]); // Mon + Thu only
     expect(placed.length).toBeLessThan(4);
   });
+
+  describe("achilles complaint — every session type carries the same calf/tendon load", () => {
+    // program.ts sessionTemplateFor appends the explosive/HSR calf block to
+    // EVERY session type (unconditionally, unlike every other complaint) when
+    // "achilles" is reported. Muscle groups here are derived from that
+    // resolved template, not the bare type label — so for this athlete,
+    // "upper" and "lower" no longer look unrelated; both load the healing
+    // tendon, and the spacing rule must catch that.
+
+    it("no longer lets upper/lower go back-to-back once the achilles complaint is passed in", () => {
+      const days = week({});
+      const placed = placeStrengthWeek(days, ALL_DAYS, ["lower", "upper"], ["achilles"]);
+      expect(placed).toHaveLength(2);
+      const keys = placed.map((p) => Number(p.key.slice(1))).sort((a, b) => a - b);
+      expect(keys[1] - keys[0]).toBeGreaterThan(1); // now avoided, unlike the no-complaint case above
+    });
+
+    it("still places every session — spacing is a preference, not a veto, even under the complaint", () => {
+      // Same tight Mon-Fri shape as the regression above; with every session
+      // now sharing a group, spacing can only choose *which* days, never
+      // drop one, so all 4 must still come back.
+      const days = week({ 0: "easy", 1: "easy", 2: "easy", 3: "easy", 5: "long" });
+      const availableDows = [1, 2, 3, 4, 5];
+      const placed = placeStrengthWeek(
+        days,
+        availableDows,
+        ["lower", "upper", "lower", "upper"],
+        ["achilles"]
+      );
+      expect(placed).toHaveLength(4);
+    });
+
+    it("day-before-a-hard-run stays a hard veto for every type, not just lower, once achilles is reported", () => {
+      // Tue is an interval day; Mon (the day before) must be off-limits for
+      // "upper" too now, since it also carries the HSR calf block.
+      const days = week({ 1: "interval" });
+      const placed = placeStrengthWeek(days, ALL_DAYS, ["upper"], ["achilles"]);
+      for (const p of placed) {
+        expect(p.key).not.toBe("d0"); // Monday, the day before the Tuesday interval
+      }
+    });
+  });
 });
