@@ -69,7 +69,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { COMPLAINT_SHORT_LABELS, type Complaint, type Equipment } from "@/lib/strength/types";
 import { formatLoad, stepWeight } from "@/lib/strength/weights";
 import { ACCESS_PRESETS, ACCESS_LEVELS, type GymAccess } from "@/lib/strength/equipment";
-import { REHAB_COLOR } from "@/lib/workout-colors";
+import { REHAB_COLOR, strengthSessionLabel } from "@/lib/workout-colors";
 import { needsStrengthSetupPrompt } from "@/lib/strength/setup-prompt";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
@@ -129,9 +129,9 @@ const TYPE_META: Record<
   { title: string; sub: string; color: string; icon: typeof Dumbbell }
 > = {
   upper: { title: "Upper", sub: "6 lifts · ~40 min", color: "#93C5FD", icon: Dumbbell },
-  upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#3B82F6", icon: Dumbbell },
+  upper_achilles: { title: "Upper + Rehab", sub: "7 lifts · ~50 min", color: "#3B82F6", icon: Dumbbell },
   lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#D8B4FE", icon: Dumbbell },
-  lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#A855F7", icon: Dumbbell },
+  lower_achilles: { title: "Lower + Rehab", sub: "9 lifts · ~50 min", color: "#A855F7", icon: Dumbbell },
   achilles: { title: "Rehab", sub: "4 lifts · ~20 min", color: REHAB_COLOR.solid, icon: HeartPulse },
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399", icon: Dumbbell },
 };
@@ -1134,7 +1134,7 @@ export default function StrengthPage() {
                       Next session
                     </span>
                     <span className="mt-1 block text-[21px] font-extrabold text-text-1">
-                      {hero.title || TYPE_META[hero.type]?.title || "Strength"}
+                      {strengthSessionLabel(hero) || TYPE_META[hero.type]?.title || "Strength"}
                     </span>
                     <span className="mt-0.5 block text-[13px] text-text-3">
                       {hero.targetDurationMinutes ? `~${hero.targetDurationMinutes} min est.` : "Scheduled for today"}
@@ -1158,11 +1158,16 @@ export default function StrengthPage() {
                       >
                         <span
                           className="h-9 w-1.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: TYPE_META[s.type]?.color ?? "var(--accent)" }}
+                          style={{
+                            backgroundColor:
+                              s.type === "achilles" || s.achillesAttached
+                                ? REHAB_COLOR.solid
+                                : TYPE_META[s.type]?.color ?? "var(--accent)",
+                          }}
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block text-[15px] font-bold text-text-1">
-                            {s.title || TYPE_META[s.type]?.title || "Strength"}
+                            {strengthSessionLabel(s) || TYPE_META[s.type]?.title || "Strength"}
                           </span>
                           <span className="block text-[12px] text-text-3">Also scheduled today</span>
                         </span>
