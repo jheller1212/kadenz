@@ -42,7 +42,6 @@ import {
   STRENGTH_COLOR,
 } from "@/lib/workout-colors";
 import {
-  strengthWeekCountLabel,
   strengthWeekShortfallReason,
   type StrengthPhaseInfo,
 } from "@/components/strength/weekCount";
