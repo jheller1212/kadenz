@@ -128,6 +128,51 @@ export async function withUser<T>(
       `withUser requires a uuid user id, received ${JSON.stringify(userId)}`
     );
   }
+  const normalizedUserId = userId.toLowerCase();
+
+  // ── Reentrant call, same user: join the transaction already open ──────────
+  //
+  // db/index.ts caps the client at ONE physical connection per function
+  // instance (`max: 1`). A caller already inside a withUser scope that calls
+  // withUser again (e.g. a plan mutation's after() callback re-entering
+  // withUser to restore RLS context, then calling drainOutboxNow(), which
+  // calls processGarminOutbox()/processGCalOutbox() — both of which call
+  // withUser themselves, unconditionally, so they also work when invoked
+  // standalone from a cron fan-out) would, if this fell through to
+  // `db.transaction(...)` below, ask the *same* single connection to open a
+  // second, nested transaction while the first is still in progress.
+  //
+  // That is not a savepoint (nothing here calls tx.transaction()) — it is the
+  // pooled client's own top-level `.transaction()`, on a connection the outer
+  // call has reserved for the whole callback's duration. With max: 1 there is
+  // no second connection to hand the inner call, so it either queues behind
+  // the outer transaction (a self-deadlock: the outer callback cannot return,
+  // and therefore cannot free the connection, until the inner call it is
+  // awaiting resolves) or, once a request finally times out and the instance
+  // is reused warm with the same wedged, still-open transaction on its one
+  // connection, the next request's BEGIN lands on a session that never
+  // committed — exactly the `WARNING: there is already a transaction in
+  // progress` observed in production, and the idle-in-transaction connection
+  // sitting on ClientRead until something reclaims it.
+  //
+  // The fix is not to prevent nesting (the call sites above are legitimate:
+  // drainOutboxNow must work both nested-under-an-after()-callback and called
+  // directly from the cron fan-out, which has no outer transaction) but to
+  // make it safe: if the store already holds a transaction, and it is scoped
+  // to the SAME user this call asks for, run `fn` on that transaction instead
+  // of opening another one. No second BEGIN, no second connection request, no
+  // divergence in RLS context — this is the caller's own already-verified
+  // identity, not a different user borrowing it. Nesting for a DIFFERENT user
+  // is refused below rather than silently mixed.
+  const existing = txStore.getStore();
+  if (existing) {
+    if (existing.userId !== normalizedUserId) {
+      throw new Error(
+        `withUser(${normalizedUserId}) called while already scoped to ${existing.userId} on the same connection — nesting withUser for a different user is not supported (see db/with-user.ts).`
+      );
+    }
+    return fn(existing.tx as UserScopedDb);
+  }
 
   // Always open on the POOLED client, never on an inherited transaction.
   //
@@ -141,26 +186,26 @@ export async function withUser<T>(
   //      SAVEPOINT against a finished transaction, which fails with "SAVEPOINT
   //      can only be used in transaction blocks". Observed, not theorised: it is
   //      what the e2e suite reported before this line existed.
-  //   2. A withUser nested inside another withUser would run set_config on the
-  //      OUTER transaction. set_config(..., true) is reverted at the end of the
-  //      transaction, not at the end of a savepoint, so the inner user's id
-  //      would stay in effect for the rest of the outer scope. A helper meant to
-  //      isolate users would be the thing that mixed them.
+  //   2. A withUser nested inside another withUser for the SAME user is handled
+  //      above, before this point is ever reached. For a DIFFERENT user it is
+  //      refused above. Either way `db.transaction(...)` below never runs with
+  //      a stale store still attached, so it always opens a genuinely fresh
+  //      transaction on the pooled client, not a savepoint on someone else's.
   //
-  // Exiting the store means every withUser gets its own transaction with its own
-  // context and its own lifetime, which is the only version of this that is
-  // safe to call from anywhere.
+  // Exiting the store means every fresh withUser gets its own transaction with
+  // its own context and its own lifetime, which is the only version of this
+  // that is safe to call from anywhere.
   return txStore.exit(() =>
     db.transaction(async (tx) => {
       // Third argument true => transaction-scoped. See the note above; this
       // single boolean is what stops the value outliving the request.
       await tx.execute(
-        sql`SELECT set_config('app.user_id', ${userId.toLowerCase()}, true)`
+        sql`SELECT set_config('app.user_id', ${normalizedUserId}, true)`
       );
       // Publish the transaction for the duration of `fn` so that plain `db`
       // usage underneath it runs here, on the connection that carries the
       // context, rather than on a pooled connection that does not.
-      return txStore.run({ tx, userId: userId.toLowerCase() }, () => fn(tx));
+      return txStore.run({ tx, userId: normalizedUserId }, () => fn(tx));
     })
   );
 }
