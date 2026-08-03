@@ -50,7 +50,7 @@ describe("warm-up ramp end to end", () => {
       ],
     };
 
-    const suggestion = suggestProgression(squat, [session]);
+    const suggestion = suggestProgression(squat, [session], 8, 12);
     expect(suggestion.action).toBe("increase");
   });
 
@@ -81,7 +81,7 @@ describe("warm-up ramp end to end", () => {
     const suggestion = suggestProgression(squat, [
       session("s2", "2026-01-08"),
       session("s1", "2026-01-01"),
-    ]);
+    ], 8, 12);
     expect(suggestion.action).not.toBe("decrease");
     expect(suggestion.action).toBe("hold");
   });

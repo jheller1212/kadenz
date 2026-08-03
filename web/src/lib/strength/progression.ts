@@ -80,18 +80,40 @@ function topWeight(session: ExerciseSessionHistory | undefined): number | null {
 }
 
 /**
+ * The rep range actually prescribed for a past session, as the caller
+ * resolved it — e.g. by mapping `history[0].date` to its plan week and
+ * reading that week's phase (see schedule.ts `weekTypeByKey`) rather than
+ * assuming it matches whatever range is being judged now.
+ */
+export interface PrescribedRepRange {
+  repLow: number;
+  repHigh: number;
+}
+
+/**
  * Suggest the next working weight for an exercise given its recent history.
  * `history` must be newest-first and contain only completed sessions that
- * logged this exercise.
+ * logged this exercise. `repLow`/`repHigh` are the rep range actually
+ * prescribed for the session(s) in `history` being judged — callers must
+ * pass the live prescription, not read it off `exercise` themselves (see
+ * docs/DUPLICATION.md: this used to read `exercise.repLow`/`repHigh`
+ * directly, which is harmless while the range is static per exercise but
+ * becomes a live bug once it varies by training phase).
+ *
+ * `lastSessionRepRange` is optional, caller-supplied knowledge of the range
+ * that was actually prescribed for `history[0]` (not inferred from the reps
+ * it logged — see the guard below for why that would be unsafe). Omit it
+ * (or pass the same range as `repLow`/`repHigh`) when the caller has no
+ * reason to believe it differs, which is every call site today.
  */
 export function suggestProgression(
   exercise: ExerciseDef,
   history: ExerciseSessionHistory[],
-  lifterProfile?: LifterProfile | null
+  repLow: number,
+  repHigh: number,
+  lifterProfile?: LifterProfile | null,
+  lastSessionRepRange?: PrescribedRepRange | null
 ): ProgressionSuggestion {
-  const repHigh = exercise.repHigh ?? 12;
-  const repLow = exercise.repLow ?? 8;
-
   const last = history[0];
   const prev = history[1];
   const current = topWeight(last);
@@ -107,6 +129,39 @@ export function suggestProgression(
       suggestedWeightKg: start,
       reason: "No logged history yet, start at the prescribed weight.",
       atCeiling: false,
+    };
+  }
+
+  // Phase-transition guard — dormant by construction today: every call site
+  // omits `lastSessionRepRange`, so this can never fire on a static
+  // prescription. It only fires when the CALLER knows, as a fact (not a
+  // guess from the reps logged), that `history[0]` was prescribed a
+  // different range than the one being judged now — e.g. it resolved
+  // `history[0].date`'s plan week to a different phase via schedule.ts
+  // `weekTypeByKey`. That session is then evidence-free for the current
+  // range regardless of what reps it logged, so hold rather than let it
+  // trivially pass allSetsAtTop or trip anySetBelowFloor. Self-heals — the
+  // very next session, logged and judged against the same (current) range,
+  // is real evidence and normal progression resumes.
+  //
+  // Deliberately NOT inferring a transition from the magnitude of the
+  // logged reps (e.g. "reps far outside [repLow, repHigh]"): far-outside
+  // reps are ambiguous between "the prescription changed" and "the weight is
+  // wrong", and today the weight being wrong is overwhelmingly more likely —
+  // that's exactly what Rules 1 and 2 below already handle. Inferring a
+  // transition from rep magnitude would pre-empt those rules, including
+  // Rule 2's deload safety check, on every ordinary session with an
+  // unusually easy or unusually hard weight.
+  if (
+    lastSessionRepRange &&
+    (lastSessionRepRange.repLow !== repLow || lastSessionRepRange.repHigh !== repHigh)
+  ) {
+    return {
+      action: "hold",
+      currentWeightKg: current,
+      suggestedWeightKg: current,
+      reason: "New rep range this phase — hold the weight and find your reps here.",
+      atCeiling,
     };
   }
 

@@ -248,7 +248,7 @@ export function buildSessionPlan(
     }
     let prescription = repRangeLabel(sets, repLow, repHigh);
 
-    let progression = suggestProgression(ex, history, lifterProfile);
+    let progression = suggestProgression(ex, history, ex.repLow ?? 8, ex.repHigh ?? 12, lifterProfile);
     let suggestedWeightKg = progression.suggestedWeightKg;
     const lastWeightKg = progression.currentWeightKg;
 
@@ -349,7 +349,7 @@ export function buildSessionPlan(
       const repLow = ex.repLow ?? 8;
       const repHigh = ex.repHigh ?? 12;
       const restSeconds = opts.restSecondsOverride ?? 90;
-      const progression = suggestProgression(ex, history, lifterProfile);
+      const progression = suggestProgression(ex, history, ex.repLow ?? 8, ex.repHigh ?? 12, lifterProfile);
       return {
         slug: ex.slug,
         name: ex.name,
@@ -431,7 +431,7 @@ export function applyExerciseOverrides(
       if (idx === -1 || !ex || ex.achillesRole) continue;
       const original = result[idx];
       const history = ctx.historyBySlug[ov.replacementSlug] ?? [];
-      const progression = suggestProgression(ex, history, ctx.lifterProfile);
+      const progression = suggestProgression(ex, history, ex.repLow ?? 8, ex.repHigh ?? 12, ctx.lifterProfile);
       const replacement: PlannedExercise = {
         slug: ex.slug,
         name: ex.name,
