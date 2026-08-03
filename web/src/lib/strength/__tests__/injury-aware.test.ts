@@ -69,12 +69,13 @@ describe("no-complaint athlete never gets HSR/Achilles work", () => {
 });
 
 describe("achilles-reporting athlete gets exactly today's programme", () => {
-  // Achilles is no longer a session-type choice for NEW sessions — the
-  // scheduler always rotates the plain types, and an "achilles" complaint
-  // reshapes whichever plain type lands on the day (see program.ts
-  // ACHILLES_COMPLAINT_SLOTS / sessionTemplateFor). rotationFor still accepts
-  // a `complaints` argument for backward compatibility with existing
-  // callers, but it no longer changes which types are scheduled.
+  // An "achilles" complaint schedules the dedicated "achilles" session type
+  // as its own, separate session (see reconcile.ts computeAchillesPlacements)
+  // — it no longer reshapes the plain lower/upper/full_body rotation types.
+  // rotationFor still accepts a `complaints` argument for backward
+  // compatibility with existing callers, but it never changes which of the
+  // plain types are scheduled; the achilles session is placed by its own
+  // pass, outside this rotation.
   it("running_focus rotation is unaffected by an achilles complaint — never a dedicated achilles type", () => {
     for (let n = 1; n <= 4; n++) {
       const withAchilles = rotationFor("running_focus", n, ["achilles"]);
@@ -97,12 +98,19 @@ describe("achilles-reporting athlete gets exactly today's programme", () => {
     }
   });
 
-  it("an achilles complaint reshapes the plain lower/upper/full_body sessions with the same explosive-then-HSR block", () => {
+  it("an achilles complaint no longer reshapes the plain lower/upper/full_body sessions — that work is its own scheduled session now", () => {
     for (const type of NON_ACHILLES_TYPES) {
       const plan = buildSessionPlan(type, { complaints: ["achilles"] });
       for (const slug of ACHILLES_SLUGS) {
-        expect(plan.some((e) => e.slug === slug)).toBe(true);
+        expect(plan.some((e) => e.slug === slug)).toBe(false);
       }
+    }
+  });
+
+  it("the dedicated 'achilles' session type still carries the full explosive-then-HSR block", () => {
+    const plan = buildSessionPlan("achilles", { complaints: ["achilles"] });
+    for (const slug of ACHILLES_SLUGS) {
+      expect(plan.some((e) => e.slug === slug)).toBe(true);
     }
   });
 
@@ -116,8 +124,8 @@ describe("achilles-reporting athlete gets exactly today's programme", () => {
     }
   });
 
-  it("still enforces explosive-before-slow-heavy ordering on a plain session reshaped by the achilles complaint", () => {
-    const plan = buildSessionPlan("upper", {
+  it("still enforces explosive-before-slow-heavy ordering on the dedicated achilles session", () => {
+    const plan = buildSessionPlan("achilles", {
       complaints: ["achilles", "knee", "hamstring"],
     });
     const explosiveIdx = plan.findIndex((p) => p.slug === "explosive_box_step_up");

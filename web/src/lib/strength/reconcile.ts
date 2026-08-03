@@ -1,8 +1,10 @@
 import {
+  isHardVeto,
   placeStrengthWeek,
   type Placement,
   type PlacementDay,
 } from "./schedule-place";
+import { ACHILLES_FREQUENCY_CAP } from "./constraints";
 import type { Complaint, StrengthSessionType } from "./types";
 
 // ── Session-type rotation, derived from frequency + goal ─────────────────────
@@ -267,6 +269,81 @@ export function computeTopUpPlacements(
   }
   flush();
   return placements;
+}
+
+/**
+ * Place the dedicated Achilles/HSR rehab session across a day strip, entirely
+ * decoupled from the strength rotation above: targets roughly
+ * `weeklyTarget` (default ACHILLES_FREQUENCY_CAP, 3) sessions per calendar
+ * week, and never on two consecutive calendar days — the actual HSR (Heavy
+ * Slow Resistance) protocol these exercises follow is built around
+ * every-other-day loading, and consecutive-day loading is the specific thing
+ * it exists to avoid (see program.ts's comment above ACHILLES_COMPLAINT_SLOTS
+ * for why this used to ride on every ordinary session instead).
+ *
+ * Deliberately does NOT count against the strength rotation's own
+ * sessionsPerWeek budget (`extraTakenKeys` only marks days unavailable, it
+ * never reduces `weeklyTarget`) — an athlete who configured 4 strength
+ * sessions a week gets 4 strength sessions a week, plus their rehab, not 3
+ * plus rehab.
+ *
+ * Never doubles up on a day the strength rotation (or anything else) already
+ * holds: `strip[].taken` and `extraTakenKeys` (the strength rotation's own
+ * fresh placements for this same run — not in the DB yet, so not reflected in
+ * `taken`) are both treated as unavailable. One planned session per calendar
+ * day is an invariant the rest of the app relies on (the DB's
+ * strength_sessions_auto_slot_unique index enforces exactly one auto-scheduled
+ * planned session per day), so a week whose strength rotation already fills
+ * every available day legitimately schedules fewer than `weeklyTarget`
+ * Achilles sessions rather than ever sharing a day — the same "drop the slot,
+ * don't break a rule" philosophy placeStrengthWeek already follows for hard
+ * vetoes. In practice this is rarely a real constraint: the rehab session
+ * only needs 3 open, non-consecutive days, and most configured strength
+ * frequencies (2-4/week) leave several.
+ *
+ * `existingWeeklyCounts` (Monday week-key → count) and
+ * `lastPlacedKeyBeforeStrip` seed the walk with Achilles sessions that
+ * already exist before/within the strip (manual additions, or a previous run
+ * of this scheduler) so a fresh run never exceeds the weekly target or places
+ * a day adjacent to a session it didn't just create.
+ */
+export function computeAchillesPlacements(
+  strip: PlacementDay[],
+  extraTakenKeys: Set<string>,
+  availableDays: number[],
+  existingWeeklyCounts: Map<string, number>,
+  lastPlacedKeyBeforeStrip: string | null = null,
+  weeklyTarget: number = ACHILLES_FREQUENCY_CAP
+): Placement[] {
+  const placements: Placement[] = [];
+  let lastPlacedKey = lastPlacedKeyBeforeStrip;
+  let weekKey = "";
+  let weekCount = 0;
+
+  for (const day of strip) {
+    const wk = weekKeyOf(day.key);
+    if (wk !== weekKey) {
+      weekKey = wk;
+      weekCount = existingWeeklyCounts.get(wk) ?? 0;
+    }
+    if (day.taken || extraTakenKeys.has(day.key)) continue;
+    if (!availableDays.includes(day.dow)) continue;
+    if (weekCount >= weeklyTarget) continue;
+    if (isHardVeto(day, "achilles")) continue; // day before a hard/long run, or race day
+    if (lastPlacedKey && dayGapDays(day.key, lastPlacedKey) < 2) continue; // never consecutive days
+
+    placements.push({ key: day.key, type: "achilles" });
+    lastPlacedKey = day.key;
+    weekCount++;
+  }
+
+  return placements;
+}
+
+/** Whole-day gap between two calendar-day keys (0 = same day, 1 = adjacent). */
+function dayGapDays(a: string, b: string): number {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  return Math.abs(dateFromDayKey(a).getTime() - dateFromDayKey(b).getTime()) / DAY_MS;
 }
 
 /**

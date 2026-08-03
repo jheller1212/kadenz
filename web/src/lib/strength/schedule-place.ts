@@ -107,13 +107,8 @@ function groupsOverlap(
  * preference: it shapes *which* day wins, but on its own must never be able
  * to eliminate a session the athlete configured.
  */
-export function isHardVeto(
-  day: PlacementDay,
-  type: StrengthSessionType,
-  complaints: Complaint[] = []
-): boolean {
+export function isHardVeto(day: PlacementDay, type: StrengthSessionType): boolean {
   const isLower = LOWER_TYPES.has(type);
-  const hasAchillesComplaint = complaints.includes("achilles");
   const hardToday = day.runType != null && HARD_RUN_TYPES.has(day.runType);
   const longToday = day.runType === "long";
   const hardTomorrow =
@@ -121,11 +116,11 @@ export function isHardVeto(
     (HARD_RUN_TYPES.has(day.nextDayRunType) || day.nextDayRunType === "long");
 
   // Heavy legs on a hard/long run day, or the day before a hard/long run:
-  // real pre-fatigue/interference risk, not just a bad fit. An achilles
-  // complaint puts the same HSR calf load on every session type (see
-  // sessionMuscleGroups above), so that veto has to apply to those too.
+  // real pre-fatigue/interference risk, not just a bad fit. The dedicated
+  // "achilles" session type carries the same veto (hasAchillesBlock) since
+  // its own explosive/HSR load has the same interference risk.
   if ((hardToday || longToday) && isLower) return true;
-  if (hardTomorrow && (isLower || hasAchillesBlock(type, hasAchillesComplaint))) return true;
+  if (hardTomorrow && (isLower || hasAchillesBlock(type))) return true;
 
   // Race day and the day before it are off-limits for every session type —
   // in practice the whole race week already carries zero strength sessions
@@ -148,7 +143,6 @@ export function scorePlacement(
 ): number {
   let score = 0;
   const isLower = LOWER_TYPES.has(type);
-  const hasAchillesComplaint = complaints.includes("achilles");
   const hardToday = day.runType != null && HARD_RUN_TYPES.has(day.runType);
   const longToday = day.runType === "long";
   const hardTomorrow =
@@ -159,7 +153,7 @@ export function scorePlacement(
   // isHardVeto); anything else is merely a poor fit.
   if (hardToday || longToday) score += isLower ? -100 : -30;
   // Day before a hard or long run: don't pre-fatigue the legs.
-  if (hardTomorrow) score += isLower || hasAchillesBlock(type, hasAchillesComplaint) ? -70 : -10;
+  if (hardTomorrow) score += isLower || hasAchillesBlock(type) ? -70 : -10;
   // Doubling with any run costs a little even when it's easy.
   if (day.runType != null && !hardToday && !longToday) score += isLower ? -20 : -8;
   // A true rest day is the best home for strength.
@@ -216,7 +210,7 @@ export function placeStrengthWeek(
       if (day.taken) continue;
       if (!availableDows.includes(day.dow)) continue;
       if (strengthDays.has(day.key)) continue;
-      if (isHardVeto(day, type, complaints)) continue; // genuine conflict — never a candidate
+      if (isHardVeto(day, type)) continue; // genuine conflict — never a candidate
       const score = scorePlacement(day, type, strengthDays, days, complaints);
       if (!best || score > best.score) best = { day, score };
     }

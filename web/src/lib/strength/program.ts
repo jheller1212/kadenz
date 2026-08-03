@@ -1832,19 +1832,21 @@ const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
 ]);
 
 // ── Achilles complaint block ──────────────────────────────────────────────────
-// The dedicated achilles/lower_achilles/upper_achilles session TYPES are no
-// longer offered on the picker (see strength/page.tsx PICKER_TYPES) — a Kraft
-// picker showing three Achilles-rehab cards to an athlete with no Achilles
-// problem was the bug being fixed here. Those types are kept exactly as they
-// were (SESSION_TEMPLATES above, ACHILLES_SESSION_TYPES branch below) purely
-// so historic sessions of those types still load and render correctly.
+// An "achilles" complaint used to append this explosive-then-slow-heavy block
+// (order matters — see validateAchillesOrdering in session.ts) to EVERY
+// ordinary upper/lower/full_body session, unconditionally, unlike every other
+// complaint (which is gated on TARGETED_WORK[complaint].sessionTypes). Once
+// PR #152 made scheduling muscle-group aware, that stopped being "extra work
+// on your strength day" and became "the tendon gets loaded on every strength
+// day the athlete has" — up to 4 consecutive days for a 4-day rotation, which
+// is exactly what HSR (Heavy Slow Resistance) protocols are designed to
+// avoid (Beyer et al.: roughly every-other-day loading, never back-to-back).
 //
-// Going forward, an "achilles" complaint reshapes the ordinary upper/lower/
-// full_body sessions instead — same explosive-then-slow-heavy block the old
-// dedicated types used (order matters: see validateAchillesOrdering in
-// session.ts), injected as extra slots the same way TARGETED_WORK injects
-// other complaints' work below, just with more than one slot and its own
-// fixed internal order.
+// Achilles/HSR work is scheduled as its own session again instead (the
+// dedicated "achilles" session type — see reconcile.ts computeAchillesPlacements
+// for the ~3x/week, non-consecutive placement pass, and schedule.ts for where
+// it runs). ACHILLES_SESSION_TYPES (lower_achilles/upper_achilles/achilles)
+// stay exactly as they were so historic sessions of those types still load.
 export const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
   { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
   { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
@@ -1854,10 +1856,12 @@ export const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
 
 /**
  * The session template an athlete actually gets for `type`, given their
- * reported complaints. Achilles session types (historic only, see above) are
- * always returned unchanged. For every other session type, an "achilles"
- * complaint appends the Achilles/HSR block above, and each other reported
- * complaint whose `TARGETED_WORK` entry lists `type` appends its own slot.
+ * reported complaints. Achilles session types (see ACHILLES_SESSION_TYPES)
+ * are always returned unchanged — the dedicated "achilles" type already IS
+ * the Achilles/HSR block (ACHILLES_COMPLAINT_SLOTS above), scheduled as its
+ * own session (see reconcile.ts computeAchillesPlacements), not injected into
+ * this one. Every other reported complaint whose `TARGETED_WORK` entry lists
+ * `type` still appends its own small slot, unchanged.
  */
 export function sessionTemplateFor(
   type: StrengthSessionType,
@@ -1868,14 +1872,8 @@ export function sessionTemplateFor(
 
   const extraSlots: TemplateSlot[] = [];
   const seen = new Set<string>();
-  if (complaints.includes("achilles")) {
-    for (const slot of ACHILLES_COMPLAINT_SLOTS) {
-      seen.add(slot.exerciseSlug);
-      extraSlots.push(slot);
-    }
-  }
   for (const complaint of complaints) {
-    if (complaint === "achilles") continue;
+    if (complaint === "achilles") continue; // scheduled as its own session, not injected here
     const targeted = TARGETED_WORK[complaint];
     if (!targeted || !targeted.sessionTypes.includes(type)) continue;
     if (seen.has(targeted.slug)) continue; // don't double-add a shared exercise

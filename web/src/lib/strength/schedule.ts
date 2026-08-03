@@ -17,8 +17,9 @@ import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { SESSION_TEMPLATES } from "./program";
 import { buildPlannedSession } from "./service";
-import type { PlacementDay } from "./schedule-place";
+import type { Placement, PlacementDay } from "./schedule-place";
 import {
+  computeAchillesPlacements,
   computeTopUpPlacements,
   rotationFor,
   weekBudgetFor,
@@ -158,8 +159,10 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
 
   // Existing sessions in the window (any status, any origin) block their
   // calendar day and count against their calendar week's session budget.
+  // `type` is needed too — the Achilles rehab pass below tracks its own,
+  // separate weekly count and spacing from the strength rotation's.
   const existing = await db
-    .select({ date: strengthSessions.date })
+    .select({ date: strengthSessions.date, type: strengthSessions.type })
     .from(strengthSessions)
     .where(
       and(
@@ -228,6 +231,42 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     complaints
   );
 
+  // Achilles/HSR rehab is its own session now, scheduled on its own
+  // ~3x/week non-consecutive cadence, entirely decoupled from — and never
+  // counted against — the strength rotation's own sessionsPerWeek budget
+  // above (see reconcile.ts computeAchillesPlacements). It only claims days
+  // the strength rotation left free this same run (`strip` days it just
+  // placed on, via strengthTakenKeys, plus every pre-existing `taken` day).
+  let achillesPlacements: Placement[] = [];
+  if (complaints.includes("achilles")) {
+    const achillesWeeklyCounts = new Map<string, number>();
+    let lastAchillesKeyBeforeStrip: string | null = null;
+    const firstStripKey = strip[0]?.key;
+    for (const s of existing) {
+      if (s.type !== "achilles") continue;
+      const key = dayKey(s.date);
+      achillesWeeklyCounts.set(
+        weekKeyOf(key),
+        (achillesWeeklyCounts.get(weekKeyOf(key)) ?? 0) + 1
+      );
+      if (
+        firstStripKey != null &&
+        key < firstStripKey &&
+        (lastAchillesKeyBeforeStrip == null || key > lastAchillesKeyBeforeStrip)
+      ) {
+        lastAchillesKeyBeforeStrip = key;
+      }
+    }
+    const strengthTakenKeys = new Set(placements.map((p) => p.key));
+    achillesPlacements = computeAchillesPlacements(
+      strip,
+      strengthTakenKeys,
+      settings.availableDays,
+      achillesWeeklyCounts,
+      lastAchillesKeyBeforeStrip
+    );
+  }
+
   // A week can legitimately place fewer sessions than its budget: the
   // placement engine drops a slot rather than break a hard rule (heavy legs
   // on/before a hard run day, race-day blackout). That's a real constraint,
@@ -253,6 +292,13 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
   // setting whose fit only fills ~33 min must read 33, not 45). The duration
   // varies only by session type here, so memoise one build per type instead of
   // one per placement (a full plan can be 100+ sessions).
+  //
+  // The Achilles rehab session never takes the athlete's general
+  // session-length preference (settings.durationMinutes) — it's a fixed,
+  // dose-specific rehab protocol (SESSION_TIME_TARGETS.achilles, ~20 min),
+  // not a flexible workout to stretch or shrink to a chosen length. Omitting
+  // a target duration entirely (undefined) leaves buildSessionPlan's
+  // duration-fit step untouched, so it keeps the template's own prescription.
   const durationByType = new Map<StrengthSessionType, number>();
   async function estimatedMinutesFor(type: StrengthSessionType, date: Date): Promise<number> {
     const cached = durationByType.get(type);
@@ -261,14 +307,14 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
       type,
       date,
       profileId,
-      settings.durationMinutes
+      type === "achilles" ? undefined : settings.durationMinutes
     );
     durationByType.set(type, estimatedDurationMinutes);
     return estimatedDurationMinutes;
   }
 
   let created = 0;
-  for (const placement of placements) {
+  for (const placement of [...placements, ...achillesPlacements]) {
     const day = strip.find((d) => d.key === placement.key)!;
     const template = SESSION_TEMPLATES[placement.type];
     const [row] = await db

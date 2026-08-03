@@ -55,27 +55,21 @@ function sameDay(a: Date | string, b: Date | string): boolean {
 
 /**
  * Whether a session of this `type` carries the Achilles/HSR block. True for
- * the historic dedicated types (kept only so historic sessions still trip
- * these rules), and also true for a plain lower/upper/full_body session when
- * `hasAchillesComplaint` is set — a reported Achilles complaint reshapes
- * those with the same block (see program.ts ACHILLES_COMPLAINT_SLOTS)
- * instead of needing a dedicated type, and the spacing/frequency rules below
- * must keep applying to it.
+ * the dedicated "achilles" type (scheduled as its own session — see
+ * reconcile.ts computeAchillesPlacements) and the historic lower_achilles/
+ * upper_achilles combo types (kept only so old sessions still trip these
+ * rules). A reported Achilles complaint no longer reshapes a plain
+ * lower/upper/full_body session with this block (see program.ts
+ * sessionTemplateFor) — it gets its own "achilles" session instead — so
+ * those types never carry it regardless of complaints.
  */
-export function hasAchillesBlock(
-  type: StrengthSessionType,
-  hasAchillesComplaint = false
-): boolean {
-  if (type === "lower_achilles" || type === "upper_achilles" || type === "achilles") return true;
-  return hasAchillesComplaint && (type === "lower" || type === "upper" || type === "full_body");
+export function hasAchillesBlock(type: StrengthSessionType): boolean {
+  return type === "lower_achilles" || type === "upper_achilles" || type === "achilles";
 }
 
-export function hasExplosiveWork(
-  type: StrengthSessionType,
-  hasAchillesComplaint = false
-): boolean {
+export function hasExplosiveWork(type: StrengthSessionType): boolean {
   // Explosive Achilles work (box step-up) lives on every Achilles-block day.
-  return hasAchillesBlock(type, hasAchillesComplaint);
+  return hasAchillesBlock(type);
 }
 
 function isLowerDay(type: StrengthSessionType): boolean {
@@ -97,18 +91,8 @@ export function validateStrengthPlacement(params: {
   session: StrengthRef;
   runWorkouts: RunRef[];
   strengthSessions: StrengthRef[];
-  /**
-   * Whether this athlete has an "achilles" complaint reported (Kraft setup)
-   * — when true, their plain lower/upper/full_body sessions carry the same
-   * Achilles/HSR block as the historic dedicated types (see program.ts
-   * ACHILLES_COMPLAINT_SLOTS) and the rules below apply to those too.
-   * Complaints are a profile-level setting, not per-session, so this single
-   * flag covers every session in `strengthSessions` for the same profile —
-   * see the callers (sessions POST/validate routes) for where it's derived.
-   */
-  hasAchillesComplaint?: boolean;
 }): ConstraintViolation[] {
-  const { session, hasAchillesComplaint = false } = params;
+  const { session } = params;
   const violations: ConstraintViolation[] = [];
 
   const runsSameDay = params.runWorkouts.filter((r) => sameDay(r.date, session.date));
@@ -117,7 +101,7 @@ export function validateStrengthPlacement(params: {
   );
 
   // Rule: no Lower+Achilles the day before a hard run.
-  if (hasAchillesBlock(session.type, hasAchillesComplaint)) {
+  if (hasAchillesBlock(session.type)) {
     const hardNextDay = runsNextDay.find((r) => HARD_RUN_TYPES.has(r.type));
     if (hardNextDay) {
       violations.push({
@@ -129,7 +113,7 @@ export function validateStrengthPlacement(params: {
   }
 
   // Rule: explosive Achilles work and interval runs never on the same day.
-  if (hasExplosiveWork(session.type, hasAchillesComplaint)) {
+  if (hasExplosiveWork(session.type)) {
     const intervalSameDay = runsSameDay.find((r) => r.type === "interval");
     if (intervalSameDay) {
       violations.push({
@@ -155,15 +139,13 @@ export function validateStrengthPlacement(params: {
   }
 
   // Rule: Achilles blocks capped at 3 per rolling 7 days.
-  if (hasAchillesBlock(session.type, hasAchillesComplaint)) {
+  if (hasAchillesBlock(session.type)) {
     const others = params.strengthSessions.filter(
       (s) => s.id == null || s.id !== session.id
     );
     const achillesDates = [
       session.date,
-      ...others
-        .filter((s) => hasAchillesBlock(s.type, hasAchillesComplaint))
-        .map((s) => s.date),
+      ...others.filter((s) => hasAchillesBlock(s.type)).map((s) => s.date),
     ];
     // Every rolling 7-day window containing this session must hold ≤ cap.
     let maxInWindow = 0;

@@ -5,24 +5,25 @@ import { RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS, sessionTemplateFor } from "../prog
 // ── Kraft "per-user, not per-athlete" surface ─────────────────────────────────
 //
 // Covers the four gaps closed for the multi-user picker: an Achilles
-// complaint reshapes the standard programme types instead of needing its own
-// three cards, the `goal` wizard question measurably changes generation, a
-// session-level equipment override changes exercises without ever touching
-// stored settings, and a session-level duration override is respected.
+// complaint schedules its own dedicated rehab session instead of needing its
+// own three combo cards, the `goal` wizard question measurably changes
+// generation, a session-level equipment override changes exercises without
+// ever touching stored settings, and a session-level duration override is
+// respected.
 
 describe("achilles complaint on the standard programme types", () => {
-  it("upper/lower/full_body still produce Achilles-appropriate work when the complaint is reported", () => {
+  it("upper/lower/full_body never carry Achilles/HSR work — that's its own scheduled session now", () => {
     for (const type of ["upper", "lower", "full_body"] as const) {
       const plan = buildSessionPlan(type, { complaints: ["achilles"] });
       const slugs = plan.map((e) => e.slug);
-      expect(slugs).toContain("explosive_box_step_up");
-      expect(slugs).toContain("straight_knee_calf_raise");
-      expect(slugs).toContain("bent_knee_calf_raise");
+      expect(slugs).not.toContain("explosive_box_step_up");
+      expect(slugs).not.toContain("straight_knee_calf_raise");
+      expect(slugs).not.toContain("bent_knee_calf_raise");
     }
   });
 
-  it("explosive work still comes before slow-heavy HSR work when injected into a standard type", () => {
-    const plan = buildSessionPlan("lower", { complaints: ["achilles"] });
+  it("explosive work still comes before slow-heavy HSR work on the dedicated achilles session", () => {
+    const plan = buildSessionPlan("achilles", { complaints: ["achilles"] });
     const explosiveIdx = plan.findIndex((e) => e.slug === "explosive_box_step_up");
     const hsrIdx = plan.findIndex((e) => e.slug === "straight_knee_calf_raise");
     expect(explosiveIdx).toBeGreaterThanOrEqual(0);

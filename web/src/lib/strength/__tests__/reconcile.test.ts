@@ -3,6 +3,7 @@ import {
   AUTO_CLOSE_IDLE_MINUTES,
   autoCloseUpdate,
   clearsAutoScheduled,
+  computeAchillesPlacements,
   computeTopUpPlacements,
   dateFromDayKey,
   isAutoCloseDue,
@@ -598,5 +599,153 @@ describe("computeTopUpPlacements — 13-week plan, runs on every weekday", () =>
 
     const total = placements.length;
     expect(total).toBeGreaterThan(20); // nowhere near the production total of 2
+  });
+});
+
+// ── Achilles/HSR rehab placement ─────────────────────────────────────────────
+// The scenario this exists to fix: PR #152 made scheduling muscle-group
+// aware, and for an athlete with an achilles complaint that produced 4
+// consecutive strength days (Mon-Thu), each one carrying the old
+// every-session Achilles/HSR block — the exact back-to-back loading HSR
+// protocols are designed to avoid. Achilles/HSR work is its own session now,
+// placed independently of the strength rotation (see computeAchillesPlacements
+// in reconcile.ts).
+describe("computeAchillesPlacements", () => {
+  const ALL_DOWS_LOCAL = [0, 1, 2, 3, 4, 5, 6];
+
+  it("places roughly 3 sessions in an otherwise-empty week", () => {
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7), // Mon 20 -> Sun 26
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(placed.length).toBe(3);
+    expect(placed.every((p) => p.type === "achilles")).toBe(true);
+  });
+
+  it("never places two sessions on consecutive calendar days", () => {
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 21), // three weeks
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    const keys = placed.map((p) => p.key).sort();
+    for (let i = 1; i < keys.length; i++) {
+      const gap =
+        (dateFromDayKey(keys[i]).getTime() - dateFromDayKey(keys[i - 1]).getTime()) /
+        (24 * 60 * 60 * 1000);
+      expect(gap).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("never places on a day the strength rotation already claimed this run", () => {
+    const strengthTaken = new Set(["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"]);
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      strengthTaken,
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    for (const p of placed) expect(strengthTaken.has(p.key)).toBe(false);
+  });
+
+  it("never places on a day that already holds ANY existing session (strip.taken)", () => {
+    const taken = ["2026-07-21", "2026-07-23"];
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7, taken),
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    for (const p of placed) expect(taken).not.toContain(p.key);
+  });
+
+  it("respects the athlete's available days", () => {
+    const weekdaysOnly = [1, 2, 3, 4, 5];
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      new Set(),
+      weekdaysOnly,
+      new Map()
+    );
+    for (const p of placed) {
+      const dow = dateFromDayKey(p.key).getUTCDay();
+      expect(weekdaysOnly).toContain(dow);
+    }
+  });
+
+  it("never exceeds the weekly target once existing sessions already count toward it", () => {
+    // 2 achilles sessions already exist this week (manual, or a previous
+    // scheduler run) — at most 1 more should be added.
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map([["2026-07-20", 2]])
+    );
+    expect(placed.length).toBeLessThanOrEqual(1);
+  });
+
+  it("never places anything once the weekly target is already met", () => {
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map([["2026-07-20", 3]])
+    );
+    expect(placed).toHaveLength(0);
+  });
+
+  it("respects spacing against a session placed just before the strip starts", () => {
+    // A session on Sunday 2026-07-19 (the day before the strip starts Mon
+    // 2026-07-20) must push the first new placement to Tuesday, not Monday.
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map(),
+      "2026-07-19"
+    );
+    expect(placed[0]?.key).not.toBe("2026-07-20");
+  });
+
+  it("respects a custom weekly target", () => {
+    const placed = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      new Set(),
+      ALL_DOWS_LOCAL,
+      new Map(),
+      null,
+      2
+    );
+    expect(placed.length).toBe(2);
+  });
+
+  it("doesn't consume the strength rotation's own budget — an unrelated computeTopUpPlacements call over the same strip is unaffected", () => {
+    const rotation: StrengthSessionType[] = ["lower", "upper", "lower", "full_body"];
+    const strengthPlaced = computeTopUpPlacements(
+      strip("2026-07-20", 7),
+      rotation,
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    // Achilles placement runs on the leftover days only — the two counts are
+    // computed independently, neither one reduced by the other's target.
+    const achillesPlaced = computeAchillesPlacements(
+      strip("2026-07-20", 7),
+      new Set(strengthPlaced.map((p) => p.key)),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(strengthPlaced).toHaveLength(4);
+    // With a 7-day week, 4 strength days leave 3 open — exactly enough for
+    // the full Achilles target when they're spread with adequate gaps.
+    expect(achillesPlaced.length).toBeGreaterThan(0);
+    const overlap = achillesPlaced.filter((a) =>
+      strengthPlaced.some((s) => s.key === a.key)
+    );
+    expect(overlap).toHaveLength(0);
   });
 });
