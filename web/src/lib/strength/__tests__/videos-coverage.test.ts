@@ -8,7 +8,20 @@ import { EXERCISE_VIDEOS } from "../videos";
 // video button (see GuidedSession.tsx, gated on getVideoId), so an empty
 // catalogue entry is easy to miss. Adding a slug here must be a deliberate,
 // reviewed choice, not the default when nobody got around to finding a link.
-const NO_VIDEO_ALLOWED = new Set<string>([]);
+// The six bench movements added in 0069 (see program.ts "Bench work"). Every
+// other catalogue entry has a form video that was verified live against the
+// oEmbed endpoint at authoring time, and these should get the same rather than
+// a guessed id: a plausible-looking but wrong video is worse than none,
+// because the athlete copies what it shows. Allowlisted deliberately and
+// visibly instead of silently lowering the bar for the whole catalogue.
+const NO_VIDEO_ALLOWED = new Set<string>([
+  "incline_db_press",
+  "bench_supported_row",
+  "db_bulgarian_split_squat",
+  "db_hip_thrust",
+  "bench_dip",
+  "decline_push_up",
+]);
 
 // Jonas found "clamshell" (and others) with no video mid-session — a seeded
 // exercise that never got a demo link. This test makes that drift loud at
