@@ -88,6 +88,30 @@ export async function getProgramWeekAndPhase(
 }
 
 /**
+ * A pure `date -> weekInfo` lookup for the active running plan, built from a
+ * single query against every one of its weeks (not one query per date) — see
+ * session.ts `weekInfoForDate`, which uses this to resolve the phase a PAST
+ * completed session (e.g. a primary exercise's `history[0].date`) was
+ * actually prescribed under, so suggestProgression's phase-transition guard
+ * can fire at real transitions. `weeks.phase` is fixed at plan generation
+ * (see phase-policy.ts header), so this resolves correctly for any date in
+ * the plan without needing to have been snapshotted anywhere.
+ *
+ * Null resolver (always returns null) with no active plan — same "no phase
+ * concept" case getProgramWeekAndPhase returns early on.
+ */
+async function getWeekInfoResolver(): Promise<(date: Date) => { phase: string; type: string } | null> {
+  const plan = await getActivePlanRef();
+  if (!plan) return () => null;
+  const rows = await db
+    .select({ weekNumber: weeks.weekNumber, phase: weeks.phase, type: weeks.type })
+    .from(weeks)
+    .where(eq(weeks.planId, plan.id));
+  const byWeekNumber = new Map(rows.map((w) => [w.weekNumber, { phase: w.phase, type: w.type }]));
+  return (date: Date) => byWeekNumber.get(weekNumberFor(date, plan.startDate)) ?? null;
+}
+
+/**
  * Completed-session history per exercise slug, newest-first, for sessions
  * strictly before `before`. Used to prefill loads and drive progression.
  */
@@ -290,16 +314,23 @@ export async function buildPlannedSession(
   // upper_achilles types always carry the block regardless. Default false.
   achillesAttached: boolean = false
 ): Promise<PlannedSessionResult> {
-  const [{ programWeek, weekInfo }, historyBySlug, painGate, complaintPainGates, settingsRow] =
-    await Promise.all([
-      getProgramWeekAndPhase(date),
-      getExerciseHistoryBySlug(date, profileId),
-      getPainGate(date),
-      getComplaintPainGates(date),
-      preloadedSettingsRow !== undefined
-        ? Promise.resolve(preloadedSettingsRow)
-        : getStrengthPlanSettingsRow(profileId),
-    ]);
+  const [
+    { programWeek, weekInfo },
+    historyBySlug,
+    painGate,
+    complaintPainGates,
+    settingsRow,
+    weekInfoForDate,
+  ] = await Promise.all([
+    getProgramWeekAndPhase(date),
+    getExerciseHistoryBySlug(date, profileId),
+    getPainGate(date),
+    getComplaintPainGates(date),
+    preloadedSettingsRow !== undefined
+      ? Promise.resolve(preloadedSettingsRow)
+      : getStrengthPlanSettingsRow(profileId),
+    getWeekInfoResolver(),
+  ]);
   const planSettings = derivePlanSettingsForLoads(settingsRow);
   const complaints = effectiveComplaints(
     complaintsSnapshot ? filterComplaints(complaintsSnapshot) : null,
@@ -328,6 +359,7 @@ export async function buildPlannedSession(
     equipment: equipmentOverride !== undefined ? equipmentOverride : planSettings.equipment,
     goal: planSettings.goal,
     weekInfo,
+    weekInfoForDate,
   });
   // Hand edits (Exchange / Remove) layered on last — see session.ts for why
   // these can't be baked into the template-derived plan itself.

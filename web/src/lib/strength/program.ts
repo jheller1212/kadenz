@@ -1932,6 +1932,59 @@ export const RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS = new Set([
   "single_leg_glute_bridge",
 ]);
 
+// ── Phase intensity lever ──────────────────────────────────────────────────────
+// The primary compound-lift patterns that take a genuine heavy/low-rep
+// (build-phase 4-6) scheme — squat, hinge/deadlift, horizontal press,
+// vertical (overhead) press, row, weighted pull-up — see phase-policy.ts
+// repRangeFor and session.ts buildSessionPlan.
+//
+// Deliberately curated, not derived from TemplateSlot.priority: priority is
+// sparse (most slots across SESSION_TEMPLATES simply omit it, which reads as
+// "primary" by default elsewhere in the codebase) and inconsistently tagged
+// — several of these same slugs appear both explicitly "accessory" in one
+// template and untagged in another, which would make phase compression
+// contradict itself on the same exercise in the same week. Isometric holds
+// (wall_sit), rehab/prehab work (nordic_curl_negative, glute_bridge as a
+// posterior-chain accessory, single_leg_glute_bridge) and bodyweight
+// fallbacks with no loadable weight (air_squat, push_up, pike_push_up) are
+// deliberately absent — see the startWeightKg guard below for why bodyweight
+// entries would be excluded even if added here by mistake.
+//
+// A new exercise (or a new equipment variant of one of the patterns below)
+// defaults to UNCHANGED — it must be added here explicitly to compress with
+// phase, the same "opt in, not inherited" shape as RUNNING_FOCUS_POSTERIOR_
+// CHAIN_SLUGS above.
+export const PHASE_INTENSITY_COMPOUND_SLUGS = new Set([
+  // Squat
+  "barbell_back_squat",
+  "db_squat",
+  "kettlebell_squat",
+  // Hinge / deadlift
+  "barbell_straight_leg_deadlift",
+  "romanian_deadlift",
+  "kettlebell_deadlift",
+  // Horizontal press
+  "barbell_bench_press",
+  "barbell_floor_press",
+  "dumbbell_bench_press",
+  "floor_press",
+  // Vertical (overhead) press
+  "barbell_shoulder_press",
+  "overhead_press",
+  // Row
+  "barbell_row",
+  "bent_over_row",
+  "kettlebell_row",
+  "renegade_row",
+  "one_arm_row",
+  // Weighted pull-up — pull_up itself has no startWeightKg in this catalogue
+  // (bodyweight only), so it's excluded by the second guard below until a
+  // genuinely loaded/weighted variant exists; listed here so that variant
+  // opts in automatically the moment it's added, without anyone remembering
+  // to touch this set again.
+  "pull_up",
+]);
+
 export const SESSION_TIME_TARGETS: Record<StrengthSessionType, number> = {
   upper: 40,
   lower: 35,
