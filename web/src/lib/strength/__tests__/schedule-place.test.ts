@@ -32,12 +32,25 @@ describe("placeStrengthWeek", () => {
     expect(placed).toHaveLength(0);
   });
 
-  it("prefers rest days and avoids back-to-back strength", () => {
-    const days = week({ 0: "easy", 3: "easy" }); // Mon + Thu easy runs
-    const placed = placeStrengthWeek(days, ALL_DAYS, ["lower", "upper"]);
+  it("keeps same-muscle-group strength days apart", () => {
+    // Two lower sessions in one week — same muscle group, so back-to-back
+    // must still be avoided even though nothing else conflicts.
+    const days = week({});
+    const placed = placeStrengthWeek(days, ALL_DAYS, ["lower", "lower_achilles"]);
     expect(placed).toHaveLength(2);
     const keys = placed.map((p) => Number(p.key.slice(1))).sort((a, b) => a - b);
     expect(keys[1] - keys[0]).toBeGreaterThan(1); // never adjacent
+  });
+
+  it("allows an upper/lower split on consecutive days — different muscle groups, no conflict", () => {
+    // A rest-day-only week: nothing else should push these apart, so the
+    // engine is free to place them back-to-back the way an upper/lower (or
+    // push-pull-legs) split routinely does.
+    const days = week({});
+    const placed = placeStrengthWeek(days, ALL_DAYS, ["lower", "upper"]);
+    expect(placed).toHaveLength(2);
+    const keys = placed.map((p) => Number(p.key.slice(1))).sort((a, b) => a - b);
+    expect(keys[1] - keys[0]).toBe(1); // adjacent, and that's fine
   });
 
   it("lighter work can share an easy-run day when days are scarce", () => {
@@ -68,28 +81,34 @@ describe("placeStrengthWeek", () => {
     expect(placed).toHaveLength(0);
   });
 
-  it("places all 4 sessions in a Mon-Fri week even though 5 days can't fully space 4 (regression)", () => {
+  it("places all 4 sessions in a Mon-Fri week with no same-group session on consecutive days (regression)", () => {
     // Mon-Thu easy runs, Fri rest, Sat long, Sun rest — weekday-only
-    // availability. Back-to-back avoidance used to compound with the
-    // doubling-with-easy-run penalty past the veto threshold and silently
-    // drop the 4th session; adjacency is a preference now, never a veto, so
-    // all 4 configured sessions must come back.
+    // availability, the exact production shape that used to lose the 4th
+    // session. The all_round[4] rotation alternates lower/upper (see
+    // reconcile.ts ROTATIONS) precisely so a flat "no back-to-back" rule
+    // never has to fight the pigeonhole problem: group-aware spacing lets
+    // upper and lower interleave cleanly across 5 weekday slots.
     const days = week({ 0: "easy", 1: "easy", 2: "easy", 3: "easy", 5: "long" });
     const availableDows = [1, 2, 3, 4, 5]; // Mon-Fri
-    const placed = placeStrengthWeek(days, availableDows, [
-      "upper",
-      "lower",
-      "full_body",
-      "upper",
-    ]);
+    const placed = placeStrengthWeek(days, availableDows, ["lower", "upper", "lower", "upper"]);
     expect(placed).toHaveLength(4);
+
+    const LOWER = new Set(["lower", "lower_achilles"]);
+    const sorted = [...placed].sort((a, b) => Number(a.key.slice(1)) - Number(b.key.slice(1)));
+    for (let i = 1; i < sorted.length; i++) {
+      const prevIdx = Number(sorted[i - 1].key.slice(1));
+      const curIdx = Number(sorted[i].key.slice(1));
+      if (curIdx - prevIdx !== 1) continue; // not calendar-adjacent, nothing to check
+      const sameGroup = LOWER.has(sorted[i - 1].type) === LOWER.has(sorted[i].type);
+      expect(sameGroup).toBe(false);
+    }
   });
 
   it("still shows the real shortfall when the athlete genuinely can't fit the target", () => {
-    // Only 2 available days for 4 sessions — no amount of preference-tuning
-    // can conjure two more days; this must legitimately come back short.
+    // Only 2 available days for 4 sessions — no amount of spacing logic can
+    // conjure two more days; this must legitimately come back short.
     const days = week({ 0: "easy", 3: "easy" });
-    const placed = placeStrengthWeek(days, [1, 4], ["lower", "upper", "full_body", "upper"]); // Mon + Thu only
+    const placed = placeStrengthWeek(days, [1, 4], ["lower", "upper", "lower", "upper"]); // Mon + Thu only
     expect(placed.length).toBeLessThan(4);
   });
 });

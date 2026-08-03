@@ -18,18 +18,26 @@ import type { Complaint, StrengthSessionType } from "./types";
 // session type. The old types stay valid StrengthSessionType values purely
 // so historic sessions of those types still load (see types.ts
 // STRENGTH_SESSION_TYPES) — this rotation table just never produces them.
+// The 4-day rows deliberately alternate muscle groups rather than doubling
+// up on a group-conflicting type: the placement engine (schedule-place.ts)
+// now scores adjacency by muscle-group overlap, so a row that alternates
+// lower/upper gives it a clean Mon/Tue/Thu/Fri-style split to work with on
+// weekday-only availability, instead of forcing it to fight two same-group
+// sessions (or full_body, which overlaps almost every group) into a 5-day
+// window. running_focus keeps its lower-body/posterior-chain bias (2 lower +
+// 1 full_body vs 1 upper) since these are runners, not a symmetric split.
 const ROTATIONS: Record<string, Record<number, StrengthSessionType[]>> = {
   running_focus: {
     1: ["lower"],
     2: ["lower", "full_body"],
     3: ["lower", "full_body", "lower"],
-    4: ["lower", "full_body", "lower", "upper"],
+    4: ["lower", "upper", "lower", "full_body"],
   },
   all_round: {
     1: ["full_body"],
     2: ["upper", "lower"],
     3: ["upper", "lower", "full_body"],
-    4: ["upper", "lower", "full_body", "upper"],
+    4: ["lower", "upper", "lower", "upper"],
   },
 };
 

@@ -1,11 +1,13 @@
 import type { StrengthSessionType } from "./types";
 import { HARD_RUN_TYPES, hasAchillesBlock } from "./constraints";
+import { EXERCISE_BY_SLUG, SESSION_TEMPLATES } from "./program";
+import { muscleGroupFor, type MuscleGroup } from "./muscle-groups";
 
 // ── Coach-style weekly placement (pure, unit-tested) ─────────────────────────
 // Places a week's strength sessions around the run schedule the way a coach
 // would: heavy leg work never lands on or directly before a hard run, easy
-// days absorb the lighter sessions, back-to-back strength days are avoided,
-// and a slot is dropped entirely rather than break a hard rule.
+// days absorb the lighter sessions, same-muscle-group strength days are kept
+// apart, and a slot is dropped entirely rather than break a hard rule.
 
 export interface PlacementDay {
   /** Stable key for the calendar day (e.g. "2026-07-15"). */
@@ -18,6 +20,14 @@ export interface PlacementDay {
   nextDayRunType: string | null;
   /** Day already holds a strength session (manual or auto). */
   taken: boolean;
+  /**
+   * Session type already sitting on this day, when known — lets the
+   * muscle-group spacing check tell an unrelated split (upper next to lower)
+   * apart from a genuine same-group repeat. Left undefined for a taken day
+   * whose type isn't known to the caller; that's treated conservatively (as
+   * if it could overlap with anything) rather than assumed harmless.
+   */
+  takenType?: StrengthSessionType;
 }
 
 export interface Placement {
@@ -37,14 +47,51 @@ const PLACEMENT_WEIGHT: Record<StrengthSessionType, number> = {
   upper: 1,
 };
 
+// ── Muscle-group overlap, derived from what each session actually trains ────
+// The recovery constraint that matters is per muscle group (~48h for the
+// same group), not "no strength on consecutive days" — an upper/lower split
+// works fine on back-to-back days, which is why the flat adjacency penalty
+// this used to be was wrong: it punished Mon lower → Tue upper exactly as
+// hard as Mon lower → Tue lower. Derived from SESSION_TEMPLATES +
+// EXERCISE_BY_SLUG (program.ts) and the same muscleGroupFor mapping the
+// exercise picker uses, rather than a second hand-maintained type-pair table
+// that could drift from what these sessions actually train.
+//
+// Only each exercise's *primary* muscle counts toward a session's group set.
+// Secondary muscles are true (a squat's core bracing, an overhead press's
+// core/triceps involvement) but including them made nearly every pair of
+// session types "overlap" via incidental Core/Back secondaries — exactly the
+// over-broad conflict this rule exists to avoid. Primary-only matches how a
+// coach actually reads a split: an upper day and a lower day don't compete
+// for the same recovery window just because both braced their core.
+const SESSION_MUSCLE_GROUPS: Record<StrengthSessionType, Set<MuscleGroup>> = (() => {
+  const out = {} as Record<StrengthSessionType, Set<MuscleGroup>>;
+  for (const type of Object.keys(SESSION_TEMPLATES) as StrengthSessionType[]) {
+    const groups = new Set<MuscleGroup>();
+    for (const slot of SESSION_TEMPLATES[type].slots) {
+      const exercise = EXERCISE_BY_SLUG[slot.exerciseSlug];
+      if (!exercise) continue;
+      groups.add(muscleGroupFor(exercise.primaryMuscle));
+    }
+    out[type] = groups;
+  }
+  return out;
+})();
+
+/** Whether two session types train any of the same muscle group. */
+function groupsOverlap(a: StrengthSessionType, b: StrengthSessionType): boolean {
+  const ga = SESSION_MUSCLE_GROUPS[a];
+  const gb = SESSION_MUSCLE_GROUPS[b];
+  if (!ga || !gb) return true; // unknown type — stay conservative
+  for (const g of ga) if (gb.has(g)) return true;
+  return false;
+}
+
 /**
  * Genuine physiological conflict — never place here no matter what else is
  * available. Everything else (spacing, doubling with an easy run) is a
  * preference: it shapes *which* day wins, but on its own must never be able
- * to eliminate a session the athlete configured. Conflating the two was the
- * bug — a full week of back-to-back-avoidance penalties could out-vote a
- * session into oblivion even though nothing about the placement was actually
- * harmful.
+ * to eliminate a session the athlete configured.
  */
 export function isHardVeto(day: PlacementDay, type: StrengthSessionType): boolean {
   const isLower = LOWER_TYPES.has(type);
@@ -72,17 +119,10 @@ export function isHardVeto(day: PlacementDay, type: StrengthSessionType): boolea
 export function scorePlacement(
   day: PlacementDay,
   type: StrengthSessionType,
-  strengthDays: Set<string>,
-  allDays: PlacementDay[],
-  /**
-   * How much slack the week has: candidate days minus sessions still to
-   * place. When it's tight (0 or negative — a 5-day, 4-session week has no
-   * fully-spaced solution) the back-to-back penalty is dulled so it can
-   * still break ties between otherwise-equal days without being able to
-   * force a session onto a harmful day or, pre-fix, off the calendar
-   * entirely. With room to spare it applies at full strength.
-   */
-  slack = 2
+  /** Key of every already-occupied strength day (placed or pre-taken) mapped
+   * to its session type, when known. */
+  strengthDays: Map<string, StrengthSessionType | undefined>,
+  allDays: PlacementDay[]
 ): number {
   let score = 0;
   const isLower = LOWER_TYPES.has(type);
@@ -102,14 +142,20 @@ export function scorePlacement(
   // A true rest day is the best home for strength.
   if (day.runType == null) score += 15;
 
-  // Avoid back-to-back strength days — a spacing preference, scaled by how
-  // much room the week actually has to honor it.
-  const adjacencyWeight = slack >= 2 ? 30 : slack === 1 ? 15 : 5;
+  // Avoid a neighbouring strength day that trains the same muscle group —
+  // Mon lower → Tue upper is fine and gets no penalty; Mon lower → Tue lower
+  // (or → full_body, which overlaps almost everything) does.
   const idx = allDays.findIndex((d) => d.key === day.key);
   const prev = allDays[idx - 1];
   const next = allDays[idx + 1];
-  if (prev && strengthDays.has(prev.key)) score -= adjacencyWeight;
-  if (next && strengthDays.has(next.key)) score -= adjacencyWeight;
+  const neighborConflicts = (key: string | undefined) => {
+    if (key == null || !strengthDays.has(key)) return false;
+    const neighborType = strengthDays.get(key);
+    if (neighborType == null) return true; // unknown existing session — stay conservative
+    return groupsOverlap(type, neighborType);
+  };
+  if (prev && neighborConflicts(prev.key)) score -= 30;
+  if (next && neighborConflicts(next.key)) score -= 30;
 
   return score;
 }
@@ -126,12 +172,9 @@ export function placeStrengthWeek(
   rotation: StrengthSessionType[]
 ): Placement[] {
   const placements: Placement[] = [];
-  const strengthDays = new Set(days.filter((d) => d.taken).map((d) => d.key));
-
-  const candidateDays = days.filter(
-    (d) => !d.taken && availableDows.includes(d.dow)
-  ).length;
-  const slack = candidateDays - rotation.length;
+  const strengthDays = new Map<string, StrengthSessionType | undefined>(
+    days.filter((d) => d.taken).map((d) => [d.key, d.takenType])
+  );
 
   const types = [...rotation].sort(
     (a, b) => (PLACEMENT_WEIGHT[b] ?? 0) - (PLACEMENT_WEIGHT[a] ?? 0)
@@ -144,14 +187,14 @@ export function placeStrengthWeek(
       if (!availableDows.includes(day.dow)) continue;
       if (strengthDays.has(day.key)) continue;
       if (isHardVeto(day, type)) continue; // genuine conflict — never a candidate
-      const score = scorePlacement(day, type, strengthDays, days, slack);
+      const score = scorePlacement(day, type, strengthDays, days);
       if (!best || score > best.score) best = { day, score };
     }
     // No veto-free day left this week — a real shortfall, not a preference
     // fight. Skip the slot; the caller surfaces this via shortWeeks.
     if (!best) continue;
     placements.push({ key: best.day.key, type });
-    strengthDays.add(best.day.key);
+    strengthDays.set(best.day.key, type);
   }
 
   // Present in calendar order regardless of placement priority.
