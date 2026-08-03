@@ -388,6 +388,53 @@ describe("running-plan phase intensity", () => {
     const squat = plan.find((p) => p.slug === "db_squat")!;
     expect(squat.progression.action).toBe("increase");
   });
+
+  it("compresses genuine compound lifts but leaves an isometric hold and a bodyweight fallback untouched, in the same build phase", () => {
+    // db_squat/romanian_deadlift are the loaded compound lifts a "lower" day
+    // resolves to with no equipment override (the common/default case).
+    const compound = buildSessionPlan("lower", { weekInfo: { phase: "build", type: "normal" } });
+    const squat = compound.find((p) => p.slug === "db_squat")!;
+    const hinge = compound.find((p) => p.slug === "romanian_deadlift")!;
+    expect([squat.repLow, squat.repHigh]).toEqual([4, 6]);
+    expect([hinge.repLow, hinge.repHigh]).toEqual([4, 6]);
+
+    // A bodyweight-only athlete (equipment: []) with a reported knee
+    // complaint, same build phase: floor_press's horizontal-press slot
+    // bottoms out at push_up, and the knee complaint's targeted slot bottoms
+    // out at wall_sit (an isometric hold — "3 x 4-6" is not a coherent
+    // prescription for either). This is the exact shape the old
+    // slot.priority-based rule got wrong: both slots are untagged/fallback
+    // paths that used to read as "primary" by default.
+    const bodyweight = buildSessionPlan("full_body", {
+      weekInfo: { phase: "build", type: "normal" },
+      complaints: ["knee"],
+      equipment: [],
+    });
+    const pushUp = bodyweight.find((p) => p.slug === "push_up")!;
+    const wallSit = bodyweight.find((p) => p.slug === "wall_sit")!;
+    expect(pushUp).toBeDefined();
+    expect(wallSit).toBeDefined();
+    expect([pushUp.repLow, pushUp.repHigh]).toEqual([8, 20]); // its own designed range, unchanged
+    expect([wallSit.repLow, wallSit.repHigh]).toEqual([30, 45]); // unchanged
+  });
+
+  it("resolves the same slug identically across two templates in the same phase, even though one tags it accessory and the other doesn't", () => {
+    // overhead_press is untagged (reads as primary) in "upper" but explicitly
+    // priority: "accessory" in "full_body" — under a priority-based rule this
+    // slug would compress in one session and not the other, in the same
+    // week. It must be impossible by construction: PHASE_INTENSITY_COMPOUND_
+    // SLUGS decides this by exercise identity, not by which template it's
+    // sitting in.
+    const upper = buildSessionPlan("upper", { weekInfo: { phase: "build", type: "normal" } });
+    const fullBody = buildSessionPlan("full_body", { weekInfo: { phase: "build", type: "normal" } });
+    const upperPress = upper.find((p) => p.slug === "overhead_press")!;
+    const fullBodyPress = fullBody.find((p) => p.slug === "overhead_press")!;
+    expect([upperPress.repLow, upperPress.repHigh]).toEqual([4, 6]);
+    expect([fullBodyPress.repLow, fullBodyPress.repHigh]).toEqual([
+      upperPress.repLow,
+      upperPress.repHigh,
+    ]);
+  });
 });
 
 describe("applyExerciseOrder", () => {

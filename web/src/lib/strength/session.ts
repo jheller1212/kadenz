@@ -3,6 +3,7 @@ import {
   growthCandidatesFor,
   hsrPrescriptionForWeek,
   isHsrExercise,
+  PHASE_INTENSITY_COMPOUND_SLUGS,
   resolveSlotVariant,
   RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS,
   sessionTemplateFor,
@@ -275,21 +276,33 @@ export function buildSessionPlan(
     }
 
     // Running-plan phase intensity (see phase-policy.ts repRangeFor) — the
-    // third lever, narrower than the set backoff above: only the primary
-    // compound lift in a slot gets its rep range compressed by phase.
-    // Accessory/targeted work (including a knee/hamstring complaint's own
-    // exercises) keeps its designed range regardless of phase — compressing
-    // e.g. a targeted single-leg exercise into a heavy 4-6 scheme it was
-    // never programmed for would be quietly wrong, not "the system working".
-    // HSR/Achilles-role work is excluded by the same guard as the set
-    // backoff, for the same reason (rehab, not a training-load knob).
+    // third lever, narrower than the set backoff above: only a curated set
+    // of genuine compound-lift patterns (PHASE_INTENSITY_COMPOUND_SLUGS —
+    // squat/hinge/press/row/weighted-pull-up) gets its rep range compressed
+    // by phase. Deliberately NOT gated on `slot.priority`: that field is
+    // sparse (most slots omit it) and inconsistently tagged — several of
+    // these same slugs are explicitly "accessory" in one template and
+    // untagged in another, so priority alone would compress the same
+    // exercise in one session and leave it alone in another, in the same
+    // week. Accessory/targeted work (including a knee/hamstring complaint's
+    // own exercises), isometric holds and unloaded bodyweight work all stay
+    // on their designed range — compressing e.g. a targeted single-leg
+    // exercise, or a wall sit, into a heavy 4-6 scheme it was never
+    // programmed for would be quietly wrong, not "the system working". An
+    // exercise with no `startWeightKg` can't be progressively loaded at all,
+    // so a heavy range would be meaningless for it even if it were ever
+    // added to the curated set by mistake — kept as a second, independent
+    // guard rather than trusting the set alone. HSR/Achilles-role work is
+    // excluded by the same guard as the set backoff, for the same reason
+    // (rehab, not a training-load knob).
     let progRepLow = ex.repLow ?? 8;
     let progRepHigh = ex.repHigh ?? 12;
     let lastSessionRepRange: PrescribedRepRange | null = null;
     if (
       !isHsrExercise(slot.exerciseSlug) &&
       !ex.achillesRole &&
-      (slot.priority ?? "primary") === "primary"
+      PHASE_INTENSITY_COMPOUND_SLUGS.has(resolved.slug) &&
+      ex.startWeightKg != null
     ) {
       const phaseRange = repRangeFor(opts.weekInfo);
       if (phaseRange) {
