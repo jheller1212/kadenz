@@ -35,6 +35,7 @@ import {
   strengthSessions,
   strengthSets,
   strengthExercises,
+  strengthPlanSettings,
   wellnessLogs,
   wellnessMetrics,
   personalRecords,
@@ -307,6 +308,120 @@ async function ensureOwnerCore(): Promise<void> {
 
   console.log(
     "[e2e-seed] owner: seeded plan, weeks, workouts, activities, strength sessions, check-in, wellness metrics."
+  );
+}
+
+// ── Owner: a realistic short strength week (rehab attached + standalone) ────
+// Kraft settings target 4/week; only 3 land this week, and the athlete gets
+// both rehab shapes #155 introduced: one plain session with the Achilles/HSR
+// block attached, and one standalone rehab session. Additive and idempotent,
+// same convention as ensureOwnerExtras below. Deliberately dated on
+// non-today weekdays of the CURRENT calendar week: several Kraft specs
+// (kraft-picker.spec.ts, kraft-duration-equipment.spec.ts) adopt "today's
+// already-planned session of this type" when they tap a Programme card, and
+// clearTodaysStrengthSessions (e2e/helpers.ts) unconditionally deletes every
+// strength session dated today — either would silently swallow a same-day
+// fixture.
+async function ensureRehabWeekFixtures(): Promise<void> {
+  const FIXTURE_TITLE = "E2E Rehab Week — Upper";
+  const [existing] = await db
+    .select({ id: strengthSessions.id })
+    .from(strengthSessions)
+    .where(and(eq(strengthSessions.userId, OWNER_USER_ID), eq(strengthSessions.title, FIXTURE_TITLE)))
+    .limit(1);
+  if (existing) {
+    console.log("[e2e-seed] owner: rehab-week fixtures already present — skipping.");
+    return;
+  }
+
+  const [existingSettings] = await db
+    .select({ id: strengthPlanSettings.id })
+    .from(strengthPlanSettings)
+    .where(eq(strengthPlanSettings.userId, OWNER_USER_ID))
+    .limit(1);
+  if (!existingSettings) {
+    await db.insert(strengthPlanSettings).values({
+      userId: OWNER_USER_ID,
+      profileId: null,
+      goal: "running_focus",
+      durationMinutes: 45,
+      sessionsPerWeek: 4,
+      ability: "intermediate",
+      availableDays: [1, 2, 3, 4, 5],
+      equipment: [],
+      active: true,
+      complaints: ["achilles"],
+      achillesStartedAt: daysAgo(30),
+    });
+  }
+
+  const [activePlan] = await db
+    .select({ id: plans.id })
+    .from(plans)
+    .where(and(eq(plans.userId, OWNER_USER_ID), eq(plans.status, "active")))
+    .limit(1);
+
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(monday.getDate() - ((today.getDay() + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+
+  function dateForOffset(offset: number): Date {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + offset);
+    d.setHours(7, 0, 0, 0);
+    return d;
+  }
+
+  // Monday, Wednesday, Friday, Saturday, Sunday offsets, in priority order —
+  // skip whichever equals today.
+  const safeOffsets = [0, 2, 4, 5, 6].filter(
+    (offset) => dateForOffset(offset).toDateString() !== today.toDateString()
+  );
+  const [upperOffset, achillesOffset, lowerOffset] = safeOffsets;
+
+  await db.insert(strengthSessions).values([
+    {
+      planId: activePlan?.id ?? null,
+      date: dateForOffset(upperOffset),
+      dayOfWeek: dateForOffset(upperOffset).getDay(),
+      type: "upper",
+      title: FIXTURE_TITLE,
+      status: "planned",
+      targetDurationMinutes: 50,
+      achillesAttached: true,
+      autoScheduled: true,
+      watchEligible: true,
+      userId: OWNER_USER_ID,
+    },
+    {
+      planId: activePlan?.id ?? null,
+      date: dateForOffset(achillesOffset),
+      dayOfWeek: dateForOffset(achillesOffset).getDay(),
+      type: "achilles",
+      title: "Rehab · Kraft",
+      status: "planned",
+      targetDurationMinutes: 20,
+      autoScheduled: true,
+      watchEligible: true,
+      userId: OWNER_USER_ID,
+    },
+    {
+      planId: activePlan?.id ?? null,
+      date: dateForOffset(lowerOffset),
+      dayOfWeek: dateForOffset(lowerOffset).getDay(),
+      type: "lower",
+      title: "E2E Rehab Week — Lower",
+      status: "planned",
+      targetDurationMinutes: 40,
+      autoScheduled: true,
+      watchEligible: true,
+      userId: OWNER_USER_ID,
+    },
+  ]);
+
+  console.log(
+    "[e2e-seed] owner: seeded a 3-of-4 strength week (one Achilles-attached, one standalone Rehab session)."
   );
 }
 
@@ -709,6 +824,7 @@ export async function seedAll(): Promise<void> {
   console.log(`[e2e-seed] strength catalogue: ${exerciseCount} exercises.`);
 
   await ensureOwnerCore();
+  await ensureRehabWeekFixtures();
   await ensureOwnerExtras();
   await ensureUserB();
   await writeSeedIdsArtifact();

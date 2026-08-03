@@ -24,6 +24,7 @@ import { SessionPerformedOnWatch, type PerformedExercise } from "@/components/st
 import { SessionSkippedExercises } from "@/components/strength/SessionSkippedExercises";
 import { SessionPlannedExercises } from "@/components/strength/SessionPlannedExercises";
 import { SessionOverviewCards } from "@/components/strength/SessionOverviewCards";
+import { strengthSessionLabel } from "@/lib/workout-colors";
 
 // ── Strength session preview / summary in the workout anatomy ────────────────
 // Planned sessions show the prescription (from plannedExercises); logged
@@ -59,6 +60,9 @@ interface SessionDetail {
   id: string;
   type: string;
   title: string;
+  // Whether the weekly rehab pass attached the Achilles/HSR block to THIS
+  // session (strength_sessions.achilles_attached).
+  achillesAttached?: boolean;
   status: string;
   date: string;
   durationMinutes: number | null;
@@ -294,13 +298,15 @@ function StrengthSessionPageInner() {
   const volume = sessionVolume(session.sets);
   const anySetHr = session.sets.some((s) => s.avgHr != null);
 
+  const displayTitle = strengthSessionLabel(session);
+
   return (
     <main className="min-h-dvh bg-bg">
-      <NavBar title={session.title} large={false} left={back} />
+      <NavBar title={displayTitle} large={false} left={back} />
 
       <div className="flex flex-col gap-4 px-4 pb-tabbar pt-1">
         <SessionOverviewCards
-          title={session.title}
+          title={displayTitle}
           dateStr={dateStr}
           status={session.status}
           isCompleted={isCompleted}
