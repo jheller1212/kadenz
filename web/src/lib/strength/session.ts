@@ -91,13 +91,26 @@ export interface BuildSessionOptions {
   lifterProfile?: LifterProfile | null;
   /**
    * Reported running complaints (Kraft setup, optional step). "achilles"
-   * keeps the athlete on today's dedicated achilles/HSR programme, already
-   * baked into the achilles/lower_achilles/upper_achilles templates. Every
-   * other complaint injects a small targeted block into the ordinary
-   * lower/full_body sessions (see program.ts TARGETED_WORK). Empty/absent =
-   * the general runner default (no targeted work).
+   * itself no longer changes what THIS call builds — the dedicated
+   * achilles/lower_achilles/upper_achilles types always carry their block
+   * regardless of complaints, and a plain type's Achilles/HSR work is decided
+   * per session via `achillesAttached` below, not by this list (see
+   * reconcile.ts computeAchillesRehabDays). Every other complaint still
+   * injects its own small targeted block into the ordinary lower/full_body
+   * sessions (see program.ts TARGETED_WORK). Empty/absent = the general
+   * runner default (no targeted work).
    */
   complaints?: Complaint[];
+  /**
+   * Whether the weekly Achilles/HSR rehab pass chose THIS specific session's
+   * day as a rehab day and this session already existed as a plain
+   * upper/lower/full_body session that day (schema.ts strengthSessions.
+   * achillesAttached) — appends the same explosive-then-HSR block the
+   * dedicated "achilles" type carries (see program.ts sessionTemplateFor).
+   * Has no effect on the dedicated achilles/lower_achilles/upper_achilles
+   * types, which always carry it. Default false.
+   */
+  achillesAttached?: boolean;
   /**
    * The athlete's chosen session length (Kraft settings: 30/45/60 min). When
    * given, the plan is reshaped (see duration-fit.ts) so its estimate
@@ -149,7 +162,7 @@ export function buildSessionPlan(
   type: StrengthSessionType,
   opts: BuildSessionOptions = {}
 ): PlannedExercise[] {
-  const template = sessionTemplateFor(type, opts.complaints ?? []);
+  const template = sessionTemplateFor(type, opts.complaints ?? [], opts.achillesAttached ?? false);
   const programWeek = opts.programWeek ?? 1;
   const historyBySlug = opts.historyBySlug ?? {};
   const painGate = opts.painGate ?? { triggered: false, reason: null };

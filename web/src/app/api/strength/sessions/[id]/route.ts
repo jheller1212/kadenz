@@ -142,7 +142,10 @@ export const GET = withSession(async (
         // change cannot rebuild a session whose sets are already logged
         // (see schema.ts strengthSessions.complaints). Null on a still-
         // planned session, which then follows the current settings.
-        session.complaints
+        session.complaints,
+        // Whether the weekly rehab-day scheduler attached the Achilles/HSR
+        // block to this specific session (schema.ts achillesAttached).
+        session.achillesAttached
       );
 
     // Self-heal: a session's targetDurationMinutes may still hold the

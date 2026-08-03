@@ -114,6 +114,43 @@ describe("achilles-reporting athlete gets exactly today's programme", () => {
     }
   });
 
+  it("achillesAttached puts the same block onto a plain session, independent of the complaint list", () => {
+    // A day the weekly rehab-day scheduler chose is attached regardless of
+    // what the athlete's current complaint list happens to say — see
+    // reconcile.ts computeAchillesRehabDays and schedule.ts for how the flag
+    // is decided; this only checks that the plan actually honors it.
+    for (const type of NON_ACHILLES_TYPES) {
+      const attached = buildSessionPlan(type, { achillesAttached: true });
+      const notAttached = buildSessionPlan(type, { achillesAttached: false });
+      for (const slug of ACHILLES_SLUGS) {
+        expect(attached.some((e) => e.slug === slug)).toBe(true);
+        expect(notAttached.some((e) => e.slug === slug)).toBe(false);
+      }
+    }
+  });
+
+  it("achillesAttached still enforces explosive-before-slow-heavy ordering on a plain session", () => {
+    const plan = buildSessionPlan("upper", { achillesAttached: true });
+    const explosiveIdx = plan.findIndex((p) => p.slug === "explosive_box_step_up");
+    const hsrIdx = plan.findIndex((p) => p.slug === "straight_knee_calf_raise");
+    expect(explosiveIdx).toBeGreaterThanOrEqual(0);
+    expect(hsrIdx).toBeGreaterThan(explosiveIdx);
+  });
+
+  it("achillesAttached stacks with another complaint's targeted work without dropping either", () => {
+    const plan = buildSessionPlan("lower", { achillesAttached: true, complaints: ["knee"] });
+    for (const slug of ACHILLES_SLUGS) expect(plan.some((e) => e.slug === slug)).toBe(true);
+    expect(plan.some((e) => e.slug === "step_down")).toBe(true);
+  });
+
+  it("achillesAttached has no effect on the dedicated achilles/lower_achilles/upper_achilles types — they always carry the block", () => {
+    for (const type of ["achilles", "lower_achilles", "upper_achilles"] as const) {
+      const attached = buildSessionPlan(type, { achillesAttached: true }).map((e) => e.slug);
+      const notAttached = buildSessionPlan(type, { achillesAttached: false }).map((e) => e.slug);
+      expect(attached).toEqual(notAttached);
+    }
+  });
+
   it("historic achilles/lower_achilles/upper_achilles session templates are still exactly what they were — unaffected by any complaint list", () => {
     for (const type of ["achilles", "lower_achilles", "upper_achilles"] as const) {
       const plain = buildSessionPlan(type);
