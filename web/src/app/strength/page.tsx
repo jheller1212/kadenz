@@ -69,6 +69,7 @@ import { EXERCISES } from "@/lib/strength/program";
 import { COMPLAINT_SHORT_LABELS, type Complaint, type Equipment } from "@/lib/strength/types";
 import { formatLoad, stepWeight } from "@/lib/strength/weights";
 import { ACCESS_PRESETS, ACCESS_LEVELS, type GymAccess } from "@/lib/strength/equipment";
+import { REHAB_COLOR } from "@/lib/workout-colors";
 import { needsStrengthSetupPrompt } from "@/lib/strength/setup-prompt";
 
 // ── Types (API shapes) ────────────────────────────────────────────────────────
@@ -120,7 +121,9 @@ type Phase = "picker" | "overview" | "guided" | "summary";
 
 // Colors are grouped by family: Upper days are blues (+ Achilles = deeper
 // shade), Lower days are purples (+ Achilles = deeper shade), standalone
-// Achilles is orange, Full Body green.
+// rehab is the dedicated rehab token (docs/DESIGN.md), Full Body green.
+// "Rehab" (not "Achilles" or "Physio") is the one word for this everywhere —
+// see docs/DESIGN.md's rehab entry.
 const TYPE_META: Record<
   SessionType,
   { title: string; sub: string; color: string; icon: typeof Dumbbell }
@@ -129,18 +132,18 @@ const TYPE_META: Record<
   upper_achilles: { title: "Upper + Achilles", sub: "7 lifts · ~50 min", color: "#3B82F6", icon: Dumbbell },
   lower: { title: "Lower", sub: "4 lifts · ~35 min", color: "#D8B4FE", icon: Dumbbell },
   lower_achilles: { title: "Lower + Achilles", sub: "9 lifts · ~50 min", color: "#A855F7", icon: Dumbbell },
-  achilles: { title: "Achilles", sub: "4 lifts · ~20 min", color: "#FB923C", icon: HeartPulse },
+  achilles: { title: "Rehab", sub: "4 lifts · ~20 min", color: REHAB_COLOR.solid, icon: HeartPulse },
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399", icon: Dumbbell },
 };
 
 // The picker only offers the standard programme types. The dedicated
-// "achilles" type is scheduled automatically for an athlete who reports an
-// achilles complaint (see reconcile.ts computeAchillesPlacements) — it's a
-// real, distinct session the athlete sees and completes on the Kraft screen,
-// just not something you hand-pick from here (the upper_achilles/
-// lower_achilles combo types are historic only). TYPE_META keeps all six
-// entries so every session type — freshly scheduled or historic — still
-// renders its title, color and icon correctly wherever it's looked up.
+// "achilles" type is scheduled automatically as the weekly rehab pass places
+// it (see reconcile.ts computeAchillesRehabDays) — it's a real, distinct
+// session the athlete sees and completes on the Kraft screen, just not
+// something you hand-pick from here (the upper_achilles/lower_achilles combo
+// types are historic only). TYPE_META keeps all six entries so every session
+// type — freshly scheduled or historic — still renders its title, color and
+// icon correctly wherever it's looked up.
 const PICKER_TYPES: SessionType[] = ["full_body", "upper", "lower"];
 
 // Categories eligible for "Add exercise" per session type.
@@ -230,7 +233,18 @@ export default function StrengthPage() {
   // Today's scheduled strength session(s), surfaced at the top of the picker so
   // the planned workout is one tap away and manual types stay below it.
   const [todaySessions, setTodaySessions] = useState<
-    Array<{ id: string; type: SessionType; title: string; status: string; targetDurationMinutes: number | null }>
+    Array<{
+      id: string;
+      type: SessionType;
+      title: string;
+      status: string;
+      targetDurationMinutes: number | null;
+      // Whether the weekly rehab pass attached the Achilles/HSR block to
+      // THIS session (strength_sessions.achilles_attached) — absent from
+      // older API responses, treated as false until the sessions endpoint
+      // returns it.
+      achillesAttached?: boolean;
+    }>
   >([]);
   // "Send to watch": only offered when Garmin is actually usable. watchSend
   // tracks the button's state for the current exercise setup.
@@ -1282,10 +1296,23 @@ export default function StrengthPage() {
             {PICKER_TYPES.map((t) => {
               const meta = TYPE_META[t];
               const Icon = meta.icon;
-              // An athlete with a reported Achilles complaint gets that work
-              // folded into these standard sessions instead of a separate
-              // card (see program.ts ACHILLES_COMPLAINT_SLOTS) — say so.
-              const sub = complaints.includes("achilles") ? `${meta.sub} + Achilles work` : meta.sub;
+              // Tapping this card either adopts today's already-planned
+              // session of this type or creates a fresh one (see pickType
+              // below) — the "+ rehab work" promise has to match whichever
+              // one actually happens, not just whether the complaint is
+              // reported. If today already has a planned session of this
+              // type, its own achillesAttached flag is the fact (the weekly
+              // rehab pass decides per-session, not per-complaint — most
+              // sessions in a week don't carry it, see reconcile.ts
+              // computeAchillesRehabDays). Only when there's no session to
+              // adopt yet does the complaint list decide, because a
+              // freshly-created session really does fall back to it (see
+              // service.ts buildPlannedSession's hasHsrWork).
+              const todaysOfType = todaySessions.find((s) => s.type === t && s.status === "planned");
+              const hasRehabWork = todaysOfType
+                ? Boolean(todaysOfType.achillesAttached)
+                : complaints.includes("achilles");
+              const sub = hasRehabWork ? `${meta.sub} + Rehab work` : meta.sub;
               return (
                 <motion.button
                   key={t}

@@ -92,6 +92,10 @@
      on a dark card. */
   --k-type-lift: #5AA0FF;
   --k-type-strength: var(--k-type-lift);
+  /* Achilles/HSR rehab work — a real, separate type of session (standalone or
+     attached to a strength day), not a strength sub-case. Orange: distinct
+     from red (reserved for intervals/races) and blue (Kraft/lift). */
+  --k-type-rehab: #FB923C;
 
   /* Ramps are the canonical rendering for spines, dots and bars. */
   --k-grad-easy: linear-gradient(180deg, #FFE14D 0%, #4ADE80 100%);
@@ -101,6 +105,7 @@
   --k-grad-long: linear-gradient(180deg, #9B6BFF 0%, #7C5CFF 100%);
   --k-grad-race: linear-gradient(180deg, #FF4D4D 0%, #FF8A3D 100%);
   --k-grad-lift: linear-gradient(180deg, #5AA0FF 0%, #2563EB 100%);
+  --k-grad-rehab: linear-gradient(180deg, #FDBA74 0%, #FB923C 100%);
 
   /* Existing call sites read --k-type-*-grad; keep them pointing at the ramps. */
   --k-type-easy-grad: var(--k-grad-easy);
@@ -110,6 +115,7 @@
   --k-type-long-grad: var(--k-grad-long);
   --k-type-race-grad: var(--k-grad-race);
   --k-type-strength-grad: var(--k-grad-lift);
+  --k-type-rehab-grad: var(--k-grad-rehab);
 
   /* Ramps and flats are for GRAPHICS. Type-coloured TEXT uses these instead: on
      ink they are the flats, on paper they are darkened to clear AA. */
@@ -120,6 +126,7 @@
   --vi-interval: #FF4D4D;
   --vi-long: #C084FC;
   --vi-lift: #5AA0FF;
+  --vi-rehab: #FB923C;
 
   /* Elevation — dark uses lighter surfaces; shadows collapse to a 0.5px ring */
   --k-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
@@ -182,6 +189,7 @@ html.light {
   --vi-interval: #C81E1E;
   --vi-long: #7E3AF2;
   --vi-lift: #1D4ED8;
+  --vi-rehab: #9A3412;
 
   --k-warn: #E8850A;
   --k-danger: #E03A3A;

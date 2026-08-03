@@ -9,12 +9,26 @@ import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
+import {
+  strengthWeekCountLabel,
+  strengthWeekShortfallReason,
+  type StrengthPhaseInfo,
+} from "@/components/strength/weekCount";
 
 interface StrengthPlanSettings {
   goal: string;
   sessionsPerWeek: number;
   durationMinutes: number;
   active: boolean;
+}
+
+/** Monday of the calendar week containing `d`. */
+function mondayOf(d: Date): Date {
+  const x = new Date(d);
+  const dow = x.getDay(); // 0=Sun
+  x.setDate(x.getDate() + (dow === 0 ? -6 : 1 - dow));
+  x.setHours(0, 0, 0, 0);
+  return x;
 }
 
 export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
@@ -25,6 +39,11 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
   // blackout) — a real constraint, but it must surface here rather than be
   // discovered later as an unexplained gap in the calendar.
   const [shortWeeks, setShortWeeks] = useState(0);
+  // This calendar week's actual scheduled count — the same fact Today's
+  // header and the Kraft screen show, fetched once here too so this card
+  // never claims the bare target as if it were reality (see weekCount.ts).
+  const [thisWeekScheduled, setThisWeekScheduled] = useState<number | null>(null);
+  const [phase, setPhase] = useState<StrengthPhaseInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +65,23 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
               if (!cancelled && body?.shortWeeks) setShortWeeks(body.shortWeeks);
             })
             .catch(() => {});
+
+          const monday = mondayOf(new Date());
+          const sunday = new Date(monday);
+          sunday.setDate(sunday.getDate() + 7);
+          apiFetch(`/api/strength/sessions?from=${monday.toISOString()}&to=${sunday.toISOString()}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((rows) => {
+              if (cancelled || !Array.isArray(rows)) return;
+              setThisWeekScheduled(rows.filter((r: { status: string }) => r.status !== "skipped").length);
+            })
+            .catch(() => {});
+          apiFetch("/api/strength/summary")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((body) => {
+              if (!cancelled && body?.phase) setPhase(body.phase);
+            })
+            .catch(() => {});
         }
       } catch {
         if (!cancelled) setSettings(null);
@@ -58,6 +94,17 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
 
   if (settings === undefined) return null;
 
+  const target = settings?.sessionsPerWeek ?? 0;
+  const shortfallReason =
+    settings && thisWeekScheduled != null
+      ? strengthWeekShortfallReason({
+          scheduled: thisWeekScheduled,
+          target,
+          weekPartElapsed: new Date().getDay() !== 1, // today isn't Monday
+          phase,
+        })
+      : null;
+
   return (
     <TransitionLink href="/strength/setup" className={`press block k-card p-4 ${className}`}>
       <span className="flex items-center gap-3">
@@ -68,13 +115,19 @@ export function WeeklyStrengthPlan({ className = "" }: { className?: string }) {
           </span>
           <span className="block text-[13px] text-text-3">
             {settings
-              ? `${settings.sessionsPerWeek}×/week · ~${settings.durationMinutes} min · ${settings.goal === "running_focus" ? "Running focus" : "All-round"}${settings.active ? "" : " · paused"}`
+              ? `${
+                  thisWeekScheduled != null && thisWeekScheduled !== target
+                    ? strengthWeekCountLabel(thisWeekScheduled, target)
+                    : `${target}×/week`
+                } · ~${settings.durationMinutes} min · ${settings.goal === "running_focus" ? "Running focus" : "All-round"}${settings.active ? "" : " · paused"}`
               : "A recurring schedule built around your running"}
           </span>
-          {settings && shortWeeks > 0 ? (
+          {settings && shortfallReason ? (
+            <span className="mt-0.5 block text-[12px] text-amber-500">{shortfallReason}</span>
+          ) : settings && shortWeeks > 0 ? (
             <span className="mt-0.5 block text-[12px] text-amber-500">
               {shortWeeks === 1 ? "1 upcoming week" : `${shortWeeks} upcoming weeks`} couldn&apos;t fit
-              the full {settings.sessionsPerWeek}/week without landing on a hard-run day.
+              the full {target}/week without landing on a hard-run day.
             </span>
           ) : null}
         </span>

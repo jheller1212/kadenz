@@ -31,7 +31,12 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
-import { WORKOUT_COLORS, workoutColor, workoutInk } from "@/lib/workout-colors";
+import { WORKOUT_COLORS, workoutColor, workoutInk, strengthColor } from "@/lib/workout-colors";
+import {
+  strengthWeekCountLabel,
+  strengthWeekShortfallReason,
+  type StrengthPhaseInfo,
+} from "@/components/strength/weekCount";
 import { displayTemp, displayDistance, distanceUnitLabel, actualPaceSecKm } from "@/lib/units";
 import { completedDistanceKm } from "@/lib/training/distance";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
@@ -867,7 +872,7 @@ function WeekOverviewCard({
 
 // ── My Insights Section ──────────────────────────────────────────────────────
 
-function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget, paceInitial }: {
+function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks, weekWorkouts, weekStrength, strengthTarget, strengthPhase, paceInitial }: {
   stats: TodayStats;
   weather: WeatherData | null;
   selectedDate: Date | null;
@@ -876,6 +881,7 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
   weekWorkouts: DayInfo[];
   weekStrength: StrengthSessionLite[];
   strengthTarget: number | null;
+  strengthPhase?: StrengthPhaseInfo | null;
   // Seeded from the Today screen's one bootstrap call (/api/today/bootstrap)
   // — `undefined` (bootstrap didn't run yet, or its pace section failed)
   // falls back to this component's own fetch, same as before.
@@ -887,6 +893,19 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
   // Sessions done beyond the weekly Kraft target count as a bonus, not a
   // moving goalpost.
   const strengthExtra = strengthTarget != null ? Math.max(0, strengthDone - strengthTarget) : 0;
+  // Why this week's SCHEDULED count (weekStrength.length) might sit below the
+  // configured target — same fact and same reasoning as WeeklyStrengthPlan's
+  // card on the Plan hub (see weekCount.ts), so the two screens never
+  // disagree about whether a shortfall means something's wrong.
+  const strengthShortfallReason =
+    strengthTarget != null
+      ? strengthWeekShortfallReason({
+          scheduled: weekStrength.length,
+          target: strengthTarget,
+          weekPartElapsed: new Date().getDay() !== 1, // today isn't Monday
+          phase: strengthPhase,
+        })
+      : null;
   const [pace, setPace] = useState<{ status: string; inBandPct: number | null } | null>(paceInitial ?? null);
   useEffect(() => {
     if (paceInitial !== undefined) return;
@@ -1119,13 +1138,18 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
                         style={{
                           backgroundColor:
                             i < weekStrength.filter((x) => x.status === "completed").length
-                              ? "#3B82F6"
+                              ? strengthColor(sess).solid
                               : "var(--k-elevated)",
                         }}
                       />
                     ))}
                     {weekStrength.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
                   </div>
+                  {strengthShortfallReason && (
+                    <p className="mt-1 text-[10px] leading-snug text-text-3">
+                      {weekStrength.length} of {strengthTarget} this week — {strengthShortfallReason}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1465,6 +1489,11 @@ export default function Home() {
   // Seeded by the mount-time /api/today/bootstrap call below (see
   // loadBootstrap) — no standalone mount fetch here any more.
   const [strengthTarget, setStrengthTarget] = useState<number | null>(null);
+  // The running-plan phase strength is following this week — the same fact
+  // the Kraft screen already surfaces (see /api/strength/summary), fetched
+  // here too so the "why is this week short" reason agrees everywhere
+  // instead of Today inventing its own guess (see weekCount.ts).
+  const [strengthPhase, setStrengthPhase] = useState<StrengthPhaseInfo | null>(null);
   // Device/app connections prompt — the /create wizard's "connections" step
   // (#121) only runs when an athlete builds a running plan. Someone who
   // trains from Kraft alone never sees it, so this reads the same flag via
@@ -1700,6 +1729,15 @@ export default function Home() {
           })
           .catch(() => {});
       }
+
+      // Not in the bootstrap bundle yet — small, infrequent, only needed for
+      // the shortfall reason text (see weekCount.ts).
+      apiFetch("/api/strength/summary")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.phase) setStrengthPhase(d.phase);
+        })
+        .catch(() => {});
 
       if (!bootstrapSectionFailed(boot.deviceSetup)) {
         setShowConnectionsPrompt(shouldPromptSetup(boot.deviceSetup));
@@ -2158,7 +2196,7 @@ export default function Home() {
         <div className="mx-5 h-px bg-hairline" />
 
         {/* My Insights */}
-        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} paceInitial={paceInitial} />
+        <InsightsSection stats={stats} weather={weather} selectedDate={selectedDate} currentWeek={displayedWeek} totalWeeks={totalWeeks} weekWorkouts={days} weekStrength={weekStrength} strengthTarget={strengthTarget} strengthPhase={strengthPhase} paceInitial={paceInitial} />
       </div>
 
       {/* Sticky Bottom Button */}

@@ -27,8 +27,29 @@ export const STRENGTH_COLOR: TypeColor = {
   grad: "linear-gradient(180deg, #5AA0FF 0%, #2563EB 100%)",
 };
 
+// Achilles/HSR rehab work — a standalone session or a block attached to an
+// existing strength session (strength_sessions.achilles_attached). Deliberately
+// distinct from STRENGTH_COLOR: the athlete asked to see rehab as its own
+// labelled thing, not folded into "Kraft" blue. See docs/DESIGN.md.
+export const REHAB_COLOR: TypeColor = {
+  solid: "#FB923C",
+  grad: "linear-gradient(180deg, #FDBA74 0%, #FB923C 100%)",
+};
+
 export function workoutColor(type: string): TypeColor {
   return WORKOUT_COLORS[type] ?? { solid: "#94A3B8", grad: "linear-gradient(135deg, #A8B3C1, #7C8794)" };
+}
+
+/**
+ * A strength session's colour: rehab orange for a standalone Achilles/HSR
+ * session or one the weekly rehab pass attached the block to, Kraft blue
+ * otherwise. The single place this decision is made — every surface that
+ * paints a strength session (day chips, week strips, the Kraft list) should
+ * call this instead of reaching for STRENGTH_COLOR directly, so the "is this
+ * really rehab" fact can't drift between call sites (see docs/DUPLICATION.md).
+ */
+export function strengthColor(session: { type: string; achillesAttached?: boolean }): TypeColor {
+  return session.type === "achilles" || session.achillesAttached ? REHAB_COLOR : STRENGTH_COLOR;
 }
 
 // Ink (text-safe) variant per workout type. Flat type colors like tempo
@@ -46,6 +67,7 @@ const INK_VARS: Record<string, string> = {
   // Lift already differs per theme (see --k-type-lift), so its badge text
   // reads straight off the same var the graphics use, not a separate --vi-*.
   strength: "var(--k-type-lift)",
+  achilles: "var(--vi-rehab)",
 };
 
 export function workoutInk(type: string): string {
