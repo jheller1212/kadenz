@@ -94,10 +94,9 @@ describe("suggestProgression", () => {
   it("judges against the passed-in range, not the exercise's static range", () => {
     // Same history (6s, mid-range for the exercise's own 8-12), but the
     // caller passes a build-phase-style 4-6 range instead. 6 reps clears the
-    // top of THAT range (and stays within the transition-guard slack of
-    // both ranges, so this isn't the transition-guard case below), so this
-    // must read as an increase — proof the repLow/repHigh parameters are
-    // live inputs, not decorative pass-through of exercise.repLow/repHigh.
+    // top of THAT range, so this must read as an increase — proof the
+    // repLow/repHigh parameters are live inputs, not decorative pass-through
+    // of exercise.repLow/repHigh.
     const staticRange = suggestProgression(
       squat,
       [session("2026-06-10", [6, 6, 6], 12)],
@@ -114,50 +113,86 @@ describe("suggestProgression", () => {
     );
     expect(passedRange.action).toBe("increase");
   });
-});
 
-describe("phase-transition guard", () => {
-  it("holds on a base→build style jump (last session logged well outside the new range)", () => {
-    // history[0] was logged at 10-12 reps (a base-phase session); the caller
-    // now judges it against a build-phase 4-6 range. Every rep is more than
-    // TRANSITION_GUARD_SLACK (2) above repHigh (6), so this reads as a
-    // phase-transition session rather than a genuine top-of-range pass.
-    const s = suggestProgression(squat, [session("2026-06-10", [10, 11, 12], 12)], 4, 6);
-    expect(s.action).toBe("hold");
-    expect(s.reason).toMatch(/new rep range/i);
-  });
-
-  it("holds on a build→base style jump the other direction", () => {
-    // history[0] was logged at 4-6 reps; judged against a base-phase 10-12
-    // range every rep is more than 2 below repLow (10), so the guard trips
-    // the same way in reverse rather than reading it as an anySetBelowFloor
-    // deload signal.
-    const s = suggestProgression(squat, [session("2026-06-10", [4, 5, 6], 12)], 10, 12);
-    expect(s.action).toBe("hold");
-    expect(s.reason).toMatch(/new rep range/i);
-  });
-
-  it("still progresses normally when the session was logged against the same range", () => {
-    // Same range as before, reps genuinely at the top — ordinary progression,
-    // not a transition.
-    const s = suggestProgression(squat, [session("2026-06-10", [12, 12, 12], 12)], 8, 12);
+  it("still increases off a static range even when reps land far above the top", () => {
+    // A weight that's clearly too light — 15s against an 8-12 range — must
+    // still read as an ordinary top-of-range pass, not get mistaken for a
+    // phase transition just because the reps are far outside the range. No
+    // lastSessionRepRange is passed, so there's no fact suggesting the
+    // prescription changed; magnitude alone must never imply one.
+    const s = suggestProgression(squat, [session("2026-06-10", [15, 15, 15], 12)], 8, 12);
     expect(s.action).toBe("increase");
   });
 
-  it("does not trip on reps just outside the range by less than the slack", () => {
-    // 7 reps against a 8-12 range is only 1 below repLow — ordinary variance,
-    // not a transition — so the ordinary deload rule (needs two consecutive
-    // sub-floor sessions) still governs.
+  it("still deloads off a static range even when reps land far below the floor", () => {
+    // A weight that's clearly too heavy — 5s against an 8-12 range, two
+    // sessions running — must still trigger the ordinary deload rule. This
+    // is the safety-critical case: a false "phase transition" reading here
+    // would suppress a deload the athlete needs.
     const s = suggestProgression(
       squat,
       [
-        session("2026-06-17", [7, 7, 7], 12),
-        session("2026-06-10", [7, 7, 7], 12),
+        session("2026-06-17", [5, 5, 5], 12),
+        session("2026-06-10", [5, 5, 5], 12),
       ],
       8,
       12
     );
     expect(s.action).toBe("decrease");
+  });
+});
+
+describe("phase-transition guard", () => {
+  it("holds when the caller says history[0] was prescribed a different range", () => {
+    // The caller resolved history[0]'s own date to a base-phase week (10-12)
+    // via schedule.ts weekTypeByKey, but the current call is judging against
+    // a build-phase 4-6 range — a genuine, caller-known transition. This is
+    // NOT inferred from the logged reps (they're well within both ranges);
+    // it fires purely because lastSessionRepRange differs from repLow/repHigh.
+    const s = suggestProgression(
+      squat,
+      [session("2026-06-10", [11, 11, 11], 12)],
+      4,
+      6,
+      null,
+      { repLow: 10, repHigh: 12 }
+    );
+    expect(s.action).toBe("hold");
+    expect(s.reason).toMatch(/new rep range/i);
+  });
+
+  it("holds the same way in reverse (build→base)", () => {
+    const s = suggestProgression(
+      squat,
+      [session("2026-06-10", [5, 5, 5], 12)],
+      10,
+      12,
+      null,
+      { repLow: 4, repHigh: 6 }
+    );
+    expect(s.action).toBe("hold");
+    expect(s.reason).toMatch(/new rep range/i);
+  });
+
+  it("does not fire when lastSessionRepRange matches the current range (the default today)", () => {
+    const s = suggestProgression(
+      squat,
+      [session("2026-06-10", [12, 12, 12], 12)],
+      8,
+      12,
+      null,
+      { repLow: 8, repHigh: 12 }
+    );
+    expect(s.action).toBe("increase");
+  });
+
+  it("does not fire when lastSessionRepRange is omitted, regardless of how far outside the reps land", () => {
+    // No caller-supplied fact about a transition → no guard, even for reps
+    // that would look like a huge jump. Ordinary rules apply (see the
+    // "still increases"/"still deloads" pair above for the safety half of
+    // this).
+    const s = suggestProgression(squat, [session("2026-06-10", [20, 20, 20], 12)], 8, 12);
+    expect(s.action).toBe("increase");
   });
 });
 

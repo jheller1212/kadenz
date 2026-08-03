@@ -80,42 +80,14 @@ function topWeight(session: ExerciseSessionHistory | undefined): number | null {
 }
 
 /**
- * A transition-guard window (see `phaseTransitionGuard` below), expressed as
- * "reps clearly outside the current range" rather than a hard cliff at the
- * boundary — a single rep over/under is ordinary variance, not evidence the
- * set was logged under a different rep target entirely.
+ * The rep range actually prescribed for a past session, as the caller
+ * resolved it — e.g. by mapping `history[0].date` to its plan week and
+ * reading that week's phase (see schedule.ts `weekTypeByKey`) rather than
+ * assuming it matches whatever range is being judged now.
  */
-const TRANSITION_GUARD_SLACK = 2;
-
-/**
- * Detects a phase-transition session: the last logged session's reps sit
- * clearly outside a sane window around the CURRENT prescribed range, which
- * means they were plainly logged under a different rep target (e.g. a
- * base-phase 10-12 session becoming `history[0]` for the first build-phase
- * call judged against 4-6). In that case the session is not evidence for or
- * against the current range, so progression should hold rather than read it
- * as either a clean top-of-range pass or a floor failure.
- *
- * Threshold: every working set has to fall more than `TRANSITION_GUARD_SLACK`
- * (2) reps outside [repLow, repHigh] for the guard to trip. Two reps of slack
- * absorbs ordinary set-to-set variance and off-by-one logging within the same
- * range (e.g. 7 reps against an 8-12 range is not a transition), while a
- * genuine phase jump — base 10-12 read against a build 4-6 target, or vice
- * versa — clears it by a wide margin (10 is 4 reps above repHigh+2=8 in the
- * 4-6 example). Every set has to clear it, not just one, so a single
- * mis-logged rep can't itself trigger the guard.
- */
-function isPhaseTransitionSession(
-  session: ExerciseSessionHistory | undefined,
-  repLow: number,
-  repHigh: number
-): boolean {
-  const sets = workingSets(session);
-  if (sets.length === 0) return false;
-  return sets.every((s) => {
-    const reps = s.reps ?? 0;
-    return reps < repLow - TRANSITION_GUARD_SLACK || reps > repHigh + TRANSITION_GUARD_SLACK;
-  });
+export interface PrescribedRepRange {
+  repLow: number;
+  repHigh: number;
 }
 
 /**
@@ -127,13 +99,20 @@ function isPhaseTransitionSession(
  * docs/DUPLICATION.md: this used to read `exercise.repLow`/`repHigh`
  * directly, which is harmless while the range is static per exercise but
  * becomes a live bug once it varies by training phase).
+ *
+ * `lastSessionRepRange` is optional, caller-supplied knowledge of the range
+ * that was actually prescribed for `history[0]` (not inferred from the reps
+ * it logged — see the guard below for why that would be unsafe). Omit it
+ * (or pass the same range as `repLow`/`repHigh`) when the caller has no
+ * reason to believe it differs, which is every call site today.
  */
 export function suggestProgression(
   exercise: ExerciseDef,
   history: ExerciseSessionHistory[],
   repLow: number,
   repHigh: number,
-  lifterProfile?: LifterProfile | null
+  lifterProfile?: LifterProfile | null,
+  lastSessionRepRange?: PrescribedRepRange | null
 ): ProgressionSuggestion {
   const last = history[0];
   const prev = history[1];
@@ -153,15 +132,30 @@ export function suggestProgression(
     };
   }
 
-  // Phase-transition guard — dormant today (repLow/repHigh are always the
-  // exercise's own static range, so a session can never sit "clearly
-  // outside" its own range at logging time). Becomes live once callers pass
-  // a phase-dependent range: the first session logged under a new target has
-  // no evidence for that target yet, so hold rather than let a stale-range
-  // session trivially pass allSetsAtTop or trip anySetBelowFloor. Self-heals
-  // — the very next session logged against the new range is real evidence
-  // and normal progression resumes.
-  if (isPhaseTransitionSession(last, repLow, repHigh)) {
+  // Phase-transition guard — dormant by construction today: every call site
+  // omits `lastSessionRepRange`, so this can never fire on a static
+  // prescription. It only fires when the CALLER knows, as a fact (not a
+  // guess from the reps logged), that `history[0]` was prescribed a
+  // different range than the one being judged now — e.g. it resolved
+  // `history[0].date`'s plan week to a different phase via schedule.ts
+  // `weekTypeByKey`. That session is then evidence-free for the current
+  // range regardless of what reps it logged, so hold rather than let it
+  // trivially pass allSetsAtTop or trip anySetBelowFloor. Self-heals — the
+  // very next session, logged and judged against the same (current) range,
+  // is real evidence and normal progression resumes.
+  //
+  // Deliberately NOT inferring a transition from the magnitude of the
+  // logged reps (e.g. "reps far outside [repLow, repHigh]"): far-outside
+  // reps are ambiguous between "the prescription changed" and "the weight is
+  // wrong", and today the weight being wrong is overwhelmingly more likely —
+  // that's exactly what Rules 1 and 2 below already handle. Inferring a
+  // transition from rep magnitude would pre-empt those rules, including
+  // Rule 2's deload safety check, on every ordinary session with an
+  // unusually easy or unusually hard weight.
+  if (
+    lastSessionRepRange &&
+    (lastSessionRepRange.repLow !== repLow || lastSessionRepRange.repHigh !== repHigh)
+  ) {
     return {
       action: "hold",
       currentWeightKg: current,
