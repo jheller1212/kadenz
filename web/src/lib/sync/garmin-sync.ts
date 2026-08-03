@@ -635,7 +635,10 @@ async function processGarminStrengthJob(
     undefined,
     // A started session's frozen complaints, so the watch workout keeps
     // matching what the athlete is actually doing.
-    row.complaints
+    row.complaints,
+    // Whether the rehab-day scheduler attached Achilles/HSR work to this
+    // specific session — the watch push must include it too when it does.
+    row.achillesAttached
   );
   if (!isCustom && row.targetDurationMinutes !== estimatedDurationMinutes) {
     await db

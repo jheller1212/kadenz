@@ -108,7 +108,9 @@ describe("non-Achilles complaint pain gate", () => {
   });
 
   it("leaves Achilles/HSR work untouched by a non-Achilles complaint gate, sets stay locked", () => {
-    const plan = buildSessionPlan("lower", {
+    // Achilles/HSR work is its own dedicated session now (see
+    // program.ts sessionTemplateFor), not injected into "lower".
+    const plan = buildSessionPlan("achilles", {
       complaints: ["achilles", "knee"],
       programWeek: 1,
       complaintPainGates: { knee: { triggered: true, reason: "eased" } },
@@ -119,7 +121,7 @@ describe("non-Achilles complaint pain gate", () => {
   });
 
   it("Achilles's own gate still eases HSR work exactly as before, locked sets included", () => {
-    const plan = buildSessionPlan("lower", {
+    const plan = buildSessionPlan("achilles", {
       complaints: ["achilles"],
       programWeek: 1,
       painGate: { triggered: true, reason: "pain 6/10" },

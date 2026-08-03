@@ -55,17 +55,17 @@ const PLACEMENT_WEIGHT: Record<StrengthSessionType, number> = {
 // hard as Mon lower → Tue lower.
 //
 // Groups must be derived from `sessionTemplateFor(type, complaints)` — the
-// resolved slot list an athlete actually gets — not from the bare type. An
-// "achilles" complaint appends the same explosive/HSR calf block to EVERY
-// session type unconditionally (see program.ts sessionTemplateFor; unlike
-// every other complaint, it isn't gated on TARGETED_WORK[complaint]
-// .sessionTypes), so for that athlete a plain "upper" session also loads the
-// healing tendon. A group model keyed on type alone would conclude "Mon
-// lower → Tue upper, no conflict" while both days actually load the same
-// tissue — precisely the pattern the spacing rule exists to catch. Deriving
-// from the resolved template (program.ts + EXERCISE_BY_SLUG's primary
-// muscle, the same catalogue exercise-search already uses) keeps this to one
-// definition instead of a second, staler one.
+// resolved slot list an athlete actually gets — not from the bare type, so a
+// reported complaint's TARGETED_WORK addition (see program.ts) is accounted
+// for the same way a hand-authored group table never could be. This function
+// is only ever used for the STRENGTH rotation's own muscle-group spacing
+// (placeStrengthWeek) — it doesn't know about Achilles/HSR attachment,
+// because that's decided by a separate pass afterward, over the whole week,
+// not per-neighbour-day muscle overlap (see reconcile.ts
+// computeAchillesRehabDays and its own spacing rule). Deriving from the
+// resolved template (program.ts + EXERCISE_BY_SLUG's primary muscle, the
+// same catalogue exercise-search already uses) keeps this to one definition
+// instead of a second, staler one.
 function sessionMuscleGroups(type: StrengthSessionType, complaints: Complaint[]): Set<MuscleGroup> {
   const groups = new Set<MuscleGroup>();
   for (const slot of sessionTemplateFor(type, complaints).slots) {
@@ -107,25 +107,32 @@ function groupsOverlap(
  * preference: it shapes *which* day wins, but on its own must never be able
  * to eliminate a session the athlete configured.
  */
-export function isHardVeto(
-  day: PlacementDay,
-  type: StrengthSessionType,
-  complaints: Complaint[] = []
-): boolean {
+export function isHardVeto(day: PlacementDay, type: StrengthSessionType): boolean {
   const isLower = LOWER_TYPES.has(type);
-  const hasAchillesComplaint = complaints.includes("achilles");
+  const achillesBlock = hasAchillesBlock(type);
   const hardToday = day.runType != null && HARD_RUN_TYPES.has(day.runType);
   const longToday = day.runType === "long";
-  const hardTomorrow =
-    day.nextDayRunType != null &&
-    (HARD_RUN_TYPES.has(day.nextDayRunType) || day.nextDayRunType === "long");
+  // Hard run tomorrow (interval/tempo/race) vs. long run tomorrow are kept
+  // separate on purpose — see below.
+  const hardRunTomorrow = day.nextDayRunType != null && HARD_RUN_TYPES.has(day.nextDayRunType);
+  const longRunTomorrow = day.nextDayRunType === "long";
 
   // Heavy legs on a hard/long run day, or the day before a hard/long run:
-  // real pre-fatigue/interference risk, not just a bad fit. An achilles
-  // complaint puts the same HSR calf load on every session type (see
-  // sessionMuscleGroups above), so that veto has to apply to those too.
+  // real pre-fatigue/interference risk, not just a bad fit.
   if ((hardToday || longToday) && isLower) return true;
-  if (hardTomorrow && (isLower || hasAchillesBlock(type, hasAchillesComplaint))) return true;
+  if ((hardRunTomorrow || longRunTomorrow) && isLower) return true;
+
+  // Achilles/HSR work follows its own, narrower rules (constraints.ts top
+  // comment): explosive step-ups and an interval run never share a day, and
+  // the block sits off-limits the day before a genuinely hard run
+  // (interval/tempo/race) — but a long EASY run the next day is explicitly
+  // fine for HSR (it isn't heavy-leg strength work, so it doesn't carry the
+  // same pre-fatigue-before-a-long-run risk). Vetoing it there too was
+  // inherited from the isLower reasoning above without justification, and it
+  // was blocking a legitimate rehab day (e.g. the day before Saturday's long
+  // run) that the protocol never needed to avoid.
+  if (achillesBlock && day.runType === "interval") return true;
+  if (achillesBlock && hardRunTomorrow) return true;
 
   // Race day and the day before it are off-limits for every session type —
   // in practice the whole race week already carries zero strength sessions
@@ -148,18 +155,24 @@ export function scorePlacement(
 ): number {
   let score = 0;
   const isLower = LOWER_TYPES.has(type);
-  const hasAchillesComplaint = complaints.includes("achilles");
+  const achillesBlock = hasAchillesBlock(type);
   const hardToday = day.runType != null && HARD_RUN_TYPES.has(day.runType);
   const longToday = day.runType === "long";
-  const hardTomorrow =
-    day.nextDayRunType != null &&
-    (HARD_RUN_TYPES.has(day.nextDayRunType) || day.nextDayRunType === "long");
+  const hardRunTomorrow = day.nextDayRunType != null && HARD_RUN_TYPES.has(day.nextDayRunType);
+  const longRunTomorrow = day.nextDayRunType === "long";
+  const hardOrLongTomorrow = hardRunTomorrow || longRunTomorrow;
 
   // Same day as a hard/long run: heavy legs are a hard veto (see
   // isHardVeto); anything else is merely a poor fit.
   if (hardToday || longToday) score += isLower ? -100 : -30;
-  // Day before a hard or long run: don't pre-fatigue the legs.
-  if (hardTomorrow) score += isLower || hasAchillesBlock(type, hasAchillesComplaint) ? -70 : -10;
+  // Day before a hard or long run: don't pre-fatigue the legs. Achilles/HSR
+  // work only takes the same penalty for a genuinely hard run tomorrow, not
+  // a long easy one — see isHardVeto for why those are kept separate.
+  if (hardOrLongTomorrow) {
+    if (isLower) score -= 70;
+    else if (achillesBlock && hardRunTomorrow) score -= 70;
+    else score -= 10;
+  }
   // Doubling with any run costs a little even when it's easy.
   if (day.runType != null && !hardToday && !longToday) score += isLower ? -20 : -8;
   // A true rest day is the best home for strength.
@@ -167,9 +180,7 @@ export function scorePlacement(
 
   // Avoid a neighbouring strength day that trains the same muscle group —
   // Mon lower → Tue upper is fine and gets no penalty; Mon lower → Tue lower
-  // (or → full_body, which overlaps almost everything) does. For an athlete
-  // with an achilles complaint every session shares the calf/tendon group,
-  // so this legitimately discourages back-to-back regardless of type — see
+  // (or → full_body, which overlaps almost everything) does — see
   // groupsOverlap.
   const idx = allDays.findIndex((d) => d.key === day.key);
   const prev = allDays[idx - 1];
@@ -192,8 +203,8 @@ export function scorePlacement(
  * adjacency is visible); candidates are the untaken entries whose `dow` is
  * in `availableDows`. `complaints` shapes which muscle groups each session
  * type actually trains (see sessionMuscleGroups) — pass the athlete's
- * reported complaints so an achilles complaint's every-session calf load is
- * accounted for in both the hard vetoes and the spacing preference.
+ * reported complaints so a reported complaint's TARGETED_WORK addition is
+ * accounted for in the spacing preference.
  */
 export function placeStrengthWeek(
   days: PlacementDay[],
@@ -216,7 +227,7 @@ export function placeStrengthWeek(
       if (day.taken) continue;
       if (!availableDows.includes(day.dow)) continue;
       if (strengthDays.has(day.key)) continue;
-      if (isHardVeto(day, type, complaints)) continue; // genuine conflict — never a candidate
+      if (isHardVeto(day, type)) continue; // genuine conflict — never a candidate
       const score = scorePlacement(day, type, strengthDays, days, complaints);
       if (!best || score > best.score) best = { day, score };
     }

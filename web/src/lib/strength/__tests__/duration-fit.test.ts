@@ -251,48 +251,42 @@ describe("growth introduces new complementary exercises, not just more Achilles 
     expect(gainedNewExercise).toBe(true);
   });
 
-  it("an athlete with the achilles complaint: achilles work reaches its dose but isn't the majority of what a longer session adds", () => {
+  it("a plain type never introduces achilles-role work even for an athlete with the achilles complaint — that work is its own dedicated session now", () => {
     for (const type of PICKER_TYPES) {
-      const short = buildSessionPlan(type, {
-        targetDurationMinutes: 30,
-        equipment: FULL_EQUIPMENT,
-        complaints: ["achilles"],
-      });
-      const long = buildSessionPlan(type, {
-        targetDurationMinutes: 60,
-        equipment: FULL_EQUIPMENT,
-        complaints: ["achilles"],
-      });
-
-      // HSR-locked sets are untouched by duration at all.
-      for (const slug of ["straight_knee_calf_raise", "bent_knee_calf_raise"]) {
-        const s = short.find((p) => p.slug === slug);
-        const l = long.find((p) => p.slug === slug);
-        if (s && l) expect(l.sets).toBe(s.sets);
+      for (const minutes of [30, 45, 60] as const) {
+        const plan = buildSessionPlan(type, {
+          targetDurationMinutes: minutes,
+          equipment: FULL_EQUIPMENT,
+          complaints: ["achilles"],
+        });
+        for (const p of plan) {
+          expect(ACHILLES_ROLE_SLUGS.has(p.slug)).toBe(false);
+        }
       }
+    }
+  });
 
-      const addedSets = (slug: string) => {
-        const s = short.find((p) => p.slug === slug)?.sets ?? 0;
-        const l = long.find((p) => p.slug === slug)?.sets ?? 0;
-        return Math.max(0, l - s);
-      };
-      const addedNewExercises = long.filter((p) => !short.some((sp) => sp.slug === p.slug));
+  it("on the dedicated achilles session, HSR-locked sets stay capped regardless of the requested duration", () => {
+    const short = buildSessionPlan("achilles", {
+      targetDurationMinutes: 30,
+      equipment: FULL_EQUIPMENT,
+      complaints: ["achilles"],
+    });
+    const long = buildSessionPlan("achilles", {
+      targetDurationMinutes: 60,
+      equipment: FULL_EQUIPMENT,
+      complaints: ["achilles"],
+    });
 
-      let achillesAdded = 0;
-      let nonAchillesAdded = 0;
-      for (const p of long) {
-        const setsAdded = addedSets(p.slug);
-        if (ACHILLES_ROLE_SLUGS.has(p.slug)) achillesAdded += setsAdded;
-        else if (!short.some((sp) => sp.slug === p.slug)) nonAchillesAdded += p.sets; // whole new exercise
-        else nonAchillesAdded += setsAdded;
-      }
-
-      // Achilles-role work is present at its (capped) dose...
-      expect(long.some((p) => ACHILLES_ROLE_SLUGS.has(p.slug))).toBe(true);
-      // ...but growth spent most of the extra budget elsewhere.
-      expect(achillesAdded).toBeLessThan(nonAchillesAdded);
-      // And the extra budget bought real variety, not just bigger achilles sets.
-      expect(addedNewExercises.some((p) => !ACHILLES_ROLE_SLUGS.has(p.slug))).toBe(true);
+    // Achilles-role work is present...
+    expect(long.some((p) => ACHILLES_ROLE_SLUGS.has(p.slug))).toBe(true);
+    // ...but HSR-locked sets are untouched by duration at all — the whole
+    // point of the protocol's own dose, not something a longer session
+    // budget should be able to inflate.
+    for (const slug of ["straight_knee_calf_raise", "bent_knee_calf_raise"]) {
+      const s = short.find((p) => p.slug === slug);
+      const l = long.find((p) => p.slug === slug);
+      if (s && l) expect(l.sets).toBe(s.sets);
     }
   });
 });

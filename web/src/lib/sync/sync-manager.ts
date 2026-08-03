@@ -390,7 +390,10 @@ async function fetchStrengthSessionForSync(
     undefined,
     // A started session's frozen complaints, so the calendar description
     // keeps matching what the athlete is actually doing.
-    row.complaints
+    row.complaints,
+    // Whether the rehab-day scheduler attached Achilles/HSR work to this
+    // specific session — the calendar description must include it too.
+    row.achillesAttached
   );
   // The description lists every exercise's load, so it needs the owner's
   // weight unit for the same reason the run event needs the distance unit.

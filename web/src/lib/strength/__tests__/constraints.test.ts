@@ -68,55 +68,63 @@ describe("validateStrengthPlacement", () => {
     expect(v.some((x) => x.code === "achilles_frequency_cap")).toBe(false);
   });
 
-  // An achilles complaint now reshapes a plain lower/upper/full_body session
-  // with the Achilles/HSR block instead of needing a dedicated session type
-  // (see program.ts ACHILLES_COMPLAINT_SLOTS) — these rules must still catch
-  // that, given the athlete's complaint flag.
-  describe("hasAchillesComplaint — plain types carrying the Achilles block", () => {
-    it("without the flag, a plain 'lower' session never trips the Achilles rules", () => {
+  // Achilles/HSR work is scheduled as its own dedicated "achilles" session
+  // now (see reconcile.ts computeAchillesPlacements), not injected into a
+  // plain lower/upper/full_body session for an athlete who reports the
+  // complaint (see program.ts sessionTemplateFor) — so these rules must key
+  // entirely off session `type`, never off a complaint flag.
+  describe("plain lower/upper/full_body sessions never carry the Achilles block", () => {
+    it("a plain 'lower' session never trips the before-hard-run rule", () => {
       const session: StrengthRef = { date: D("2026-06-10"), type: "lower" };
       const runs: RunRef[] = [{ date: D("2026-06-11"), type: "interval" }];
       const v = validateStrengthPlacement({ session, runWorkouts: runs, strengthSessions: [] });
       expect(v.some((x) => x.code === "achilles_before_hard_run")).toBe(false);
     });
 
-    it("with the flag, a plain 'lower' session is blocked the day before a hard run", () => {
-      const session: StrengthRef = { date: D("2026-06-10"), type: "lower" };
-      const runs: RunRef[] = [{ date: D("2026-06-11"), type: "interval" }];
-      const v = validateStrengthPlacement({
-        session,
-        runWorkouts: runs,
-        strengthSessions: [],
-        hasAchillesComplaint: true,
-      });
-      expect(v.some((x) => x.code === "achilles_before_hard_run")).toBe(true);
-    });
-
-    it("with the flag, plain-type sessions count toward the weekly Achilles cap", () => {
+    it("a plain 'full_body' session never counts toward the weekly Achilles cap", () => {
       const session: StrengthRef = { date: D("2026-06-08"), type: "full_body" };
       const existing: StrengthRef[] = [
         { date: D("2026-06-04"), type: "upper" },
         { date: D("2026-06-06"), type: "lower" },
         { date: D("2026-06-10"), type: "full_body" },
       ];
-      const v = validateStrengthPlacement({
-        session,
-        runWorkouts: [],
-        strengthSessions: existing,
-        hasAchillesComplaint: true,
-      });
+      const v = validateStrengthPlacement({ session, runWorkouts: [], strengthSessions: existing });
+      expect(v.some((x) => x.code === "achilles_frequency_cap")).toBe(false);
+    });
+
+    it("a plain 'upper' session never trips the explosive-work/interval collision", () => {
+      const session: StrengthRef = { date: D("2026-06-10"), type: "upper" };
+      const runs: RunRef[] = [{ date: D("2026-06-10"), type: "interval" }];
+      const v = validateStrengthPlacement({ session, runWorkouts: runs, strengthSessions: [] });
+      expect(v.some((x) => x.code === "explosive_with_interval")).toBe(false);
+    });
+  });
+
+  // The dedicated "achilles" type carries the block on its own — no complaint
+  // flag needed, matching how it's actually scheduled.
+  describe("the dedicated 'achilles' session type", () => {
+    it("is blocked the day before a hard run", () => {
+      const session: StrengthRef = { date: D("2026-06-10"), type: "achilles" };
+      const runs: RunRef[] = [{ date: D("2026-06-11"), type: "interval" }];
+      const v = validateStrengthPlacement({ session, runWorkouts: runs, strengthSessions: [] });
+      expect(v.some((x) => x.code === "achilles_before_hard_run")).toBe(true);
+    });
+
+    it("counts toward the weekly Achilles cap alongside other achilles sessions", () => {
+      const session: StrengthRef = { date: D("2026-06-08"), type: "achilles" };
+      const existing: StrengthRef[] = [
+        { date: D("2026-06-04"), type: "achilles" },
+        { date: D("2026-06-06"), type: "achilles" },
+        { date: D("2026-06-10"), type: "achilles" },
+      ];
+      const v = validateStrengthPlacement({ session, runWorkouts: [], strengthSessions: existing });
       expect(v.some((x) => x.code === "achilles_frequency_cap")).toBe(true);
     });
 
-    it("with the flag, explosive-work/interval collision still fires for a plain type", () => {
-      const session: StrengthRef = { date: D("2026-06-10"), type: "upper" };
+    it("blocks explosive work on the same day as an interval run", () => {
+      const session: StrengthRef = { date: D("2026-06-10"), type: "achilles" };
       const runs: RunRef[] = [{ date: D("2026-06-10"), type: "interval" }];
-      const v = validateStrengthPlacement({
-        session,
-        runWorkouts: runs,
-        strengthSessions: [],
-        hasAchillesComplaint: true,
-      });
+      const v = validateStrengthPlacement({ session, runWorkouts: runs, strengthSessions: [] });
       expect(v.some((x) => x.code === "explosive_with_interval")).toBe(true);
     });
   });

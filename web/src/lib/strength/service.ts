@@ -282,7 +282,13 @@ export async function buildPlannedSession(
   // session the athlete has already started keeps what it was built with, so
   // turning a complaint off never rebuilds a session whose sets are already
   // logged against the work that complaint added.
-  complaintsSnapshot?: string[] | null
+  complaintsSnapshot?: string[] | null,
+  // Whether the weekly Achilles/HSR rehab pass attached the block to THIS
+  // stored session (strengthSessions.achillesAttached — see reconcile.ts
+  // computeAchillesRehabDays). Only meaningful for a plain
+  // upper/lower/full_body `type`; the dedicated achilles/lower_achilles/
+  // upper_achilles types always carry the block regardless. Default false.
+  achillesAttached: boolean = false
 ): Promise<PlannedSessionResult> {
   const [{ programWeek, weekInfo }, historyBySlug, painGate, complaintPainGates, settingsRow] =
     await Promise.all([
@@ -299,10 +305,15 @@ export async function buildPlannedSession(
     complaintsSnapshot ? filterComplaints(complaintsSnapshot) : null,
     planSettings.complaints
   );
+  // The HSR ramp runs on its own clock (when the Achilles complaint was
+  // reported), not the running plan's week — see complaint-work.ts. Gated on
+  // `achillesAttached` too, not just the complaint list, so a plain session
+  // that's actually carrying HSR work today still gets the right ramp week
+  // even in the brief window after the complaint is turned off but before the
+  // next scheduler reconcile clears the flag off this specific session.
+  const hasHsrWork = achillesAttached || complaints.includes("achilles");
   const plan = buildSessionPlan(type, {
-    // The HSR ramp runs on its own clock (when the Achilles complaint was
-    // reported), not the running plan's week — see complaint-work.ts.
-    programWeek: complaints.includes("achilles")
+    programWeek: hasHsrWork
       ? achillesProgramWeek(settingsRow?.achillesStartedAt ?? null, date, programWeek)
       : programWeek,
     historyBySlug,
@@ -311,6 +322,7 @@ export async function buildPlannedSession(
     ability: planSettings.ability,
     lifterProfile: planSettings.lifterProfile,
     complaints,
+    achillesAttached,
     targetDurationMinutes,
     restSecondsOverride: planSettings.restSeconds,
     equipment: equipmentOverride !== undefined ? equipmentOverride : planSettings.equipment,

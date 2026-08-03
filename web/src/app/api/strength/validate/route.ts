@@ -2,9 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db, plans, strengthSessions } from "@/db";
-import { getVerifiedProfileId } from "@/lib/profiles";
 import { validateStrengthPlacement } from "@/lib/strength/constraints";
-import { getStrengthPlanSettingsRow } from "@/lib/strength/service";
 import { STRENGTH_SESSION_TYPES } from "@/lib/strength/types";
 import type { RunRef, StrengthRef } from "@/lib/strength/constraints";
 import { withSession } from "@/lib/api/with-session";
@@ -71,19 +69,17 @@ export const POST = withSession(async (request: NextRequest) => {
         .where(ownedBy(strengthSessions))
     ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
-    // Same reasoning as the sessions POST route: an achilles complaint
-    // reshapes plain lower/upper/full_body sessions with the Achilles block
-    // now (see program.ts ACHILLES_COMPLAINT_SLOTS), so the constraint
-    // engine needs to know about it to keep enforcing Achilles spacing/cap.
-    const profileId = await getVerifiedProfileId(request);
-    const settingsRow = await getStrengthPlanSettingsRow(profileId);
-    const hasAchillesComplaint = (settingsRow?.complaints ?? []).includes("achilles");
-
+    // The constraint engine's Achilles rules (spacing/frequency cap, before-
+    // hard-run) key entirely off session `type` now — only the dedicated
+    // "achilles" type (and the historic lower_achilles/upper_achilles combo
+    // types) carry the block, since an achilles complaint no longer reshapes
+    // a plain lower/upper/full_body session (see constraints.ts
+    // hasAchillesBlock / program.ts sessionTemplateFor) — no extra profile
+    // lookup needed here.
     const violations = validateStrengthPlacement({
       session: { id: data.excludeSessionId, date: new Date(data.date), type: data.type },
       runWorkouts,
       strengthSessions: strength,
-      hasAchillesComplaint,
     });
 
     return Response.json({

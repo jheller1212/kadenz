@@ -112,45 +112,48 @@ describe("placeStrengthWeek", () => {
     expect(placed.length).toBeLessThan(4);
   });
 
-  describe("achilles complaint — every session type carries the same calf/tendon load", () => {
-    // program.ts sessionTemplateFor appends the explosive/HSR calf block to
-    // EVERY session type (unconditionally, unlike every other complaint) when
-    // "achilles" is reported. Muscle groups here are derived from that
-    // resolved template, not the bare type label — so for this athlete,
-    // "upper" and "lower" no longer look unrelated; both load the healing
-    // tendon, and the spacing rule must catch that.
+  describe("achilles complaint no longer reshapes the plain rotation types", () => {
+    // Achilles/HSR work is its own scheduled session now (see reconcile.ts
+    // computeAchillesPlacements), not injected into every ordinary session
+    // (see program.ts sessionTemplateFor). So passing "achilles" in
+    // `complaints` here must have ZERO effect on how the plain lower/upper
+    // rotation is placed — the exact opposite of the old behaviour this
+    // block used to lock down.
 
-    it("no longer lets upper/lower go back-to-back once the achilles complaint is passed in", () => {
+    it("still allows upper/lower back-to-back with the achilles complaint passed in — no effect on plain types", () => {
       const days = week({});
       const placed = placeStrengthWeek(days, ALL_DAYS, ["lower", "upper"], ["achilles"]);
       expect(placed).toHaveLength(2);
       const keys = placed.map((p) => Number(p.key.slice(1))).sort((a, b) => a - b);
-      expect(keys[1] - keys[0]).toBeGreaterThan(1); // now avoided, unlike the no-complaint case above
+      expect(keys[1] - keys[0]).toBe(1); // adjacent is still fine — same as with no complaint
     });
 
-    it("still places every session — spacing is a preference, not a veto, even under the complaint", () => {
-      // Same tight Mon-Fri shape as the regression above; with every session
-      // now sharing a group, spacing can only choose *which* days, never
-      // drop one, so all 4 must still come back.
-      const days = week({ 0: "easy", 1: "easy", 2: "easy", 3: "easy", 5: "long" });
-      const availableDows = [1, 2, 3, 4, 5];
-      const placed = placeStrengthWeek(
-        days,
-        availableDows,
-        ["lower", "upper", "lower", "upper"],
-        ["achilles"]
-      );
-      expect(placed).toHaveLength(4);
-    });
-
-    it("day-before-a-hard-run stays a hard veto for every type, not just lower, once achilles is reported", () => {
-      // Tue is an interval day; Mon (the day before) must be off-limits for
-      // "upper" too now, since it also carries the HSR calf block.
+    it("day-before-a-hard-run is NOT a veto for a plain 'upper' session even with achilles reported", () => {
+      // Tue is an interval day; Monday only used to be off-limits for
+      // "upper" when the achilles complaint injected the HSR block into it —
+      // that no longer happens, so Monday is a perfectly fine placement.
       const days = week({ 1: "interval" });
-      const placed = placeStrengthWeek(days, ALL_DAYS, ["upper"], ["achilles"]);
+      const placed = placeStrengthWeek(days, [1], ["upper"], ["achilles"]); // only Monday (dow 1) available
+      expect(placed).toHaveLength(1);
+      expect(placed[0]?.key).toBe("d0");
+    });
+  });
+
+  describe("the dedicated 'achilles' session type carries its own veto/spacing rules", () => {
+    it("is vetoed the day before a hard run, regardless of the complaints list", () => {
+      const days = week({ 1: "interval" });
+      const placed = placeStrengthWeek(days, ALL_DAYS, ["achilles"]);
       for (const p of placed) {
         expect(p.key).not.toBe("d0"); // Monday, the day before the Tuesday interval
       }
+    });
+
+    it("keeps two achilles sessions apart the same way two 'lower' sessions are kept apart", () => {
+      const days = week({});
+      const placed = placeStrengthWeek(days, ALL_DAYS, ["achilles", "achilles"]);
+      expect(placed).toHaveLength(2);
+      const keys = placed.map((p) => Number(p.key.slice(1))).sort((a, b) => a - b);
+      expect(keys[1] - keys[0]).toBeGreaterThan(1); // never adjacent
     });
   });
 });

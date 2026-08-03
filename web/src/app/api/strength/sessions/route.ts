@@ -136,16 +136,8 @@ export const POST = withSession(async (request: NextRequest) => {
             .where(and(ownedBy(strengthSessions), isNull(strengthSessions.profileId)))
         ).map((s) => ({ id: s.id, date: s.date, type: s.type }));
 
-    // Fetched once and handed to buildPlannedSession below (both branches),
-    // and to the constraint engine right below — so it's queried at most
-    // once per request.
+    // Fetched once and handed to buildPlannedSession below (both branches).
     const settingsRow = await getStrengthPlanSettingsRow(profileId);
-    // A reported achilles complaint now reshapes an ordinary lower/upper/
-    // full_body session with the Achilles/HSR block (see program.ts
-    // ACHILLES_COMPLAINT_SLOTS) instead of needing a dedicated session type
-    // — the constraint engine's Achilles-spacing/frequency rules must keep
-    // firing for those sessions too, not just the historic dedicated types.
-    const hasAchillesComplaint = (settingsRow?.complaints ?? []).includes("achilles");
 
     const violations = profileId
       ? []
@@ -153,7 +145,6 @@ export const POST = withSession(async (request: NextRequest) => {
           session: { date, type: data.type },
           runWorkouts,
           strengthSessions: existingStrength,
-          hasAchillesComplaint,
         });
     const hasError = violations.some((v) => v.severity === "error");
     if (hasError && !data.force) {

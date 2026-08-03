@@ -1825,26 +1825,37 @@ export function growthCandidatesFor(
   });
 }
 
-const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
+// Exported so reconcile.ts's weekly rehab-day scheduler can tell "already
+// carries the Achilles/HSR block on its own" apart from a plain type — see
+// computeAchillesRehabDays.
+export const ACHILLES_SESSION_TYPES = new Set<StrengthSessionType>([
   "achilles",
   "lower_achilles",
   "upper_achilles",
 ]);
 
 // ── Achilles complaint block ──────────────────────────────────────────────────
-// The dedicated achilles/lower_achilles/upper_achilles session TYPES are no
-// longer offered on the picker (see strength/page.tsx PICKER_TYPES) — a Kraft
-// picker showing three Achilles-rehab cards to an athlete with no Achilles
-// problem was the bug being fixed here. Those types are kept exactly as they
-// were (SESSION_TEMPLATES above, ACHILLES_SESSION_TYPES branch below) purely
-// so historic sessions of those types still load and render correctly.
+// An "achilles" complaint used to append this explosive-then-slow-heavy block
+// (order matters — see validateAchillesOrdering in session.ts) to EVERY
+// ordinary upper/lower/full_body session, unconditionally, unlike every other
+// complaint (which is gated on TARGETED_WORK[complaint].sessionTypes). Once
+// PR #152 made scheduling muscle-group aware, that stopped being "extra work
+// on your strength day" and became "the tendon gets loaded on every strength
+// day the athlete has" — up to 4 consecutive days for a 4-day rotation, which
+// is exactly what HSR (Heavy Slow Resistance) protocols are designed to
+// avoid (Beyer et al.: roughly every-other-day loading, never back-to-back).
 //
-// Going forward, an "achilles" complaint reshapes the ordinary upper/lower/
-// full_body sessions instead — same explosive-then-slow-heavy block the old
-// dedicated types used (order matters: see validateAchillesOrdering in
-// session.ts), injected as extra slots the same way TARGETED_WORK injects
-// other complaints' work below, just with more than one slot and its own
-// fixed internal order.
+// Achilles/HSR work is a frequency-and-spacing policy over the whole week now
+// (see reconcile.ts computeAchillesRehabDays — ~3x/week, never consecutive),
+// decided per calendar day, not per profile. On a day with nothing else
+// scheduled that becomes the dedicated "achilles" session type (unaffected —
+// see below); on a day that already holds a plain upper/lower/full_body
+// session, the SAME block is appended to that specific session instead of
+// creating a second one that day (`achillesAttached`, frozen once the
+// session starts — see schema.ts strengthSessions.achillesAttached). Whether
+// a given plain session carries the block is therefore a fact about that one
+// session, not about the athlete's complaint list — a complaint alone no
+// longer changes what any particular lower/upper/full_body session contains.
 export const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
   { exerciseSlug: "explosive_box_step_up", sets: 3, repLow: 6, repHigh: 6, restSeconds: 90, perSide: true },
   { exerciseSlug: "straight_knee_calf_raise", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120 },
@@ -1854,28 +1865,35 @@ export const ACHILLES_COMPLAINT_SLOTS: TemplateSlot[] = [
 
 /**
  * The session template an athlete actually gets for `type`, given their
- * reported complaints. Achilles session types (historic only, see above) are
- * always returned unchanged. For every other session type, an "achilles"
- * complaint appends the Achilles/HSR block above, and each other reported
- * complaint whose `TARGETED_WORK` entry lists `type` appends its own slot.
+ * reported complaints and whether the weekly rehab-day scheduler attached
+ * Achilles/HSR work to THIS specific session (`achillesAttached`).
+ *
+ * Achilles session types (see ACHILLES_SESSION_TYPES) are always returned
+ * unchanged — the dedicated "achilles" type already IS the Achilles/HSR block
+ * (ACHILLES_COMPLAINT_SLOTS above); `achillesAttached` only matters for a
+ * plain upper/lower/full_body session, on the specific day the rehab-day
+ * scheduler chose it for (see reconcile.ts computeAchillesRehabDays). Every
+ * other reported complaint whose `TARGETED_WORK` entry lists `type` still
+ * appends its own small slot, unchanged and independent of this flag.
  */
 export function sessionTemplateFor(
   type: StrengthSessionType,
-  complaints: Complaint[] = []
+  complaints: Complaint[] = [],
+  achillesAttached: boolean = false
 ): SessionTemplate {
   const template = SESSION_TEMPLATES[type];
   if (ACHILLES_SESSION_TYPES.has(type)) return template;
 
   const extraSlots: TemplateSlot[] = [];
   const seen = new Set<string>();
-  if (complaints.includes("achilles")) {
+  if (achillesAttached) {
     for (const slot of ACHILLES_COMPLAINT_SLOTS) {
       seen.add(slot.exerciseSlug);
       extraSlots.push(slot);
     }
   }
   for (const complaint of complaints) {
-    if (complaint === "achilles") continue;
+    if (complaint === "achilles") continue; // handled via achillesAttached above, not the complaint list
     const targeted = TARGETED_WORK[complaint];
     if (!targeted || !targeted.sessionTypes.includes(type)) continue;
     if (seen.has(targeted.slug)) continue; // don't double-add a shared exercise

@@ -790,6 +790,20 @@ export const strengthSessions = pgTable(
     // of deliberate delivery.
     watchEligible: boolean("watch_eligible").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
+    // True when the weekly Achilles/HSR rehab pass (lib/strength/schedule.ts
+    // computeAchillesRehabDays) chose THIS day as a rehab day and this
+    // session already existed as a plain upper/lower/full_body session that
+    // day — the explosive/HSR block (program.ts ACHILLES_COMPLAINT_SLOTS) is
+    // appended to it on read (see program.ts sessionTemplateFor) instead of
+    // creating a second session on the same calendar day (the DB enforces at
+    // most one auto-scheduled planned session per day — see the 0015
+    // migration's strength_sessions_auto_slot_unique index). Only ever set on
+    // plain-type sessions; the dedicated "achilles"/"lower_achilles"/
+    // "upper_achilles" types always carry the block regardless of this flag.
+    // Never set on a started session for the same reason `complaints` is
+    // frozen at start — a set already logged against the block must not
+    // silently vanish because the weekly rehab-day pattern shifted.
+    achillesAttached: boolean("achilles_attached").notNull().default(false),
     // Hand edits to this session's exercise list, layered onto the
     // template-derived plan at read time (see lib/strength/session.ts
     // applyExerciseOverrides). "removed" drops a slot; "swapped" replaces it

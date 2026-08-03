@@ -133,12 +133,14 @@ const TYPE_META: Record<
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399", icon: Dumbbell },
 };
 
-// The picker only offers the standard programme types — the three dedicated
-// Achilles types above are no longer offered for NEW sessions (an "achilles"
-// complaint now reshapes these instead, see program.ts
-// ACHILLES_COMPLAINT_SLOTS); TYPE_META keeps all six entries so a historic
-// achilles/lower_achilles/upper_achilles session still renders its title,
-// color and icon correctly wherever it's looked up by type.
+// The picker only offers the standard programme types. The dedicated
+// "achilles" type is scheduled automatically for an athlete who reports an
+// achilles complaint (see reconcile.ts computeAchillesPlacements) — it's a
+// real, distinct session the athlete sees and completes on the Kraft screen,
+// just not something you hand-pick from here (the upper_achilles/
+// lower_achilles combo types are historic only). TYPE_META keeps all six
+// entries so every session type — freshly scheduled or historic — still
+// renders its title, color and icon correctly wherever it's looked up.
 const PICKER_TYPES: SessionType[] = ["full_body", "upper", "lower"];
 
 // Categories eligible for "Add exercise" per session type.

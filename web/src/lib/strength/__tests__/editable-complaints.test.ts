@@ -20,16 +20,18 @@ function slugsFor(complaints: Complaint[]) {
 }
 
 describe("removing a complaint changes the session", () => {
-  it("drops the Achilles block from the next lower session", () => {
+  it("a plain 'lower' session never carries the Achilles block, achilles reported or not", () => {
+    // Achilles/HSR work is scheduled as its own dedicated "achilles" session
+    // now (see reconcile.ts computeAchillesPlacements) — reporting the
+    // complaint no longer changes what a plain lower/upper/full_body session
+    // contains (see program.ts sessionTemplateFor).
     const withComplaint = slugsFor(["achilles"]);
-    expect(withComplaint).toEqual(expect.arrayContaining(HSR_SLUGS));
-    expect(withComplaint).toContain("explosive_box_step_up");
-    expect(withComplaint).toContain("loaded_toe_walk");
-
     const without = slugsFor([]);
     for (const slug of [...HSR_SLUGS, "explosive_box_step_up", "loaded_toe_walk"]) {
+      expect(withComplaint).not.toContain(slug);
       expect(without).not.toContain(slug);
     }
+    expect(withComplaint).toEqual(without);
   });
 
   it("drops targeted work for every other complaint too, one at a time", () => {
@@ -47,31 +49,21 @@ describe("removing a complaint changes the session", () => {
     }
   });
 
-  it("leaves the rest of the session alone", () => {
-    // Removing a complaint should take away its work and nothing else: the
-    // ordinary lower-body lifts an athlete is mid-progression on stay put.
-    const withComplaint = slugsFor(["achilles"]);
-    const without = slugsFor([]);
-    for (const slug of without) expect(withComplaint).toContain(slug);
-  });
-
   it("removing one complaint leaves another one's work in place", () => {
-    const both = slugsFor(["achilles", "knee"]);
+    const both = slugsFor(["knee", "hamstring"]);
     expect(both).toContain("step_down");
-    expect(both).toEqual(expect.arrayContaining(HSR_SLUGS));
+    expect(both).toContain("nordic_curl_negative");
 
     const kneeOnly = slugsFor(["knee"]);
     expect(kneeOnly).toContain("step_down");
-    expect(kneeOnly).not.toContain("straight_knee_calf_raise");
+    expect(kneeOnly).not.toContain("nordic_curl_negative");
   });
 });
 
 describe("turning a complaint back on", () => {
   it("reinstates the same work it added before", () => {
-    expect(slugsFor(["achilles"])).toEqual(slugsFor([]).concat(
-      slugsFor(["achilles"]).filter((s) => !slugsFor([]).includes(s))
-    ));
     expect(slugsFor(["knee"])).toContain("step_down");
+    expect(slugsFor([])).not.toContain("step_down");
   });
 
   it("restarts the HSR ramp at week 1 rather than resuming it", () => {
@@ -103,20 +95,25 @@ describe("turning a complaint back on", () => {
 });
 
 describe("a session that is already under way", () => {
+  // Achilles/HSR work no longer lives on a plain "lower" session at all — it
+  // has its own dedicated session type, whose content never varies by
+  // complaint (see program.ts sessionTemplateFor). So the frozen-snapshot
+  // behaviour that matters for a plain session is exercised through a
+  // complaint that still gets injected there (knee) instead.
   it("keeps the complaints it was built with after the setting changes", () => {
-    // The athlete logged sets against the calf work, then turned Achilles off.
-    const frozen: Complaint[] = ["achilles"];
+    // The athlete logged sets against the knee work, then turned it off.
+    const frozen: Complaint[] = ["knee"];
     const nowReported: Complaint[] = [];
     const plan = buildSessionPlan("lower", {
       complaints: effectiveComplaints(frozen, nowReported),
     }).map((e) => e.slug);
-    expect(plan).toEqual(expect.arrayContaining(HSR_SLUGS));
+    expect(plan).toContain("step_down");
   });
 
   it("does not lose an exercise a set was logged against", () => {
-    const loggedAgainst = ["straight_knee_calf_raise", "explosive_box_step_up"];
+    const loggedAgainst = ["step_down"];
     const plan = buildSessionPlan("lower", {
-      complaints: effectiveComplaints(["achilles"], []),
+      complaints: effectiveComplaints(["knee"], []),
     }).map((e) => e.slug);
     for (const slug of loggedAgainst) expect(plan).toContain(slug);
   });
@@ -125,13 +122,13 @@ describe("a session that is already under way", () => {
     const plan = buildSessionPlan("lower", {
       complaints: effectiveComplaints(null, []),
     }).map((e) => e.slug);
-    expect(plan).not.toContain("straight_knee_calf_raise");
+    expect(plan).not.toContain("step_down");
   });
 
   it("treats an empty snapshot as its own answer, not as absent", () => {
     // A session started while the athlete reported nothing must not pick up
     // work from a complaint they added afterwards.
-    expect(effectiveComplaints([], ["achilles"])).toEqual([]);
+    expect(effectiveComplaints([], ["knee"])).toEqual([]);
   });
 });
 
@@ -151,13 +148,14 @@ describe("history survives a complaint change", () => {
 
   it("prefills the same load after the complaint is removed and re-reported", () => {
     // History is keyed by exercise slug, never by complaint, so the calf raise
-    // an athlete comes back to still knows what they last lifted.
-    const before = buildSessionPlan("lower", {
+    // an athlete comes back to still knows what they last lifted. The calf
+    // raise now lives on the dedicated "achilles" session type.
+    const before = buildSessionPlan("achilles", {
       complaints: ["achilles"],
       historyBySlug: history,
       programWeek: 6,
     }).find((e) => e.slug === "straight_knee_calf_raise");
-    const after = buildSessionPlan("lower", {
+    const after = buildSessionPlan("achilles", {
       complaints: ["achilles"],
       historyBySlug: history,
       programWeek: 1,

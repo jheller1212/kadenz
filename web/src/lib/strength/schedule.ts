@@ -15,10 +15,11 @@ import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
 import { isConnected } from "@/lib/sync/gcal-client";
-import { SESSION_TEMPLATES } from "./program";
+import { ACHILLES_SESSION_TYPES, SESSION_TEMPLATES } from "./program";
 import { buildPlannedSession } from "./service";
 import type { PlacementDay } from "./schedule-place";
 import {
+  computeAchillesRehabDays,
   computeTopUpPlacements,
   rotationFor,
   weekBudgetFor,
@@ -31,6 +32,11 @@ import {
 } from "./reconcile";
 import type { Complaint, StrengthSessionType } from "./types";
 import { timer } from "@/lib/timing";
+
+// Plain rotation types — the only ones the Achilles rehab pass ever attaches
+// its block to (the dedicated achilles/lower_achilles/upper_achilles types
+// always carry it on their own).
+const PLAIN_STRENGTH_TYPES = new Set<StrengthSessionType>(["upper", "lower", "full_body"]);
 
 // ── Weekly strength scheduler ────────────────────────────────────────────────
 // Tops up planned strength sessions for the next two weeks from the profile's
@@ -158,8 +164,20 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
 
   // Existing sessions in the window (any status, any origin) block their
   // calendar day and count against their calendar week's session budget.
+  // The extra columns feed the Achilles rehab pass below: which days already
+  // carry the block (type, achillesAttached), and which existing rows are
+  // safe to retroactively attach/detach it on (status, autoScheduled,
+  // startedAt — never a session the athlete has already started).
   const existing = await db
-    .select({ date: strengthSessions.date })
+    .select({
+      id: strengthSessions.id,
+      date: strengthSessions.date,
+      type: strengthSessions.type,
+      status: strengthSessions.status,
+      autoScheduled: strengthSessions.autoScheduled,
+      startedAt: strengthSessions.startedAt,
+      achillesAttached: strengthSessions.achillesAttached,
+    })
     .from(strengthSessions)
     .where(
       and(
@@ -173,9 +191,12 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     );
   const taken = new Set(existing.map((s) => dayKey(s.date)));
   const sessionsByWeek = new Map<string, number>();
+  const existingByKey = new Map<string, (typeof existing)[number]>();
   for (const s of existing) {
-    const wk = weekKeyOf(dayKey(s.date));
+    const key = dayKey(s.date);
+    const wk = weekKeyOf(key);
     sessionsByWeek.set(wk, (sessionsByWeek.get(wk) ?? 0) + 1);
+    existingByKey.set(key, s);
   }
 
   // Run schedule in the window (owner's active plan) — the placement engine
@@ -228,6 +249,76 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     complaints
   );
 
+  // ── Achilles/HSR rehab: a frequency-and-spacing policy over the whole
+  // week, not a placement pass restricted to days the strength rotation left
+  // free (see reconcile.ts computeAchillesRehabDays for the full reasoning —
+  // this is the fix for the bug that produced ZERO rehab exposures for an
+  // athlete whose strength rotation already filled every available day).
+  //
+  // Decide the rehab DAYS first, over the athlete's whole available week —
+  // `dayTypeMap` tells the day-picker which days already carry the block
+  // (existing achilles-carrying rows, or an existing plain session with
+  // achillesAttached already true — encoded as the "achilles" sentinel so
+  // it's skipped the same way a dedicated type is) so it never double-picks
+  // a day that's already covered, but every other day — including ones the
+  // strength rotation just claimed or already held a plain session — stays a
+  // real candidate.
+  const stripKeys = new Set(strip.map((d) => d.key));
+  const dayTypeMap = new Map<string, StrengthSessionType>();
+  for (const [key, row] of existingByKey) {
+    const type = row.type as StrengthSessionType;
+    const alreadyCarrying = ACHILLES_SESSION_TYPES.has(type) || row.achillesAttached;
+    dayTypeMap.set(key, alreadyCarrying ? "achilles" : type);
+  }
+  for (const p of placements) {
+    if (!dayTypeMap.has(p.key)) dayTypeMap.set(p.key, p.type);
+  }
+
+  let rehabDays = new Set<string>();
+  if (complaints.includes("achilles")) {
+    const achillesWeeklyCounts = new Map<string, number>();
+    let lastAchillesKeyBeforeStrip: string | null = null;
+    const firstStripKey = strip[0]?.key;
+    for (const [key, row] of existingByKey) {
+      const type = row.type as StrengthSessionType;
+      if (!ACHILLES_SESSION_TYPES.has(type) && !row.achillesAttached) continue;
+      achillesWeeklyCounts.set(weekKeyOf(key), (achillesWeeklyCounts.get(weekKeyOf(key)) ?? 0) + 1);
+      if (
+        firstStripKey != null &&
+        key < firstStripKey &&
+        (lastAchillesKeyBeforeStrip == null || key > lastAchillesKeyBeforeStrip)
+      ) {
+        lastAchillesKeyBeforeStrip = key;
+      }
+    }
+    rehabDays = new Set(
+      computeAchillesRehabDays(
+        strip,
+        dayTypeMap,
+        settings.availableDays,
+        achillesWeeklyCounts,
+        lastAchillesKeyBeforeStrip
+      )
+    );
+  }
+
+  // Every chosen rehab day either already has (or is about to get, via
+  // `placements` above) a plain session — attach the block to it — or is
+  // genuinely free, and becomes its own standalone "achilles" session.
+  // `computeAchillesRehabDays` never returns a day already covered by
+  // `dayTypeMap`'s "achilles" sentinel, so every key here is either a plain
+  // type or genuinely absent.
+  const freshPlacementKeys = new Set(placements.map((p) => p.key));
+  const attachAchillesKeys = new Set<string>();
+  const standaloneAchillesDays: string[] = [];
+  for (const key of rehabDays) {
+    if (freshPlacementKeys.has(key) || existingByKey.has(key)) {
+      attachAchillesKeys.add(key);
+    } else {
+      standaloneAchillesDays.push(key);
+    }
+  }
+
   // A week can legitimately place fewer sessions than its budget: the
   // placement engine drops a slot rather than break a hard rule (heavy legs
   // on/before a hard run day, race-day blackout). That's a real constraint,
@@ -251,19 +342,42 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
   // Store the plan's REAL fitted estimate — not the nominal chosen length — so
   // Today/Kraft show the same duration the session actually is (a 45-min
   // setting whose fit only fills ~33 min must read 33, not 45). The duration
-  // varies only by session type here, so memoise one build per type instead of
-  // one per placement (a full plan can be 100+ sessions).
-  const durationByType = new Map<StrengthSessionType, number>();
-  async function estimatedMinutesFor(type: StrengthSessionType, date: Date): Promise<number> {
-    const cached = durationByType.get(type);
+  // varies by session type AND by whether Achilles/HSR work is attached (an
+  // attached "lower" session runs longer than a plain one), so the memo key
+  // is a compound of both instead of type alone.
+  //
+  // The dedicated Achilles session never takes the athlete's general
+  // session-length preference (settings.durationMinutes) — it's a fixed,
+  // dose-specific rehab protocol (SESSION_TIME_TARGETS.achilles, ~20 min),
+  // not a flexible workout to stretch or shrink to a chosen length. Omitting
+  // a target duration entirely (undefined) leaves buildSessionPlan's
+  // duration-fit step untouched, so it keeps the template's own prescription.
+  // An attached plain session keeps fitting to the athlete's chosen length as
+  // before — the same "duration-fit trims accessory work first, never the
+  // Achilles-role block" protection (duration-fit.ts) that the historic
+  // upper_achilles/lower_achilles combo types already relied on.
+  const durationByKey = new Map<string, number>();
+  async function estimatedMinutesFor(
+    type: StrengthSessionType,
+    date: Date,
+    attached: boolean = false
+  ): Promise<number> {
+    const cacheKey = `${type}:${attached}`;
+    const cached = durationByKey.get(cacheKey);
     if (cached != null) return cached;
     const { estimatedDurationMinutes } = await buildPlannedSession(
       type,
       date,
       profileId,
-      settings.durationMinutes
+      type === "achilles" ? undefined : settings.durationMinutes,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      attached
     );
-    durationByType.set(type, estimatedDurationMinutes);
+    durationByKey.set(cacheKey, estimatedDurationMinutes);
     return estimatedDurationMinutes;
   }
 
@@ -271,6 +385,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
   for (const placement of placements) {
     const day = strip.find((d) => d.key === placement.key)!;
     const template = SESSION_TEMPLATES[placement.type];
+    const attached = attachAchillesKeys.has(placement.key);
     const [row] = await db
       .insert(strengthSessions)
       .values({
@@ -281,8 +396,9 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
         type: placement.type,
         title: template.title,
         status: "planned",
-        targetDurationMinutes: await estimatedMinutesFor(placement.type, day.date),
+        targetDurationMinutes: await estimatedMinutesFor(placement.type, day.date, attached),
         autoScheduled: true,
+        achillesAttached: attached,
         // Scheduler placements are always part of the plan — eligible for
         // automatic Garmin delivery (see schema.ts watchEligible).
         watchEligible: true,
@@ -294,6 +410,71 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
       if (gcal) {
         queueStrengthSessionSync(row.id, "create", userId, "gcal").catch(() => {});
       }
+    }
+  }
+
+  // Standalone Achilles days: nothing else was scheduled that day, so the
+  // rehab work gets its own session (the dedicated "achilles" type) instead
+  // of being attached to anything.
+  const achillesTemplate = SESSION_TEMPLATES.achilles;
+  for (const key of standaloneAchillesDays) {
+    const day = strip.find((d) => d.key === key)!;
+    const [row] = await db
+      .insert(strengthSessions)
+      .values({
+        userId: currentUserId(),
+        profileId,
+        date: day.date,
+        dayOfWeek: day.dow,
+        type: "achilles",
+        title: achillesTemplate.title,
+        status: "planned",
+        targetDurationMinutes: await estimatedMinutesFor("achilles", day.date),
+        autoScheduled: true,
+        watchEligible: true,
+      })
+      .onConflictDoNothing()
+      .returning({ id: strengthSessions.id });
+    if (row) {
+      created++;
+      if (gcal) {
+        queueStrengthSessionSync(row.id, "create", userId, "gcal").catch(() => {});
+      }
+    }
+  }
+
+  // Reconcile Achilles attachment on EXISTING plain-type sessions still in
+  // the strip (never a day before tomorrow, and never a session the athlete
+  // already started or hand-touched — same "frozen once real" boundary as
+  // everywhere else in this file) so the weekly rehab-day decision reaches
+  // sessions that were already on the calendar before this run, in both
+  // directions: attaching where a day newly became a rehab day, and
+  // detaching where it no longer is (complaint turned off, or the pattern
+  // shifted) — a settings change reaching everything still to come, not just
+  // brand-new placements.
+  for (const [key, existingRow] of existingByKey) {
+    if (!stripKeys.has(key)) continue; // never touch today or the past
+    const type = existingRow.type as StrengthSessionType;
+    if (!PLAIN_STRENGTH_TYPES.has(type)) continue;
+    if (
+      !existingRow.autoScheduled ||
+      existingRow.status !== "planned" ||
+      existingRow.startedAt != null
+    ) {
+      continue;
+    }
+    const desired = attachAchillesKeys.has(key);
+    if (existingRow.achillesAttached === desired) continue;
+    const est = await estimatedMinutesFor(type, dateFromDayKey(key), desired);
+    await db
+      .update(strengthSessions)
+      .set({ achillesAttached: desired, targetDurationMinutes: est })
+      .where(eq(strengthSessions.id, existingRow.id));
+    // Same reasoning as the duration heal below: the exercise list changed,
+    // so the watch/calendar copies need re-pushing, not just the in-app view.
+    queueGarminStrengthMove(existingRow.id).catch(() => {});
+    if (gcal) {
+      queueStrengthSessionSync(existingRow.id, "update", userId, "gcal").catch(() => {});
     }
   }
 
@@ -310,6 +491,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
       type: strengthSessions.type,
       date: strengthSessions.date,
       targetDurationMinutes: strengthSessions.targetDurationMinutes,
+      achillesAttached: strengthSessions.achillesAttached,
     })
     .from(strengthSessions)
     .where(
@@ -325,7 +507,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
       )
     );
   for (const s of nearTerm) {
-    const est = await estimatedMinutesFor(s.type as StrengthSessionType, s.date);
+    const est = await estimatedMinutesFor(s.type as StrengthSessionType, s.date, s.achillesAttached);
     if (s.targetDurationMinutes !== est) {
       await db
         .update(strengthSessions)

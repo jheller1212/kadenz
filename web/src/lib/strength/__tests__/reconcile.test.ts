@@ -3,6 +3,7 @@ import {
   AUTO_CLOSE_IDLE_MINUTES,
   autoCloseUpdate,
   clearsAutoScheduled,
+  computeAchillesRehabDays,
   computeTopUpPlacements,
   dateFromDayKey,
   isAutoCloseDue,
@@ -598,5 +599,234 @@ describe("computeTopUpPlacements — 13-week plan, runs on every weekday", () =>
 
     const total = placements.length;
     expect(total).toBeGreaterThan(20); // nowhere near the production total of 2
+  });
+});
+
+// ── Achilles/HSR rehab day selection ─────────────────────────────────────────
+// The scenario this exists to fix, in two acts:
+//
+//   1. PR #152 made scheduling muscle-group aware, and for an athlete with an
+//      achilles complaint that produced 4 consecutive strength days (Mon-Thu),
+//      each one carrying the old every-session Achilles/HSR block — the exact
+//      back-to-back loading HSR protocols are designed to avoid.
+//   2. Scheduling Achilles/HSR work as its own session, restricted to days the
+//      strength rotation left free, fixed the consecutive-day problem but
+//      created a worse one for an athlete whose strength days fill (or nearly
+//      fill) their available week: zero rehab days, because "free" days never
+//      existed in the first place.
+//
+// computeAchillesRehabDays decides the rehab DAYS first, over the athlete's
+// whole available week, independent of which days the strength rotation
+// claimed — a day already holding a plain upper/lower/full_body session is a
+// perfectly good rehab day (the caller attaches the block to it instead of
+// creating a second session); only a day that ALREADY carries the block
+// (`dayTypes` mapped to an Achilles-carrying type) is skipped.
+describe("computeAchillesRehabDays", () => {
+  const ALL_DOWS_LOCAL = [0, 1, 2, 3, 4, 5, 6];
+
+  /** dayTypes map from a list of day keys, all mapped to the same type. */
+  function typesFor(keys: string[], type: StrengthSessionType): Map<string, StrengthSessionType> {
+    return new Map(keys.map((k) => [k, type]));
+  }
+
+  it("picks roughly 3 days in an otherwise-empty week", () => {
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7), // Mon 20 -> Sun 26
+      new Map(),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days.length).toBe(3);
+  });
+
+  it("never picks two consecutive calendar days", () => {
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 21), // three weeks
+      new Map(),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    const sorted = [...days].sort();
+    for (let i = 1; i < sorted.length; i++) {
+      const gap =
+        (dateFromDayKey(sorted[i]).getTime() - dateFromDayKey(sorted[i - 1]).getTime()) /
+        (24 * 60 * 60 * 1000);
+      expect(gap).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("freely picks a day that already holds a PLAIN strength session — that's the whole fix", () => {
+    // Every day of the week already has a "lower" session. The old
+    // free-days-only design would return nothing; the frequency-and-spacing
+    // policy must still pick 3, since the caller attaches to a plain day
+    // instead of needing it empty.
+    const plainEveryDay = typesFor(
+      strip("2026-07-20", 7).map((d) => d.key),
+      "lower"
+    );
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      plainEveryDay,
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days.length).toBe(3);
+  });
+
+  it("skips a day already covered by an Achilles-carrying type", () => {
+    const monday = "2026-07-20";
+    const dayTypes = typesFor([monday], "achilles");
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      dayTypes,
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days).not.toContain(monday);
+  });
+
+  it("respects the athlete's available days", () => {
+    const weekdaysOnly = [1, 2, 3, 4, 5];
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      new Map(),
+      weekdaysOnly,
+      new Map()
+    );
+    for (const key of days) {
+      const dow = dateFromDayKey(key).getUTCDay();
+      expect(weekdaysOnly).toContain(dow);
+    }
+  });
+
+  it("never exceeds the weekly target once existing sessions already count toward it", () => {
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      new Map(),
+      ALL_DOWS_LOCAL,
+      new Map([["2026-07-20", 2]])
+    );
+    expect(days.length).toBeLessThanOrEqual(1);
+  });
+
+  it("picks nothing once the weekly target is already met", () => {
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      new Map(),
+      ALL_DOWS_LOCAL,
+      new Map([["2026-07-20", 3]])
+    );
+    expect(days).toHaveLength(0);
+  });
+
+  it("respects spacing against a session placed just before the strip starts", () => {
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      new Map(),
+      ALL_DOWS_LOCAL,
+      new Map(),
+      "2026-07-19"
+    );
+    expect(days[0]).not.toBe("2026-07-20");
+  });
+
+  it("respects a custom weekly target", () => {
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      new Map(),
+      ALL_DOWS_LOCAL,
+      new Map(),
+      null,
+      2
+    );
+    expect(days.length).toBe(2);
+  });
+
+  it("does not skip a day only because the strip marks it taken — dayTypes, not strip.taken, is authoritative", () => {
+    // A day marked taken but absent from dayTypes (caller's responsibility to
+    // keep them consistent) is treated as a free, attachable/standalone day.
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7, ["2026-07-20"]),
+      new Map(), // deliberately not marking 2026-07-20 as occupied
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days).toContain("2026-07-20");
+  });
+
+  // ── Regression: Jonas's real settings ────────────────────────────────────
+  // Runs Mon-Thu easy, Fri rest, Sat long, Sun rest; available_days [1,2,3,4,5]
+  // (Mon-Fri); strength rotation (post-#152) lands Mon/Tue/Wed/Thu, filling
+  // every available day except Friday. Before this fix, the rehab pass only
+  // considered days the strength rotation left free (Fri/Sat/Sun, and Sat/Sun
+  // aren't in available_days) — Friday alone was then vetoed as the day
+  // before Saturday's long run, using the SAME veto reasoning as heavy-leg
+  // strength work. Net result: ZERO rehab sessions, worse than the 4x/week
+  // bug this whole change exists to fix.
+  //
+  // Two fixes combine to resolve it: (1) rehab days are chosen over the whole
+  // available week, attaching to an already-strength-day rather than needing
+  // it free, and (2) the day-before-a-long-run veto no longer applies to
+  // Achilles/HSR work (see schedule-place.ts isHardVeto and the top-of-file
+  // comment in constraints.ts: "Calf HSR the day before a long easy run is
+  // fine" — that veto was heavy-leg-strength reasoning inherited without
+  // justification).
+  it("Jonas's real week: 4 strength days Mon-Thu, Mon-Fri availability — still lands 3 rehab exposures", () => {
+    const week = strip("2026-07-20", 7).map((d) => {
+      // Mon(20)-Thu(23) easy, Fri(24) rest, Sat(25) long, Sun(26) rest.
+      const idx = Number(d.key.slice(-2)) - 20; // 0=Mon..6=Sun
+      const runType = idx <= 3 ? "easy" : idx === 5 ? "long" : null;
+      const nextIdx = idx + 1;
+      const nextRunType = nextIdx <= 3 ? "easy" : nextIdx === 5 ? "long" : null;
+      return { ...d, runType, nextDayRunType: nextIdx <= 6 ? nextRunType : null };
+    });
+    const availableDays = [1, 2, 3, 4, 5]; // Mon-Fri
+
+    const strengthDays = ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"]; // Mon-Thu
+    const dayTypes = typesFor(strengthDays, "lower");
+
+    const rehabDays = computeAchillesRehabDays(week, dayTypes, availableDays, new Map());
+
+    expect(rehabDays.length).toBe(3);
+    // None back to back.
+    const sorted = [...rehabDays].sort();
+    for (let i = 1; i < sorted.length; i++) {
+      const gap =
+        (dateFromDayKey(sorted[i]).getTime() - dateFromDayKey(sorted[i - 1]).getTime()) /
+        (24 * 60 * 60 * 1000);
+      expect(gap).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("still respects the interval/hard-run vetoes for Achilles work specifically", () => {
+    // Tue (idx1) is an interval day; Achilles work is vetoed same-day
+    // (explosive + interval) and the day before (Mon).
+    const week = strip("2026-07-20", 7).map((d) => {
+      const idx = Number(d.key.slice(-2)) - 20;
+      const runType = idx === 1 ? "interval" : null;
+      const nextRunType = idx === 0 ? "interval" : null;
+      return { ...d, runType, nextDayRunType: nextRunType };
+    });
+    const days = computeAchillesRehabDays(week, new Map(), ALL_DOWS_LOCAL, new Map());
+    expect(days).not.toContain("2026-07-20"); // Monday: day before the interval
+    expect(days).not.toContain("2026-07-21"); // Tuesday: the interval day itself
+  });
+});
+
+describe("computeTopUpPlacements + computeAchillesRehabDays composed", () => {
+  const ALL_DOWS_LOCAL = [0, 1, 2, 3, 4, 5, 6];
+
+  it("an attached rehab day is picked from wherever the strength rotation actually landed, not restricted to leftovers", () => {
+    const rotation: StrengthSessionType[] = ["lower", "upper", "lower", "full_body"];
+    const s = strip("2026-07-20", 7);
+    const strengthPlaced = computeTopUpPlacements(s, rotation, ALL_DOWS_LOCAL, new Map());
+    expect(strengthPlaced).toHaveLength(4);
+
+    const dayTypes = new Map(strengthPlaced.map((p) => [p.key, p.type]));
+    const rehabDays = computeAchillesRehabDays(s, dayTypes, ALL_DOWS_LOCAL, new Map());
+
+    // The rehab pass must still land its target — 3 — composing with a full
+    // strength week rather than being starved by it.
+    expect(rehabDays.length).toBe(3);
   });
 });

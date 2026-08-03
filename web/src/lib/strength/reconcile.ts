@@ -1,8 +1,10 @@
 import {
+  isHardVeto,
   placeStrengthWeek,
   type Placement,
   type PlacementDay,
 } from "./schedule-place";
+import { ACHILLES_FREQUENCY_CAP } from "./constraints";
 import type { Complaint, StrengthSessionType } from "./types";
 
 // ── Session-type rotation, derived from frequency + goal ─────────────────────
@@ -267,6 +269,92 @@ export function computeTopUpPlacements(
   }
   flush();
   return placements;
+}
+
+/** Session types that already carry the Achilles/HSR block on their own. */
+export const ACHILLES_CARRYING_TYPES = new Set<StrengthSessionType>([
+  "achilles",
+  "lower_achilles",
+  "upper_achilles",
+]);
+
+/**
+ * Decide the Achilles/HSR rehab DAYS for a strip, as a frequency-and-spacing
+ * policy over the athlete's whole week — not a placement pass restricted to
+ * days the strength rotation left free.
+ *
+ * Targets roughly `weeklyTarget` (default ACHILLES_FREQUENCY_CAP, 3) days per
+ * calendar week, never two in a row — the actual HSR (Heavy Slow Resistance)
+ * protocol these exercises follow is built around every-other-day loading,
+ * and consecutive-day loading is the specific thing it exists to avoid (see
+ * program.ts's comment above ACHILLES_COMPLAINT_SLOTS for why this used to
+ * ride on every ordinary session instead, and why that made #152's
+ * muscle-group-aware scheduling load the tendon worse, not better).
+ *
+ * Deliberately does NOT exclude days the strength rotation already claimed —
+ * `dayTypes` (day key → the session type already sitting there, existing or
+ * freshly placed this run) is used only to skip a day that's ALREADY an
+ * Achilles-carrying type (see ACHILLES_CARRYING_TYPES): a plain
+ * upper/lower/full_body day is a perfectly good rehab day, since the caller
+ * (schedule.ts) appends the block to that session instead of creating a
+ * second one. This is what makes the target achievable independent of how
+ * many strength days the athlete has configured — an athlete with 4 strength
+ * days Mon-Thu still gets 3 rehab exposures landing on 3 of those same days
+ * (spaced), not zero because every day was "taken".
+ *
+ * Still respects `availableDays` and the Achilles-specific hard vetoes
+ * (isHardVeto — interval same day, day before a genuinely hard run; NOT the
+ * day before a long easy run, which the protocol tolerates fine). A week that
+ * genuinely can't fit 3 spaced, veto-free days legitimately gets fewer — the
+ * same "drop the slot, don't break a rule" philosophy placeStrengthWeek
+ * already follows for hard vetoes — but this is now rare: the pool of
+ * candidate days is the athlete's whole available week, not just what's left
+ * after strength.
+ *
+ * `existingWeeklyCounts` (Monday week-key → count of existing Achilles-
+ * carrying sessions or attached days) and `lastPlacedKeyBeforeStrip` seed the
+ * walk with rehab exposures that already exist before/within the strip so a
+ * fresh run never exceeds the weekly target or places a day adjacent to one
+ * it didn't just choose.
+ */
+export function computeAchillesRehabDays(
+  strip: PlacementDay[],
+  dayTypes: Map<string, StrengthSessionType>,
+  availableDays: number[],
+  existingWeeklyCounts: Map<string, number>,
+  lastPlacedKeyBeforeStrip: string | null = null,
+  weeklyTarget: number = ACHILLES_FREQUENCY_CAP
+): string[] {
+  const days: string[] = [];
+  let lastPlacedKey = lastPlacedKeyBeforeStrip;
+  let weekKey = "";
+  let weekCount = 0;
+
+  for (const day of strip) {
+    const wk = weekKeyOf(day.key);
+    if (wk !== weekKey) {
+      weekKey = wk;
+      weekCount = existingWeeklyCounts.get(wk) ?? 0;
+    }
+    const existingType = dayTypes.get(day.key);
+    if (existingType && ACHILLES_CARRYING_TYPES.has(existingType)) continue; // already covered
+    if (!availableDays.includes(day.dow)) continue;
+    if (weekCount >= weeklyTarget) continue;
+    if (isHardVeto(day, "achilles")) continue; // interval same day, or day before a hard run
+    if (lastPlacedKey && dayGapDays(day.key, lastPlacedKey) < 2) continue; // never consecutive days
+
+    days.push(day.key);
+    lastPlacedKey = day.key;
+    weekCount++;
+  }
+
+  return days;
+}
+
+/** Whole-day gap between two calendar-day keys (0 = same day, 1 = adjacent). */
+function dayGapDays(a: string, b: string): number {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  return Math.abs(dateFromDayKey(a).getTime() - dateFromDayKey(b).getTime()) / DAY_MS;
 }
 
 /**
