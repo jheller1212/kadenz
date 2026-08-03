@@ -317,6 +317,7 @@ function StrengthSessionPageInner() {
           exerciseCount={exerciseCount}
           totalSets={totalSets}
           volume={volume}
+          isRehab={session.type === "achilles" || Boolean(session.achillesAttached)}
         />
 
         {/* Start / finish / real duration — only present once a set has been

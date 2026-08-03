@@ -1159,9 +1159,10 @@ function InsightsSection({ stats, weather, selectedDate, currentWeek, totalWeeks
                     ))}
                     {weekStrength.length === 0 && <div className="flex-1 rounded-full bg-elevated" />}
                   </div>
-                  {strengthShortfallReason && (
+                  {strengthTarget != null && weekStrength.length < strengthTarget && (
                     <p className="mt-1 text-[10px] leading-snug text-text-3">
-                      {weekStrength.length} of {strengthTarget} this week — {strengthShortfallReason}
+                      {weekStrength.length} of {strengthTarget} this week
+                      {strengthShortfallReason ? ` — ${strengthShortfallReason}` : "."}
                     </p>
                   )}
                 </div>

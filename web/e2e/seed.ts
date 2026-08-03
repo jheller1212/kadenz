@@ -396,7 +396,16 @@ async function ensureRehabWeekFixtures(): Promise<void> {
       status: "planned",
       targetDurationMinutes: 50,
       achillesAttached: true,
-      autoScheduled: true,
+      // autoScheduled: false — deliberately, and load-bearing. True would
+      // make pruneAutoSchedule's isPrunable predicate (reconcile.ts: any
+      // autoScheduled + planned + future + no-logged-data session) eligible
+      // for deletion the next time ANYTHING calls reconcileStrengthSchedule
+      // for this user — and cross-user-isolation.spec.ts's tenanted-route
+      // probe does exactly that (POST /api/strength/plan-settings/reconcile)
+      // for the owner, well before this spec runs alphabetically. false
+      // reads as "a real session the athlete/Plan > Rearrange placed", which
+      // is honest — the point of this fixture either way.
+      autoScheduled: false,
       watchEligible: true,
       userId: OWNER_USER_ID,
     },
@@ -408,7 +417,7 @@ async function ensureRehabWeekFixtures(): Promise<void> {
       title: "Rehab · Kraft",
       status: "planned",
       targetDurationMinutes: 20,
-      autoScheduled: true,
+      autoScheduled: false,
       watchEligible: true,
       userId: OWNER_USER_ID,
     },
@@ -420,7 +429,7 @@ async function ensureRehabWeekFixtures(): Promise<void> {
       title: "E2E Rehab Week — Lower",
       status: "planned",
       targetDurationMinutes: 40,
-      autoScheduled: true,
+      autoScheduled: false,
       watchEligible: true,
       userId: OWNER_USER_ID,
     },
