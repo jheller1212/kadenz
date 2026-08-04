@@ -186,14 +186,22 @@ function StravaConnection() {
 }
 
 function GCalConnection() {
-  const [status, setStatus] = useState<"loading" | "connected" | "disconnected" | "error">("loading");
+  // "needs_reconnect" is its own state, not folded into "disconnected": both
+  // report connected: false, but a dead grant (see markGCalDisconnected in
+  // gcal-client.ts) is a different message and badge from an athlete who
+  // never connected Google Calendar at all.
+  const [status, setStatus] = useState<
+    "loading" | "connected" | "disconnected" | "needs_reconnect" | "error"
+  >("loading");
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch("/api/integrations/gcal/status")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("status"))))
-      .then((d) => setStatus(d.connected ? "connected" : "disconnected"))
+      .then((d) =>
+        setStatus(d.connected ? "connected" : d.needsReconnect ? "needs_reconnect" : "disconnected")
+      )
       .catch(() => setStatus("error"));
   }, []);
 
@@ -224,7 +232,15 @@ function GCalConnection() {
           <div className="min-w-0">
             <p className="text-[15px] font-medium text-text-1">Google Calendar</p>
             <p className="truncate text-[13px] text-text-3">
-              {status === "loading" ? "Checking…" : status === "connected" ? "Connected" : status === "error" ? "Couldn't reach the server" : "Sync workouts to your calendar"}
+              {status === "loading"
+                ? "Checking…"
+                : status === "connected"
+                  ? "Connected"
+                  : status === "needs_reconnect"
+                    ? "Disconnected — Google needs you to reconnect"
+                    : status === "error"
+                      ? "Couldn't reach the server"
+                      : "Sync workouts to your calendar"}
             </p>
           </div>
         </div>
@@ -233,6 +249,14 @@ function GCalConnection() {
           <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-[12px] font-semibold text-accent-fg">
             Connected
           </span>
+        ) : status === "needs_reconnect" ? (
+          <a
+            href="/api/auth/google"
+            onClick={() => haptic("medium")}
+            className="press shrink-0 rounded-full bg-warn px-4 py-2 text-[13px] font-semibold text-on-accent"
+          >
+            Reconnect
+          </a>
         ) : status === "disconnected" ? (
           <a
             href="/api/auth/google"

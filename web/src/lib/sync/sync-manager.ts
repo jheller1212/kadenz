@@ -1,14 +1,15 @@
 import { db, syncOutbox, workouts, strengthSessions } from "@/db";
-import { eq, and, or, lt, isNull, sql } from "drizzle-orm";
+import { eq, and, or, lt, isNull, inArray, sql } from "drizzle-orm";
 import { asUserId } from "@/lib/user-id";
 import { withUser, type UserId } from "@/db/with-user";
-import { STALE_CLAIM_MS, isMootFailure } from "./outbox-claims";
+import { STALE_CLAIM_MS, isMootFailure, isPermanentGCalFailure, isRevokedGCalGrant } from "./outbox-claims";
 import {
   createEvent,
   patchEvent,
   deleteEvent,
   createStrengthEvent,
   patchStrengthEvent,
+  markGCalDisconnected,
 } from "./gcal-client";
 import type { WorkoutEventInput, StrengthEventInput } from "./gcal-client";
 import { buildPlannedSession } from "@/lib/strength/service";
@@ -327,7 +328,8 @@ async function drainGCalOutboxForUser(userId: UserId): Promise<SyncResult> {
 
   const jobs = await claimJobs("gcal", userId, PER_USER_CLAIM_LIMIT);
 
-  for (const job of jobs) {
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i];
     result.processed++;
 
     try {
@@ -343,6 +345,55 @@ async function drainGCalOutboxForUser(userId: UserId): Promise<SyncResult> {
       const errorMsg = err instanceof Error ? err.message : String(err);
       // claimJobs already incremented attempts as part of the atomic claim.
       const newAttempts = job.attempts;
+
+      if (isPermanentGCalFailure(errorMsg)) {
+        // Every remaining claimed job in this batch is about to fail the
+        // exact same way (dead grant or unconfigured OAuth client — see
+        // isPermanentGCalFailure) — there is nothing to learn from letting
+        // each of them make its own doomed call to Google while this
+        // transaction stays open. Fail this job and everything still
+        // claimed behind it, once, and stop the batch.
+        await db
+          .update(syncOutbox)
+          .set({ status: "failed", lastError: errorMsg, attempts: newAttempts })
+          .where(eq(syncOutbox.id, job.id));
+        result.failed++;
+        result.errors.push({ id: job.id, error: errorMsg });
+
+        const rest = jobs.slice(i + 1);
+        if (rest.length > 0) {
+          await db
+            .update(syncOutbox)
+            .set({ status: "failed", lastError: errorMsg })
+            .where(
+              inArray(
+                syncOutbox.id,
+                rest.map((r) => r.id)
+              )
+            );
+          result.processed += rest.length;
+          result.failed += rest.length;
+          for (const r of rest) result.errors.push({ id: r.id, error: errorMsg });
+        }
+
+        // Only a revoked grant is the athlete's to fix by reconnecting — a
+        // missing GOOGLE_CLIENT_ID/SECRET affects every user identically and
+        // reconnecting cannot repair it, so it does not disconnect anyone
+        // (see isPermanentGCalFailure's doc comment).
+        if (isRevokedGCalGrant(errorMsg)) {
+          try {
+            await markGCalDisconnected(userId, errorMsg);
+          } catch (disconnectErr) {
+            console.error(
+              `Failed to mark Google Calendar disconnected for user ${userId}:`,
+              disconnectErr
+            );
+          }
+        }
+
+        break;
+      }
+
       // A vanished entity or already-deleted calendar event is a settled
       // outcome, not a transient error — drop it instead of retrying to the cap.
       const nextStatus = isMootFailure(errorMsg)

@@ -3,7 +3,8 @@ import { formatLoad } from "@/lib/strength/weights";
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { displayDistance, displayPace, distanceUnitLabel, paceUnitLabel } from "@/lib/units";
 import type { DistanceUnit, WeightUnit } from "@/lib/user-units";
-import { loadCredentials, saveCredentials } from "@/lib/sync/credentials";
+import { loadCredentials, saveCredentials, deleteCredentials } from "@/lib/sync/credentials";
+import { loadUserState, saveUserState, clearUserState } from "@/lib/sync/user-state";
 
 // ── Token storage ─────────────────────────────────────────────────────────────
 // Per-user, via lib/sync/credentials.ts. Before Phase 4 these lived in one
@@ -23,6 +24,40 @@ export async function loadTokens(userId: string): Promise<GCalTokens | null> {
 
 export async function saveTokens(userId: string, tokens: GCalTokens): Promise<void> {
   await saveCredentials(userId, "google", tokens as unknown as Record<string, unknown>);
+  // A fresh, successful save (initial connect, or a completed OAuth
+  // round-trip after reconnecting) means any earlier auto-disconnect no
+  // longer applies. Best-effort: a failure here must not fail the save that
+  // just put working tokens in place.
+  await clearUserState(userId, "google:connection").catch((err) => {
+    console.error("Failed to clear gcal connection issue:", err);
+  });
+}
+
+// ── Auto-disconnect on a dead grant ──────────────────────────────────────────
+// See isRevokedGCalGrant (outbox-claims.ts): `invalid_grant` means the
+// refresh token is dead and retrying it is guaranteed to fail forever. When
+// that happens the integration is disconnected the same way a manual
+// Disconnect does — deleteCredentials — so isConnected() (which reads exactly
+// those credentials) stays the one and only notion of "is this connected",
+// with no parallel flag to drift out of sync with it. What this adds is a
+// record of WHY, so the athlete sees "needs reconnecting" rather than a plain
+// "never connected", and so reconnecting (saveTokens above) knows to clear it.
+
+export interface GCalConnectionIssue {
+  reason: string;
+  at: string;
+}
+
+export async function markGCalDisconnected(userId: string, reason: string): Promise<void> {
+  await deleteCredentials(userId, "google");
+  await saveUserState(userId, "google:connection", {
+    reason,
+    at: new Date().toISOString(),
+  });
+}
+
+export async function loadGCalConnectionIssue(userId: string): Promise<GCalConnectionIssue | null> {
+  return loadUserState<GCalConnectionIssue>(userId, "google:connection");
 }
 
 // ── OAuth2 client factory ─────────────────────────────────────────────────────
