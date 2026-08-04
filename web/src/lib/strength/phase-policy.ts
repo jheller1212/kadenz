@@ -35,6 +35,8 @@
 // session shape at a chosen length; a taper or race-week session is meant to
 // be genuinely minimal, so it's allowed to go lower.
 
+import { PHASE_INTENSITY_COMPOUND_SLUGS, isHsrExercise } from "./program";
+
 export type RunPhase = "base" | "build" | "peak" | "taper";
 
 export interface PhaseSetPolicy {
@@ -93,6 +95,41 @@ export function repRangeFor(weekInfo: WeekInfo | null | undefined): PhaseRepRang
   if (!weekInfo) return null;
   const policy = PHASE_REP_POLICY[weekInfo.phase as RunPhase];
   return policy ? { repLow: policy.repLow, repHigh: policy.repHigh } : null;
+}
+
+/**
+ * The single gate for "does this exercise get its rep range compressed by
+ * running-plan phase" — same three guards session.ts's buildSessionPlan
+ * applies inline (HSR/Achilles-role work is rehab not a training-load knob;
+ * only the curated PHASE_INTENSITY_COMPOUND_SLUGS patterns qualify; an
+ * exercise with no `startWeightKg` can't be progressively loaded at all, so a
+ * heavy range would be meaningless for it) — factored out here so every
+ * caller that needs to know an exercise's *current, phase-resolved* rep
+ * range (buildSessionPlan's main plan, its growth candidates, and the
+ * exercises API route's add-mid-session prefill) shares one definition
+ * instead of re-listing the guards. Returns null when the exercise doesn't
+ * qualify, or when it qualifies but there's no active running plan / week
+ * info to resolve against — callers fall back to the exercise's own static
+ * range in both cases.
+ */
+export function isPhaseIntensityExercise(
+  slug: string,
+  startWeightKg: number | null | undefined,
+  achillesRole: unknown
+): boolean {
+  if (isHsrExercise(slug) || achillesRole) return false;
+  if (startWeightKg == null) return false;
+  return PHASE_INTENSITY_COMPOUND_SLUGS.has(slug);
+}
+
+export function phaseIntensityRepRangeFor(
+  slug: string,
+  startWeightKg: number | null | undefined,
+  achillesRole: unknown,
+  weekInfo: WeekInfo | null | undefined
+): PhaseRepRange | null {
+  if (!isPhaseIntensityExercise(slug, startWeightKg, achillesRole)) return null;
+  return repRangeFor(weekInfo);
 }
 
 /** Same note vocabulary as PHASE_SET_POLICY, for the two week `type`s that

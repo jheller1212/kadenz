@@ -80,6 +80,10 @@ interface SessionDetail {
   title: string;
   status: string;
   targetDurationMinutes: number | null;
+  // ISO timestamp — passed to GET /api/strength/exercises so the catalogue's
+  // repLow/repHigh come back phase-resolved for this session's own
+  // running-plan week (see that route's comment) rather than static.
+  date: string;
   plannedExercises: PlannedExercise[];
   exerciseOverrides?: ExerciseOverride[];
   // This session's own "this session only" equipment choice, if the athlete
@@ -181,6 +185,12 @@ export default function StrengthPage() {
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [catalog, setCatalog] = useState<ExerciseCatalogRow[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  // The session date the cached `catalog` above was resolved against (or
+  // null for the date-less/frequency-sort fetch) — refetched when it no
+  // longer matches the session actually on screen, so switching between
+  // sessions in different running-plan phases within one visit can't serve a
+  // stale phase-resolved repLow/repHigh (see ensureCatalog).
+  const catalogDateRef = useRef<string | null>(null);
   // Exchange/Remove sheet — which exercise (by slug) it's currently open for.
   const [actionsSlug, setActionsSlug] = useState<string | null>(null);
   // Form-demo video sheet — which exercise (by slug) it's currently open for,
@@ -627,6 +637,7 @@ export default function StrengthPage() {
           title: s.title,
           status: s.status,
           targetDurationMinutes: s.targetDurationMinutes,
+          date: s.date,
           plannedExercises: created,
           exerciseOverrides: s.exerciseOverrides ?? [],
           equipmentOverride: s.equipmentOverride ?? null,
@@ -753,6 +764,7 @@ export default function StrengthPage() {
         title: template.name,
         status: "planned",
         targetDurationMinutes: estimateWorkoutDuration(template.slots),
+        date: s.date ?? new Date().toISOString(),
         plannedExercises: planned,
       });
       setExercises(planned);
@@ -834,13 +846,17 @@ export default function StrengthPage() {
     if (!applyOrderedList(sorted)) setSortMode("custom");
   }
 
-  async function ensureCatalog() {
-    if (catalog.length > 0 || catalogLoading) return;
+  async function ensureCatalog(date?: string) {
+    const key = date ?? null;
+    if ((catalog.length > 0 && catalogDateRef.current === key) || catalogLoading) return;
     setCatalogLoading(true);
     try {
-      const res = await apiFetch("/api/strength/exercises");
+      const res = await apiFetch(
+        date ? `/api/strength/exercises?date=${encodeURIComponent(date)}` : "/api/strength/exercises"
+      );
       if (res.ok) {
         setCatalog(await res.json());
+        catalogDateRef.current = key;
       } else {
         setError("Couldn't load the exercise catalogue.");
       }
@@ -853,13 +869,13 @@ export default function StrengthPage() {
 
   async function openAddSheet() {
     setAddOpen(true);
-    await ensureCatalog();
+    await ensureCatalog(session?.date);
   }
 
   async function openActionsFor(slug: string) {
     haptic("light");
     setActionsSlug(slug);
-    await ensureCatalog();
+    await ensureCatalog(session?.date);
   }
 
   // Exchange: keep the slot's sets/reps/rest (same training stimulus), swap
@@ -986,6 +1002,11 @@ export default function StrengthPage() {
       title: snap.session.title,
       status: "planned",
       targetDurationMinutes: snap.session.targetDurationMinutes,
+      // Resuming reopens straight into the guided phase, which has no "Add
+      // exercise" affordance — this is never read for phase resolution, only
+      // kept to satisfy SessionDetail's shape. Real value would need
+      // GuidedSessionInfo to carry the date, which it doesn't.
+      date: new Date().toISOString(),
       plannedExercises: snap.exercises,
     });
     setExercises(snap.exercises);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { setsDeltaFor, phaseSummaryFor, repRangeFor } from "../phase-policy";
+import {
+  setsDeltaFor,
+  phaseSummaryFor,
+  repRangeFor,
+  isPhaseIntensityExercise,
+  phaseIntensityRepRangeFor,
+} from "../phase-policy";
 
 describe("setsDeltaFor", () => {
   it("no active running plan leaves sets untouched (standalone block)", () => {
@@ -90,5 +96,61 @@ describe("repRangeFor", () => {
     const race = repRangeFor({ phase: "build", type: "race" });
     expect(deload).toEqual(normal);
     expect(race).toEqual(normal);
+  });
+});
+
+// isPhaseIntensityExercise / phaseIntensityRepRangeFor is the single gate
+// buildSessionPlan's main slot loop, its growth-candidates path, and the
+// GET /api/strength/exercises route (add-mid-session prefill) all share —
+// see session.ts and app/api/strength/exercises/route.ts.
+describe("isPhaseIntensityExercise", () => {
+  it("a curated compound lift with a startWeightKg qualifies", () => {
+    expect(isPhaseIntensityExercise("db_squat", 20, undefined)).toBe(true);
+  });
+
+  it("an exercise outside the curated set does not qualify, however heavy", () => {
+    expect(isPhaseIntensityExercise("bulgarian_split_squat", 20, undefined)).toBe(false);
+  });
+
+  it("a curated slug with no startWeightKg (can't be progressively loaded) does not qualify", () => {
+    expect(isPhaseIntensityExercise("pull_up", null, undefined)).toBe(false);
+  });
+
+  it("HSR calf work never qualifies even if it were ever added to the curated set", () => {
+    expect(isPhaseIntensityExercise("straight_knee_calf_raise", 20, undefined)).toBe(false);
+  });
+
+  it("Achilles-role work never qualifies — rehab, not a training-load knob", () => {
+    expect(isPhaseIntensityExercise("db_squat", 20, "explosive")).toBe(false);
+  });
+});
+
+describe("phaseIntensityRepRangeFor", () => {
+  it("a qualifying exercise resolves to the phase's compressed range in build", () => {
+    expect(phaseIntensityRepRangeFor("db_squat", 20, undefined, { phase: "build", type: "normal" })).toEqual({
+      repLow: 4,
+      repHigh: 6,
+    });
+  });
+
+  it("the same exercise resolves to base's normal range in a base-phase week", () => {
+    expect(phaseIntensityRepRangeFor("db_squat", 20, undefined, { phase: "base", type: "normal" })).toEqual({
+      repLow: 8,
+      repHigh: 12,
+    });
+  });
+
+  it("an accessory or HSR exercise resolves to null in both phases — caller keeps its own static range", () => {
+    for (const weekInfo of [
+      { phase: "base", type: "normal" } as const,
+      { phase: "build", type: "normal" } as const,
+    ]) {
+      expect(phaseIntensityRepRangeFor("bulgarian_split_squat", 20, undefined, weekInfo)).toBeNull();
+      expect(phaseIntensityRepRangeFor("straight_knee_calf_raise", 20, undefined, weekInfo)).toBeNull();
+    }
+  });
+
+  it("no active running plan (null weekInfo) resolves to null even for a qualifying exercise", () => {
+    expect(phaseIntensityRepRangeFor("db_squat", 20, undefined, null)).toBeNull();
   });
 });
