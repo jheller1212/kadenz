@@ -97,11 +97,14 @@ export const POST = withSession(async (
       })
       .where(and(eq(workouts.id, workoutId), ownedBy(workouts)));
 
-    // Reflect completion on the calendar if connected.
-    isConnected(currentUserId())
+    // Reflect completion on the calendar if connected. Captured once,
+    // synchronously, while still inside the request's AsyncLocalStorage
+    // scope — the .then below runs after this scope may have already unwound.
+    const recordingUserId = currentUserId();
+    isConnected(recordingUserId)
       .then((connected) => {
         if (connected) {
-          queueWorkoutSync(workoutId, "update", "gcal").catch(() => {});
+          queueWorkoutSync(workoutId, "update", recordingUserId, "gcal").catch(() => {});
         }
       })
       .catch(() => {});

@@ -22,7 +22,7 @@ const MAX_ATTEMPTS = 3;
 export async function queueWorkoutSync(
   workoutId: string,
   action: "create" | "update" | "delete",
-  userId: string,
+  userId: UserId,
   target: "gcal" | "garmin" = "gcal",
   payload?: Record<string, unknown>
 ): Promise<void> {
@@ -56,7 +56,7 @@ export async function queueWorkoutSync(
     });
 
   // Fire-and-forget flush, scoped to this job's own owner (see processGCalOutbox).
-  processGCalOutbox(asUserId(userId)).catch(console.error);
+  processGCalOutbox(userId).catch(console.error);
 }
 
 /**
@@ -66,7 +66,7 @@ export async function queueWorkoutSync(
  */
 export async function queueWorkoutEventDeletes(
   events: Array<{ workoutId: string; gcalEventId: string }>,
-  userId: string,
+  userId: UserId,
   target: "gcal" | "garmin" = "gcal"
 ): Promise<void> {
   if (events.length === 0) return;
@@ -97,12 +97,12 @@ export async function queueWorkoutEventDeletes(
         claimedAt: null,
       },
     });
-  processGCalOutbox(asUserId(userId)).catch(console.error);
+  processGCalOutbox(userId).catch(console.error);
 }
 
 export async function queuePlanWorkoutsSync(
   planId: string,
-  userId: string,
+  userId: UserId,
   target: "gcal" | "garmin" = "gcal",
   // Optional explicit set of workout ids to push (e.g. after a regenerate
   // that preserved some workouts untouched — those must not be re-queued as
@@ -146,13 +146,13 @@ export async function queuePlanWorkoutsSync(
     });
 
   // Fire-and-forget flush
-  processGCalOutbox(asUserId(userId)).catch(console.error);
+  processGCalOutbox(userId).catch(console.error);
 }
 
 export async function queueStrengthSessionSync(
   sessionId: string,
   action: "create" | "update" | "delete",
-  userId: string,
+  userId: UserId,
   target: "gcal" | "garmin" = "gcal",
   payload?: Record<string, unknown>
 ): Promise<void> {
@@ -185,7 +185,7 @@ export async function queueStrengthSessionSync(
       },
     });
 
-  processGCalOutbox(asUserId(userId)).catch(console.error);
+  processGCalOutbox(userId).catch(console.error);
 }
 
 // ── Fetch workout with blocks for event creation ──────────────────────────────

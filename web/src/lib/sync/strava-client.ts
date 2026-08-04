@@ -1,6 +1,7 @@
 import { db, syncOutbox, activities, workouts, plans, strengthSessions, strengthSets, deletedActivities, activityTrash } from "@/db";
 import { eq, and, gte, lte, ne, isNull, inArray, sql } from "drizzle-orm";
 import { currentUserId } from "@/db/with-user";
+import { asUserId } from "@/lib/user-id";
 import { isConnected as isGcalConnected } from "@/lib/sync/gcal-client";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { loadCredentials, saveCredentials } from "@/lib/sync/credentials";
@@ -545,7 +546,7 @@ export async function processActivity(userId: string, activityId: number): Promi
         isGcalConnected(userId)
           .then((connected) => {
             if (connected) {
-              return queueStrengthSessionSync(strengthSessionId, "delete", userId, "gcal", {
+              return queueStrengthSessionSync(strengthSessionId, "delete", asUserId(userId), "gcal", {
                 gcalEventId: sess.gcalEventId,
               });
             }

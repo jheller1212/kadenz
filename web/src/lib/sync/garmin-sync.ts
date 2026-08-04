@@ -108,7 +108,7 @@ function startOfToday(): Date {
  * these workouts, so it has their owner in hand).
  */
 export async function queueGarminWorkoutDeletes(
-  userId: string,
+  userId: UserId,
   items: Array<{ workoutId: string; garminWorkoutId: string }>
 ): Promise<void> {
   if (!garminClient.isConfigured()) return;
@@ -138,7 +138,7 @@ export async function queueGarminWorkoutDeletes(
         },
       });
   }
-  processGarminOutbox(asUserId(userId)).catch(console.error);
+  processGarminOutbox(userId).catch(console.error);
 }
 
 /**
@@ -149,7 +149,7 @@ export async function queueGarminWorkoutDeletes(
  * (the plan is still checked against userId, so passing another user's plan
  * id here just finds nothing); omit for all of that user's active plans.
  */
-export async function queueGarminWindowSync(userId: string, planId?: string): Promise<number> {
+export async function queueGarminWindowSync(userId: UserId, planId?: string): Promise<number> {
   if (!garminClient.isConfigured()) return 0;
   const now = new Date();
   const windowStart = new Date(now);
@@ -193,7 +193,7 @@ export async function queueGarminWindowSync(userId: string, planId?: string): Pr
     )
     .onConflictDoNothing({ target: syncOutbox.idempotencyKey });
 
-  processGarminOutbox(asUserId(userId)).catch(console.error);
+  processGarminOutbox(userId).catch(console.error);
   return upcoming.length;
 }
 
@@ -210,7 +210,7 @@ export async function queueGarminWindowSync(userId: string, planId?: string): Pr
  * there via the athlete's explicit "Send to watch" control, which is a
  * one-shot direct push (POST /sessions/[id]/garmin), not this queue.
  */
-export async function queueGarminStrengthWindowSync(userId: string): Promise<number> {
+export async function queueGarminStrengthWindowSync(userId: UserId): Promise<number> {
   const now = new Date();
   const windowStart = new Date(now);
   windowStart.setHours(0, 0, 0, 0);
@@ -255,7 +255,7 @@ export async function queueGarminStrengthWindowSync(userId: string): Promise<num
       set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId },
     });
 
-  processGarminOutbox(asUserId(userId)).catch(console.error);
+  processGarminOutbox(userId).catch(console.error);
   return upcoming.length;
 }
 
@@ -325,7 +325,7 @@ export async function queueGarminStrengthMove(sessionId: string): Promise<void> 
  * be gone), so the caller must pass it.
  */
 export async function queueGarminStrengthDelete(
-  userId: string,
+  userId: UserId,
   sessionId: string,
   garminWorkoutId: string
 ): Promise<void> {
@@ -349,7 +349,7 @@ export async function queueGarminStrengthDelete(
       set: { status: "pending", attempts: 0, lastError: null, claimedAt: null, userId },
     });
 
-  processGarminOutbox(asUserId(userId)).catch(console.error);
+  processGarminOutbox(userId).catch(console.error);
 }
 
 /**
@@ -360,7 +360,7 @@ export async function queueGarminStrengthDelete(
  * plan repairs itself after workouts are removed on Garmin's side. Nothing is
  * ever deleted here; repair only ever adds.
  */
-export async function resyncGarminWindow(userId: string): Promise<{
+export async function resyncGarminWindow(userId: UserId): Promise<{
   repushed: number;
   runsQueued: number;
   strengthQueued: number;

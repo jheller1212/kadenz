@@ -111,10 +111,14 @@ export const POST = withSession(async (
       }
     }
 
-    isConnected(currentUserId())
+    // Captured once, synchronously, while still inside the request's
+    // AsyncLocalStorage scope — the .then below runs after this scope may
+    // have already unwound.
+    const raceResultUserId = currentUserId();
+    isConnected(raceResultUserId)
       .then((connected) => {
         if (connected) {
-          queueWorkoutSync(workoutId, "update", "gcal").catch((err) => {
+          queueWorkoutSync(workoutId, "update", raceResultUserId, "gcal").catch((err) => {
             console.error("Failed to queue gcal update:", err);
           });
         }
