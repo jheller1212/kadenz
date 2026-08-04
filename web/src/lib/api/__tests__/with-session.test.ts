@@ -41,6 +41,31 @@ vi.mock("@/lib/request-user", () => ({
   resolveRequestUserId: async () => sessionUserId,
 }));
 
+// Only consulted on the budgetMs path (listAllUserIds + a manual withUser
+// loop, instead of forEachUser). Kept in sync with fanOutUsers above by the
+// tests that exercise that path.
+vi.mock("@/lib/users", () => ({
+  listAllUserIds: async () => fanOutUsers,
+}));
+
+// Controllable from inside a test: exceeded() returns true once more than
+// `budgetExceededAfterUsers` iterations have asked it, so a test can force
+// truncation after a known number of users without faking wall-clock time.
+let budgetExceededAfterUsers: number | null = null;
+vi.mock("@/lib/cron/budget", () => ({
+  createCronBudget: () => {
+    let calls = 0;
+    return {
+      exceeded: () => {
+        if (budgetExceededAfterUsers === null) return false;
+        calls++;
+        return calls > budgetExceededAfterUsers;
+      },
+      elapsedMs: () => 0,
+    };
+  },
+}));
+
 const { withCronFanOut } = await import("../with-session");
 
 const CRON_SECRET = "test-cron-secret";
@@ -63,6 +88,7 @@ beforeEach(() => {
   process.env.CRON_SECRET = CRON_SECRET;
   fanOutUsers = [USER_A, USER_B];
   sessionUserId = null;
+  budgetExceededAfterUsers = null;
 });
 
 describe("withCronFanOut: status aggregation on the cron path", () => {
@@ -178,5 +204,76 @@ describe("withCronFanOut: the owner-session path", () => {
     const res = await route(cronRequest());
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("withCronFanOut: budgetMs bounds the cron path", () => {
+  it("runs every user and reports no truncation when the budget is never exceeded", async () => {
+    const seen: string[] = [];
+    const route = withCronFanOut(
+      async (userId) => {
+        seen.push(userId);
+        return { ok: true };
+      },
+      "test",
+      { budgetMs: 60_000 }
+    );
+    const res = await route(cronRequest());
+    const body = await res.json();
+
+    expect(seen).toEqual([USER_A, USER_B]);
+    expect(body.truncated).toBeUndefined();
+    expect(res.status).toBe(200);
+  });
+
+  it("stops starting new users once the budget is spent and reports truncated: true", async () => {
+    fanOutUsers = [USER_A, USER_B, "33333333-3333-4333-8333-333333333333"];
+    budgetExceededAfterUsers = 1;
+
+    const seen: string[] = [];
+    const route = withCronFanOut(
+      async (userId) => {
+        seen.push(userId);
+        return { ok: true };
+      },
+      "test",
+      { budgetMs: 60_000 }
+    );
+    const res = await route(cronRequest());
+    const body = await res.json();
+
+    // Only the first user ran — the budget was exceeded before the second.
+    expect(seen).toEqual([USER_A]);
+    expect(body.truncated).toBe(true);
+    expect(body.users).toBe(1);
+    // A truncated pass is deferred work, not a failure.
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+  });
+
+  it("still aggregates a non-2xx from users that did run before truncation", async () => {
+    fanOutUsers = [USER_A, USER_B];
+    budgetExceededAfterUsers = 1;
+
+    const route = withCronFanOut(
+      async () => ({ ok: false, error: "boom" }),
+      "test",
+      { budgetMs: 60_000 }
+    );
+    const res = await route(cronRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.ok).toBe(false);
+    expect(body.truncated).toBe(true);
+  });
+
+  it("without budgetMs, keeps using the unbounded forEachUser path (no truncated field)", async () => {
+    const route = withCronFanOut(async () => ({ ok: true }), "test");
+    const res = await route(cronRequest());
+    const body = await res.json();
+
+    expect(body.truncated).toBeUndefined();
+    expect(body.users).toBe(2);
   });
 });

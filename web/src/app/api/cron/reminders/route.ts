@@ -28,16 +28,26 @@ import { dispatchDueReminders } from "@/lib/reminders/dispatch";
 // workout's start time has passed (see due.ts) — a cron outage does not
 // produce a burst of stale reminders when it comes back.
 
-export const GET = withCronFanOut(async (userId) => {
-  // Caught locally, not left to withCronFanOut/forEachUser: those have no
-  // per-user try/catch of their own, so an uncaught throw here would abort
-  // the whole fan-out and drop every user queued behind this one instead of
-  // just failing this one's dispatch.
-  try {
-    const result = await dispatchDueReminders();
-    return { ok: true, reminders: result };
-  } catch (err) {
-    console.error(`Reminder dispatch error for user ${userId}:`, err);
-    return { ok: false, error: "dispatch failed" };
-  }
-}, "cron-reminders");
+export const GET = withCronFanOut(
+  async (userId) => {
+    // Caught locally, not left to withCronFanOut/forEachUser: those have no
+    // per-user try/catch of their own, so an uncaught throw here would abort
+    // the whole fan-out and drop every user queued behind this one instead of
+    // just failing this one's dispatch.
+    try {
+      const result = await dispatchDueReminders();
+      return { ok: true, reminders: result };
+    } catch (err) {
+      console.error(`Reminder dispatch error for user ${userId}:`, err);
+      return { ok: false, error: "dispatch failed" };
+    }
+  },
+  "cron-reminders",
+  // Runs every 15 minutes (see the file comment) and each iteration can push
+  // over the network per subscribed device, so this is bounded well inside
+  // Vercel's function timeout rather than left to grow with the user count —
+  // see the budgetMs note on withCronFanOut. A truncated run picks up the
+  // remaining users on the next tick; dispatch is claim-before-send, so
+  // nobody is double-reminded.
+  { budgetMs: 120_000 }
+);

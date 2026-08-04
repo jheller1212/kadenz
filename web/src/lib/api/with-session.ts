@@ -2,6 +2,9 @@ import type { NextRequest } from "next/server";
 import { resolveRequestUserId } from "@/lib/request-user";
 import { forEachUser, withUser } from "@/db/with-user";
 import { HttpError } from "./errors";
+import { listAllUserIds } from "@/lib/users";
+import { asUserId } from "@/lib/user-id";
+import { createCronBudget } from "@/lib/cron/budget";
 
 // ── The one way an API route gets a database ──────────────────────────────────
 //
@@ -114,10 +117,34 @@ export function withSession<C>(handler: SessionHandler<C>): SessionHandler<C> {
  *
  * Do not "simplify" this back to a uniform 200. The workflow and the Worker
  * both depend on the status code.
+ *
+ * ── budgetMs: bounding the fan-out ─────────────────────────────────────────
+ *
+ * `forEachUser` iterates every user strictly sequentially, each iteration
+ * opening its own transaction on the instance's single pooled connection
+ * (db/index.ts: `max: 1`). For a handler whose body is a couple of local
+ * queries that is invisible. For a handler that also makes outbound HTTP
+ * calls per user (Garmin, Google Calendar, web push) it is not: the
+ * connection is held for the whole sequential chain, and as the user count
+ * (or one user's backlog) grows this is an unbounded way to spend a hard
+ * platform timeout — Vercel kills the function outright at the limit, which
+ * does not give the open transaction a chance to release the connection
+ * cleanly, and the next invocation can pay for that.
+ *
+ * Passing `budgetMs` switches the cron path from `forEachUser` to a hand-
+ * rolled loop over `listAllUserIds()` that checks a wall-clock budget
+ * between users (never mid-user) and stops starting new ones once it is
+ * spent, marking the response `truncated: true`. That is safe specifically
+ * because every handler this guards is idempotent and re-runs on the next
+ * scheduled tick (15 minutes later) — a truncated run is a slower run, not a
+ * missed one. Omit `budgetMs` to keep the existing unbounded `forEachUser`
+ * behaviour for callers (the on-demand reconcile routes) that are not on a
+ * tight, frequent schedule.
  */
 export function withCronFanOut(
   handler: (userId: string) => Promise<Record<string, unknown>>,
-  label: string
+  label: string,
+  options?: { budgetMs?: number }
 ): (request: NextRequest) => Promise<Response> {
   return async (request) => {
     const secret = process.env.CRON_SECRET;
@@ -127,11 +154,28 @@ export function withCronFanOut(
 
     try {
       if (fromCron) {
-        const results = await forEachUser(async (_tx, userId) => handler(userId));
-        const entries: Array<Record<string, unknown>> = results.map((r) => ({
-          userId: r.userId,
-          ...r.result,
-        }));
+        const budgetMs = options?.budgetMs;
+        let entries: Array<Record<string, unknown>>;
+        let truncated = false;
+
+        if (budgetMs != null) {
+          const budget = createCronBudget(budgetMs);
+          const allUserIds = await listAllUserIds();
+          entries = [];
+          for (const rawUserId of allUserIds) {
+            if (budget.exceeded()) {
+              truncated = true;
+              break;
+            }
+            const userId = asUserId(rawUserId);
+            const result = await withUser(userId, () => handler(userId));
+            entries.push({ userId, ...result });
+          }
+        } else {
+          const results = await forEachUser(async (_tx, userId) => handler(userId));
+          entries = results.map((r) => ({ userId: r.userId, ...r.result }));
+        }
+
         // Explicitly `=== false`, not falsy: a handler that reports neither
         // (a skipped iteration, say) is not a failure, and treating a missing
         // `ok` as one would turn every no-op sweep into a paging 500.
@@ -142,6 +186,7 @@ export function withCronFanOut(
             users: entries.length,
             failed: failed.length,
             results: entries,
+            ...(truncated ? { truncated: true } : {}),
           },
           { status: failed.length === 0 ? 200 : 500 }
         );
