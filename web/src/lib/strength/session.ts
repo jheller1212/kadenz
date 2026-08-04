@@ -3,7 +3,6 @@ import {
   growthCandidatesFor,
   hsrPrescriptionForWeek,
   isHsrExercise,
-  PHASE_INTENSITY_COMPOUND_SLUGS,
   resolveSlotVariant,
   RUNNING_FOCUS_POSTERIOR_CHAIN_SLUGS,
   sessionTemplateFor,
@@ -19,7 +18,14 @@ import {
 } from "./progression";
 import { estimateWorkoutDuration } from "./estimate";
 import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
-import { PHASE_MIN_SETS, setsDeltaFor, repRangeFor, type WeekInfo } from "./phase-policy";
+import {
+  PHASE_MIN_SETS,
+  setsDeltaFor,
+  repRangeFor,
+  isPhaseIntensityExercise,
+  phaseIntensityRepRangeFor,
+  type WeekInfo,
+} from "./phase-policy";
 import type {
   Complaint,
   Equipment,
@@ -298,12 +304,7 @@ export function buildSessionPlan(
     let progRepLow = ex.repLow ?? 8;
     let progRepHigh = ex.repHigh ?? 12;
     let lastSessionRepRange: PrescribedRepRange | null = null;
-    if (
-      !isHsrExercise(slot.exerciseSlug) &&
-      !ex.achillesRole &&
-      PHASE_INTENSITY_COMPOUND_SLUGS.has(resolved.slug) &&
-      ex.startWeightKg != null
-    ) {
+    if (isPhaseIntensityExercise(resolved.slug, ex.startWeightKg, ex.achillesRole)) {
       const phaseRange = repRangeFor(opts.weekInfo);
       if (phaseRange) {
         repLow = phaseRange.repLow;
@@ -427,10 +428,21 @@ export function buildSessionPlan(
     .map((ex) => {
       const history = historyBySlug[ex.slug] ?? [];
       const sets = ex.defaultSets ?? 3;
-      const repLow = ex.repLow ?? 8;
-      const repHigh = ex.repHigh ?? 12;
+      // A growth candidate is a fresh addition to the plan, same as a
+      // mid-session "Add exercise" — it must respect the running-plan phase
+      // intensity lever exactly like the main plan above (see
+      // isPhaseIntensityExercise), not fall back to the exercise's static
+      // catalogue range and quietly disagree with the rest of the session.
+      const phaseRange = phaseIntensityRepRangeFor(
+        ex.slug,
+        ex.startWeightKg,
+        ex.achillesRole,
+        opts.weekInfo
+      );
+      const repLow = phaseRange?.repLow ?? ex.repLow ?? 8;
+      const repHigh = phaseRange?.repHigh ?? ex.repHigh ?? 12;
       const restSeconds = opts.restSecondsOverride ?? 90;
-      const progression = suggestProgression(ex, history, ex.repLow ?? 8, ex.repHigh ?? 12, lifterProfile);
+      const progression = suggestProgression(ex, history, repLow, repHigh, lifterProfile);
       return {
         slug: ex.slug,
         name: ex.name,

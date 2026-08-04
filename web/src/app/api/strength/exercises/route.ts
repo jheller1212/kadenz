@@ -4,6 +4,9 @@ import { db, strengthExercises, strengthSessions, strengthSets } from "@/db";
 import { getVerifiedProfileId } from "@/lib/profiles";
 import { withSession } from "@/lib/api/with-session";
 import { ownedBy } from "@/lib/api/owned";
+import { getProgramWeekAndPhase } from "@/lib/strength/service";
+import { phaseIntensityRepRangeFor } from "@/lib/strength/phase-policy";
+import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
 
 // ── GET /api/strength/exercises ───────────────────────────────────────────────
 // The seeded exercise catalogue, enriched with the athlete's last-used weight
@@ -13,10 +16,28 @@ import { ownedBy } from "@/lib/api/owned";
 // strengthExercises itself is a global, shared catalogue (seeded once, no
 // owner column) — it is never scoped to a caller. Only the set-history join
 // below, which is real athlete data, needs ownership.
+//
+// `date` (optional query param, the session the picker was opened from) makes
+// the catalogue's own `repLow`/`repHigh` phase-aware for the curated
+// PHASE_INTENSITY_COMPOUND_SLUGS patterns (see phase-policy.ts
+// phaseIntensityRepRangeFor) — resolved here, server-side, off the SAME
+// running-plan week the rest of that session's plan was built from
+// (buildSessionPlan / session.ts), rather than the client re-deriving the
+// phase rule (it doesn't have the week data to do so, and doing it there
+// would be a second implementation of the rule — see docs/DUPLICATION.md).
+// `lastRepLow`/`lastRepHigh` (below, from the athlete's own logged history)
+// are untouched: that's what they actually did, not a catalogue default.
+// Without `date`, `repLow`/`repHigh` stay exactly the static catalogue
+// values, same as before this existed (used by e.g. the frequency-sort path,
+// which never reads them).
 
 export const GET = withSession(async (request: NextRequest) => {
   const profileId = await getVerifiedProfileId(request);
   try {
+    const dateParam = request.nextUrl.searchParams.get("date");
+    const weekInfo = dateParam
+      ? (await getProgramWeekAndPhase(new Date(dateParam))).weekInfo
+      : null;
     // The catalogue and the athlete's set history are independent lookups —
     // run them together instead of two serialised round trips.
     const [rows, sets] = await Promise.all([
@@ -83,8 +104,23 @@ export const GET = withSession(async (request: NextRequest) => {
     return Response.json(
       rows.map((r) => {
         const l = latest.get(r.id);
+        // Same guard as the main plan (see the module comment above): only
+        // the curated compound patterns, only with a startWeightKg, only
+        // when there's an active running plan's week to resolve against —
+        // otherwise the catalogue's own static repLow/repHigh pass through
+        // unchanged.
+        const phaseRange = weekInfo
+          ? phaseIntensityRepRangeFor(
+              r.slug,
+              r.startWeightKg,
+              EXERCISE_BY_SLUG[r.slug]?.achillesRole,
+              weekInfo
+            )
+          : null;
         return {
           ...r,
+          repLow: phaseRange?.repLow ?? r.repLow,
+          repHigh: phaseRange?.repHigh ?? r.repHigh,
           lastWeightKg: l?.weightKg ?? null,
           lastRepLow: l?.repLow ?? null,
           lastRepHigh: l?.repHigh ?? null,

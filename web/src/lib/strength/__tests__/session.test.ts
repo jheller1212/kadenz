@@ -8,7 +8,7 @@ import {
   type PlannedExercise,
 } from "../session";
 import { SESSION_TEMPLATES } from "../program";
-import type { ExerciseSessionHistory } from "../types";
+import type { ExerciseSessionHistory, Equipment } from "../types";
 
 describe("buildSessionPlan", () => {
   it("places explosive Achilles work before slow-heavy HSR work", () => {
@@ -416,6 +416,39 @@ describe("running-plan phase intensity", () => {
     expect(wallSit).toBeDefined();
     expect([pushUp.repLow, pushUp.repHigh]).toEqual([8, 20]); // its own designed range, unchanged
     expect([wallSit.repLow, wallSit.repHigh]).toEqual([30, 45]); // unchanged
+  });
+
+  it("compresses a phase-intensity compound lift pulled in as a growth candidate (duration-fit budget), same as one already in the template", () => {
+    // "upper" at a generous duration gains floor_press (a horizontal-press
+    // compound in PHASE_INTENSITY_COMPOUND_SLUGS) as a growth candidate, not
+    // one of its own template slots — this exercises the SAME phase-intensity
+    // gate through buildSessionPlan's growth-candidates path (see
+    // isPhaseIntensityExercise in phase-policy.ts) rather than the main slot
+    // loop above.
+    const FULL_EQUIPMENT: Equipment[] = [
+      "barbell",
+      "dumbbell",
+      "kettlebell",
+      "band",
+      "bench",
+      "pullup_bar",
+    ];
+    const base = buildSessionPlan("upper", {
+      targetDurationMinutes: 90,
+      equipment: FULL_EQUIPMENT,
+      weekInfo: { phase: "base", type: "normal" },
+    });
+    const build = buildSessionPlan("upper", {
+      targetDurationMinutes: 90,
+      equipment: FULL_EQUIPMENT,
+      weekInfo: { phase: "build", type: "normal" },
+    });
+    const baseCandidate = base.find((p) => p.slug === "floor_press")!;
+    const buildCandidate = build.find((p) => p.slug === "floor_press")!;
+    expect(baseCandidate).toBeDefined();
+    expect(buildCandidate).toBeDefined();
+    expect([baseCandidate.repLow, baseCandidate.repHigh]).toEqual([8, 12]);
+    expect([buildCandidate.repLow, buildCandidate.repHigh]).toEqual([4, 6]);
   });
 
   it("resolves the same slug identically across two templates in the same phase, even though one tags it accessory and the other doesn't", () => {
