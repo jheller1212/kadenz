@@ -13,8 +13,14 @@
 import { db, userIntegrationState } from "@/db";
 import { and, eq } from "drizzle-orm";
 
-/** Keys are namespaced by integration so one reader cannot read another's blob. */
-export type UserStateKey = "garmin:import" | "garmin:config";
+/**
+ * Keys are namespaced by integration so one reader cannot read another's blob.
+ * "google:connection" records why an athlete's Google Calendar was
+ * auto-disconnected (see markGCalDisconnected in gcal-client.ts) — present
+ * only while that's true, cleared the moment a fresh OAuth round-trip saves
+ * new tokens.
+ */
+export type UserStateKey = "garmin:import" | "garmin:config" | "google:connection";
 
 /**
  * `userId`'s value for `key`, or null if they have none.
@@ -62,4 +68,11 @@ export async function saveUserState(
       target: [userIntegrationState.userId, userIntegrationState.key],
       set: { value, updatedAt: new Date() },
     });
+}
+
+/** Forgets `userId`'s value for `key`. A no-op (not an error) if there is none. */
+export async function clearUserState(userId: string, key: UserStateKey): Promise<void> {
+  await db
+    .delete(userIntegrationState)
+    .where(and(eq(userIntegrationState.userId, userId), eq(userIntegrationState.key, key)));
 }

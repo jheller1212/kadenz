@@ -9,21 +9,34 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const integrationCredentials = { __t: "integrationCredentials" } as Record<string, unknown>;
 for (const k of ["userId", "provider", "payload"]) integrationCredentials[k] = k;
+const userIntegrationState = { __t: "userIntegrationState" } as Record<string, unknown>;
+for (const k of ["userId", "key", "value"]) userIntegrationState[k] = k;
 
+// Two logical tables share this one mock DB: integration_credentials (via
+// credentials.ts) and user_integration_state (via user-state.ts). Both go
+// through select/insert/delete, so calls are tagged by which table object
+// they were built against rather than kept in separate queues.
 let selectQueue: unknown[][] = [];
 function queueSelect(rows: unknown[]) {
   selectQueue.push(rows);
 }
 
 interface InsertCall {
+  table: unknown;
   values: unknown;
   conflictTarget?: unknown;
 }
 const insertCalls: InsertCall[] = [];
 
+interface DeleteCall {
+  table: unknown;
+}
+const deleteCalls: DeleteCall[] = [];
+
 function resetMockDb() {
   selectQueue = [];
   insertCalls.length = 0;
+  deleteCalls.length = 0;
 }
 
 function chain(resolveTo: unknown) {
@@ -37,11 +50,12 @@ function chain(resolveTo: unknown) {
 
 vi.mock("@/db", () => ({
   integrationCredentials,
+  userIntegrationState,
   db: {
     select: () => ({ from: () => chain(selectQueue.shift() ?? []) }),
-    insert: () => ({
+    insert: (table: unknown) => ({
       values: (values: unknown) => {
-        const call: InsertCall = { values };
+        const call: InsertCall = { table, values };
         insertCalls.push(call);
         return {
           onConflictDoUpdate: (opts: { target: unknown }) => {
@@ -49,6 +63,12 @@ vi.mock("@/db", () => ({
             return Promise.resolve(undefined);
           },
         };
+      },
+    }),
+    delete: (table: unknown) => ({
+      where: () => {
+        deleteCalls.push({ table });
+        return Promise.resolve(undefined);
       },
     }),
   },
@@ -76,7 +96,8 @@ vi.mock("googleapis", () => ({
 }));
 vi.mock("@/lib/strength/weights", () => ({ formatLoad: vi.fn() }));
 
-const { getAuthClient, loadTokens, isConnected } = await import("../gcal-client");
+const { getAuthClient, loadTokens, isConnected, markGCalDisconnected, loadGCalConnectionIssue, saveTokens } =
+  await import("../gcal-client");
 
 const STORED_TOKENS = {
   access_token: "at-1",
@@ -122,5 +143,54 @@ describe("loadTokens / isConnected: no connection", () => {
     queueSelect([]);
     const connected = await isConnected("user-with-nothing-connected");
     expect(connected).toBe(false);
+  });
+});
+
+describe("markGCalDisconnected: a dead grant disconnects, once, with a reason", () => {
+  it("forgets the credentials (isConnected's own source of truth) and records why", async () => {
+    await markGCalDisconnected("user-a", "invalid_grant");
+
+    // Same action a manual Disconnect performs — deleteCredentials — so
+    // isConnected() never grows a second notion of "connected".
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0].table).toBe(integrationCredentials);
+
+    // Plus a record of why, for the settings UI to show "needs reconnecting"
+    // instead of a plain "never connected".
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0].table).toBe(userIntegrationState);
+    const values = insertCalls[0].values as Record<string, unknown>;
+    expect(values.userId).toBe("user-a");
+    expect(values.key).toBe("google:connection");
+    expect((values.value as Record<string, unknown>).reason).toBe("invalid_grant");
+  });
+});
+
+describe("loadGCalConnectionIssue", () => {
+  it("returns the recorded reason when one exists", async () => {
+    queueSelect([{ value: { reason: "invalid_grant", at: "2026-08-01T00:00:00.000Z" } }]);
+    const issue = await loadGCalConnectionIssue("user-a");
+    expect(issue?.reason).toBe("invalid_grant");
+  });
+
+  it("returns null for a user who was never disconnected this way", async () => {
+    queueSelect([]);
+    const issue = await loadGCalConnectionIssue("user-a");
+    expect(issue).toBeNull();
+  });
+});
+
+describe("saveTokens: reconnecting clears a prior disconnect record", () => {
+  it("deletes the google:connection row alongside saving fresh credentials", async () => {
+    await saveTokens("user-a", {
+      access_token: "at-new",
+      refresh_token: "rt-new",
+      expiry_date: Date.now() + 3600_000,
+    });
+
+    expect(insertCalls).toHaveLength(1); // the credentials save itself
+    expect(insertCalls[0].table).toBe(integrationCredentials);
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0].table).toBe(userIntegrationState);
   });
 });
