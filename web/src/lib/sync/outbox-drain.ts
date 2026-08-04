@@ -60,7 +60,7 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
 
   try {
     if (await isGarminWorkoutSyncEnabled(userId)) {
-      await queueGarminStrengthWindowSync(userId);
+      await queueGarminStrengthWindowSync(uid);
     }
   } catch (err) {
     console.error("Failed to queue Garmin strength top-up:", err);

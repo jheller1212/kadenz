@@ -10,6 +10,7 @@ import { queueWorkoutEventDeletes } from "./sync-manager";
 import { isConnected } from "./gcal-client";
 import { queueGarminWorkoutDeletes } from "./garmin-sync";
 import { garminClient } from "./garmin-client";
+import { asUserId } from "@/lib/user-id";
 import { buildRetireDeleteBatch, type RetireCandidateWorkout } from "./plan-retire-rules";
 
 export type { RetireCandidateWorkout } from "./plan-retire-rules";
@@ -65,15 +66,19 @@ export async function queueRetireDeletes(
 
   if (gcalDeletes.length > 0) {
     for (const [owner, ownerDeletes] of groupByOwner(gcalDeletes, ownerByWorkoutId)) {
-      if (await isConnected(owner)) {
-        await queueWorkoutEventDeletes(ownerDeletes, owner);
+      // owner comes off the `workouts.userId` column read above, not a
+      // caller-scoped session — validated and branded here (see
+      // lib/user-id.ts asUserId).
+      const ownerId = asUserId(owner);
+      if (await isConnected(ownerId)) {
+        await queueWorkoutEventDeletes(ownerDeletes, ownerId);
         gcalQueued += ownerDeletes.length;
       }
     }
   }
   if (garminDeletes.length > 0 && garminClient.isConfigured()) {
     for (const [owner, ownerDeletes] of groupByOwner(garminDeletes, ownerByWorkoutId)) {
-      await queueGarminWorkoutDeletes(owner, ownerDeletes);
+      await queueGarminWorkoutDeletes(asUserId(owner), ownerDeletes);
       garminQueued += ownerDeletes.length;
     }
   }

@@ -64,10 +64,13 @@ export const PATCH = withSession(async (
       return Response.json({ error: "Workout not found" }, { status: 404 });
     }
 
-    // Queue gcal update if connected
-    isConnected(currentUserId()).then((connected) => {
+    // Queue gcal update if connected. Captured once, synchronously, while
+    // still inside the request's AsyncLocalStorage scope — the .then below
+    // runs after this scope may have already unwound.
+    const completingUserId = currentUserId();
+    isConnected(completingUserId).then((connected) => {
       if (connected) {
-        queueWorkoutSync(workoutId, "update", "gcal").catch((err) => {
+        queueWorkoutSync(workoutId, "update", completingUserId, "gcal").catch((err) => {
           console.error("Failed to queue gcal update:", err);
         });
       }

@@ -273,7 +273,7 @@ export const POST = withSession(async (request: NextRequest) => {
       await withUser(ownerId, async () => {
         try {
           if (await isConnected(currentUserId())) {
-            await queuePlanWorkoutsSync(planId, "gcal");
+            await queuePlanWorkoutsSync(planId, ownerId, "gcal");
           }
         } catch (err) {
           console.error("Failed to queue gcal sync:", err);

@@ -11,6 +11,7 @@ import {
 } from "@/db";
 import { ownedBy } from "@/lib/api/owned";
 import { currentUserId } from "@/db/with-user";
+import { asUserId } from "@/lib/user-id";
 import { queueStrengthSessionSync } from "@/lib/sync/sync-manager";
 import { queueGarminStrengthDelete, queueGarminStrengthMove } from "@/lib/sync/garmin-sync";
 import { blockEndDate, blockWeekBudget, blockWeekNumber } from "./block";
@@ -69,6 +70,9 @@ function dowInTz(d: Date): number {
 }
 
 export async function ensureStrengthSchedule(profileId: string | null, userId: string) {
+  // Branded once here: the sync queue functions require a validated UserId
+  // (see lib/user-id.ts) rather than an arbitrary string.
+  const uid = asUserId(userId);
   const [settings] = await db
     .select()
     .from(strengthPlanSettings)
@@ -408,7 +412,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     if (row) {
       created++;
       if (gcal) {
-        queueStrengthSessionSync(row.id, "create", userId, "gcal").catch(() => {});
+        queueStrengthSessionSync(row.id, "create", uid, "gcal").catch(() => {});
       }
     }
   }
@@ -438,7 +442,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     if (row) {
       created++;
       if (gcal) {
-        queueStrengthSessionSync(row.id, "create", userId, "gcal").catch(() => {});
+        queueStrengthSessionSync(row.id, "create", uid, "gcal").catch(() => {});
       }
     }
   }
@@ -474,7 +478,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     // so the watch/calendar copies need re-pushing, not just the in-app view.
     queueGarminStrengthMove(existingRow.id).catch(() => {});
     if (gcal) {
-      queueStrengthSessionSync(existingRow.id, "update", userId, "gcal").catch(() => {});
+      queueStrengthSessionSync(existingRow.id, "update", uid, "gcal").catch(() => {});
     }
   }
 
@@ -520,7 +524,7 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
       // no-op when an integration is off.
       queueGarminStrengthMove(s.id).catch(() => {});
       if (gcal) {
-        queueStrengthSessionSync(s.id, "update", userId, "gcal").catch(() => {});
+        queueStrengthSessionSync(s.id, "update", uid, "gcal").catch(() => {});
       }
     }
   }
@@ -550,6 +554,9 @@ export async function resyncPlannedStrengthSessions(
   profileId: string | null,
   userId: string
 ) {
+  // Branded once here: the sync queue functions require a validated UserId
+  // (see lib/user-id.ts) rather than an arbitrary string.
+  const uid = asUserId(userId);
   // Calendar connections are per user now (see gcal-client loadTokens), so the
   // check needs the person, and a guest profile's sessions never go to the
   // owner's calendar — same rule ensureStrengthSchedule follows above.
@@ -576,13 +583,16 @@ export async function resyncPlannedStrengthSessions(
 
   for (const s of sessions) {
     await queueGarminStrengthMove(s.id).catch(() => {});
-    if (gcal) await queueStrengthSessionSync(s.id, "update", userId, "gcal").catch(() => {});
+    if (gcal) await queueStrengthSessionSync(s.id, "update", uid, "gcal").catch(() => {});
   }
   return { resynced: sessions.length };
 }
 
 /** Remove future auto-scheduled sessions the user never touched. */
 export async function pruneAutoSchedule(profileId: string | null, userId: string) {
+  // Branded once here: the sync queue functions require a validated UserId
+  // (see lib/user-id.ts) rather than an arbitrary string.
+  const uid = asUserId(userId);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const candidates = await db
@@ -646,12 +656,12 @@ export async function pruneAutoSchedule(profileId: string | null, userId: string
   // linger forever on services the user can't clean up from here.
   for (const s of future) {
     if (s.gcalEventId) {
-      await queueStrengthSessionSync(s.id, "delete", userId, "gcal", {
+      await queueStrengthSessionSync(s.id, "delete", uid, "gcal", {
         gcalEventId: s.gcalEventId,
       }).catch(() => {});
     }
     if (s.garminWorkoutId) {
-      await queueGarminStrengthDelete(userId, s.id, s.garminWorkoutId).catch(() => {});
+      await queueGarminStrengthDelete(uid, s.id, s.garminWorkoutId).catch(() => {});
     }
   }
 
@@ -729,13 +739,16 @@ export async function pruneStaleAdhocSessions(): Promise<{ removed: number }> {
   // session's own stored userId is what tells the delete which person's
   // calendar it belongs to; there is no single caller-scoped user here.
   for (const s of stale) {
+    // s.userId is a stored column, not caller-supplied — validated and
+    // branded here (see lib/user-id.ts asUserId).
+    const owner = asUserId(s.userId);
     if (s.gcalEventId) {
-      await queueStrengthSessionSync(s.id, "delete", s.userId, "gcal", {
+      await queueStrengthSessionSync(s.id, "delete", owner, "gcal", {
         gcalEventId: s.gcalEventId,
       }).catch(() => {});
     }
     if (s.garminWorkoutId) {
-      await queueGarminStrengthDelete(s.userId, s.id, s.garminWorkoutId).catch(() => {});
+      await queueGarminStrengthDelete(owner, s.id, s.garminWorkoutId).catch(() => {});
     }
   }
 
@@ -800,7 +813,9 @@ export async function autoCloseAbandonedSessions(): Promise<{ closed: number }> 
     // "planned" push on the watch that's actually done is stale-is-worse-
     // than-missing, so it comes off rather than being left to look current.
     if (s.garminWorkoutId) {
-      queueGarminStrengthDelete(s.userId, s.id, s.garminWorkoutId).catch((err) =>
+      // s.userId is a stored column, not caller-supplied — validated and
+      // branded here (see lib/user-id.ts asUserId).
+      queueGarminStrengthDelete(asUserId(s.userId), s.id, s.garminWorkoutId).catch((err) =>
         console.error("Failed to queue Garmin delete on auto-close:", err)
       );
     }
