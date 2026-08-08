@@ -29,3 +29,36 @@ export function pickerTypesFor(complaints: Complaint[]): StrengthSessionType[] {
     ? [...BASE_PICKER_TYPES, "achilles"]
     : [...BASE_PICKER_TYPES];
 }
+
+// ── Does this card's session actually carry the rehab block? ─────────────────
+//
+// One fact, and it has exactly one source: `achillesAttached` on the session
+// itself. The weekly rehab pass decides it per calendar day, so most sessions
+// in a week don't carry it even for an athlete who reports the complaint.
+//
+// The card used to fall back to "does this athlete report the Achilles
+// complaint" whenever there was no planned session of that type today, on the
+// grounds that a freshly-created session followed the complaint list too. That
+// stopped being true in #155: a session created from the picker is written
+// with achillesAttached = false (the POST route never sets it), and
+// sessionTemplateFor now keys the block on that flag alone — it skips the
+// "achilles" complaint explicitly. buildPlannedSession's `hasHsrWork` still
+// reads the complaint list, but only to pick the HSR ramp week for a session
+// that is carrying the block; it cannot add one.
+//
+// So the fallback promised rehab work on every card, in every session the
+// athlete then started without any. Same shape as the other duplication bugs
+// in this repo (docs/DUPLICATION.md): one fact, two places computing it,
+// drifting the moment one side changed.
+//
+// A session that doesn't exist yet will be created with the flag false, so the
+// honest answer for it is simply "no".
+export function cardCarriesRehabWork(
+  type: StrengthSessionType,
+  todaysPlannedSession: { achillesAttached?: boolean } | undefined
+): boolean {
+  // The dedicated Rehab session IS the block — advertising "+ Rehab work" on
+  // top of it would read as a second dose.
+  if (type === "achilles") return false;
+  return Boolean(todaysPlannedSession?.achillesAttached);
+}
