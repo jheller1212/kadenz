@@ -446,6 +446,11 @@ const manifest: Record<string, ManifestEntry> = {
       return { url: `/api/stats/hr-zones?month=${month}&bounds=120,140,160,175&max=190` };
     },
   },
+  "GET /api/strength/plan-preview": {
+    kind: "tenanted-list",
+    request: () => ({ url: "/api/strength/plan-preview?type=upper&minutes=30" }),
+    note: "builds what a programme would prescribe today from the caller's own plan settings, complaints and lifting history (buildPlannedSession), and persists nothing — the read side of Kraft's 'Add another block'. The `type` in the query names a programme template, never a row id, so there is nothing cross-user to address.",
+  },
   "GET /api/stats/training-load": { kind: "tenanted-list" },
   "GET /api/fitness-estimate": { kind: "tenanted-list" },
   "GET /api/plan/adjustments": { kind: "tenanted-list" },
