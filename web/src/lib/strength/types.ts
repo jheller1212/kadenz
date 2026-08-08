@@ -160,6 +160,19 @@ export interface TemplateSlot {
    * which variant selection must never touch (see AchillesRole).
    */
   variants?: SlotVariant[];
+  /**
+   * Complaint work that rounds out a complaint's primary exercise rather than
+   * being the exercise itself (see program.ts TARGETED_WORK, where index 0 of
+   * each complaint is the primary and the rest are supporting).
+   *
+   * The only thing this changes is what happens on a duplicate: targeted work
+   * is normally kept even when it repeats an exercise the session already
+   * has, so an athlete who reported an injury can never end up with nothing
+   * for it. Supporting work has no such claim — a second copy of a movement
+   * already in the session rounds nothing out — so it is dropped instead (see
+   * session.ts buildSessionPlan).
+   */
+  supporting?: boolean;
 }
 
 export interface SessionTemplate {
