@@ -33,6 +33,7 @@ import type {
   SessionType,
 } from "@/components/strength/GuidedSession";
 import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
+import { pickerTypesFor } from "@/lib/strength/picker";
 // Heavy, full-screen surfaces only reached deep in the flow — load them on
 // demand so the strength landing bundle stays small.
 const GuidedSession = dynamic(() => import("@/components/strength/GuidedSession"), {
@@ -140,15 +141,11 @@ const TYPE_META: Record<
   full_body: { title: "Full Body", sub: "6 lifts · ~38 min", color: "#34D399", icon: Dumbbell },
 };
 
-// The picker only offers the standard programme types. The dedicated
-// "achilles" type is scheduled automatically as the weekly rehab pass places
-// it (see reconcile.ts computeAchillesRehabDays) — it's a real, distinct
-// session the athlete sees and completes on the Kraft screen, just not
-// something you hand-pick from here (the upper_achilles/lower_achilles combo
-// types are historic only). TYPE_META keeps all six entries so every session
-// type — freshly scheduled or historic — still renders its title, color and
-// icon correctly wherever it's looked up.
-const PICKER_TYPES: SessionType[] = ["full_body", "upper", "lower"];
+// Which programme cards the picker offers lives in lib/strength/picker.ts —
+// see pickerTypesFor for why Rehab is hand-pickable and why it's gated on the
+// complaint. TYPE_META keeps all six entries regardless, so every session type
+// — freshly scheduled or historic — still renders its title, color and icon
+// correctly wherever it's looked up.
 
 // Categories eligible for "Add exercise" per session type.
 const ADD_CATEGORIES: Record<SessionType, Array<ExerciseCatalogRow["category"]>> = {
@@ -1319,7 +1316,7 @@ export default function StrengthPage() {
             Programme
           </p>
           <div className="flex flex-col gap-2" data-testid="kraft-programme-list">
-            {PICKER_TYPES.map((t) => {
+            {pickerTypesFor(complaints).map((t) => {
               const meta = TYPE_META[t];
               const Icon = meta.icon;
               // Tapping this card either adopts today's already-planned
@@ -1334,10 +1331,15 @@ export default function StrengthPage() {
               // adopt yet does the complaint list decide, because a
               // freshly-created session really does fall back to it (see
               // service.ts buildPlannedSession's hasHsrWork).
+              //
+              // The Rehab card is exempt: it IS the rehab block, so promising
+              // it "+ Rehab work" on top would read as a second dose.
               const todaysOfType = todaySessions.find((s) => s.type === t && s.status === "planned");
-              const hasRehabWork = todaysOfType
-                ? Boolean(todaysOfType.achillesAttached)
-                : complaints.includes("achilles");
+              const hasRehabWork =
+                t !== "achilles" &&
+                (todaysOfType
+                  ? Boolean(todaysOfType.achillesAttached)
+                  : complaints.includes("achilles"));
               const sub = hasRehabWork ? `${meta.sub} + Rehab work` : meta.sub;
               return (
                 <motion.button
@@ -1447,36 +1449,45 @@ export default function StrengthPage() {
         >
           {startType && (
             <div className="px-4 pb-6">
-              <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">
-                Length today
-              </p>
-              <div className="flex flex-wrap gap-1.5" data-testid="kraft-duration-chips">
-                <button
-                  type="button"
-                  aria-pressed={startDuration == null}
-                  data-testid="kraft-duration-usual"
-                  onClick={() => { haptic("light"); setStartDuration(null); }}
-                  className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
-                    startDuration == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
-                  }`}
-                >
-                  Usual
-                </button>
-                {START_DURATIONS.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    aria-pressed={startDuration === m}
-                    data-testid={`kraft-duration-${m}`}
-                    onClick={() => { haptic("light"); setStartDuration(m); }}
-                    className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
-                      startDuration === m ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
-                    }`}
-                  >
-                    {m} min
-                  </button>
-                ))}
-              </div>
+              {/* Rehab is a fixed, dose-specific protocol, not a workout to
+                  stretch or shrink — the scheduler already refuses to fit it
+                  to the athlete's session-length preference (schedule.ts
+                  estimatedMinutesFor passes no target for "achilles"), so
+                  offering the chips here would be a control that does nothing. */}
+              {startType !== "achilles" && (
+                <>
+                  <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">
+                    Length today
+                  </p>
+                  <div className="flex flex-wrap gap-1.5" data-testid="kraft-duration-chips">
+                    <button
+                      type="button"
+                      aria-pressed={startDuration == null}
+                      data-testid="kraft-duration-usual"
+                      onClick={() => { haptic("light"); setStartDuration(null); }}
+                      className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                        startDuration == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                      }`}
+                    >
+                      Usual
+                    </button>
+                    {START_DURATIONS.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        aria-pressed={startDuration === m}
+                        data-testid={`kraft-duration-${m}`}
+                        onClick={() => { haptic("light"); setStartDuration(m); }}
+                        className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                          startDuration === m ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                        }`}
+                      >
+                        {m} min
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <p className="mb-2 mt-5 text-[12px] font-bold uppercase tracking-wide text-text-3">
                 Equipment today
