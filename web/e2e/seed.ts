@@ -75,6 +75,30 @@ function daysAgo(n: number): Date {
   return d;
 }
 
+/**
+ * `dayOffset` days after LAST week's Monday (0 = Monday, 4 = Friday), at noon.
+ *
+ * For fixtures that must sit in the previous calendar week no matter which
+ * weekday the suite runs on — see SESSION_PLAN, and ensureRehabWeekFixtures
+ * for the current-week fixture whose count they must not disturb.
+ */
+function lastWeekDay(dayOffset: number): Date {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  // Back to this week's Monday (Sunday is getDay() === 0, so (day + 6) % 7
+  // keeps it in the current week), then back one more week.
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7 + dayOffset);
+  return d;
+}
+
+/**
+ * The day (offset from last week's Monday) shared by the seeded "Lower
+ * session" and the unlinked activity activity-link.spec.ts links it to.
+ * They have to fall on the same date for the session to be offered as a
+ * link candidate, so both read it from here rather than repeating a number.
+ */
+const LINK_FIXTURE_DAY_OFFSET = 4;
+
 function daysFromNow(n: number): Date {
   return daysAgo(-n);
 }
@@ -221,14 +245,30 @@ async function ensureOwnerCore(): Promise<void> {
     .from(strengthExercises)
     .limit(6);
 
-  const SESSION_PLAN: Array<{ type: "full_body" | "upper" | "lower"; daysAgoN: number }> = [
-    { type: "full_body", daysAgoN: 8 },
-    { type: "upper", daysAgoN: 5 },
-    { type: "lower", daysAgoN: 2 },
+  // Anchored to LAST week's Monday, not to "N days ago" — these three land in
+  // the previous calendar week on every weekday the suite runs.
+  //
+  // As days-ago offsets (8/5/2) they drifted: run on a Tuesday, all three sat
+  // in the previous week; run on a Saturday, two of them fell inside the
+  // current one. That silently broke a fixture two functions down —
+  // ensureRehabWeekFixtures builds a week that is deliberately 3 of 4 so
+  // 0-strength-rehab-visibility.spec.ts can assert Today explains the
+  // shortfall, and these strays pushed the same week to 5, so the shortfall
+  // line correctly didn't render and the spec failed. Nothing in the suite
+  // changed between the green run and the red one except the weekday.
+  //
+  // These exist to give history and progression something to read, which any
+  // recent completed session does; which week they land in was never part of
+  // that, but it is load-bearing for the fixture above. Pinning them to last
+  // week keeps both intents true at once.
+  const SESSION_PLAN: Array<{ type: "full_body" | "upper" | "lower"; dayOffset: number }> = [
+    { type: "full_body", dayOffset: 0 },
+    { type: "upper", dayOffset: 2 },
+    { type: "lower", dayOffset: LINK_FIXTURE_DAY_OFFSET },
   ];
 
   for (const s of SESSION_PLAN) {
-    const date = daysAgo(s.daysAgoN);
+    const date = lastWeekDay(s.dayOffset);
     const [session] = await db
       .insert(strengthSessions)
       .values({
@@ -270,7 +310,9 @@ async function ensureOwnerCore(): Promise<void> {
     durationSeconds: 1800,
     avgPaceSecKm: 0,
     avgHr: 128,
-    startDate: daysAgo(2),
+    // Same day as the seeded "Lower session" above — activity-link.spec.ts
+    // needs that session offered as a link candidate for this activity.
+    startDate: lastWeekDay(LINK_FIXTURE_DAY_OFFSET),
     userId: OWNER_USER_ID,
   });
 
