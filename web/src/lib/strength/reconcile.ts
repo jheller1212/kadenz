@@ -312,10 +312,35 @@ export const ACHILLES_CARRYING_TYPES = new Set<StrengthSessionType>([
  * after strength.
  *
  * `existingWeeklyCounts` (Monday week-key → count of existing Achilles-
- * carrying sessions or attached days) and `lastPlacedKeyBeforeStrip` seed the
- * walk with rehab exposures that already exist before/within the strip so a
- * fresh run never exceeds the weekly target or places a day adjacent to one
- * it didn't just choose.
+ * carrying sessions or attached days BEFORE the strip) and
+ * `lastPlacedKeyBeforeStrip` seed the walk with rehab exposures that already
+ * exist earlier in the same week, so a fresh run never exceeds the weekly
+ * target or places a day adjacent to one it didn't just choose. Exposures
+ * inside the strip are counted by the walk itself — see below.
+ *
+ * ── The return value is the complete answer, not a delta ──────────────────
+ *
+ * Every day that should carry rehab work comes back, including days that
+ * already carry it. That matters because of what the caller does with the
+ * result: schedule.ts reconciles `achillesAttached` on existing sessions in
+ * BOTH directions, so a day missing from this list is not "leave it alone",
+ * it is "take the rehab work off it".
+ *
+ * This used to skip a day that was already Achilles-carrying, which made the
+ * whole pass flip-flop: run it once and three days got the block; run it
+ * again and those same days were now "already covered", so they never came
+ * back in the list, so the reconcile detached all three; a third run
+ * re-attached them. Every scheduled run would have rewritten the athlete's
+ * week — a session reading "Upper + Rehab" one day and plain "Upper" the
+ * next — which is exactly what an athlete cannot plan around, and is worse
+ * than the original bug because it also silently undoes any repair.
+ *
+ * An already-carrying day is therefore kept and treated as if this run had
+ * chosen it: it counts toward the weekly target and sets the spacing for
+ * what follows. Two consequences worth stating, because both are correct
+ * rather than incidental: the pass is idempotent (running it N times leaves
+ * the same days carrying rehab), and it is stable (it prefers the exposures
+ * the athlete can already see over reshuffling them to equivalent days).
  */
 export function computeAchillesRehabDays(
   strip: PlacementDay[],
@@ -337,7 +362,17 @@ export function computeAchillesRehabDays(
       weekCount = existingWeeklyCounts.get(wk) ?? 0;
     }
     const existingType = dayTypes.get(day.key);
-    if (existingType && ACHILLES_CARRYING_TYPES.has(existingType)) continue; // already covered
+    if (existingType && ACHILLES_CARRYING_TYPES.has(existingType)) {
+      // Already a rehab day — keep it, and let it shape what comes after.
+      // Returning it is what makes this pass idempotent; see the note above.
+      // No availableDays or veto check: this exposure already exists, and
+      // re-deciding it here could only produce a list that strips rehab work
+      // off a session the athlete has already been shown.
+      days.push(day.key);
+      lastPlacedKey = day.key;
+      weekCount++;
+      continue;
+    }
     if (!availableDays.includes(day.dow)) continue;
     if (weekCount >= weeklyTarget) continue;
     if (isHardVeto(day, "achilles")) continue; // interval same day, or day before a hard run

@@ -286,6 +286,13 @@ export async function ensureStrengthSchedule(profileId: string | null, userId: s
     for (const [key, row] of existingByKey) {
       const type = row.type as StrengthSessionType;
       if (!ACHILLES_SESSION_TYPES.has(type) && !row.achillesAttached) continue;
+      // Only exposures BEFORE the strip are seeded here. Ones inside it are
+      // counted by computeAchillesRehabDays itself, which now returns
+      // already-carrying days rather than skipping them (see its doc comment
+      // — that is what makes this pass idempotent). Counting them in both
+      // places would double them and cut each week's real target roughly in
+      // half.
+      if (firstStripKey != null && key >= firstStripKey) continue;
       achillesWeeklyCounts.set(weekKeyOf(key), (achillesWeeklyCounts.get(weekKeyOf(key)) ?? 0) + 1);
       if (
         firstStripKey != null &&
