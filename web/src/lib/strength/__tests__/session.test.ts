@@ -8,6 +8,7 @@ import {
   type PlannedExercise,
 } from "../session";
 import { SESSION_TEMPLATES } from "../program";
+import { complaintWorkSlugs } from "../complaint-work";
 import type { ExerciseSessionHistory, Equipment } from "../types";
 
 describe("buildSessionPlan", () => {
@@ -74,14 +75,18 @@ describe("non-Achilles complaint pain gate", () => {
     );
   });
 
-  it("touches nothing else in the session", () => {
+  it("touches nothing outside the complaint's own work", () => {
+    // A complaint contributes a short progression, not one exercise (see
+    // TARGETED_WORK), and its gate eases all of it — but nothing beyond it.
+    const kneeWork = new Set(complaintWorkSlugs("knee"));
     const plan = buildSessionPlan("lower", {
       complaints: ["knee"],
       complaintPainGates: { knee: { triggered: true, reason: "eased" } },
     });
+    expect(plan.some((ex) => kneeWork.has(ex.slug) && ex.painGated)).toBe(true);
     for (const ex of plan) {
-      if (ex.slug === "step_down") continue;
-      expect(ex.painGated).toBe(false);
+      if (kneeWork.has(ex.slug)) continue;
+      expect(ex.painGated, `${ex.slug} was eased but isn't knee work`).toBe(false);
     }
   });
 
@@ -105,7 +110,12 @@ describe("non-Achilles complaint pain gate", () => {
     const nordic = plan.find((p) => p.slug === "nordic_curl_negative")!;
     expect(stepDown.painGated).toBe(true);
     expect(nordic.painGated).toBe(false);
-    expect(nordic.sets).toBe(3);
+    // Two complaints, so every targeted slot is already a set lighter (see
+    // targetedSlotsFor) — 2, not the 3 it gets on its own. What matters here
+    // is that the knee's gate didn't take a further set off it.
+    const nordicAlone = buildSessionPlan("lower", { complaints: ["knee", "hamstring"] })
+      .find((p) => p.slug === "nordic_curl_negative")!;
+    expect(nordic.sets).toBe(nordicAlone.sets);
   });
 
   it("leaves Achilles/HSR work untouched by a non-Achilles complaint gate, sets stay locked", () => {

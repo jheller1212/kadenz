@@ -229,7 +229,25 @@ export function buildSessionPlan(
     const priority: PlannedExercise["priority"] = ex.achillesRole
       ? "achilles"
       : slot.priority ?? "primary";
-    if (resolved.duplicate && priority !== "achilles" && priority !== "targeted") {
+    // A duplicate adds nothing, so it goes — except for work that must be
+    // present by prescription rather than by usefulness.
+    //
+    // Achilles work and a complaint's PRIMARY targeted exercise are kept even
+    // when they duplicate: dropping either means an athlete who reported an
+    // injury silently gets nothing for it. A complaint's supporting work has
+    // no such claim — it exists to round the primary out, and a copy of an
+    // exercise the session already contains rounds out nothing. Keeping it
+    // put the same movement on screen twice, which reads as a bug and wastes
+    // the room the cap in targetedSlotsFor was protecting.
+    // `resolved.duplicate` only reports a collision that variant selection
+    // itself ran into (resolveSlotVariant returns false for any slot without
+    // variants), so supporting work is checked against the session directly.
+    // The case that needs it: with no equipment the hamstring complaint's
+    // primary falls back to single_leg_glute_bridge, which is also its own
+    // supporting exercise — the session showed the same movement twice.
+    if (slot.supporting && usedSlugs.has(resolved.slug)) return;
+    const mustKeep = priority === "achilles" || (priority === "targeted" && !slot.supporting);
+    if (resolved.duplicate && !mustKeep) {
       return; // nothing new to add — redundant with an earlier slot, drop it
     }
     usedSlugs.add(resolved.slug);

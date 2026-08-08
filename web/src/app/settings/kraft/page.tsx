@@ -16,7 +16,7 @@ import {
   type Complaint,
 } from "@/lib/strength/types";
 import { complaintWorkSlugs } from "@/lib/strength/complaint-work";
-import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
+import { EXERCISE_BY_SLUG, TARGETED_WORK } from "@/lib/strength/program";
 
 // Persist the rest-length preference to the strength plan (server) so it drives
 // the plan's prescriptions, not just the guided-session countdown. Reconciles
@@ -44,14 +44,28 @@ function patchPlanRest(restSeconds: number) {
 // logged is ever removed (see schema.ts strengthSessions.complaints).
 
 /** The exercises a complaint adds, named, so the athlete can see what a
- *  toggle actually does to their sessions rather than guessing. */
-function complaintWorkNames(complaint: Complaint): string {
-  const names = complaintWorkSlugs(complaint)
-    .map((slug) => EXERCISE_BY_SLUG[slug]?.name)
+ *  toggle actually does to their sessions rather than guessing.
+ *
+ *  Names the exercises TARGETED_WORK actually prescribes for the complaint,
+ *  not every slug complaintWorkSlugs knows about — that set also contains the
+ *  equipment fallbacks (a box step-down OR the wall-sit that replaces it), and
+ *  the athlete only ever gets one of each pair. Listing both would overstate
+ *  the session by exercises nobody is going to do. */
+function complaintWorkNames(complaint: Complaint): string[] {
+  return (TARGETED_WORK[complaint]?.exercises ?? [])
+    .map((e) => EXERCISE_BY_SLUG[e.slug]?.name)
     .filter((n): n is string => !!n);
-  // Variants of the same slot (a box step-down or the wall sit fallback) both
-  // appear; the athlete gets one of them, so show the first and stop.
-  return names[0] ?? "";
+}
+
+/** "Adds 3 exercises to lower and full body days: Step-down, Wall sit, …" —
+ *  the whole progression, because a complaint is no longer one exercise. The
+ *  count is what the complaint contributes on its own; reporting several
+ *  complaints caps and shortens the total (see program.ts targetedSlotsFor),
+ *  which the note under the list explains rather than repeating on every row. */
+function complaintSubtitle(complaint: Complaint): string {
+  const names = complaintWorkNames(complaint);
+  if (names.length === 0) return "";
+  return `Adds ${names.length} exercise${names.length === 1 ? "" : "s"} to lower and full body days: ${names.join(", ")}`;
 }
 
 const ACHILLES_WORK = complaintWorkSlugs("achilles")
@@ -271,7 +285,7 @@ export default function KraftSettingsPage() {
                       subtitle={
                         c === "achilles"
                           ? `Adds ${ACHILLES_WORK.length} exercises: ${ACHILLES_WORK.join(", ")}`
-                          : `Adds ${complaintWorkNames(c)} to lower and full body days`
+                          : complaintSubtitle(c)
                       }
                       accessory={
                         <Switch
@@ -283,6 +297,19 @@ export default function KraftSettingsPage() {
                     />
                   );
                 })}
+                {/* Only shown once more than one complaint is on, because
+                    that is the only time the numbers above stop adding up:
+                    each row states what its complaint contributes alone, and
+                    the session caps and shortens the total (see program.ts
+                    targetedSlotsFor). Saying so is better than letting the
+                    athlete count six exercises on screen and find four. */}
+                {(complaints?.filter((c) => c !== "achilles").length ?? 0) > 1 && (
+                  <div className="border-t border-hairline/60 px-4 py-3 text-[13px] text-text-3">
+                    With more than one reported, your sessions keep every area
+                    covered but carry fewer sets of each — so the work stacks
+                    without the session getting longer.
+                  </div>
+                )}
                 {complaintError && (
                   <div className="border-t border-hairline/60 px-4 py-3 text-[13px] font-medium text-danger">
                     {complaintError}

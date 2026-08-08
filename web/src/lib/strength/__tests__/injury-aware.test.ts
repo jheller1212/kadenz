@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionPlan } from "../session";
+import { buildSessionPlan, estimateSessionMinutes } from "../session";
 import { EXERCISE_BY_SLUG, sessionTemplateFor, TARGETED_WORK } from "../program";
 import { fitSessionToDuration, type DurationFitExercise } from "../duration-fit";
 import { rotationFor } from "../reconcile";
@@ -181,35 +181,135 @@ describe("achilles-reporting athlete gets exactly today's programme", () => {
 describe("each other complaint adds its targeted work to the right session", () => {
   for (const complaint of ALL_COMPLAINTS_EXCEPT_ACHILLES) {
     it(`${complaint} adds its targeted exercise to lower and full_body only`, () => {
-      const targeted = TARGETED_WORK[complaint]!;
+      const primary = TARGETED_WORK[complaint]!.exercises[0].slug;
       const lower = buildSessionPlan("lower", { complaints: [complaint] });
       const fullBody = buildSessionPlan("full_body", { complaints: [complaint] });
       const upper = buildSessionPlan("upper", { complaints: [complaint] });
 
-      expect(lower.some((e) => e.slug === targeted.slug)).toBe(true);
-      expect(fullBody.some((e) => e.slug === targeted.slug)).toBe(true);
-      expect(upper.some((e) => e.slug === targeted.slug)).toBe(false);
+      expect(lower.some((e) => e.slug === primary)).toBe(true);
+      expect(fullBody.some((e) => e.slug === primary)).toBe(true);
+      expect(upper.some((e) => e.slug === primary)).toBe(false);
 
-      const addedSlot = lower.find((e) => e.slug === targeted.slug)!;
+      const addedSlot = lower.find((e) => e.slug === primary)!;
       expect(addedSlot.priority).toBe("targeted");
+    });
+
+    it(`${complaint} offers a progression of 2-4 exercises, not one token movement`, () => {
+      const { exercises } = TARGETED_WORK[complaint]!;
+      expect(exercises.length).toBeGreaterThanOrEqual(2);
+      expect(exercises.length).toBeLessThanOrEqual(4);
+      expect(new Set(exercises.map((e) => e.slug)).size).toBe(exercises.length);
+    });
+
+    it(`${complaint} on its own puts all of its work in the session`, () => {
+      // A single complaint fits inside the budget, so nothing is dropped and
+      // nothing is trimmed — the athlete gets the whole progression.
+      const slugs = buildSessionPlan("lower", { complaints: [complaint] }).map((e) => e.slug);
+      for (const { slug } of TARGETED_WORK[complaint]!.exercises) {
+        expect(slugs, `${complaint} is missing ${slug}`).toContain(slug);
+      }
+    });
+
+    it(`${complaint}'s supporting work is bodyweight, so it survives with no kit`, () => {
+      // Targeted work is never dropped for missing equipment, so anything
+      // beyond the primary must not need any — see TARGETED_WORK's comment.
+      for (const { slug } of TARGETED_WORK[complaint]!.exercises.slice(1)) {
+        expect(EXERCISE_BY_SLUG[slug]?.equipment ?? [], `${slug} needs kit`).toEqual([]);
+      }
     });
   }
 
   it("does not add targeted work when the complaint isn't reported", () => {
     const lower = buildSessionPlan("lower", { complaints: [] });
     for (const complaint of ALL_COMPLAINTS_EXCEPT_ACHILLES) {
-      const targeted = TARGETED_WORK[complaint]!;
-      expect(lower.some((e) => e.slug === targeted.slug)).toBe(false);
+      for (const { slug } of TARGETED_WORK[complaint]!.exercises) {
+        expect(lower.some((e) => e.slug === slug)).toBe(false);
+      }
     }
   });
 
   it("multiple complaints stack additively without duplicate slots", () => {
     const template = sessionTemplateFor("lower", ["knee", "hamstring", "hip_glute"]);
     const slugs = template.slots.map((s) => s.exerciseSlug);
-    expect(slugs).toContain(TARGETED_WORK.knee!.slug);
-    expect(slugs).toContain(TARGETED_WORK.hamstring!.slug);
-    expect(slugs).toContain(TARGETED_WORK.hip_glute!.slug);
+    expect(slugs).toContain(TARGETED_WORK.knee!.exercises[0].slug);
+    expect(slugs).toContain(TARGETED_WORK.hamstring!.exercises[0].slug);
+    expect(slugs).toContain(TARGETED_WORK.hip_glute!.exercises[0].slug);
     expect(new Set(slugs).size).toBe(slugs.length); // no duplicates
+  });
+});
+
+describe("stacked complaints stay a doable session", () => {
+  const targetedIn = (complaints: Complaint[]) =>
+    sessionTemplateFor("lower", complaints).slots.filter((s) => s.priority === "targeted");
+
+  it("every reported complaint gets its primary exercise before any gets a second", () => {
+    // The failure this prevents: the first complaints in the list eat the
+    // whole budget and the last one the athlete reported is silently ignored.
+    const complaints: Complaint[] = ["knee", "hamstring", "hip_glute", "shin"];
+    const slugs = targetedIn(complaints).map((s) => s.exerciseSlug);
+    for (const c of complaints) {
+      expect(slugs, `${c} got nothing`).toContain(TARGETED_WORK[c]!.exercises[0].slug);
+    }
+  });
+
+  it("caps the total targeted work however many complaints are reported", () => {
+    const all: Complaint[] = ["plantar_fascia", "shin", "knee", "itb", "hamstring", "hip_glute"];
+    expect(targetedIn(all).length).toBeLessThanOrEqual(4);
+  });
+
+  it("trims a set off each targeted slot once more than one complaint is reported", () => {
+    // Three complaints' worth of work at full volume is a different session,
+    // not a slightly longer one.
+    const alone = targetedIn(["knee"]).find((s) => s.exerciseSlug === "step_down")!;
+    const stacked = targetedIn(["knee", "hamstring"]).find((s) => s.exerciseSlug === "step_down")!;
+    expect(stacked.sets).toBe(alone.sets - 1);
+    expect(stacked.sets).toBeGreaterThanOrEqual(1);
+  });
+
+  it("never prescribes the same exercise twice when two complaints share one", () => {
+    // ITB and hip/glute both use the clamshell.
+    const slugs = targetedIn(["itb", "hip_glute"]).map((s) => s.exerciseSlug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+  });
+
+  it("drops supporting work that collides with an equipment fallback, at every equipment level", () => {
+    // With no kit the hamstring primary (nordic_curl_negative) falls back to
+    // single_leg_glute_bridge — which is also its own supporting exercise, so
+    // the session showed the same movement twice. The collision only exists
+    // after variant resolution, so it can't be caught in TARGETED_WORK.
+    for (const equipment of [[], ["dumbbell"], ["dumbbell", "chair", "bench"], null] as const) {
+      for (const complaints of [["hamstring"], ["knee", "hamstring"], ["itb", "hip_glute", "shin"]] as Complaint[][]) {
+        const slugs = buildSessionPlan("lower", { complaints, equipment: equipment as never }).map((e) => e.slug);
+        expect(
+          new Set(slugs).size,
+          `duplicate with equipment=${JSON.stringify(equipment)} complaints=${complaints.join("+")}: ${slugs.join(", ")}`
+        ).toBe(slugs.length);
+      }
+    }
+  });
+
+  it("still keeps a complaint's PRIMARY exercise even when it duplicates", () => {
+    // The opposite guarantee: supporting work is droppable, the primary is
+    // not — an athlete who reported an injury must never get nothing for it.
+    const plan = buildSessionPlan("lower", { complaints: ["hamstring"], equipment: [] });
+    expect(plan.some((e) => e.priority === "targeted")).toBe(true);
+  });
+
+  it("does not re-add an exercise the Achilles block already prescribed", () => {
+    const template = sessionTemplateFor("lower", ["achilles", "plantar_fascia"], true);
+    const slugs = template.slots.map((s) => s.exerciseSlug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+  });
+
+  it("keeps a stacked session's estimate close to a single-complaint one", () => {
+    // The point of the cap and the trim: reporting more things should not
+    // double the time commitment.
+    const one = buildSessionPlan("lower", { complaints: ["knee"], targetDurationMinutes: 30 });
+    const many = buildSessionPlan("lower", {
+      complaints: ["knee", "hamstring", "hip_glute", "shin"],
+      targetDurationMinutes: 30,
+    });
+    expect(estimateSessionMinutes(many)).toBeLessThanOrEqual(estimateSessionMinutes(one) + 10);
   });
 });
 
@@ -222,7 +322,7 @@ describe("duration fitting never trims the targeted work", () => {
           complaints: [complaint],
           targetDurationMinutes: minutes,
         });
-        expect(plan.some((e) => e.slug === targeted.slug)).toBe(true);
+        expect(plan.some((e) => e.slug === targeted.exercises[0].slug)).toBe(true);
       }
     }
   });
@@ -253,18 +353,22 @@ describe("targeted work still appears for an athlete with no box or chair", () =
   // step_down (knee) and nordic_curl_negative (hamstring) hard-require a box
   // or chair. Targeted work is protected like Achilles work — it must never
   // just disappear because the equipment isn't there.
-  it("a knee complaint with zero equipment still gets a targeted exercise, not nothing", () => {
+  it("a knee complaint with zero equipment still gets its targeted work, not nothing", () => {
     const lower = buildSessionPlan("lower", { complaints: ["knee"], equipment: [] });
     const targeted = lower.filter((e) => e.priority === "targeted");
-    expect(targeted.length).toBe(1);
-    expect(targeted[0].slug).not.toBe(""); // resolved to a real exercise
+    expect(targeted.length).toBeGreaterThan(0);
+    for (const t of targeted) {
+      expect(EXERCISE_BY_SLUG[t.slug]?.equipment ?? [], `${t.slug} needs kit`).toEqual([]);
+    }
   });
 
-  it("a hamstring complaint with zero equipment still gets a targeted exercise, not nothing", () => {
+  it("a hamstring complaint with zero equipment still gets its targeted work, not nothing", () => {
     const fullBody = buildSessionPlan("full_body", { complaints: ["hamstring"], equipment: [] });
     const targeted = fullBody.filter((e) => e.priority === "targeted");
-    expect(targeted.length).toBe(1);
-    expect(targeted[0].slug).not.toBe("");
+    expect(targeted.length).toBeGreaterThan(0);
+    for (const t of targeted) {
+      expect(EXERCISE_BY_SLUG[t.slug]?.equipment ?? [], `${t.slug} needs kit`).toEqual([]);
+    }
   });
 
   it("the zero-equipment fallback for knee/hamstring is a real, zero-equipment exercise", () => {
@@ -273,7 +377,8 @@ describe("targeted work still appears for an athlete with no box or chair", () =
       equipment: [],
     });
     const targeted = lower.filter((e) => e.priority === "targeted");
-    expect(targeted.length).toBe(2);
+    // Both complaints represented, and every slot performable with no kit.
+    expect(targeted.length).toBeGreaterThanOrEqual(2);
     for (const t of targeted) {
       expect(EXERCISE_BY_SLUG[t.slug]?.equipment ?? []).toEqual([]);
     }

@@ -1713,60 +1713,154 @@ export const SESSION_TEMPLATES: Record<StrengthSessionType, SessionTemplate> = {
 // present. "achilles" is handled separately (the existing dedicated
 // achilles/lower_achilles/upper_achilles session types + HSR protocol) and is
 // intentionally absent from this map.
+// Each complaint carries a short PROGRESSION of exercises, most important
+// first, not a single token movement. One exercise per complaint was never
+// enough to be a rehab programme — it was an acknowledgement that the athlete
+// had ticked a box. The extras are the ones a physio would pair with the
+// first: load the injured tissue, then the joint above or below that has to
+// share the work.
+//
+// Ordering is load-bearing: index 0 is the exercise this complaint most needs
+// and is the one that survives when several complaints compete for room (see
+// targetedSlotsFor). Anything after index 0 must be BODYWEIGHT — every
+// equipment-requiring slot needs its own variant chain to stay honest for an
+// athlete with no kit (targeted work is never dropped for missing equipment,
+// see resolveSlotVariant), and a supporting exercise is not worth a new chain
+// when a bodyweight movement does the same job.
+//
+// Shared exercises across complaints are intentional and deduplicated at
+// assembly, so an athlete reporting both ITB and hip/glute pain gets one
+// clamshell, not two.
 export const TARGETED_WORK: Partial<
-  Record<Complaint, { slug: string; slot: Omit<TemplateSlot, "exerciseSlug">; sessionTypes: StrengthSessionType[] }>
+  Record<
+    Complaint,
+    {
+      sessionTypes: StrengthSessionType[];
+      exercises: Array<{ slug: string; slot: Omit<TemplateSlot, "exerciseSlug"> }>;
+    }
+  >
 > = {
   plantar_fascia: {
-    slug: "single_leg_calf_raise",
-    slot: { sets: 3, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" },
     sessionTypes: ["lower", "full_body"],
+    exercises: [
+      // Loading the calf loads the fascia through the same chain; the
+      // tibialis balances the shank so the foot isn't the only thing working.
+      { slug: "single_leg_calf_raise", slot: { sets: 3, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" } },
+      { slug: "tibialis_raise", slot: { sets: 2, repLow: 15, repHigh: 20, restSeconds: 45, priority: "targeted" } },
+      { slug: "single_leg_glute_bridge", slot: { sets: 2, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" } },
+    ],
   },
   shin: {
-    slug: "tibialis_raise",
-    slot: { sets: 3, repLow: 15, repHigh: 20, restSeconds: 45, priority: "targeted" },
     sessionTypes: ["lower", "full_body"],
+    exercises: [
+      { slug: "tibialis_raise", slot: { sets: 3, repLow: 15, repHigh: 20, restSeconds: 45, priority: "targeted" } },
+      { slug: "single_leg_calf_raise", slot: { sets: 2, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" } },
+      { slug: "wall_sit", slot: { sets: 2, repLow: 1, repHigh: 1, restSeconds: 60, priority: "targeted" } },
+    ],
   },
   knee: {
-    slug: "step_down",
-    // step_down hard-requires a box; targeted work is protected like
-    // Achilles work (never dropped for missing equipment), so it needs a
-    // bodyweight fallback — see KNEE_TARGETED_VARIANTS.
-    slot: {
-      sets: 3,
-      repLow: 8,
-      repHigh: 12,
-      restSeconds: 90,
-      perSide: true,
-      priority: "targeted",
-      variants: KNEE_TARGETED_VARIANTS,
-    },
     sessionTypes: ["lower", "full_body"],
+    exercises: [
+      // step_down hard-requires a box; targeted work is protected like
+      // Achilles work (never dropped for missing equipment), so it needs a
+      // bodyweight fallback — see KNEE_TARGETED_VARIANTS.
+      { slug: "step_down", slot: { sets: 3, repLow: 8, repHigh: 12, restSeconds: 90, perSide: true, priority: "targeted", variants: KNEE_TARGETED_VARIANTS } },
+      { slug: "wall_sit", slot: { sets: 2, repLow: 1, repHigh: 1, restSeconds: 60, priority: "targeted" } },
+      { slug: "single_leg_glute_bridge", slot: { sets: 2, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" } },
+    ],
   },
   itb: {
-    slug: "side_lying_leg_raise",
-    slot: { sets: 3, repLow: 12, repHigh: 20, restSeconds: 60, perSide: true, priority: "targeted" },
     sessionTypes: ["lower", "full_body"],
+    exercises: [
+      { slug: "side_lying_leg_raise", slot: { sets: 3, repLow: 12, repHigh: 20, restSeconds: 60, perSide: true, priority: "targeted" } },
+      { slug: "clamshell", slot: { sets: 2, repLow: 15, repHigh: 20, restSeconds: 45, perSide: true, priority: "targeted" } },
+      { slug: "single_leg_glute_bridge", slot: { sets: 2, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" } },
+    ],
   },
   hamstring: {
-    slug: "nordic_curl_negative",
-    // nordic_curl_negative hard-requires a chair — same protection/fallback
-    // reasoning as knee/step_down above (HAMSTRING_TARGETED_VARIANTS).
-    slot: {
-      sets: 3,
-      repLow: 5,
-      repHigh: 8,
-      restSeconds: 120,
-      priority: "targeted",
-      variants: HAMSTRING_TARGETED_VARIANTS,
-    },
     sessionTypes: ["lower", "full_body"],
+    exercises: [
+      // nordic_curl_negative hard-requires a chair — same protection/fallback
+      // reasoning as knee/step_down above (HAMSTRING_TARGETED_VARIANTS).
+      { slug: "nordic_curl_negative", slot: { sets: 3, repLow: 5, repHigh: 8, restSeconds: 120, priority: "targeted", variants: HAMSTRING_TARGETED_VARIANTS } },
+      { slug: "single_leg_glute_bridge", slot: { sets: 2, repLow: 10, repHigh: 15, restSeconds: 60, perSide: true, priority: "targeted" } },
+      { slug: "superman_from_floor", slot: { sets: 2, repLow: 10, repHigh: 15, restSeconds: 45, priority: "targeted" } },
+    ],
   },
   hip_glute: {
-    slug: "clamshell",
-    slot: { sets: 3, repLow: 15, repHigh: 20, restSeconds: 45, perSide: true, priority: "targeted" },
     sessionTypes: ["lower", "full_body"],
+    exercises: [
+      { slug: "clamshell", slot: { sets: 3, repLow: 15, repHigh: 20, restSeconds: 45, perSide: true, priority: "targeted" } },
+      { slug: "side_lying_leg_raise", slot: { sets: 2, repLow: 12, repHigh: 20, restSeconds: 60, perSide: true, priority: "targeted" } },
+      { slug: "hip_raise", slot: { sets: 2, repLow: 12, repHigh: 20, restSeconds: 45, priority: "targeted" } },
+    ],
   },
 };
+
+// ── How much targeted work one session can hold ──────────────────────────────
+//
+// Complaints stack: an athlete reporting three of them would otherwise get
+// nine extra exercises bolted onto a 30-minute session, and targeted work is
+// protected from duration-fit's trimming, so nothing downstream would cut it
+// back. The session would simply become undoable, and an undoable session is
+// one the athlete abandons — taking the rehab work with it.
+//
+// So the budget is on the session, not on the complaint. Every reported
+// complaint gets its first exercise before any complaint gets its second, so
+// nothing an athlete told us about goes unaddressed; the supporting work then
+// fills whatever room is left, in the same order.
+const TARGETED_SLOT_BUDGET = 4;
+
+/**
+ * The targeted slots for `complaints` in a session of `type`, capped and
+ * deduplicated.
+ *
+ * Round-robin by rank, so with three complaints and a budget of four each one
+ * gets its primary exercise and the first complaint also gets its second —
+ * rather than the first two complaints getting everything and the third being
+ * silently ignored because it was last in the list.
+ *
+ * Volume is trimmed as the stack grows: a lone complaint keeps its
+ * prescription, and from two upwards every slot drops a set (floored at one).
+ * Three complaints' worth of work at full volume is a different session, not
+ * a slightly longer one — and the athlete asked for help with three things,
+ * not for their strength day to double.
+ */
+export function targetedSlotsFor(
+  complaints: Complaint[],
+  type: StrengthSessionType,
+  alreadyInSession: Set<string> = new Set()
+): TemplateSlot[] {
+  const applicable = complaints
+    .filter((c) => c !== "achilles") // its own protocol, see ACHILLES_COMPLAINT_SLOTS
+    .map((c) => TARGETED_WORK[c])
+    .filter((t): t is NonNullable<typeof t> => !!t && t.sessionTypes.includes(type));
+  if (applicable.length === 0) return [];
+
+  const trimSet = applicable.length > 1;
+  const chosen: TemplateSlot[] = [];
+  const seen = new Set(alreadyInSession);
+  const maxRank = Math.max(...applicable.map((t) => t.exercises.length));
+
+  for (let rank = 0; rank < maxRank && chosen.length < TARGETED_SLOT_BUDGET; rank++) {
+    for (const targeted of applicable) {
+      if (chosen.length >= TARGETED_SLOT_BUDGET) break;
+      const entry = targeted.exercises[rank];
+      if (!entry || seen.has(entry.slug)) continue;
+      seen.add(entry.slug);
+      chosen.push({
+        exerciseSlug: entry.slug,
+        ...entry.slot,
+        sets: trimSet ? Math.max(1, entry.slot.sets - 1) : entry.slot.sets,
+        // Rank 0 is the complaint's primary and is kept even if it duplicates
+        // something already in the session; the rest are droppable — see
+        // TemplateSlot.supporting.
+        supporting: rank > 0,
+      });
+    }
+  }
+  return chosen;
+}
 
 // ── Growth candidates (see duration-fit.ts) ──────────────────────────────────
 // Which exercise categories "complement" a given session type when
@@ -1789,7 +1883,7 @@ const CATEGORIES_FOR_SESSION_TYPE: Partial<Record<StrengthSessionType, StrengthC
 // specific complaint — they must never double as generic filler for an
 // athlete who didn't.
 const TARGETED_WORK_SLUGS = new Set(
-  Object.values(TARGETED_WORK).map((t) => t!.slug)
+  Object.values(TARGETED_WORK).flatMap((t) => t!.exercises.map((e) => e.slug))
 );
 
 /**
@@ -1892,14 +1986,11 @@ export function sessionTemplateFor(
       extraSlots.push(slot);
     }
   }
-  for (const complaint of complaints) {
-    if (complaint === "achilles") continue; // handled via achillesAttached above, not the complaint list
-    const targeted = TARGETED_WORK[complaint];
-    if (!targeted || !targeted.sessionTypes.includes(type)) continue;
-    if (seen.has(targeted.slug)) continue; // don't double-add a shared exercise
-    seen.add(targeted.slug);
-    extraSlots.push({ exerciseSlug: targeted.slug, ...targeted.slot });
-  }
+  // Targeted work for every other complaint, capped and volume-trimmed as a
+  // set rather than complaint by complaint — see targetedSlotsFor. `seen`
+  // carries the Achilles slugs added above, so a complaint whose supporting
+  // work overlaps the rehab block doesn't prescribe it twice.
+  extraSlots.push(...targetedSlotsFor(complaints, type, seen));
   if (extraSlots.length === 0) return template;
 
   return { ...template, slots: [...template.slots, ...extraSlots] };

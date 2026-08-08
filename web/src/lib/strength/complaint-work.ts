@@ -18,11 +18,23 @@ export function complaintWorkSlugs(complaint: Complaint): string[] {
   }
   const targeted = TARGETED_WORK[complaint];
   if (!targeted) return [];
+  // Every exercise the complaint can contribute, not just the first: a
+  // complaint now carries a short progression (see TARGETED_WORK), and the
+  // callers of this — the pain-gate that eases a complaint's own work, the
+  // pain overlay on history charts, the Kraft settings copy listing what a
+  // complaint adds — are all wrong if they only know about the primary.
+  //
   // A targeted slot can resolve to a bodyweight fallback when the athlete
   // lacks the kit (see resolveSlotVariant), so its variants count as that
   // complaint's work too.
-  const variants = targeted.slot.variants?.map((v) => v.exerciseSlug) ?? [];
-  return [...new Set([targeted.slug, ...variants])];
+  return [
+    ...new Set(
+      targeted.exercises.flatMap((e) => [
+        e.slug,
+        ...(e.slot.variants?.map((v) => v.exerciseSlug) ?? []),
+      ])
+    ),
+  ];
 }
 
 /**
