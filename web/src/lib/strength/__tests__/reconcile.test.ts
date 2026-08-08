@@ -673,7 +673,10 @@ describe("computeAchillesRehabDays", () => {
     expect(days.length).toBe(3);
   });
 
-  it("skips a day already covered by an Achilles-carrying type", () => {
+  it("keeps a day already covered by an Achilles-carrying type, and doesn't double it", () => {
+    // The result is the complete set of days that should carry rehab, not a
+    // set of changes to make — the caller detaches any day missing from it.
+    // So an already-carrying day has to come back, exactly once.
     const monday = "2026-07-20";
     const dayTypes = typesFor([monday], "achilles");
     const days = computeAchillesRehabDays(
@@ -682,7 +685,64 @@ describe("computeAchillesRehabDays", () => {
       ALL_DOWS_LOCAL,
       new Map()
     );
-    expect(days).not.toContain(monday);
+    expect(days).toContain(monday);
+    expect(days.filter((d) => d === monday)).toHaveLength(1);
+  });
+
+  it("is idempotent: feeding its own answer back returns the same days", () => {
+    // The regression this exists for: the pass used to skip already-carrying
+    // days, so a second run couldn't see the exposures the first one made,
+    // returned a list without them, and the caller — which reconciles
+    // achillesAttached in both directions — stripped the rehab work back off.
+    // A third run re-added it. Every scheduled run rewrote the athlete's week,
+    // and any repair applied by hand was undone by the next one.
+    const days1 = computeAchillesRehabDays(
+      strip("2026-07-20", 21),
+      typesFor(strip("2026-07-20", 21).map((d) => d.key), "lower"),
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days1.length).toBeGreaterThan(0);
+
+    // Second run sees the world the first one produced: those days now carry
+    // the block, every other day is still a plain session.
+    const afterFirst = typesFor(strip("2026-07-20", 21).map((d) => d.key), "lower");
+    for (const key of days1) afterFirst.set(key, "achilles");
+
+    const days2 = computeAchillesRehabDays(
+      strip("2026-07-20", 21),
+      afterFirst,
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days2).toEqual(days1);
+
+    // And a third, since the old bug's signature was a two-run cycle that
+    // looked correct again on every odd-numbered run.
+    const afterSecond = typesFor(strip("2026-07-20", 21).map((d) => d.key), "lower");
+    for (const key of days2) afterSecond.set(key, "achilles");
+    expect(
+      computeAchillesRehabDays(strip("2026-07-20", 21), afterSecond, ALL_DOWS_LOCAL, new Map())
+    ).toEqual(days1);
+  });
+
+  it("still caps the week when some exposures already exist inside the strip", () => {
+    // Already-carrying days count toward the weekly target rather than being
+    // invisible to it — otherwise keeping them would let a week drift above
+    // the cap that exists to keep HSR loading every other day.
+    const keys = strip("2026-07-20", 7).map((d) => d.key);
+    const dayTypes = typesFor(keys, "lower");
+    dayTypes.set(keys[0], "achilles");
+    dayTypes.set(keys[2], "achilles");
+    const days = computeAchillesRehabDays(
+      strip("2026-07-20", 7),
+      dayTypes,
+      ALL_DOWS_LOCAL,
+      new Map()
+    );
+    expect(days).toContain(keys[0]);
+    expect(days).toContain(keys[2]);
+    expect(days.length).toBe(3);
   });
 
   it("respects the athlete's available days", () => {
