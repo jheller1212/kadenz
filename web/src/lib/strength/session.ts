@@ -499,9 +499,29 @@ export function estimateSessionMinutes(exercises: PlannedExercise[]): number {
 // to Achilles-role slots — that work is rehab, not filler, and callers must
 // reject overrides that target or point at one (see the API route).
 
+// "added" appends an exercise the template never prescribed. It exists so a
+// chained session — "I have an hour: Upper, then Lower" — survives a reload.
+// The plan is re-derived from the template on every read, so an appended
+// exercise that lived only in client state vanished the moment the athlete
+// refreshed or opened the session on another device, taking half of a chained
+// workout with it. Recording it here puts it in the same layer as Exchange
+// and Remove, which already outlive a read for exactly that reason.
+//
+// Unlike the other two actions this one carries its own prescription: there
+// is no original slot to inherit sets/reps/rest from. Progression still runs
+// against the exercise's own history at read time, same as "swapped".
 export type ExerciseOverride =
   | { /** Slug of the exercise being overridden (as it appears in the template). */ slug: string; action: "removed" }
-  | { slug: string; action: "swapped"; replacementSlug: string };
+  | { slug: string; action: "swapped"; replacementSlug: string }
+  | {
+      slug: string;
+      action: "added";
+      sets: number;
+      repLow: number;
+      repHigh: number;
+      restSeconds: number;
+      perSide?: boolean;
+    };
 
 export function applyExerciseOverrides(
   plan: PlannedExercise[],
@@ -549,6 +569,48 @@ export function applyExerciseOverrides(
         setsLocked: false,
       };
       result = [...result.slice(0, idx), replacement, ...result.slice(idx + 1)];
+      continue;
+    }
+    if (ov.action === "added") {
+      const ex = EXERCISE_BY_SLUG[ov.slug];
+      if (!ex) continue;
+      // Appending a slug the plan already carries would give the athlete the
+      // same exercise twice — which is exactly what chaining Upper onto Full
+      // Body would otherwise do for every lift the two share. The template's
+      // own slot wins: it carries the phase-resolved rep range.
+      if (result.some((e) => e.slug === ov.slug)) continue;
+      const history = ctx.historyBySlug[ov.slug] ?? [];
+      const progression = suggestProgression(ex, history, ov.repLow, ov.repHigh, ctx.lifterProfile);
+      const added: PlannedExercise = {
+        slug: ex.slug,
+        name: ex.name,
+        category: ex.category,
+        equipmentNote: ex.equipmentNote,
+        tempoNote: ex.tempoNote,
+        flatGroundOnly: ex.flatGroundOnly ?? false,
+        perSide: ov.perSide ?? false,
+        dumbbells: ex.dumbbells,
+        holdNote: ex.holdNote,
+        sets: ov.sets,
+        repLow: ov.repLow,
+        repHigh: ov.repHigh,
+        restSeconds: ov.restSeconds,
+        prescription: repRangeLabel(ov.sets, ov.repLow, ov.repHigh),
+        suggestedWeightKg: progression.suggestedWeightKg,
+        lastWeightKg: progression.currentWeightKg,
+        lastDate: history[0]?.date.toISOString() ?? null,
+        progression,
+        painGated: false,
+        // Duration-fit has already run by the time overrides are applied
+        // (see service.ts buildPlannedSession), so nothing here trims this —
+        // deliberately: work the athlete explicitly added is not slack to
+        // reclaim. The tag still has to be right for every OTHER reader of
+        // priority, and it mirrors what the template would have said: rehab
+        // work is "achilles", everything else appended is accessory.
+        priority: ex.achillesRole ? "achilles" : "accessory",
+        setsLocked: false,
+      };
+      result = [...result, added];
     }
   }
   return result;

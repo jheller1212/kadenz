@@ -568,6 +568,81 @@ describe("applyExerciseOverrides", () => {
     const result = applyExerciseOverrides(buildSessionPlan("lower"), overrides, ctx);
     expect(result.some((p) => p.slug === "db_squat")).toBe(false);
   });
+
+  // ── Chaining a second block ("I've got an hour: Upper, then Lower") ────────
+  // The whole point of storing these as overrides rather than client state is
+  // that the plan is rebuilt from the template on every read — an appended
+  // exercise that isn't in this layer is gone by the next GET.
+  const added = (slug: string): ExerciseOverride => ({
+    slug,
+    action: "added",
+    sets: 3,
+    repLow: 8,
+    repHigh: 12,
+    restSeconds: 90,
+  });
+
+  it("appends an added exercise with its own prescription", () => {
+    const result = applyExerciseOverrides(buildSessionPlan("upper"), [added("db_squat")], ctx);
+    const appended = result.at(-1)!;
+    expect(appended.slug).toBe("db_squat");
+    expect(appended.sets).toBe(3);
+    expect(appended.repLow).toBe(8);
+    expect(appended.repHigh).toBe(12);
+    expect(appended.restSeconds).toBe(90);
+  });
+
+  it("a chained block survives a rebuild of the plan, twice over", () => {
+    const overrides = [added("db_squat"), added("romanian_deadlift")];
+    const once = applyExerciseOverrides(buildSessionPlan("upper"), overrides, ctx);
+    const again = applyExerciseOverrides(buildSessionPlan("upper"), overrides, ctx);
+    expect(once.map((p) => p.slug)).toEqual(again.map((p) => p.slug));
+    expect(again.some((p) => p.slug === "db_squat")).toBe(true);
+    expect(again.some((p) => p.slug === "romanian_deadlift")).toBe(true);
+  });
+
+  it("does not prescribe the same lift twice when the blocks overlap", () => {
+    // Chaining Upper onto Full Body is the real case: the two share lifts,
+    // and the template's own slot must win — it carries the phase-resolved
+    // rep range, the added override carries a snapshot.
+    const plan = buildSessionPlan("lower");
+    const existing = plan[0].slug;
+    const result = applyExerciseOverrides(plan, [added(existing)], ctx);
+    expect(result.filter((p) => p.slug === existing)).toHaveLength(1);
+    expect(result).toHaveLength(plan.length);
+  });
+
+  it("ignores an added exercise the catalogue does not have", () => {
+    const plan = buildSessionPlan("lower");
+    const result = applyExerciseOverrides(plan, [added("not_a_real_exercise")], ctx);
+    expect(result).toHaveLength(plan.length);
+  });
+
+  it("allows adding Achilles-role work, and tags it so nothing trims it", () => {
+    // The rehab guard protects prescribed tendon work from being edited
+    // away. Adding it is the opposite action, and is how a Rehab block gets
+    // chained onto an ordinary strength day.
+    const result = applyExerciseOverrides(
+      buildSessionPlan("upper"),
+      [added("straight_knee_calf_raise")],
+      ctx
+    );
+    const appended = result.at(-1)!;
+    expect(appended.slug).toBe("straight_knee_calf_raise");
+    expect(appended.priority).toBe("achilles");
+  });
+
+  it("tags ordinary appended work as accessory, not primary", () => {
+    const result = applyExerciseOverrides(buildSessionPlan("upper"), [added("db_squat")], ctx);
+    expect(result.at(-1)!.priority).toBe("accessory");
+  });
+
+  it("does not mutate the plan it was given", () => {
+    const plan = buildSessionPlan("upper");
+    const before = plan.length;
+    applyExerciseOverrides(plan, [added("db_squat")], ctx);
+    expect(plan).toHaveLength(before);
+  });
 });
 
 describe("validateAchillesOrdering", () => {
