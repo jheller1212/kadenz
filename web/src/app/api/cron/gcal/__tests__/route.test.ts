@@ -178,6 +178,11 @@ vi.mock("@/lib/reminders/dispatch", () => ({
 }));
 
 vi.mock("@/lib/strength/schedule", () => ({
+  ensureStrengthSchedule: vi.fn(async () => {
+    recordScope("ensureStrengthSchedule");
+    currentUserId();
+    return { created: 0, shortWeeks: 0 };
+  }),
   pruneStaleAdhocSessions: vi.fn(async () => {
     recordScope("pruneStaleAdhocSessions");
     currentUserId();
@@ -242,6 +247,11 @@ describe("GET /api/cron/gcal", () => {
       "runGarminImport",
       "runWellnessSync",
       "dispatchDueReminders",
+      // Maintaining the strength schedule — top-up plus the weekly Achilles
+      // rehab pass — belongs to every athlete, not just whoever happens to
+      // open /plan. It ran nowhere else before this, which is exactly how the
+      // rehab pass went five days producing nothing for the owner.
+      "ensureStrengthSchedule",
       "pruneStaleAdhocSessions",
       "autoCloseAbandonedSessions",
     ]) {

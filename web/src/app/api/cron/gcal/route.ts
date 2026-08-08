@@ -16,7 +16,11 @@ import { garminClient } from "@/lib/sync/garmin-client";
 import { runGarminImport } from "@/lib/sync/garmin-activity-import";
 import { runWellnessSync } from "@/lib/sync/wellness-sync";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch";
-import { pruneStaleAdhocSessions, autoCloseAbandonedSessions } from "@/lib/strength/schedule";
+import {
+  ensureStrengthSchedule,
+  pruneStaleAdhocSessions,
+  autoCloseAbandonedSessions,
+} from "@/lib/strength/schedule";
 import { asUserId } from "@/lib/user-id";
 
 // ── GET /api/cron/gcal ────────────────────────────────────────────────────────
@@ -231,6 +235,50 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("Garmin cron sync error:", err);
     out.garminError = "sync failed";
+  }
+
+  try {
+    // ── Keep the strength schedule current ────────────────────────────────
+    //
+    // Tops up the next weeks of auto-scheduled sessions AND runs the weekly
+    // Achilles/HSR rehab pass, which decides per calendar day whether a
+    // session carries the rehab block or gets its own standalone Rehab day
+    // (see lib/strength/schedule.ts and reconcile.ts
+    // computeAchillesRehabDays).
+    //
+    // Until now the only caller was WeeklyStrengthPlan, which renders on
+    // /plan and nowhere else, so the entire strength schedule was maintained
+    // only when the athlete happened to open that one screen. An athlete who
+    // lives on Today and Kraft — which is most of them, those being the
+    // screens you use while actually training — got no maintenance at all.
+    //
+    // That is not a theoretical gap. It is why the owner had zero rehab
+    // exposures for five days after #155 shipped: the pass was correct and
+    // simply never ran. Rehab is the case that makes it serious, because it
+    // is the work that exists precisely because something already hurts, but
+    // the same silence applied to every top-up.
+    //
+    // ensureStrengthSchedule, not reconcileStrengthSchedule: reconcile prunes
+    // before it tops up, and a scheduled job should not be deleting sessions
+    // nobody asked it to touch. Ensure only adds what is missing and corrects
+    // the rehab flag on future auto sessions the athlete has not started —
+    // idempotent, so a normal day's run is a no-op.
+    //
+    // Per user, and per-user failures are contained: one athlete's bad
+    // schedule state must not stop everyone else's from being maintained.
+    const results = await forEachUser(async (_tx, userId) => {
+      try {
+        return await ensureStrengthSchedule(null, userId);
+      } catch (err) {
+        console.error(`Strength schedule top-up failed for user ${userId}:`, err);
+        anyUserFailed = true;
+        return { created: 0, shortWeeks: 0 };
+      }
+    });
+    out.strengthSessionsCreated = results.reduce((sum, r) => sum + r.result.created, 0);
+  } catch (err) {
+    console.error("Strength schedule top-up error:", err);
+    out.strengthScheduleError = "top-up failed";
   }
 
   try {
