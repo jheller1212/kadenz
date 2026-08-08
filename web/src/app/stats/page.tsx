@@ -775,19 +775,21 @@ export default function StatsPage() {
           return (await res.json()) as Performance;
         })(),
         (async () => {
-          const listRes = await apiFetch("/api/plans");
-          if (!listRes.ok) throw new Error("plans");
-          const plans = await listRes.json();
-          const active = (plans as { id: string; status: string }[]).find(
-            (p) => p.status === "active"
-          );
-          if (!active) return null;
-          // Distribution maths here only ever reads week/workout-level fields,
-          // never block detail — summary=1 skips the ~101KB of warmup/work/
-          // cooldown/rep blocks the full plan detail carries per workout.
-          const res = await apiFetch(`/api/plans/${active.id}?summary=1`);
+          // Was /api/plans (the full list) -> /api/plans/[id], purely to learn
+          // which plan is active and then fetch it — a serial pair, so the
+          // second request could not start until the first had crossed the
+          // network and back. /api/plans/active resolves the active plan from
+          // the session and returns it in one call; the four /plan/* screens
+          // were moved onto it in #148 and Stats was the last caller left on
+          // the old chain. See api/plans/active/route.ts.
+          //
+          // summary=1 because the distribution maths below only reads week and
+          // workout level fields, never block detail — it skips the ~101KB of
+          // warmup/work/cooldown/rep blocks the full plan detail carries.
+          const res = await apiFetch("/api/plans/active?summary=1");
           if (!res.ok) throw new Error("plan");
-          return adaptApiPlan(await res.json());
+          const bundle = await res.json();
+          return bundle?.activePlan ? adaptApiPlan(bundle.plan) : null;
         })(),
       ]);
 
