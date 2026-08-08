@@ -33,7 +33,7 @@ import type {
   SessionType,
 } from "@/components/strength/GuidedSession";
 import { validateAchillesOrdering, type ExerciseOverride } from "@/lib/strength/session";
-import { pickerTypesFor } from "@/lib/strength/picker";
+import { cardCarriesRehabWork, pickerTypesFor } from "@/lib/strength/picker";
 // Heavy, full-screen surfaces only reached deep in the flow — load them on
 // demand so the strength landing bundle stays small.
 const GuidedSession = dynamic(() => import("@/components/strength/GuidedSession"), {
@@ -1412,25 +1412,13 @@ export default function StrengthPage() {
               const Icon = meta.icon;
               // Tapping this card either adopts today's already-planned
               // session of this type or creates a fresh one (see pickType
-              // below) — the "+ rehab work" promise has to match whichever
-              // one actually happens, not just whether the complaint is
-              // reported. If today already has a planned session of this
-              // type, its own achillesAttached flag is the fact (the weekly
-              // rehab pass decides per-session, not per-complaint — most
-              // sessions in a week don't carry it, see reconcile.ts
-              // computeAchillesRehabDays). Only when there's no session to
-              // adopt yet does the complaint list decide, because a
-              // freshly-created session really does fall back to it (see
-              // service.ts buildPlannedSession's hasHsrWork).
-              //
-              // The Rehab card is exempt: it IS the rehab block, so promising
-              // it "+ Rehab work" on top would read as a second dose.
+              // below) — the "+ Rehab work" promise has to describe the
+              // session the athlete actually gets. That fact lives on the
+              // session, not in the complaint list; see picker.ts
+              // cardCarriesRehabWork for why the complaint fallback that used
+              // to sit here was wrong.
               const todaysOfType = todaySessions.find((s) => s.type === t && s.status === "planned");
-              const hasRehabWork =
-                t !== "achilles" &&
-                (todaysOfType
-                  ? Boolean(todaysOfType.achillesAttached)
-                  : complaints.includes("achilles"));
+              const hasRehabWork = cardCarriesRehabWork(t, todaysOfType);
               const sub = hasRehabWork ? `${meta.sub} + Rehab work` : meta.sub;
               return (
                 <motion.button
