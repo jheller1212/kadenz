@@ -23,6 +23,21 @@ import { ownedBy, requireOwned } from "@/lib/api/owned";
 const ExerciseOverrideSchema = z.discriminatedUnion("action", [
   z.object({ slug: z.string(), action: z.literal("removed") }),
   z.object({ slug: z.string(), action: z.literal("swapped"), replacementSlug: z.string() }),
+  // Appended work — a chained second block, or a one-off addition. Bounded
+  // rather than free-form: these numbers drive the prescription the athlete
+  // lifts to and the session's duration estimate, so a nonsense value would
+  // reach the watch and the calendar.
+  z.object({
+    slug: z.string(),
+    action: z.literal("added"),
+    sets: z.number().int().min(1).max(10),
+    repLow: z.number().int().min(1).max(50),
+    repHigh: z.number().int().min(1).max(50),
+    restSeconds: z.number().int().min(0).max(600),
+    perSide: z.boolean().optional(),
+  }).refine((ov) => ov.repHigh >= ov.repLow, {
+    message: "repHigh must be at least repLow",
+  }),
 ]);
 
 const PatchSchema = z
@@ -49,10 +64,18 @@ const PatchSchema = z
   })
   .strict();
 
-// Achilles-role work is rehab, not filler — never let an override touch it,
-// either as the thing being changed or as a swap target.
+// Achilles-role work is rehab, not filler — never let an override take it out
+// of a session, either by removing it or by swapping it for something else.
+//
+// "added" is exempt, and deliberately so: the rule protects prescribed rehab
+// from being edited away, not the athlete from choosing to do rehab. Chaining
+// a Rehab block onto an Upper day is the whole point of the feature, and it
+// is the one action here that can only ever add tendon work, never remove it.
+// Ordering within the block is still enforced downstream — explosive before
+// slow heavy, see validateAchillesOrdering.
 function rejectsAchillesWork(overrides: ExerciseOverride[]): boolean {
   return overrides.some((ov) => {
+    if (ov.action === "added") return false;
     const target = EXERCISE_BY_SLUG[ov.slug];
     if (target?.achillesRole) return true;
     if (ov.action === "swapped") {
@@ -267,6 +290,20 @@ export const PATCH = withSession(async (
   if (updates.exerciseOverrides && rejectsAchillesWork(updates.exerciseOverrides)) {
     return Response.json(
       { error: "Achilles/calf rehab work can't be exchanged or removed." },
+      { status: 422 }
+    );
+  }
+
+  // An "added" override naming an exercise the catalogue doesn't have is
+  // skipped silently on read (applyExerciseOverrides), which for a chained
+  // block means the athlete saves an hour's work and reopens it as half of
+  // one, with nothing to explain the difference. Refuse it here instead.
+  const unknownAdded = (updates.exerciseOverrides ?? []).find(
+    (ov) => ov.action === "added" && !EXERCISE_BY_SLUG[ov.slug]
+  );
+  if (unknownAdded) {
+    return Response.json(
+      { error: `Unknown exercise "${unknownAdded.slug}".` },
       { status: 422 }
     );
   }

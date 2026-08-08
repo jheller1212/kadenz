@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, Minus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Repeat, Video } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Minus, X , CalendarDays, Watch, ArrowUpRight, Check, Play, Dumbbell, HeartPulse, Layers, Repeat, Video } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -179,6 +179,10 @@ export default function StrengthPage() {
   );
 
   const [addOpen, setAddOpen] = useState(false);
+  // Chaining a second programme onto today's session — see addBlock.
+  const [chainOpen, setChainOpen] = useState(false);
+  const [chainBusy, setChainBusy] = useState(false);
+  const [chainDuration, setChainDuration] = useState<30 | 45 | 60 | null>(30);
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [catalog, setCatalog] = useState<ExerciseCatalogRow[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -947,6 +951,93 @@ export default function StrengthPage() {
     };
     setExercises((exs) => [...exs, planned]);
     setAddOpen(false);
+  }
+
+  // ── Chaining: append a whole second programme to today's session ────────────
+  //
+  // "I've got an hour" is a real way to train and the app had no answer to it:
+  // one session per calendar day, each fitted to a single chosen length. This
+  // appends a second block's exercises to the session already on screen rather
+  // than creating a second session, because a chained block is not another
+  // workout — it is more of this one, and everything downstream (the day's
+  // volume, the watch push, the calendar event, the week count) should see one
+  // session of the combined length.
+  //
+  // Persisted immediately, unlike a plain "Add exercise", which stays local
+  // until Start. Half an hour of chosen work is too much to lose to a reload,
+  // and the athlete has no way to tell that this addition is the fragile kind.
+  async function addBlock(type: SessionType, minutes: 30 | 45 | 60 | null) {
+    const sessionId = session?.id;
+    if (!sessionId) return;
+    setChainBusy(true);
+    setError(null);
+    try {
+      const qs = new URLSearchParams({ type });
+      if (minutes != null) qs.set("minutes", String(minutes));
+      const res = await apiFetch(`/api/strength/plan-preview?${qs.toString()}`);
+      if (!res.ok) {
+        setError("Couldn't build that block. Try again.");
+        return;
+      }
+      const { plannedExercises } = (await res.json()) as {
+        plannedExercises: PlannedExercise[];
+      };
+
+      // An exercise today's plan already prescribes stays where it is — the
+      // template's own slot carries the phase-resolved rep range, and doing
+      // the same lift twice in one session is not what "add a block" means.
+      const present = new Set(exercises.map((e) => e.slug));
+      const fresh = plannedExercises.filter((e) => !present.has(e.slug));
+      if (fresh.length === 0) {
+        setError(`Today's session already covers everything in ${TYPE_META[type].title}.`);
+        return;
+      }
+
+      const next = [...exercises, ...fresh];
+      // Same protocol check the reorder path runs — within Achilles work,
+      // explosive comes before slow heavy. Refused here, before anything is
+      // saved, rather than by the server after the fact.
+      if (!applyOrderedList(next)) return;
+
+      overridesRef.current = [
+        ...overridesRef.current,
+        ...fresh.map((e) => ({
+          slug: e.slug,
+          action: "added" as const,
+          sets: e.sets,
+          repLow: e.repLow,
+          repHigh: e.repHigh,
+          restSeconds: e.restSeconds,
+          perSide: e.perSide,
+        })),
+      ];
+
+      const saved = await apiFetch(`/api/strength/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exerciseOrder: next.map((e) => e.slug),
+          exerciseOverrides: overridesRef.current,
+        }),
+      });
+      if (!saved.ok) {
+        // Roll the append back rather than leave the screen showing work the
+        // session does not actually carry.
+        overridesRef.current = overridesRef.current.filter(
+          (ov) => !(ov.action === "added" && fresh.some((f) => f.slug === ov.slug))
+        );
+        setExercises(exercises);
+        setError("Couldn't save the added block. Try again.");
+        return;
+      }
+
+      haptic("light");
+      setChainOpen(false);
+    } catch {
+      setError("Network error. Couldn't add the block.");
+    } finally {
+      setChainBusy(false);
+    }
   }
 
   // Store the order the athlete is about to work through, so a resume, a
@@ -1967,6 +2058,24 @@ export default function StrengthPage() {
               <Plus className="h-4 w-4" strokeWidth={2.5} />
               Add exercise
             </motion.button>
+
+            {/* Chain a second programme onto this one — "I've got an hour:
+                Upper, then Lower". Sits under Add exercise because it is the
+                same idea at a coarser grain, and because the athlete arrives
+                here having already chosen today's first block. */}
+            <motion.button
+              type="button"
+              data-testid="kraft-add-block"
+              disabled={chainBusy}
+              onClick={() => { haptic("light"); setChainOpen(true); }}
+              whileTap={{ scale: chainBusy ? 1 : 0.97 }}
+              transition={{ type: "spring", stiffness: 500, damping: 32 }}
+              style={{ touchAction: "manipulation" }}
+              className="flex items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-hairline bg-transparent p-3.5 text-[15px] font-semibold text-accent-fg disabled:opacity-50"
+            >
+              <Layers className="h-4 w-4" strokeWidth={2.5} />
+              {chainBusy ? "Adding…" : "Add another block"}
+            </motion.button>
           </div>
 
           <div className="mt-6">
@@ -1975,6 +2084,87 @@ export default function StrengthPage() {
             </Button>
           </div>
         </div>
+
+        {/* Chain a second programme onto today's session. Length first, then
+            the block — picking the block is what commits, so it reads as the
+            action rather than a selection needing a second confirm. */}
+        <Sheet open={chainOpen} onClose={() => setChainOpen(false)} title="Add another block">
+          <div className="px-4 pb-6">
+            <p className="mb-3 text-[13px] leading-relaxed text-text-3">
+              Adds a second block to today&apos;s session. Anything already in it
+              stays as it is.
+            </p>
+
+            <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">
+              How long
+            </p>
+            <div className="flex flex-wrap gap-1.5" data-testid="kraft-chain-duration-chips">
+              {START_DURATIONS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={chainDuration === m}
+                  data-testid={`kraft-chain-duration-${m}`}
+                  onClick={() => { haptic("light"); setChainDuration(m); }}
+                  className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                    chainDuration === m ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                  }`}
+                >
+                  {m} min
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={chainDuration == null}
+                data-testid="kraft-chain-duration-full"
+                onClick={() => { haptic("light"); setChainDuration(null); }}
+                className={`press rounded-full px-3.5 py-2 text-[13px] font-bold ${
+                  chainDuration == null ? "bg-accent text-on-accent" : "bg-elevated text-text-2"
+                }`}
+              >
+                Full block
+              </button>
+            </div>
+
+            <p className="mb-2 mt-5 text-[12px] font-bold uppercase tracking-wide text-text-3">
+              Which block
+            </p>
+            <div className="flex flex-col gap-2">
+              {pickerTypesFor(complaints)
+                // Rehab is a fixed dose and ignores the length choice, so it
+                // is offered here but built at its own prescription.
+                .filter((t) => t !== session?.type)
+                .map((t) => {
+                  const meta = TYPE_META[t];
+                  const Icon = meta.icon;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      disabled={chainBusy}
+                      data-testid={`kraft-chain-block-${t}`}
+                      onClick={() => addBlock(t, t === "achilles" ? null : chainDuration)}
+                      className="press flex items-center gap-3 rounded-[var(--radius-input)] bg-elevated p-3.5 text-left disabled:opacity-50"
+                    >
+                      <span
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                        style={{ backgroundColor: `${meta.color}24` }}
+                      >
+                        <Icon className="h-[19px] w-[19px]" strokeWidth={2} style={{ color: meta.color }} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] font-bold text-text-1">{meta.title}</span>
+                        <span className="block text-[12px] text-text-3">
+                          {t === "achilles" ? meta.sub : `about ${chainDuration ?? "full"} min`}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-[19px] w-[19px] shrink-0 text-text-3" strokeWidth={1.9} />
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </Sheet>
 
         <Sheet open={addOpen} onClose={() => setAddOpen(false)} title="Add exercise">
           {catalogLoading ? (
