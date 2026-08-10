@@ -38,6 +38,39 @@ export function complaintWorkSlugs(complaint: Complaint): string[] {
 }
 
 /**
+ * The exercises a complaint adds, named, so the athlete can see what a toggle
+ * actually does to their sessions rather than guessing.
+ *
+ * Names what TARGETED_WORK prescribes, NOT every slug complaintWorkSlugs
+ * knows about — that set also contains the equipment fallbacks (a box
+ * step-down OR the wall-sit that replaces it), and the athlete only ever gets
+ * one of each pair. Listing both would overstate the session by exercises
+ * nobody is going to do.
+ */
+export function complaintWorkNames(complaint: Complaint): string[] {
+  return (TARGETED_WORK[complaint]?.exercises ?? [])
+    .map((e) => EXERCISE_BY_SLUG[e.slug]?.name)
+    .filter((n): n is string => !!n);
+}
+
+/**
+ * "Adds 3 exercises to lower and full body days: Step-down, Wall sit, …"
+ *
+ * The whole progression, because a complaint is no longer one exercise — the
+ * previous copy named only the first, which understated every complaint by
+ * one or two exercises the session would actually contain.
+ *
+ * The count is what this complaint contributes ON ITS OWN. Reporting several
+ * caps and shortens the total (program.ts targetedSlotsFor), which the note
+ * under the list explains once rather than every row restating it.
+ */
+export function complaintSubtitle(complaint: Complaint): string {
+  const names = complaintWorkNames(complaint);
+  if (names.length === 0) return "";
+  return `Adds ${names.length} exercise${names.length === 1 ? "" : "s"} to lower and full body days: ${names.join(", ")}`;
+}
+
+/**
  * Which complaint set a session is actually built from.
  *
  * A session the athlete has started carries the complaints it was built with

@@ -94,32 +94,16 @@ test.describe("Chaining a second block onto today's session", () => {
     expect(new Set(slugs).size, `duplicates in: ${slugs.join(", ")}`).toBe(slugs.length);
   });
 
-  test("says so plainly when the session already covers the whole block", async ({ page }) => {
-    // A 30-minute Lower is entirely contained in Full Body, so there is
-    // genuinely nothing to add. Discovered by this suite: the first version of
-    // this spec assumed it would append and found the sheet still open.
-    //
-    // Staying open with an explanation is the right behaviour — silently
-    // closing having done nothing would read as the tap not registering — so
-    // it is pinned here rather than left to chance.
-    await page.goto("/strength");
-    await startSession(page, "full_body");
-    const before = await exerciseSlugs(page);
-
-    await page.getByTestId("kraft-add-block").click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByTestId("kraft-chain-duration-30").click();
-    await page.getByTestId("kraft-chain-block-lower").click();
-
-    await expect(page.getByText(/already covers everything/i)).toBeVisible();
-    // And nothing was written behind the message. Checked by reopening the
-    // session rather than by reading the list through the open sheet: that
-    // asserts nothing was PERSISTED, which is the part that would actually
-    // hurt, and it doesn't depend on how the sheet happens to dismiss.
-    await page.reload();
-    await startSession(page, "full_body");
-    expect(await exerciseSlugs(page)).toEqual(before);
-  });
+  // Not covered here: the "this session already covers everything in X" path.
+  // It needs a pair of blocks where one fully contains the other, and whether
+  // that happens depends on the athlete's equipment, chosen length and phase —
+  // it held for Full Body + a 30-minute Lower locally and did not in CI, on the
+  // same code. The one pairing guaranteed to be fully covered, a block chained
+  // onto its own type, is unreachable on purpose: the sheet omits the session's
+  // current type. So there is no deterministic way to reach it from the UI, and
+  // a test that only sometimes exercises its subject is worse than none.
+  // targetedSlotsFor's dedup and applyExerciseOverrides' "don't prescribe the
+  // same lift twice" are unit-tested directly instead.
 
   test("the chained session's estimate grows to match the work added", async ({ page }) => {
     // The athlete chose an hour's worth of work; the screen has to say so,
