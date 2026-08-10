@@ -61,7 +61,15 @@ const forEachUser = vi.fn(
   }
 );
 
-vi.mock("@/db/with-user", () => ({ withUser, forEachUser, currentUserId }));
+// The roster WITHOUT a transaction: the gcal drain fans out over this rather
+// than forEachUser, so that its calls to Google run with no connection held
+// (see the note above processGCalOutbox in lib/sync/sync-manager.ts). Note it
+// deliberately does not touch scopedUserId — a caller that needs a scope has
+// to open one itself, which is what makes the per-call assertions below
+// meaningful rather than incidental.
+const listUserIds = vi.fn(async () => [...USER_IDS]);
+
+vi.mock("@/db/with-user", () => ({ withUser, forEachUser, listUserIds, currentUserId }));
 
 // ── @/db: keep the real schema exports (syncOutbox, OWNER_USER_ID — the
 // route's owner-only Garmin gate has to match a real constant), replace only
@@ -195,17 +203,27 @@ vi.mock("@/lib/strength/schedule", () => ({
   }),
 }));
 
-// processGCalOutbox now takes a userId and opens its own withUser scope
-// around the drain, same reasoning as processGarminOutbox above.
-const processGCalOutboxCalls: Array<{ arg: string; scopedUserId: string | null }> = [];
+// processGCalOutbox takes a userId and scopes each piece of its own database
+// work internally, so that its calls to Google run with NO transaction held —
+// the fix for the 2026-07 incident (see the note above it in
+// lib/sync/sync-manager.ts).
+//
+// `ambientScope` is captured BEFORE the mock opens any scope of its own. That
+// distinction is the whole point: recording it inside a withUser the mock
+// itself opened would assert the mock's behaviour rather than the route's, and
+// would keep passing if the route went back to calling the drain from inside
+// forEachUser's transaction.
+const processGCalOutboxCalls: Array<{ arg: string; ambientScope: string | null }> = [];
 vi.mock("@/lib/sync/sync-manager", () => ({
-  processGCalOutbox: vi.fn(async (userId: string) =>
-    withUser(userId, async () => {
-      processGCalOutboxCalls.push({ arg: userId, scopedUserId });
+  processGCalOutbox: vi.fn(async (userId: string) => {
+    processGCalOutboxCalls.push({ arg: userId, ambientScope: scopedUserId });
+    // The real one opens short scopes internally; mirror that so the
+    // currentUserId() contract is still exercised.
+    return withUser(userId, async () => {
       currentUserId();
       return { processed: 0, succeeded: 0, failed: 0, errors: [] };
-    })
-  ),
+    });
+  }),
 }));
 
 const { GET } = await import("../route");
@@ -282,11 +300,15 @@ describe("GET /api/cron/gcal", () => {
     ]);
 
     // The gcal drain runs once per CONNECTED user (only the owner is
-    // connected in this fixture — see the isConnected mock), each call
-    // scoped to itself: the argument passed in and the scope active at call
-    // time are the same id.
+    // connected in this fixture — see the isConnected mock), for the right
+    // user, and with NO transaction open around it.
+    //
+    // The null is the load-bearing part. Going back to forEachUser here, or
+    // wrapping the loop in a withUser, would put every subsequent call to
+    // Google back inside a held transaction — withUser is reentrant, so
+    // nothing below would look any different. This is where that shows up.
     expect(processGCalOutboxCalls).toEqual([
-      { arg: OWNER_USER, scopedUserId: OWNER_USER },
+      { arg: OWNER_USER, ambientScope: null },
     ]);
 
     // The garmin drain runs once, for the owner only, scoped to the owner —
@@ -313,11 +335,10 @@ describe("GET /api/cron/gcal", () => {
       // The mock module's declared type expects a UserId; the test only
       // needs plain string scope-tracking, so this narrows back at the call
       // boundary rather than fighting the branded type across the mock.
-      (async (userId: string) =>
-        withUser(userId, async () => {
-          processGCalOutboxCalls.push({ arg: userId, scopedUserId });
-          throw new Error("google calendar API unreachable");
-        })) as typeof processGCalOutbox
+      (async (userId: string) => {
+        processGCalOutboxCalls.push({ arg: userId, ambientScope: scopedUserId });
+        throw new Error("google calendar API unreachable");
+      }) as typeof processGCalOutbox
     );
 
     const res = await GET(fakeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
