@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import { validateSessionCookie } from "@/lib/session";
 import { eq, and, lt } from "drizzle-orm";
 import { db, syncOutbox, OWNER_USER_ID } from "@/db";
-import { forEachUser, withUser } from "@/db/with-user";
+import { forEachUser, listUserIds, withUser } from "@/db/with-user";
 import { processGCalOutbox, type SyncResult } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
@@ -137,16 +137,29 @@ export async function GET(request: NextRequest) {
     // jobs — see its comment in sync-manager.ts). Aggregated into the same
     // SyncResult shape the route always reported, so nothing downstream of
     // this response needs to change.
-    const gcalResults = await forEachUser(async (_tx, userId) => {
+    // listUserIds + an explicit loop, NOT forEachUser, and this is the whole
+    // point rather than a style choice. forEachUser opens a transaction per
+    // user and holds it for the entire callback; withUser is reentrant, so
+    // every database call inside would join that transaction and the drain's
+    // calls to Google would once again run with a connection held — the exact
+    // shape that took the app down in 2026-07. See the note above
+    // processGCalOutbox in lib/sync/sync-manager.ts.
+    //
+    // Each user's drain scopes its own database work internally, so nothing is
+    // lost by fanning out without a transaction. isConnected is wrapped here
+    // for the same reason: it reads a tenanted table, and outside a
+    // transaction there is no app.user_id for row level security to match.
+    const gcalResults: Array<{ result: SyncResult | null }> = [];
+    for (const userId of await listUserIds()) {
       try {
-        if (!(await isConnected(userId))) return null;
-        return await processGCalOutbox(asUserId(userId));
+        const connected = await withUser(userId, () => isConnected(userId));
+        gcalResults.push({ result: connected ? await processGCalOutbox(userId) : null });
       } catch (err) {
         console.error(`GCal drain failed for user ${userId}:`, err);
         anyUserFailed = true;
-        return null;
+        gcalResults.push({ result: null });
       }
-    });
+    }
     const ran = gcalResults
       .map((r) => r.result)
       .filter((result): result is SyncResult => result !== null);

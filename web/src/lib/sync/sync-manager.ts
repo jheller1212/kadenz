@@ -300,8 +300,39 @@ export async function claimJobs(
 // same shape every other cron route already uses (see cron/gcal). See
 // PER_USER_CLAIM_LIMIT below for how a single user's backlog is kept from
 // starving everyone drained in the same pass.
+// ── No transaction is held while we wait on Google ───────────────────────────
+//
+// Deliberately NOT wrapped in withUser, which is what it used to be. Each
+// piece of database work below opens its own short transaction and commits it;
+// every call to Google happens between them, holding nothing.
+//
+// This is the architectural cause of the 2026-07 incident. A revoked grant left
+// hundreds of rows retrying inside one transaction, and db/index.ts caps the
+// client at ONE connection per function instance, so unrelated queries queued
+// behind it until `select "id" from "users"` hit the 120s statement timeout
+// while WAITING, not computing. #159 (wall-clock budget) and #162
+// (invalid_grant is terminal) removed that trigger; neither removed the
+// property, and a third party that simply goes slow is not something this app
+// can fix from its side.
+//
+// Two things keep this true, and both are easy to undo by accident:
+//
+//  1. NOTHING above this may hold a transaction. withUser is REENTRANT
+//     (db/with-user.ts): a nested call joins the open transaction rather than
+//     starting its own, so an outer withUser anywhere up the stack silently
+//     puts every call below back inside it. That is why the cron fans out with
+//     listUserIds() and an explicit loop instead of forEachUser, which opens
+//     one per user and keeps it open for the whole callback.
+//  2. Every database access below is individually scoped. Outside a
+//     transaction there is no app.user_id, and under FORCE row level security
+//     an unscoped query matches nothing — it returns empty rather than
+//     failing, so a missed wrapper looks like "this user has no data".
+//
+// src/lib/sync/__tests__/no-tx-during-http.test.ts asserts the property
+// directly, by recording the async context at the moment of each outbound
+// call, so a reintroduced wrapper is caught rather than merely discouraged.
 export async function processGCalOutbox(userId: UserId): Promise<SyncResult> {
-  return withUser(userId, () => drainGCalOutboxForUser(userId));
+  return drainGCalOutboxForUser(userId);
 }
 
 // Bounds how much of one drain call a single user's backlog can consume.
@@ -324,21 +355,26 @@ async function drainGCalOutboxForUser(userId: UserId): Promise<SyncResult> {
     errors: [],
   };
 
-  await resetStaleClaims("gcal", userId);
-
-  const jobs = await claimJobs("gcal", userId, PER_USER_CLAIM_LIMIT);
+  // Phase 1 — claim, in its own transaction, committed before any HTTP.
+  await withUser(userId, () => resetStaleClaims("gcal", userId));
+  const jobs = await withUser(userId, () => claimJobs("gcal", userId, PER_USER_CLAIM_LIMIT));
 
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i];
     result.processed++;
 
     try {
+      // Phase 2 — the outbound call, with no transaction open. processJob
+      // scopes each of its own database reads and writes individually.
       await processJob(job);
 
-      await db
-        .update(syncOutbox)
-        .set({ status: "completed", processedAt: new Date() })
-        .where(eq(syncOutbox.id, job.id));
+      // Phase 3 — record the outcome, in its own transaction.
+      await withUser(userId, () =>
+        db
+          .update(syncOutbox)
+          .set({ status: "completed", processedAt: new Date() })
+          .where(eq(syncOutbox.id, job.id))
+      );
 
       result.succeeded++;
     } catch (err) {
@@ -350,27 +386,30 @@ async function drainGCalOutboxForUser(userId: UserId): Promise<SyncResult> {
         // Every remaining claimed job in this batch is about to fail the
         // exact same way (dead grant or unconfigured OAuth client — see
         // isPermanentGCalFailure) — there is nothing to learn from letting
-        // each of them make its own doomed call to Google while this
-        // transaction stays open. Fail this job and everything still
-        // claimed behind it, once, and stop the batch.
-        await db
-          .update(syncOutbox)
-          .set({ status: "failed", lastError: errorMsg, attempts: newAttempts })
-          .where(eq(syncOutbox.id, job.id));
+        // each of them make its own doomed call to Google. Fail this job and
+        // everything still claimed behind it, once, and stop the batch.
+        await withUser(userId, () =>
+          db
+            .update(syncOutbox)
+            .set({ status: "failed", lastError: errorMsg, attempts: newAttempts })
+            .where(eq(syncOutbox.id, job.id))
+        );
         result.failed++;
         result.errors.push({ id: job.id, error: errorMsg });
 
         const rest = jobs.slice(i + 1);
         if (rest.length > 0) {
-          await db
-            .update(syncOutbox)
-            .set({ status: "failed", lastError: errorMsg })
-            .where(
-              inArray(
-                syncOutbox.id,
-                rest.map((r) => r.id)
+          await withUser(userId, () =>
+            db
+              .update(syncOutbox)
+              .set({ status: "failed", lastError: errorMsg })
+              .where(
+                inArray(
+                  syncOutbox.id,
+                  rest.map((r) => r.id)
+                )
               )
-            );
+          );
           result.processed += rest.length;
           result.failed += rest.length;
           for (const r of rest) result.errors.push({ id: r.id, error: errorMsg });
@@ -402,14 +441,16 @@ async function drainGCalOutboxForUser(userId: UserId): Promise<SyncResult> {
         ? "failed"
         : "pending";
 
-      await db
-        .update(syncOutbox)
-        .set({
-          status: nextStatus,
-          lastError: errorMsg,
-          attempts: newAttempts,
-        })
-        .where(eq(syncOutbox.id, job.id));
+      await withUser(userId, () =>
+        db
+          .update(syncOutbox)
+          .set({
+            status: nextStatus,
+            lastError: errorMsg,
+            attempts: newAttempts,
+          })
+          .where(eq(syncOutbox.id, job.id))
+      );
 
       result.failed++;
       result.errors.push({ id: job.id, error: errorMsg });
@@ -479,22 +520,29 @@ async function processStrengthJob(
     return;
   }
 
-  const session = await fetchStrengthSessionForSync(sessionId);
+  // Each database step is its own short transaction; the Google call between
+  // them holds none. See the note above processGCalOutbox.
+  const uid = asUserId(job.userId);
+  const session = await withUser(uid, () => fetchStrengthSessionForSync(sessionId));
   if (!session) throw new Error(`Strength session ${sessionId} not found`);
 
-  const [current] = await db
-    .select({ gcalEventId: strengthSessions.gcalEventId })
-    .from(strengthSessions)
-    .where(eq(strengthSessions.id, sessionId));
+  const [current] = await withUser(uid, () =>
+    db
+      .select({ gcalEventId: strengthSessions.gcalEventId })
+      .from(strengthSessions)
+      .where(eq(strengthSessions.id, sessionId))
+  );
 
   if (current?.gcalEventId) {
     await patchStrengthEvent(job.userId, current.gcalEventId, session);
   } else {
     const gcalEventId = await createStrengthEvent(job.userId, session);
-    await db
-      .update(strengthSessions)
-      .set({ gcalEventId })
-      .where(eq(strengthSessions.id, sessionId));
+    await withUser(uid, () =>
+      db
+        .update(strengthSessions)
+        .set({ gcalEventId })
+        .where(eq(strengthSessions.id, sessionId))
+    );
   }
 }
 
@@ -508,35 +556,37 @@ async function processJob(
   if (job.entityType !== "workout") return;
 
   const workoutId = job.entityId;
+  // Each database step is its own short transaction; the Google calls between
+  // them hold none. See the note above processGCalOutbox.
+  const uid = asUserId(job.userId);
+  const storeEventId = (gcalEventId: string) =>
+    withUser(uid, () =>
+      db.update(workouts).set({ gcalEventId }).where(eq(workouts.id, workoutId))
+    );
 
   if (job.action === "create") {
-    const workout = await fetchWorkoutForSync(workoutId);
+    const workout = await withUser(uid, () => fetchWorkoutForSync(workoutId));
     if (!workout) throw new Error(`Workout ${workoutId} not found`);
 
     const gcalEventId = await createEvent(job.userId, workout);
 
     // Store the gcal event ID back on the workout
-    await db
-      .update(workouts)
-      .set({ gcalEventId })
-      .where(eq(workouts.id, workoutId));
+    await storeEventId(gcalEventId);
   } else if (job.action === "update") {
-    const workout = await fetchWorkoutForSync(workoutId);
+    const workout = await withUser(uid, () => fetchWorkoutForSync(workoutId));
     if (!workout) throw new Error(`Workout ${workoutId} not found`);
 
     // Get current gcal event ID
-    const [current] = await db
-      .select({ gcalEventId: workouts.gcalEventId })
-      .from(workouts)
-      .where(eq(workouts.id, workoutId));
+    const [current] = await withUser(uid, () =>
+      db
+        .select({ gcalEventId: workouts.gcalEventId })
+        .from(workouts)
+        .where(eq(workouts.id, workoutId))
+    );
 
     if (!current?.gcalEventId) {
       // No existing event — create instead
-      const gcalEventId = await createEvent(job.userId, workout);
-      await db
-        .update(workouts)
-        .set({ gcalEventId })
-        .where(eq(workouts.id, workoutId));
+      await storeEventId(await createEvent(job.userId, workout));
     } else {
       await patchEvent(job.userId, current.gcalEventId, workout);
     }

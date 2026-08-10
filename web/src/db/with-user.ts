@@ -259,17 +259,32 @@ export function currentUserIdOrNull(): UserId | null {
 export async function forEachUser<T>(
   fn: (tx: UserScopedDb, userId: UserId) => Promise<T>
 ): Promise<Array<{ userId: UserId; result: T }>> {
-  // The users table is identity, not tenanted data, so it carries no policy
-  // and this read is intentionally global. It is the only global read in the
-  // request path, and it returns ids, never anyone's training data.
-  const allUsers = await db.select({ id: users.id }).from(users);
-
   const out: Array<{ userId: UserId; result: T }> = [];
-  for (const { id } of allUsers) {
-    // The users table stores a plain uuid column, so this is the boundary where
-    // a raw string becomes a UserId. Validated, not cast.
-    const userId = asUserId(id);
+  for (const userId of await listUserIds()) {
     out.push({ userId, result: await withUser(userId, (tx) => fn(tx, userId)) });
   }
   return out;
+}
+
+/**
+ * Every user's id, read WITHOUT opening a transaction.
+ *
+ * The users table is identity, not tenanted data, so it carries no policy and
+ * this read is intentionally global. It is the only global read in the request
+ * path, and it returns ids, never anyone's training data. That is also why it
+ * needs no RLS context, and so no transaction.
+ *
+ * Exists separately from forEachUser for the one thing forEachUser cannot do:
+ * fan out over users while doing work that must NOT hold a transaction.
+ * forEachUser opens one per user and keeps it open for the whole callback,
+ * which is correct for pure database work and wrong for anything that waits on
+ * a third party — see the note above processGCalOutbox in lib/sync/
+ * sync-manager.ts, and remember that withUser is reentrant, so nesting inside
+ * forEachUser cannot escape its transaction.
+ */
+export async function listUserIds(): Promise<UserId[]> {
+  const rows = await db.select({ id: users.id }).from(users);
+  // The users table stores a plain uuid column, so this is the boundary where
+  // a raw string becomes a UserId. Validated, not cast.
+  return rows.map((r) => asUserId(r.id));
 }
