@@ -15,8 +15,8 @@ import {
   STRENGTH_COMPLAINTS,
   type Complaint,
 } from "@/lib/strength/types";
-import { complaintWorkSlugs } from "@/lib/strength/complaint-work";
-import { EXERCISE_BY_SLUG, TARGETED_WORK } from "@/lib/strength/program";
+import { complaintSubtitle, complaintWorkSlugs } from "@/lib/strength/complaint-work";
+import { EXERCISE_BY_SLUG } from "@/lib/strength/program";
 
 // Persist the rest-length preference to the strength plan (server) so it drives
 // the plan's prescriptions, not just the guided-session countdown. Reconciles
@@ -43,30 +43,11 @@ function patchPlanRest(restSeconds: number) {
 // athlete has already started keep what they were built with, and nothing
 // logged is ever removed (see schema.ts strengthSessions.complaints).
 
-/** The exercises a complaint adds, named, so the athlete can see what a
- *  toggle actually does to their sessions rather than guessing.
- *
- *  Names the exercises TARGETED_WORK actually prescribes for the complaint,
- *  not every slug complaintWorkSlugs knows about — that set also contains the
- *  equipment fallbacks (a box step-down OR the wall-sit that replaces it), and
- *  the athlete only ever gets one of each pair. Listing both would overstate
- *  the session by exercises nobody is going to do. */
-function complaintWorkNames(complaint: Complaint): string[] {
-  return (TARGETED_WORK[complaint]?.exercises ?? [])
-    .map((e) => EXERCISE_BY_SLUG[e.slug]?.name)
-    .filter((n): n is string => !!n);
-}
-
-/** "Adds 3 exercises to lower and full body days: Step-down, Wall sit, …" —
- *  the whole progression, because a complaint is no longer one exercise. The
- *  count is what the complaint contributes on its own; reporting several
- *  complaints caps and shortens the total (see program.ts targetedSlotsFor),
- *  which the note under the list explains rather than repeating on every row. */
-function complaintSubtitle(complaint: Complaint): string {
-  const names = complaintWorkNames(complaint);
-  if (names.length === 0) return "";
-  return `Adds ${names.length} exercise${names.length === 1 ? "" : "s"} to lower and full body days: ${names.join(", ")}`;
-}
+// complaintSubtitle — the "Adds 3 exercises …" line under each complaint —
+// lives in lib/strength/complaint-work.ts so it can be tested against
+// TARGETED_WORK directly. It is a promise about the training the athlete is
+// about to do, and it was previously wrong in a way no test could catch (it
+// named only the first exercise of a progression).
 
 const ACHILLES_WORK = complaintWorkSlugs("achilles")
   .map((slug) => EXERCISE_BY_SLUG[slug]?.name)
