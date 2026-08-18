@@ -4,6 +4,23 @@ import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { displayDistance, displayPace, distanceUnitLabel, paceUnitLabel } from "@/lib/units";
 import type { DistanceUnit, WeightUnit } from "@/lib/user-units";
 import { loadCredentials, saveCredentials, deleteCredentials } from "@/lib/sync/credentials";
+
+// ── Every call to Google is bounded ─────────────────────────────────────────
+// googleapis (gaxios) ships with NO default timeout: a request that never
+// answers never returns, and nothing downstream can tell that apart from one
+// that is merely slow. The watch worker has had a ~10s per-request bound
+// since it was written (garmin-client.ts); this side had none, which left the
+// only genuinely unbounded outbound calls in the app sitting on the path a
+// cron walks every 15 minutes.
+//
+// Set once, globally, rather than per call site: a timeout that has to be
+// remembered at each of the six call sites below is a timeout the seventh
+// will be missing. 20s is comfortably above a healthy Calendar round trip
+// (single-digit seconds, including a token refresh) and far below the 120s
+// cron budget, so a hung request surfaces as one failed job that retries
+// rather than as a whole truncated pass.
+const GCAL_TIMEOUT_MS = 20_000;
+google.options({ timeout: GCAL_TIMEOUT_MS });
 import { loadUserState, saveUserState, clearUserState } from "@/lib/sync/user-state";
 
 // ── Token storage ─────────────────────────────────────────────────────────────
