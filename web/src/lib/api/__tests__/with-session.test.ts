@@ -52,6 +52,10 @@ vi.mock("@/lib/users", () => ({
 // `budgetExceededAfterUsers` iterations have asked it, so a test can force
 // truncation after a known number of users without faking wall-clock time.
 let budgetExceededAfterUsers: number | null = null;
+// Set to make ONE user's own handler outlive the budget — the case the
+// between-users check cannot see, and the one that let /api/cron/reminders
+// run to the platform's hard timeout while nominally carrying a 120s budget.
+let unitTimesOut = false;
 vi.mock("@/lib/cron/budget", () => ({
   createCronBudget: () => {
     let calls = 0;
@@ -62,8 +66,11 @@ vi.mock("@/lib/cron/budget", () => ({
         return calls > budgetExceededAfterUsers;
       },
       elapsedMs: () => 0,
+      remainingMs: () => (unitTimesOut ? 0 : 120_000),
     };
   },
+  runWithinBudget: async (_budget: unknown, fn: () => Promise<unknown>) =>
+    unitTimesOut ? { timedOut: true } : { timedOut: false, value: await fn() },
 }));
 
 const { withCronFanOut } = await import("../with-session");
@@ -89,6 +96,7 @@ beforeEach(() => {
   fanOutUsers = [USER_A, USER_B];
   sessionUserId = null;
   budgetExceededAfterUsers = null;
+  unitTimesOut = false;
 });
 
 describe("withCronFanOut: status aggregation on the cron path", () => {
@@ -275,5 +283,25 @@ describe("withCronFanOut: budgetMs bounds the cron path", () => {
 
     expect(body.truncated).toBeUndefined();
     expect(body.users).toBe(2);
+  });
+
+  // The failure /api/cron/reminders actually shipped with, and the reason the
+  // between-users check was not enough: with ONE user in the database it runs
+  // a single time, at 0ms elapsed, and never again, so a handler that hangs
+  // takes the whole invocation to the platform's hard timeout. The killed
+  // function then leaves its transaction open, and the next request on that
+  // warm instance can die with "there is already a transaction in progress".
+  it("stops a single user whose handler outlives the budget, rather than running to the platform timeout", async () => {
+    fanOutUsers = [USER_A];
+    unitTimesOut = true;
+
+    const handler = vi.fn(async () => ({ ok: true }));
+    const route = withCronFanOut(handler, "cron-test", { budgetMs: 120_000 });
+    const res = await route(cronRequest());
+    const body = await res.json();
+
+    expect(body.truncated).toBe(true);
+    expect(body.ok).toBe(false);
+    expect(res.status).toBe(500);
   });
 });

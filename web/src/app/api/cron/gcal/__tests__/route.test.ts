@@ -77,6 +77,7 @@ vi.mock("@/db/with-user", () => ({ withUser, forEachUser, listUserIds, currentUs
 // with the scope at call time to prove the requeue now runs per user, inside
 // that user's own scope, instead of once on the ambient connection. ────────
 const requeueCalls: Array<{ scopedUserId: string | null }> = [];
+const purgeCalls: Array<{ scopedUserId: string | null }> = [];
 vi.mock("@/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/db")>();
   return {
@@ -89,6 +90,17 @@ vi.mock("@/db", async (importOriginal) => {
             where: vi.fn(() => ({
               returning: vi.fn().mockResolvedValue([]),
             })),
+          })),
+        };
+      }),
+      // Retention purge — recorded with its scope for the same reason as the
+      // requeue above: an unscoped DELETE on a tenanted table matches nothing
+      // while reporting success, so "it ran" is not the interesting assertion.
+      delete: vi.fn(() => {
+        purgeCalls.push({ scopedUserId });
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([]),
           })),
         };
       }),
@@ -242,6 +254,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   scopedUserId = null;
   requeueCalls.length = 0;
+  purgeCalls.length = 0;
   processGarminOutboxCalls.length = 0;
   processGCalOutboxCalls.length = 0;
   for (const key of Object.keys(scopeLog)) delete scopeLog[key];
@@ -372,5 +385,18 @@ describe("GET /api/cron/gcal", () => {
 
     expect(res.status).toBe(401);
     expect(forEachUser).not.toHaveBeenCalled();
+  });
+
+  // Retention runs per user, inside that user's own scope. sync_outbox is
+  // tenanted under FORCE row level security, so an unscoped DELETE matches
+  // nothing and reports success — a purge that silently purges nothing looks
+  // identical to one that works, until the table keeps growing.
+  it("purges settled outbox rows once per user, inside that user's scope", async () => {
+    const res = await GET(fakeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
+    await res.json();
+
+    expect(purgeCalls).toHaveLength(USER_IDS.length);
+    expect(purgeCalls.every((c) => c.scopedUserId !== null)).toBe(true);
+    expect(purgeCalls.map((c) => c.scopedUserId)).toEqual([...USER_IDS]);
   });
 });

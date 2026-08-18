@@ -36,12 +36,34 @@ jobs:
     steps:
       - name: Call sync-drain cron endpoint
         run: |
-          status=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
-            -X GET "https://kadenz-tau.vercel.app/api/cron/sync-drain" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
-          echo "HTTP status: $status"
-          cat /tmp/response.txt
-          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
-            echo "Sync drain failed with status $status"
-            exit 1
-          fi
+          # Retried, so a single transient blip does not page anyone.
+          #
+          # Both endpoints are idempotent by construction — claim-before-send
+          # and `FOR UPDATE SKIP LOCKED` — so a repeat call is a no-op, which
+          # is what makes retrying safe rather than merely convenient. A run
+          # only fails once the endpoint has failed every attempt, which is
+          # the point: an email should mean "this is actually broken", not
+          # "a cold start took too long once".
+          #
+          # --max-time is set above the server's own 120s cron budget and well
+          # under the platform's 300s kill, so a hung request is abandoned by
+          # the client rather than held to the bitter end.
+          attempts=3
+          for i in $(seq 1 $attempts); do
+            status=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
+              --max-time 180 \
+              -X GET "https://kadenz-tau.vercel.app/api/cron/sync-drain" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+            echo "Attempt $i/$attempts — HTTP status: $status"
+            cat /tmp/response.txt
+            echo
+            if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+              exit 0
+            fi
+            if [ "$i" -lt "$attempts" ]; then
+              echo "Retrying in 20s…"
+              sleep 20
+            fi
+          done
+          echo "Sync drain failed $attempts attempts in a row (last status $status)"
+          exit 1
