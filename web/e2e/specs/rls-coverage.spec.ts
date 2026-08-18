@@ -79,6 +79,36 @@ async function forceRlsByTable(tables: string[]): Promise<Map<string, boolean>> 
   return new Map(rows.map((r) => [r.relname, r.relforcerowsecurity]));
 }
 
+/** pg_class.relrowsecurity — RLS merely ENABLED, the weaker flag.
+ *
+ *  Weaker is exactly what makes it worth asserting separately. FORCE governs
+ *  whether the table's OWNER is subject to policies; ENABLE governs whether
+ *  anyone else is subject to them at all. A table with neither is wide open to
+ *  every role that holds a grant — which, on Supabase, means anon and
+ *  authenticated over PostgREST. */
+async function rlsEnabledByTable(tables: string[]): Promise<Map<string, boolean>> {
+  const rows = await sql<{ relname: string; relrowsecurity: boolean }[]>`
+    SELECT c.relname, c.relrowsecurity
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname = ANY(${tables})
+  `;
+  return new Map(rows.map((r) => [r.relname, r.relrowsecurity]));
+}
+
+/** Every base table in the public schema — the full surface PostgREST exposes,
+ *  derived rather than listed so a table added tomorrow is covered. */
+async function allPublicTables(): Promise<string[]> {
+  const rows = await sql<{ table_name: string }[]>`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      AND table_name <> '__drizzle_migrations'
+    ORDER BY table_name
+  `;
+  return rows.map((r) => r.table_name);
+}
+
 test.describe("RLS coverage (drizzle/0053_rls.sql)", () => {
   test("every tenanted table, and its child tables, has FORCE ROW LEVEL SECURITY", async () => {
     const tenanted = (await tablesWithUserIdColumn()).filter((t) => !NON_TENANTED_EXCEPTIONS.includes(t));
@@ -125,6 +155,45 @@ test.describe("RLS coverage (drizzle/0053_rls.sql)", () => {
     expect(
       withDefault.map((r) => `${r.table_name}.user_id = ${r.column_default}`),
       "tenanted table(s) whose user_id column still carries a default"
+    ).toEqual([]);
+  });
+
+  // ── Every public table has RLS ENABLED, no exceptions ─────────────────────
+  //
+  // The gap that let four tables sit readable by the world. NON_TENANTED_
+  // EXCEPTIONS answers "does a per-user policy make sense here?" — and for
+  // users, user_identities and strength_exercises the answer is genuinely no,
+  // for the reason the test above states. But that question is not "can
+  // anything outside the app reach this table?", and the second one went
+  // unasked.
+  //
+  // It did not matter while the database was reached only by the app over a
+  // direct Postgres connection. Moving to Supabase changed that: every public
+  // table is exposed through PostgREST with grants to anon and authenticated,
+  // so RLS-disabled means anyone holding the publishable key — which is public
+  // by design — can read and write it. For email_login_tokens that is reading
+  // magic-link tokens, i.e. signing in as somebody else. Confirmed against
+  // production, then fixed in drizzle/0073_rls_on_identity_tables.sql.
+  //
+  // ENABLE, not FORCE, deliberately: the app owns these tables and Postgres
+  // exempts an owner from ENABLE-only policies, so the app is unaffected while
+  // every other role is left with nothing. The test above keeps FORCE OFF for
+  // exactly the same tables; the two together pin the intended state from both
+  // directions.
+  test("every table in the public schema has row level security enabled", async () => {
+    const tables = await allPublicTables();
+    expect(tables.length, "no public tables found — is the e2e schema actually pushed?").toBeGreaterThan(0);
+
+    const enabled = await rlsEnabledByTable(tables);
+    const notEnabled = tables.filter((t) => enabled.get(t) !== true);
+
+    expect(
+      notEnabled,
+      `table(s) with row level security DISABLED: ${notEnabled.join(", ")}. ` +
+        `On Supabase every public table is reachable through PostgREST by anon, so a table ` +
+        `without RLS is readable and writable by anyone holding the publishable key. If this ` +
+        `table genuinely needs no per-user policy, it still needs ENABLE (see ` +
+        `drizzle/0073_rls_on_identity_tables.sql) — that combination is a deny-all, not an oversight.`
     ).toEqual([]);
   });
 });
