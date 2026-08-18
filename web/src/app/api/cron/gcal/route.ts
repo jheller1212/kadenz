@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { validateSessionCookie } from "@/lib/session";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, inArray } from "drizzle-orm";
 import { db, syncOutbox, OWNER_USER_ID } from "@/db";
 import { forEachUser, listUserIds, withUser } from "@/db/with-user";
 import { processGCalOutbox, type SyncResult } from "@/lib/sync/sync-manager";
@@ -22,6 +22,7 @@ import {
   autoCloseAbandonedSessions,
 } from "@/lib/strength/schedule";
 import { asUserId } from "@/lib/user-id";
+import { retentionCutoff, PURGEABLE_STATUSES } from "@/lib/sync/outbox-retention";
 
 // ── GET /api/cron/gcal ────────────────────────────────────────────────────────
 // The single daily cron (Vercel Hobby allows one — see vercel.json).
@@ -129,6 +130,47 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("GCal cron requeue error:", err);
     out.requeuedError = "requeue failed";
+  }
+
+  try {
+    // Retention. Nothing had ever deleted from sync_outbox: it had grown to
+    // ~1,800 rows going back to June, 1,400 of them delivered or deliberately
+    // cancelled months earlier. Not a correctness problem — every claim
+    // filters on status and user — but a table that only ever gets bigger.
+    //
+    // Only `completed` and `cancelled`, and only past the retention window.
+    // `failed` rows stay however old (they are the record of something that
+    // did not work, and the requeue above can still resurrect one), and live
+    // work is never touched. See lib/sync/outbox-retention.ts.
+    //
+    // Per user, inside their own scope, for the same reason as everything
+    // else in this route: sync_outbox is tenanted under FORCE row level
+    // security, and an unscoped DELETE matches nothing while reporting
+    // success.
+    const cutoff = retentionCutoff(new Date());
+    const purgeResults = await forEachUser(async (_tx, userId) => {
+      try {
+        const purged = await db
+          .delete(syncOutbox)
+          .where(
+            and(
+              eq(syncOutbox.userId, userId),
+              inArray(syncOutbox.status, [...PURGEABLE_STATUSES]),
+              lt(syncOutbox.createdAt, cutoff)
+            )
+          )
+          .returning({ id: syncOutbox.id });
+        return purged.length;
+      } catch (err) {
+        console.error(`Outbox purge failed for user ${userId}:`, err);
+        anyUserFailed = true;
+        return 0;
+      }
+    });
+    out.purged = purgeResults.reduce((sum, r) => sum + r.result, 0);
+  } catch (err) {
+    console.error("GCal cron purge error:", err);
+    out.purgedError = "purge failed";
   }
 
   try {

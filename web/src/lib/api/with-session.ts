@@ -4,7 +4,7 @@ import { forEachUser, withUser } from "@/db/with-user";
 import { HttpError } from "./errors";
 import { listAllUserIds } from "@/lib/users";
 import { asUserId } from "@/lib/user-id";
-import { createCronBudget } from "@/lib/cron/budget";
+import { createCronBudget, runWithinBudget } from "@/lib/cron/budget";
 
 // ── The one way an API route gets a database ──────────────────────────────────
 //
@@ -168,8 +168,27 @@ export function withCronFanOut(
               break;
             }
             const userId = asUserId(rawUserId);
-            const result = await withUser(userId, () => handler(userId));
-            entries.push({ userId, ...result });
+            // Bounded per user as well as across users. Checking `exceeded()`
+            // between iterations caps how many users START and says nothing
+            // about how long one takes — and with a single user in the
+            // database that check runs once, at 0ms elapsed, and never again,
+            // leaving the handler free to run until the platform kills the
+            // whole invocation at its hard timeout. /api/cron/reminders did
+            // exactly that, repeatedly, while carrying this 120s budget.
+            //
+            // Worse than the failed run itself: a function killed mid-flight
+            // never releases its transaction, so the next request on that warm
+            // instance can fail with "there is already a transaction in
+            // progress" — a cron taking out an unrelated page (see #178).
+            const outcome = await runWithinBudget(budget, () =>
+              withUser(userId, () => handler(userId))
+            );
+            if (outcome.timedOut) {
+              truncated = true;
+              entries.push({ userId, ok: false, error: "budget exceeded" });
+              break;
+            }
+            entries.push({ userId, ...outcome.value });
           }
         } else {
           const results = await forEachUser(async (_tx, userId) => handler(userId));
