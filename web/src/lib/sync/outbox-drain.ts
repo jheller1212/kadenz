@@ -83,10 +83,32 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
     console.error("Failed to queue Garmin strength top-up:", err);
   }
 
-  const drains: Promise<unknown>[] = [processGarminOutbox(uid)];
+  // ── Sequential, not concurrent, and this is load-bearing ───────────────────
+  //
+  // These two used to start together and be awaited with Promise.allSettled.
+  // db/index.ts caps the client at ONE physical connection per function
+  // instance, and each drain opens its own transaction on it — so "concurrent"
+  // was never parallelism, it was two transactions contending for a single
+  // connection. The second BEGIN queues behind the first, the first cannot
+  // finish while the second holds the call stack, and the invocation runs
+  // until the platform kills it at 300s.
+  //
+  // It only became reachable once the calendar side started opening its own
+  // transactions for credential reads, which is what it must do now that the
+  // drains run outside an ambient transaction (#173/#174/#177). The symptom
+  // was not a timeout, which would have been obvious — it was the NEXT request
+  // on that warm instance failing with "there is already a transaction in
+  // progress" (Postgres 25001) against a connection the killed one left
+  // idle-in-transaction. That surfaced as a 500 while reconnecting Google
+  // Calendar: an unrelated page, broken by a cron.
+  //
+  // Running them one after the other costs nothing real. They contend for the
+  // same single connection either way, so there was never overlap to win.
+  const results: Array<PromiseSettledResult<unknown>> = [];
+  results.push(...(await Promise.allSettled([processGarminOutbox(uid)])));
   try {
     if (await withUser(uid, () => isConnected(userId))) {
-      drains.push(processGCalOutbox(uid));
+      results.push(...(await Promise.allSettled([processGCalOutbox(uid)])));
     } else {
       // Disconnected, so there is nothing to deliver — but a row this user
       // had CLAIMED when the grant died is still sitting in `processing`,
@@ -111,9 +133,8 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
     console.error("gcal connection check failed:", err);
   }
 
-  const settled = await Promise.allSettled(drains);
   let ok = true;
-  for (const outcome of settled) {
+  for (const outcome of results) {
     if (outcome.status === "rejected") {
       console.error("Post-plan-change outbox drain failed:", outcome.reason);
       ok = false;

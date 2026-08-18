@@ -11,25 +11,29 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const OWNER_USER = "00000000-0000-0000-0000-000000000001";
 
-const processGarminOutbox = vi.fn(async (userId: string) => ({
-  processed: 0,
-  succeeded: 0,
-  failed: 0,
-  errors: [],
-  __userId: userId,
-}));
+let openTransactions = 0;
+let maxConcurrentTransactions = 0;
+const processGarminOutbox = vi.fn(async (userId: string) => {
+  // Stands in for the real drain, which holds a transaction for its whole
+  // duration on the instance's ONE connection.
+  openTransactions++;
+  maxConcurrentTransactions = Math.max(maxConcurrentTransactions, openTransactions);
+  await new Promise((r) => setTimeout(r, 0));
+  openTransactions--;
+  return { processed: 0, succeeded: 0, failed: 0, errors: [], __userId: userId };
+});
 vi.mock("../garmin-sync", () => ({
   processGarminOutbox: (userId: string) => processGarminOutbox(userId),
   queueGarminStrengthWindowSync: vi.fn().mockResolvedValue(0),
 }));
 
-const processGCalOutbox = vi.fn(async (userId: string) => ({
-  processed: 0,
-  succeeded: 0,
-  failed: 0,
-  errors: [],
-  __userId: userId,
-}));
+const processGCalOutbox = vi.fn(async (userId: string) => {
+  openTransactions++;
+  maxConcurrentTransactions = Math.max(maxConcurrentTransactions, openTransactions);
+  await new Promise((r) => setTimeout(r, 0));
+  openTransactions--;
+  return { processed: 0, succeeded: 0, failed: 0, errors: [], __userId: userId };
+});
 // Records the transaction scope active at the moment of the call, so a test
 // can assert not just THAT resetStaleClaims ran but that it ran with an
 // app.user_id set. Without a scope its bare UPDATE matches zero rows under
@@ -84,6 +88,8 @@ beforeEach(() => {
   garminEnabled = true;
   resetStaleClaimsScopes.length = 0;
   isConnectedScopes.length = 0;
+  openTransactions = 0;
+  maxConcurrentTransactions = 0;
   garminGateScopes.length = 0;
   currentScope = null;
 });
@@ -179,5 +185,24 @@ describe("drainOutboxNow", () => {
     await drainOutboxNow(OWNER_USER);
 
     expect(garminGateScopes).toEqual([OWNER_USER]);
+  });
+
+  // The drains must never overlap. db/index.ts caps the client at ONE physical
+  // connection per instance and each drain opens its own transaction on it, so
+  // starting both together is not parallelism — it is two transactions
+  // contending for one connection. The second BEGIN queues behind the first,
+  // which cannot finish, and the invocation runs until the platform kills it
+  // at 300s.
+  //
+  // The damage showed up somewhere else entirely: the killed request left its
+  // connection idle-in-transaction, and the NEXT request on that warm instance
+  // died with "there is already a transaction in progress" — which is how a
+  // cron broke the Google Calendar reconnect page with a 500.
+  it("runs the two drains one after the other, never overlapping", async () => {
+    await drainOutboxNow(OWNER_USER);
+
+    expect(processGarminOutbox).toHaveBeenCalled();
+    expect(processGCalOutbox).toHaveBeenCalled();
+    expect(maxConcurrentTransactions).toBe(1);
   });
 });
