@@ -47,6 +47,15 @@ function chain(resolveTo: unknown) {
   return c;
 }
 
+// credentials.ts scopes each of its own statements now (integration_credentials
+// is tenanted under FORCE row level security, and the sync path deliberately
+// runs outside a transaction — see #173/#174). These suites mock the database
+// wholesale, so withUser is a pass-through here; its real behaviour is
+// db/with-user.ts's own concern.
+vi.mock("@/db/with-user", () => ({
+  withUser: (_userId: string, fn: () => unknown) => fn(),
+}));
+
 vi.mock("@/db", () => ({
   integrationCredentials,
   userIdentities,
@@ -88,12 +97,12 @@ beforeEach(() => {
 
 describe("saveCredentials: per-user isolation", () => {
   it("scopes the upsert conflict to (userId, provider), the fix for the pre-Phase-4 bug where a shared idempotency key let the second person's OAuth overwrite the first person's tokens", async () => {
-    await saveCredentials("user-a", "strava", { access_token: "token-a" });
-    await saveCredentials("user-b", "strava", { access_token: "token-b" });
+    await saveCredentials("11111111-1111-4111-8111-111111111111", "strava", { access_token: "token-a" });
+    await saveCredentials("22222222-2222-4222-8222-222222222222", "strava", { access_token: "token-b" });
 
     expect(insertCalls).toHaveLength(2);
-    expect(insertCalls[0].values).toMatchObject({ userId: "user-a", provider: "strava" });
-    expect(insertCalls[1].values).toMatchObject({ userId: "user-b", provider: "strava" });
+    expect(insertCalls[0].values).toMatchObject({ userId: "11111111-1111-4111-8111-111111111111", provider: "strava" });
+    expect(insertCalls[1].values).toMatchObject({ userId: "22222222-2222-4222-8222-222222222222", provider: "strava" });
 
     // A conflict target of provider alone would be the old bug reborn: user
     // B connecting would upsert onto user A's existing row instead of
@@ -116,16 +125,16 @@ describe("loadCredentials: no connection", () => {
     // No queued row at all: chain() falls back to `[]`, exercising the same
     // "nothing to return" path a thrown query would take through the
     // try/catch in loadCredentials.
-    const result = await loadCredentials("user-a", "google");
+    const result = await loadCredentials("11111111-1111-4111-8111-111111111111", "google");
     expect(result).toBeNull();
   });
 });
 
 describe("findUserByProviderAccount", () => {
   it("resolves the athlete id from user_identities, not from this module's own table", async () => {
-    queueSelect([{ userId: "user-a" }]);
+    queueSelect([{ userId: "11111111-1111-4111-8111-111111111111" }]);
     const result = await findUserByProviderAccount("strava", "12345");
-    expect(result).toBe("user-a");
+    expect(result).toBe("11111111-1111-4111-8111-111111111111");
   });
 
   it("returns null for an athlete nobody has connected", async () => {
@@ -137,7 +146,7 @@ describe("findUserByProviderAccount", () => {
 
 describe("deleteCredentials", () => {
   it("deletes only the given user's row for the given provider", async () => {
-    await deleteCredentials("user-a", "strava");
+    await deleteCredentials("11111111-1111-4111-8111-111111111111", "strava");
     expect(deleteCalls).toHaveLength(1);
     expect(deleteCalls[0].table).toBe(integrationCredentials);
   });

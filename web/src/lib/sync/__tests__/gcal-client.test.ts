@@ -48,6 +48,15 @@ function chain(resolveTo: unknown) {
   return c;
 }
 
+// credentials.ts scopes each of its own statements now (integration_credentials
+// is tenanted under FORCE row level security, and the sync path deliberately
+// runs outside a transaction — see #173/#174). These suites mock the database
+// wholesale, so withUser is a pass-through here; its real behaviour is
+// db/with-user.ts's own concern.
+vi.mock("@/db/with-user", () => ({
+  withUser: (_userId: string, fn: () => unknown) => fn(),
+}));
+
 vi.mock("@/db", () => ({
   integrationCredentials,
   userIntegrationState,
@@ -120,12 +129,12 @@ describe("getAuthClient: refresh persists to the same user", () => {
   it("saves a refreshed token set against the SAME userId the client was built for", async () => {
     queueSelect([{ payload: STORED_TOKENS }]); // loadTokens(userId) inside getAuthClient
 
-    const auth = await getAuthClient("user-a");
+    const auth = await getAuthClient("11111111-1111-4111-8111-111111111111");
     expect(auth).not.toBeNull();
     expect(tokensListener).not.toBeNull();
 
     // Simulate googleapis firing a refresh while a DIFFERENT user's client
-    // might also be live, the closure must still write to user-a's row,
+    // might also be live, the closure must still write to that user's row,
     // not to whichever user happens to be "current" at call time.
     tokensListener!({ access_token: "at-2", refresh_token: "rt-2", expiry_date: Date.now() + 7200_000 });
     // saveTokens() is fire-and-forget inside the listener; flush a tick.
@@ -133,7 +142,7 @@ describe("getAuthClient: refresh persists to the same user", () => {
 
     expect(insertCalls).toHaveLength(1);
     const values = insertCalls[0].values as Record<string, unknown>;
-    expect(values.userId).toBe("user-a");
+    expect(values.userId).toBe("11111111-1111-4111-8111-111111111111");
     expect((values.payload as Record<string, unknown>).access_token).toBe("at-2");
   });
 });
@@ -152,7 +161,7 @@ describe("loadTokens / isConnected: no connection", () => {
 
 describe("markGCalDisconnected: a dead grant disconnects, once, with a reason", () => {
   it("forgets the credentials (isConnected's own source of truth) and records why", async () => {
-    await markGCalDisconnected("user-a", "invalid_grant");
+    await markGCalDisconnected("11111111-1111-4111-8111-111111111111", "invalid_grant");
 
     // Same action a manual Disconnect performs — deleteCredentials — so
     // isConnected() never grows a second notion of "connected".
@@ -164,7 +173,7 @@ describe("markGCalDisconnected: a dead grant disconnects, once, with a reason", 
     expect(insertCalls).toHaveLength(1);
     expect(insertCalls[0].table).toBe(userIntegrationState);
     const values = insertCalls[0].values as Record<string, unknown>;
-    expect(values.userId).toBe("user-a");
+    expect(values.userId).toBe("11111111-1111-4111-8111-111111111111");
     expect(values.key).toBe("google:connection");
     expect((values.value as Record<string, unknown>).reason).toBe("invalid_grant");
   });
@@ -173,20 +182,20 @@ describe("markGCalDisconnected: a dead grant disconnects, once, with a reason", 
 describe("loadGCalConnectionIssue", () => {
   it("returns the recorded reason when one exists", async () => {
     queueSelect([{ value: { reason: "invalid_grant", at: "2026-08-01T00:00:00.000Z" } }]);
-    const issue = await loadGCalConnectionIssue("user-a");
+    const issue = await loadGCalConnectionIssue("11111111-1111-4111-8111-111111111111");
     expect(issue?.reason).toBe("invalid_grant");
   });
 
   it("returns null for a user who was never disconnected this way", async () => {
     queueSelect([]);
-    const issue = await loadGCalConnectionIssue("user-a");
+    const issue = await loadGCalConnectionIssue("11111111-1111-4111-8111-111111111111");
     expect(issue).toBeNull();
   });
 });
 
 describe("saveTokens: reconnecting clears a prior disconnect record", () => {
   it("deletes the google:connection row alongside saving fresh credentials", async () => {
-    await saveTokens("user-a", {
+    await saveTokens("11111111-1111-4111-8111-111111111111", {
       access_token: "at-new",
       refresh_token: "rt-new",
       expiry_date: Date.now() + 3600_000,

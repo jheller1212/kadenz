@@ -13,6 +13,28 @@
 
 import { db, integrationCredentials, userIdentities } from "@/db";
 import { and, eq } from "drizzle-orm";
+import { withUser } from "@/db/with-user";
+import { asUserId } from "@/lib/user-id";
+
+// ── Each of these establishes its own scope ─────────────────────────────────
+//
+// integration_credentials is tenanted and under FORCE row level security, so
+// every statement below needs an app.user_id. They used to inherit one from
+// whatever transaction the caller happened to be in — which held right up
+// until the sync path stopped running inside a transaction on purpose (#173,
+// #174: outbound calls must not hold this instance's only connection).
+//
+// After that, an unscoped read here matched nothing and loadCredentials'
+// catch-all turned it into `null` — which every caller correctly reads as
+// "this person has not connected the service". Reconnecting Google Calendar
+// therefore changed nothing at all: the tokens were written, and every
+// subsequent read said "not connected".
+//
+// Scoping HERE rather than at each call site is the point. These functions
+// already require a userId — it is the one thing they cannot be called
+// without — so the scope can always be derived from the argument instead of
+// depending on ambient context that a caller three layers up may or may not
+// have set up. withUser is reentrant, so this is free when a scope exists.
 
 export type IntegrationProvider = "strava" | "google";
 
@@ -33,16 +55,18 @@ export async function loadCredentials<T>(
   provider: IntegrationProvider
 ): Promise<T | null> {
   try {
-    const [row] = await db
-      .select({ payload: integrationCredentials.payload })
-      .from(integrationCredentials)
-      .where(
-        and(
-          eq(integrationCredentials.userId, userId),
-          eq(integrationCredentials.provider, provider)
+    const [row] = await withUser(asUserId(userId), () =>
+      db
+        .select({ payload: integrationCredentials.payload })
+        .from(integrationCredentials)
+        .where(
+          and(
+            eq(integrationCredentials.userId, userId),
+            eq(integrationCredentials.provider, provider)
+          )
         )
-      )
-      .limit(1);
+        .limit(1)
+    );
 
     if (!row?.payload) return null;
     return row.payload as unknown as T;
@@ -64,13 +88,15 @@ export async function saveCredentials(
   provider: IntegrationProvider,
   payload: Record<string, unknown>
 ): Promise<void> {
-  await db
-    .insert(integrationCredentials)
-    .values({ userId, provider, payload })
-    .onConflictDoUpdate({
-      target: [integrationCredentials.userId, integrationCredentials.provider],
-      set: { payload, updatedAt: new Date() },
-    });
+  await withUser(asUserId(userId), () =>
+    db
+      .insert(integrationCredentials)
+      .values({ userId, provider, payload })
+      .onConflictDoUpdate({
+        target: [integrationCredentials.userId, integrationCredentials.provider],
+        set: { payload, updatedAt: new Date() },
+      })
+  );
 }
 
 /** Forgets `userId`'s connection to `provider`. Disconnect, not delete-account. */
@@ -78,14 +104,16 @@ export async function deleteCredentials(
   userId: string,
   provider: IntegrationProvider
 ): Promise<void> {
-  await db
-    .delete(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, provider)
+  await withUser(asUserId(userId), () =>
+    db
+      .delete(integrationCredentials)
+      .where(
+        and(
+          eq(integrationCredentials.userId, userId),
+          eq(integrationCredentials.provider, provider)
+        )
       )
-    );
+  );
 }
 
 /**
