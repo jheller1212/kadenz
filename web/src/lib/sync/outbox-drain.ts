@@ -59,9 +59,25 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
   // calendar connected).
   const uid = asUserId(userId);
 
+  // ── Every gate below reads a TENANTED table, so every one needs a scope ────
+  //
+  // This function is called with no transaction open (see the sync-drain
+  // route), which is deliberate: the drains it starts make outbound calls,
+  // and those must not hold this instance's only connection. The cost is that
+  // nothing here inherits an app.user_id any more, and under FORCE row level
+  // security an unscoped read does not fail — it returns nothing. So a gate
+  // asking "is watch sync on?" or "is the calendar connected?" answers a
+  // confident, silent NO, and the work behind it never runs.
+  //
+  // Not hypothetical: it shipped. Removing the outer transaction left these
+  // three reads bare, and for one deploy the calendar drain was skipped on
+  // every run while the endpoint reported {"ok":true,"drained":1}.
+  // withUser is reentrant, so wrapping is also correct on the after() paths
+  // that already hold a scope.
   try {
-    if (await isGarminWorkoutSyncEnabled(userId)) {
-      await queueGarminStrengthWindowSync(uid);
+    const garminEnabled = await withUser(uid, () => isGarminWorkoutSyncEnabled(userId));
+    if (garminEnabled) {
+      await withUser(uid, () => queueGarminStrengthWindowSync(uid));
     }
   } catch (err) {
     console.error("Failed to queue Garmin strength top-up:", err);
@@ -69,7 +85,7 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
 
   const drains: Promise<unknown>[] = [processGarminOutbox(uid)];
   try {
-    if (await isConnected(userId)) {
+    if (await withUser(uid, () => isConnected(userId))) {
       drains.push(processGCalOutbox(uid));
     } else {
       // Disconnected, so there is nothing to deliver — but a row this user
