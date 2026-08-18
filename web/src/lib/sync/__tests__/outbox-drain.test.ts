@@ -57,13 +57,21 @@ vi.mock("@/db/with-user", () => ({
 }));
 
 let connected = true;
+const isConnectedScopes: Array<string | null> = [];
 vi.mock("../gcal-client", () => ({
-  isConnected: vi.fn(async () => connected),
+  isConnected: vi.fn(async () => {
+    isConnectedScopes.push(currentScope);
+    return connected;
+  }),
 }));
 
 let garminEnabled = true;
+const garminGateScopes: Array<string | null> = [];
 vi.mock("../garmin-config", () => ({
-  isGarminWorkoutSyncEnabled: vi.fn(async () => garminEnabled),
+  isGarminWorkoutSyncEnabled: vi.fn(async () => {
+    garminGateScopes.push(currentScope);
+    return garminEnabled;
+  }),
 }));
 
 vi.mock("next/server", () => ({ after: vi.fn() }));
@@ -75,6 +83,8 @@ beforeEach(() => {
   connected = true;
   garminEnabled = true;
   resetStaleClaimsScopes.length = 0;
+  isConnectedScopes.length = 0;
+  garminGateScopes.length = 0;
   currentScope = null;
 });
 
@@ -145,5 +155,29 @@ describe("drainOutboxNow", () => {
 
     expect(processGCalOutbox).toHaveBeenCalled();
     expect(resetStaleClaimsScopes).toHaveLength(0);
+  });
+
+  // ── Every tenanted gate runs inside a scope ────────────────────────────────
+  //
+  // These read integration_credentials and user_integration_state, both under
+  // FORCE row level security. drainOutboxNow is called with no transaction
+  // open, so an unwrapped read here returns nothing rather than failing — the
+  // gate answers a confident, silent "no" and the work behind it is skipped.
+  //
+  // That shipped: for one deploy the calendar drain was skipped on every run
+  // while the endpoint reported {"ok":true,"drained":1}, and a reconnected
+  // calendar still delivered nothing. Asserting the drain "was called" cannot
+  // catch it — the drain is exactly what does not get called. The scope at the
+  // moment of the GATE is the thing to assert.
+  it("checks the calendar connection inside a scope, not on the bare connection", async () => {
+    await drainOutboxNow(OWNER_USER);
+
+    expect(isConnectedScopes).toEqual([OWNER_USER]);
+  });
+
+  it("checks the watch-sync toggle inside a scope too", async () => {
+    await drainOutboxNow(OWNER_USER);
+
+    expect(garminGateScopes).toEqual([OWNER_USER]);
   });
 });
