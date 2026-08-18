@@ -27,6 +27,7 @@ import {
 import { BottomNav } from "@/components/BottomNav";
 import { NavBar } from "@/components/ui/NavBar";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { CalendarReconnectBanner } from "@/components/CalendarReconnectBanner";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
@@ -2103,6 +2104,11 @@ export default function Home() {
       />
 
       <div className={`flex flex-col gap-4 pt-2 ${showStickyButton ? "pb-[calc(var(--tabbar-h)+var(--sa-bottom)+88px)]" : "pb-tabbar"}`}>
+        {/* Renders nothing unless a live Google grant has died — see the
+            component. Placed above the strip so a broken calendar is seen,
+            not discovered days later by missing events. */}
+        <CalendarReconnectBanner />
+
         {/* Calendar Strip */}
         <CalendarStrip
           days={days}
