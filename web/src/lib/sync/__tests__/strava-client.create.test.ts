@@ -63,6 +63,15 @@ function chain(resolveTo: unknown) {
   return c;
 }
 
+// credentials.ts scopes each of its own statements now (integration_credentials
+// is tenanted under FORCE row level security, and the sync path deliberately
+// runs outside a transaction — see #173/#174). These suites mock the database
+// wholesale, so withUser is a pass-through here; its real behaviour is
+// db/with-user.ts's own concern.
+vi.mock("@/db/with-user", () => ({
+  withUser: (_userId: string, fn: () => unknown) => fn(),
+}));
+
 vi.mock("@/db", () => ({
   activities,
   workouts,

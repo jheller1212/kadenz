@@ -127,7 +127,14 @@ vi.mock("@/lib/sync/sync-manager", () => ({ queueStrengthSessionSync: vi.fn() })
 // Real db/with-user.ts pulls in the real schema.ts (for `users`), which the
 // drizzle-orm mock above doesn't support (no `relations` export) — stubbed
 // out rather than widening that mock.
-vi.mock("@/db/with-user", () => ({ currentUserId: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }));
+// withUser is a pass-through here: credentials.ts scopes its own statements
+// now (see the note at the top of that module), and this suite mocks the
+// database wholesale, so the real transaction behaviour is not what it is
+// testing.
+vi.mock("@/db/with-user", () => ({
+  currentUserId: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  withUser: (_userId: string, fn: () => unknown) => fn(),
+}));
 
 const { updateActivity, deleteStravaActivity } = await import("../strava-client");
 
