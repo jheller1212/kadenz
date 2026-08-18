@@ -51,6 +51,9 @@ vi.mock("@/db/with-user", () => ({
 }));
 
 let budgetExceededAfterUsers: number | null = null;
+// Set to make ONE user's own work overrun its budget, which is the failure
+// the between-users check cannot see (see lib/cron/__tests__/budget.test.ts).
+let unitTimesOut = false;
 vi.mock("@/lib/cron/budget", () => ({
   createCronBudget: () => {
     let calls = 0;
@@ -61,8 +64,14 @@ vi.mock("@/lib/cron/budget", () => ({
         return calls > budgetExceededAfterUsers;
       },
       elapsedMs: () => 0,
+      remainingMs: () => (unitTimesOut ? 0 : 120_000),
     };
   },
+  // The real one races the unit against the remaining budget; here it either
+  // runs the unit or reports the timeout, so the route's handling of each is
+  // what gets exercised rather than the clock.
+  runWithinBudget: async (_budget: unknown, fn: () => Promise<unknown>) =>
+    unitTimesOut ? { timedOut: true } : { timedOut: false, value: await fn() },
 }));
 
 const { GET } = await import("../route");
@@ -82,6 +91,7 @@ beforeEach(() => {
   process.env.CRON_SECRET = CRON_SECRET;
   withUserCalls.length = 0;
   budgetExceededAfterUsers = null;
+  unitTimesOut = false;
 });
 
 describe("GET /api/cron/sync-drain", () => {
@@ -192,5 +202,28 @@ describe("GET /api/cron/sync-drain", () => {
     // errors, they are deferred to the next tick.
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
+  });
+
+  // The failure this route actually shipped with, and the reason the budget
+  // above was not enough. sync-drain died on Vercel's hard 300s
+  // FUNCTION_INVOCATION_TIMEOUT repeatedly while nominally carrying a 120s
+  // budget, because `exceeded()` is only consulted BETWEEN users: with one
+  // user in the database it ran once, at 0ms elapsed, and never again, and
+  // that single user's work then ran until the platform killed the whole
+  // invocation. A killed function reports nothing, retries nothing, and
+  // leaves its claimed rows behind.
+  it("stops a single user whose own work outlives the budget, instead of running until the platform kills it", async () => {
+    userIds = [USER_A];
+    unitTimesOut = true;
+
+    const res = await GET(fakeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
+    const body = await res.json();
+
+    // Reported as a truncated, failed pass — a real answer the workflow can
+    // act on, rather than a 504 with no body.
+    expect(body.truncated).toBe(true);
+    expect(res.status).toBe(500);
+    expect(body.ok).toBe(false);
+    expect(body.drain).toEqual({ users: 1, drained: 0 });
   });
 });

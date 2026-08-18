@@ -16,7 +16,7 @@
 // is no longer a coin flip either.
 
 import { after } from "next/server";
-import { processGCalOutbox } from "./sync-manager";
+import { processGCalOutbox, resetStaleClaims } from "./sync-manager";
 import { processGarminOutbox, queueGarminStrengthWindowSync } from "./garmin-sync";
 import { isConnected } from "./gcal-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
@@ -68,7 +68,22 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
 
   const drains: Promise<unknown>[] = [processGarminOutbox(uid)];
   try {
-    if (await isConnected(userId)) drains.push(processGCalOutbox(uid));
+    if (await isConnected(userId)) {
+      drains.push(processGCalOutbox(uid));
+    } else {
+      // Disconnected, so there is nothing to deliver — but a row this user
+      // had CLAIMED when the grant died is still sitting in `processing`,
+      // and the only thing that ever releases one is resetStaleClaims, which
+      // lives inside the drain being skipped here. Without this, such a row
+      // is stranded until the calendar is reconnected: invisible to the
+      // pending count, never retried, never failed. One was found stuck that
+      // way for four days after an `invalid_grant` disconnect.
+      //
+      // Releasing it back to `pending` is the honest state: undelivered and
+      // waiting, which is exactly what it is. Nothing drains it while
+      // disconnected, and reconnecting picks it up.
+      await resetStaleClaims("gcal", uid);
+    }
   } catch (err) {
     console.error("gcal connection check failed:", err);
   }

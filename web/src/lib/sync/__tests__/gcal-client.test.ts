@@ -92,6 +92,10 @@ vi.mock("googleapis", () => ({
   google: {
     auth: { OAuth2: FakeOAuth2Client },
     calendar: vi.fn(),
+    // Real googleapis exposes this; the module sets a global request timeout
+    // through it at import time, because gaxios ships with none and a Calendar
+    // call that never answers otherwise never returns.
+    options: vi.fn(),
   },
 }));
 vi.mock("@/lib/strength/weights", () => ({ formatLoad: vi.fn() }));
