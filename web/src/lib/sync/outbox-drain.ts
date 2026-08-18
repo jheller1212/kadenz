@@ -21,6 +21,7 @@ import { processGarminOutbox, queueGarminStrengthWindowSync } from "./garmin-syn
 import { isConnected } from "./gcal-client";
 import { isGarminWorkoutSyncEnabled } from "./garmin-config";
 import { asUserId } from "@/lib/user-id";
+import { withUser } from "@/db/with-user";
 
 /**
  * Top up the Garmin side of the strength schedule, then drain both outboxes.
@@ -82,7 +83,13 @@ export async function drainOutboxNow(userId: string): Promise<{ ok: boolean }> {
       // Releasing it back to `pending` is the honest state: undelivered and
       // waiting, which is exactly what it is. Nothing drains it while
       // disconnected, and reconnecting picks it up.
-      await resetStaleClaims("gcal", uid);
+      // Wrapped, and this is not optional: resetStaleClaims issues a bare
+      // UPDATE, and sync-drain now calls this with NO transaction open (see
+      // #173). Outside one there is no app.user_id, so under FORCE row level
+      // security the statement matches zero rows and reports success — the
+      // row stays stuck and nothing says so. withUser is reentrant, so this
+      // is equally correct on the after() paths that DO already hold a scope.
+      await withUser(uid, () => resetStaleClaims("gcal", uid));
     }
   } catch (err) {
     console.error("gcal connection check failed:", err);
