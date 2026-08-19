@@ -131,13 +131,35 @@ jobs:
         timeout-minutes: 15
         run: |
           # See the note on the install-deps step below — same apt exposure,
-          # same treatment.
+          # same dpkg-lock race, same treatment.
+          # Wait for the runner's OWN apt to finish first.
+          #
+          # This is the actual failure, now that it has been seen rather than
+          # guessed at: `E: Could not get lock /var/lib/dpkg/lock-frontend, it
+          # is held by process N (apt-get)`. A fresh ubuntu runner does its own
+          # package work at boot (unattended-upgrades and image provisioning),
+          # and this step races it. Retrying into a held lock just burns the
+          # attempts — the first one blocked for the full 300s timeout, the
+          # other two failed in seconds against the same lock.
+          #
+          # So: wait for the lock to clear before trying at all, up to five
+          # minutes, then let the retry loop handle anything that is genuinely
+          # a network problem. `|| true` because fuser exits non-zero precisely
+          # when the lock is FREE, which is the case we want to proceed on.
+          for _ in $(seq 1 60); do
+            if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+              break
+            fi
+            echo "Another apt process holds the dpkg lock; waiting 5s…"
+            sleep 5
+          done
+
           for i in 1 2 3; do
             if timeout 300 npx playwright install --with-deps chromium; then
               exit 0
             fi
-            echo "Attempt $i/3 failed or timed out; retrying in 15s…"
-            sleep 15
+            echo "Attempt $i/3 failed or timed out; retrying in 30s…"
+            sleep 30
           done
           echo "playwright install --with-deps failed 3 attempts in a row"
           exit 1
@@ -163,12 +185,34 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         timeout-minutes: 18
         run: |
+          # Wait for the runner's OWN apt to finish first.
+          #
+          # This is the actual failure, now that it has been seen rather than
+          # guessed at: `E: Could not get lock /var/lib/dpkg/lock-frontend, it
+          # is held by process N (apt-get)`. A fresh ubuntu runner does its own
+          # package work at boot (unattended-upgrades and image provisioning),
+          # and this step races it. Retrying into a held lock just burns the
+          # attempts — the first one blocked for the full 300s timeout, the
+          # other two failed in seconds against the same lock.
+          #
+          # So: wait for the lock to clear before trying at all, up to five
+          # minutes, then let the retry loop handle anything that is genuinely
+          # a network problem. `|| true` because fuser exits non-zero precisely
+          # when the lock is FREE, which is the case we want to proceed on.
+          for _ in $(seq 1 60); do
+            if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+              break
+            fi
+            echo "Another apt process holds the dpkg lock; waiting 5s…"
+            sleep 5
+          done
+
           for i in 1 2 3; do
             if timeout 300 npx playwright install-deps chromium; then
               exit 0
             fi
-            echo "Attempt $i/3 failed or timed out; retrying in 15s…"
-            sleep 15
+            echo "Attempt $i/3 failed or timed out; retrying in 30s…"
+            sleep 30
           done
           echo "playwright install-deps failed 3 attempts in a row"
           exit 1
