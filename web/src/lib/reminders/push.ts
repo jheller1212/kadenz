@@ -40,7 +40,10 @@ export interface PushSendResult {
   error?: string;
 }
 
-export async function sendPush(
+/** Web-push transport. Deliberately module-private: sendToSubscription below
+ *  is the single place that decides which transport a subscription uses, and
+ *  exporting this invites a caller to bypass that decision. */
+async function sendPush(
   subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
   payload: ReminderPushPayload
 ): Promise<PushSendResult> {

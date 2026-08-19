@@ -356,6 +356,13 @@ export async function fetchActivity(
  * Match a Strava activity to a workout on the same day.
  * Candidates come from the active plan only (never archived plans) and
  * exclude rest days. See pickWorkoutMatch for the selection contract.
+ *
+ * Two ideas parked here rather than lost with the tombstone file they used to
+ * live in (lib/sync/strava-webhook.ts, whose only remaining content was a
+ * "this moved" note):
+ *   - pace analysis: compare actual pace per block against the target pace.
+ *   - richer matching: use workout type and distance to break ties that
+ *     distance alone cannot.
  */
 export async function findMatchingWorkout(
   activity: Pick<StravaActivity, "start_date_local" | "distance">

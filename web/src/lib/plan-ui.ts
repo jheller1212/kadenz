@@ -11,8 +11,6 @@ import { isCompletedSession, isPastDuePlanned, type SessionStatus } from "@/lib/
 import { displayWorkoutTitle } from "@/lib/plan-engine/workout-title";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
 
-export const STRENGTH_BLUE = STRENGTH_COLOR.solid;
-
 /** Darken a #RRGGBB hex color by `amount` (0–1). */
 export function darken(hex: string, amount = 0.2): string {
   const n = parseInt(hex.slice(1), 16);

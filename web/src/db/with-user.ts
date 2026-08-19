@@ -93,7 +93,6 @@ const UUID_RE =
 // nothing so that the Edge-runtime proxy can reach it too. Re-exported here
 // because this file is where callers already come for identity.
 export type { UserId } from "@/lib/user-id";
-export { asUserId } from "@/lib/user-id";
 
 /**
  * The database handle passed to a `withUser` callback. It is a transaction,
@@ -229,10 +228,6 @@ export function currentUserId(): UserId {
   return userId as UserId;
 }
 
-/** The current user id, or null outside a request context. */
-export function currentUserIdOrNull(): UserId | null {
-  return (txStore.getStore()?.userId as UserId | undefined) ?? null;
-}
 
 /**
  * Runs `fn` once per user, each inside that user's own context.
