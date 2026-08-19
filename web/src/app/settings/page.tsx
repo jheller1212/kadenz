@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NavBar } from "@/components/ui/NavBar";
 import { BottomNav } from "@/components/BottomNav";
-import { ListGroup, Row } from "@/components/ui/List";
+import { Row } from "@/components/ui/List";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { haptic } from "@/lib/haptics";
@@ -276,7 +276,7 @@ export default function SettingsPage() {
     // Deferred to after hydration on purpose (localStorage isn't available
     // during SSR, and reading it in render would cause a hydration mismatch).
     const sync = () => {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setProfile(loadOwnerProfile());
       setAvatar(loadOwnerAvatar());
     };

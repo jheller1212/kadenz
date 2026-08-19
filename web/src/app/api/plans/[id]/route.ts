@@ -1,5 +1,5 @@
 import { NextRequest, after } from "next/server";
-import { and, eq, isNotNull, isNull, ne, not, notInArray, or } from "drizzle-orm";
+import { and, eq, isNull, not, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, plans, weeks, workouts, blocks } from "@/db";
 import { generatePlan } from "@/lib/plan-engine/plan-generator";

@@ -893,7 +893,10 @@ export default function ActivitiesPage() {
   const [yearFilter, setYearFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
 
-  async function load() {
+  // useCallback, not a plain function, so the effects below can depend on it
+  // honestly. It closes over exactly the two filters — everything else it
+  // touches is a setter, which React guarantees is stable.
+  const load = useCallback(async () => {
     try {
       const { from, to } = computeWindow(yearFilter, monthFilter);
       const qs = new URLSearchParams({ from, ...(to ? { to } : {}) });
@@ -908,13 +911,13 @@ export default function ActivitiesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [yearFilter, monthFilter]);
 
   // Re-fetches whenever the year/month filter changes — selecting an older
   // year asks the server for that period rather than filtering a list that
   // was never sent in the first place.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load(); }, [yearFilter, monthFilter]);
+  useEffect(() => { load(); }, [load]);
 
   // Garmin has no activity webhook (unlike Strava), so nothing pushes new watch
   // activities in. Pull them in the background when this screen opens — throttled
@@ -935,6 +938,12 @@ export default function ActivitiesPage() {
       })
       .catch(() => { /* not connected / offline — silent */ });
     return () => { alive = false; };
+    // Mount-only on purpose, so `load` is deliberately not a dependency:
+    // depending on it would re-run this whole Garmin import every time the
+    // year or month filter changed, which is a network round trip to the watch
+    // worker in response to a UI toggle. The `load()` above only refreshes the
+    // list when the import actually brought something in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { pull, refreshing } = usePullToRefresh(load);
@@ -984,7 +993,7 @@ export default function ActivitiesPage() {
     } else {
       load(); // put the row back
     }
-  }, [refreshTrash]);
+  }, [refreshTrash, load]);
 
   async function undoDelete() {
     if (!undoId) return;

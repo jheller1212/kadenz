@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { loadReminderConfig, saveReminderConfig } from "@/lib/reminders/settings";
 import { withSession } from "@/lib/api/with-session";

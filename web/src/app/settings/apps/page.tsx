@@ -310,7 +310,7 @@ function GarminConnection() {
         }
         // Worker up but Garmin session dead → "reconnect", not a false green.
         setStatus(!d.healthy ? "unreachable" : d.authenticated ? "healthy" : "auth_dead");
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from server
+
         setSyncWorkouts(Boolean(d.syncWorkouts));
       })
       .catch(() => setStatus("unreachable"));

@@ -7,7 +7,6 @@
 import { db, activities, workouts, strengthSessions, deletedActivities } from "@/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import type { UserId } from "@/lib/user-id";
-import { currentUserId } from "@/db/with-user";
 import { garminClient, type GarminActivity } from "./garmin-client";
 import {
   isDuplicateActivity,

@@ -7,7 +7,7 @@
 // cookie for the tests to reuse — all local, all disposable. Production code,
 // never production data: see the guard below and step 4.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { spawn } from "node:child_process";
 import EmbeddedPostgres from "embedded-postgres";
 import {

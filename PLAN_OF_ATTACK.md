@@ -7,7 +7,6 @@ of the links. Last updated 2026-08-01.
 |---|---|
 | `MULTI_USER_PLAN.md` | Getting real testers onto Kadenz. Phased, with the tenancy decision. |
 | `NATIVE_APP_PLAN.md` | App stores, and how Apple Health actually arrives. Depends on multi-user. |
-| `KRAFT_DESIGN_BRIEF.md` | Paste-ready brief for Claude Design. Three Kraft screens. |
 | `docs/DUPLICATION.md` | How this codebase fails, and how to catch the next one. |
 | `docs/HANDOFF.md` | Strength module context from 11 July. Historical, partly superseded. |
 | `docs/ROADMAP.md` | From April. Historical. Do not plan from it. |
@@ -33,7 +32,6 @@ of the links. Last updated 2026-08-01.
   investigation is closed.
 - **Reconnect Google Calendar.** The OAuth grant is dead. Safe now that the 403
   stale queued jobs were cancelled.
-- **Prompt Claude Design** with `KRAFT_DESIGN_BRIEF.md`.
 - **Use the app and report what feels wrong.** Every bug found on 28 and 29
   July came from real use and was invisible to a passing test suite. This is
   not a formality. It is the most effective bug-finding channel the project
@@ -104,8 +102,10 @@ migration**.
 ### The hard dependency, before any of this
 **Opening sign-up to anyone requires the route leaks closed and row level
 security enforced.** Until then, a second person signing in can read and in
-some cases delete the owner's data. That is not caution, it is the 37 leaks in
-`PHASE3_LEAKS.md`. Order is not negotiable:
+some cases delete the owner's data. That is not caution: an audit on 2026-07-30
+found 37 real cross-user leaks, all since closed (the write-up lived in
+`PHASE3_LEAKS.md`, removed once every route was scoped — it is in git history if
+the detail is ever wanted). Order is not negotiable:
 
 1. Leaks closed and RLS enforced (in flight)
 2. Per-user OAuth tokens, so one person connecting Strava does not overwrite
@@ -177,7 +177,9 @@ Not nice-to-haves. See `NATIVE_APP_PLAN.md`.
 
 **Neon to Supabase, complete.** Schema, then a driver-level data copy in FK
 topological order with a schema diff before any write and per-table row counts
-after (`web/scripts/supabase-migration/`). Two things that bit and are worth
+after. (The one-off scripts that did it have since been deleted along with the
+rest of the cutover tooling; they are in git history.) Two things that bit and
+are worth
 remembering: the copy must clear the migration-seeded `strength_exercises`
 rows first, or `ON CONFLICT DO NOTHING` keeps the target's fresh UUIDs and
 orphans every strength set pointing at the source's; and Supabase's `postgres`

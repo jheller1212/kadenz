@@ -46,7 +46,7 @@ export function WheelPicker({ min, max, step = 1, value, onChange, unit }: Props
       centerIdxRef.current = valueIdx;
       setCenterIdx(valueIdx);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [valueIdx]);
 
   // Initial mount: scroll before paint so the drum never flashes at the top.

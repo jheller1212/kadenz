@@ -20,7 +20,6 @@ import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { StepperButton } from "@/components/ui/StepperButton";
-import { ListGroup, Row } from "@/components/ui/List";
 import { EmptyState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { haptic } from "@/lib/haptics";
@@ -558,7 +557,7 @@ export default function StrengthPage() {
     window.history.replaceState(null, "", "/strength");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only deep-link open, async load
     openSessionOverview(sid, { deepLink: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   // ── Picker → adopt today's planned session of this type, or create one ──────

@@ -15,7 +15,6 @@ import {
   Sunrise,
   Sunset,
   RefreshCw,
-  Zap,
   Dumbbell,
   MapPin,
   Trophy,
@@ -520,13 +519,6 @@ function WeekRingSelector({
 // ── Signature hero — the ONE gradient moment on this screen ─────────────────
 // Micro-label + display numerals only (no body text on gradients — DESIGN.md).
 
-const RACE_LABEL: Record<string, string> = {
-  "5k": "5K",
-  "10k": "10K",
-  half: "Half marathon",
-  marathon: "Marathon",
-};
-
 
 // Open the phone's weather app (Apple Weather on iOS; web weather elsewhere).
 function openWeatherApp() {
@@ -560,7 +552,10 @@ function CalendarStrip({
   function handleTouchStart(e: React.TouchEvent) { touchStartX.current = e.touches[0].clientX; }
   function handleTouchEnd(e: React.TouchEvent) {
     const diff = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) { diff > 0 ? onSwipeLeft() : onSwipeRight(); }
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) onSwipeLeft();
+      else onSwipeRight();
+    }
   }
 
   return (
@@ -1495,7 +1490,6 @@ function bootstrapSectionFailed(value: unknown): value is { error: true } {
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TodayApiResponse | null>(null);
   const [loadError, setLoadError] = useState(false);

@@ -298,7 +298,7 @@ export default function GuidedSession({
   // refresh the count whenever the queue drains.
   useEffect(() => {
     function refresh() {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reads localStorage, client-only
+
       setPendingWrites(queuedCountFor(session.id));
     }
     function retry() {
