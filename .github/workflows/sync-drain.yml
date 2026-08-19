@@ -50,14 +50,21 @@ jobs:
           # the client rather than held to the bitter end.
           attempts=3
           for i in $(seq 1 $attempts); do
+            # `|| true` is load-bearing: the step runs under `bash -e`, so a
+            # curl that exits non-zero (28 = timed out) aborts the whole script
+            # before the retry below ever runs. That is exactly what happened —
+            # a run that "failed after 3 attempts" had in fact made one, then
+            # died. Capturing the failure instead of inheriting it is what makes
+            # this a retry rather than decoration.
+            : > /tmp/response.txt   # so a stale body cannot be read as this attempt's
             status=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
-              --max-time 180 \
+              --max-time 120 \
               -X GET "https://kadenz-tau.vercel.app/api/cron/sync-drain" \
-              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
-            echo "Attempt $i/$attempts — HTTP status: $status"
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || true)
+            echo "Attempt $i/$attempts — HTTP status: ${status:-timeout}"
             cat /tmp/response.txt
             echo
-            if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+            if [ "${status:-0}" -ge 200 ] && [ "${status:-0}" -lt 300 ]; then
               exit 0
             fi
             if [ "$i" -lt "$attempts" ]; then
