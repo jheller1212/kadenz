@@ -113,7 +113,3 @@ export function getEmailSender(): EmailSender {
   );
 }
 
-/** Test-only seam: replace the cached sender, or clear it to re-resolve. */
-export function __setEmailSenderForTest(sender: EmailSender | null): void {
-  cached = sender;
-}
