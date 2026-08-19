@@ -17,7 +17,7 @@ import {
   type PrescribedRepRange,
 } from "./progression";
 import { estimateWorkoutDuration } from "./estimate";
-import { fitSessionToDuration, type DurationFitExercise } from "./duration-fit";
+import { fitSessionToDuration } from "./duration-fit";
 import {
   PHASE_MIN_SETS,
   setsDeltaFor,

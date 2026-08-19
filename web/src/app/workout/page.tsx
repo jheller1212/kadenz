@@ -1475,7 +1475,7 @@ function WorkoutDetailPageInner() {
               </div>
             )}
             <div className="ml-auto">
-              <PaceBadge blocks={workout.blocks} workoutType={workout.type} color={color} useMiles={useMiles} />
+              <PaceBadge blocks={workout.blocks} color={color} useMiles={useMiles} />
             </div>
           </div>
 
@@ -1519,7 +1519,6 @@ function WorkoutDetailPageInner() {
             <div className="mt-4">
               <PaceChart
                 blocks={workout.blocks}
-                workoutType={workout.type}
                 variant="full"
                 color={color}
                 useMiles={useMiles}

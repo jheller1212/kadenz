@@ -616,7 +616,7 @@ export default function PaceInsightsPage() {
       .finally(() => setLoading(false));
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   useEffect(loadInsights, []);
 
   function handleAddTime(category: "short" | "long") {

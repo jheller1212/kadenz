@@ -18,7 +18,6 @@ interface Block {
 
 interface PaceChartProps {
   blocks: Block[];
-  workoutType: string;
   /** "compact" for workout cards, "full" for detail page */
   variant?: "compact" | "full";
   color: string;
@@ -147,7 +146,7 @@ function getSegmentColor(type: string, workoutColor: string, isRest: boolean): s
 
 // ── Chart Component ─────────────────────────────────────────────────────────
 
-export function PaceChart({ blocks, workoutType, variant = "compact", color, useMiles: useMilesProp }: PaceChartProps) {
+export function PaceChart({ blocks, variant = "compact", color, useMiles: useMilesProp }: PaceChartProps) {
   const useMiles = useMilesProp ?? loadSettings().units === "miles";
   if (!blocks || blocks.length === 0) return null;
 
@@ -155,9 +154,6 @@ export function PaceChart({ blocks, workoutType, variant = "compact", color, use
   const totalWeight = segments.reduce((s, seg) => s + seg.weight, 0);
   const chartHeight = variant === "compact" ? 32 : 56;
   const gap = variant === "compact" ? 1 : 2;
-
-  // For single-block workouts (easy runs), show a simple bar
-  const isSinglePace = blocks.length === 1 || blocks.every((b) => b.targetPaceSecKm === blocks[0]?.targetPaceSecKm);
 
   return (
     <div className="w-full">
@@ -231,12 +227,10 @@ export function PaceChart({ blocks, workoutType, variant = "compact", color, use
 /** Shows the main pace target as a compact badge (e.g., "5:15/km") */
 export function PaceBadge({
   blocks,
-  workoutType,
   color,
   useMiles: useMilesProp,
 }: {
   blocks: Block[];
-  workoutType: string;
   color: string;
   useMiles?: boolean;
 }) {

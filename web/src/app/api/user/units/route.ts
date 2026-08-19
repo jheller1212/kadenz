@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withSession } from "@/lib/api/with-session";
 import { currentUserId } from "@/db/with-user";

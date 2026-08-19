@@ -204,6 +204,12 @@ function StrengthSessionPageInner() {
       })
       .catch(() => {});
     return () => { alive = false; };
+    // Keyed on the two fields this actually reads, not on the whole
+    // linkedActivity object the rule asks for. The object is rebuilt on every
+    // session fetch, so depending on it would re-request the exercise order
+    // each time the session refreshes even when the linked activity has not
+    // changed. Narrower is correct here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.linkedActivity?.id, session?.linkedActivity?.garminId]);
 
   const back = (

@@ -20,7 +20,7 @@ export function useScrollRestoration(ready: boolean = true) {
         requestAnimationFrame(() => window.scrollTo(0, y));
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [ready, pathname]);
 
   // Save on scroll

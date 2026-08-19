@@ -14,7 +14,6 @@
 import { and, eq, gte, lt } from "drizzle-orm";
 import type { UserId } from "@/lib/user-id";
 import { db, wellnessMetrics } from "@/db";
-import { currentUserId } from "@/db/with-user";
 import { garminClient } from "./garmin-client";
 import { toGarminDate } from "./garmin-client";
 
