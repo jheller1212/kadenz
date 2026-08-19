@@ -128,13 +128,50 @@ jobs:
       # spent on browsers no spec ever opens.
       - name: Install Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: |
+          # See the note on the install-deps step below — same apt exposure,
+          # same treatment.
+          for i in 1 2 3; do
+            if timeout 300 npx playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "Attempt $i/3 failed or timed out; retrying in 15s…"
+            sleep 15
+          done
+          echo "playwright install --with-deps failed 3 attempts in a row"
+          exit 1
 
       # The cache above restores the browser but not the apt libraries it links
       # against, so those still need installing on a cache hit.
+      # ── Bounded and retried, because this step reaches the network ──────────
+      #
+      # `playwright install-deps` shells out to apt, so it depends on a mirror
+      # answering — the one thing in this job that can fail for reasons having
+      # nothing to do with the code under test. When it hung, it hung for the
+      # full 20-minute job timeout and the run was reported as a FAILED e2e
+      # job with the tests marked "skipped": they never ran. Twice in a row,
+      # on the same PR, which is how a mirror outage came to block a fix for a
+      # production incident.
+      #
+      # `timeout 300` per attempt is the important half. Without it a hang
+      # consumes the whole job budget before anyone learns anything; with it a
+      # bad mirror costs five minutes and gets retried, and three genuinely bad
+      # attempts still fail the job — this makes the step survivable, not
+      # unskippable.
       - name: Install Chromium system dependencies
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        timeout-minutes: 18
+        run: |
+          for i in 1 2 3; do
+            if timeout 300 npx playwright install-deps chromium; then
+              exit 0
+            fi
+            echo "Attempt $i/3 failed or timed out; retrying in 15s…"
+            sleep 15
+          done
+          echo "playwright install-deps failed 3 attempts in a row"
+          exit 1
 
       # Blocking, like every other gate here. DATABASE_URL is deliberately not
       # set: global-setup.ts refuses to start if it points anywhere other than
