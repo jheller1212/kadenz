@@ -248,15 +248,28 @@ export const PATCH = withSession(async (request: NextRequest) => {
 // /api/plans/[id]). Strength previously offered only Pause, so a plan could be
 // silenced but never actually removed or started fresh.
 //
-// Logged history is deliberately kept: pruneAutoSchedule only takes future,
-// still-planned, auto-scheduled sessions, so completed and hand-edited sessions
-// survive — they are training data, and load progression is derived from them.
-// It also cleans up the calendar events and watch workouts those rows created.
+// Logged history is deliberately kept: stopStrengthPlan takes future,
+// still-planned sessions with nothing logged against them, so completed
+// sessions and anything carrying sets or a pain check-in survive — that is
+// training data, and load progression is derived from it. It also clears the
+// calendar events and watch workouts those rows created, which is the half
+// that has to happen server-side because the athlete cannot reach those
+// services from in here.
+//
+// It deliberately does NOT spare a hand-moved session the way the settings-
+// change prune does. Someone removing the plan is not asking to keep the three
+// sessions they dragged to a different day.
 export const DELETE = withSession(async (request: NextRequest) => {
   const profileId = await getVerifiedProfileId(request);
 
   try {
-    const { removed } = await pruneAutoSchedule(profileId, currentUserId());
+    // stopStrengthPlan, not pruneAutoSchedule. The prune only removes sessions
+    // the scheduler created and nobody touched, which leaves anything the
+    // athlete moved by hand sitting on their calendar and their watch after
+    // they asked for the plan to be removed — the exact complaint this whole
+    // area came from. Removing a plan and stopping one should clear the same
+    // things, so they now share the teardown.
+    const { removed } = await stopStrengthPlan(profileId, currentUserId());
 
     const deleted = await db
       .delete(strengthPlanSettings)
