@@ -4,8 +4,8 @@
 // This is that something — one place both the "new plan replaces old" path
 // and the "delete a plan" path call, so neither can forget one surface.
 
-import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
-import { db, plans, workouts, syncOutbox } from "@/db";
+import { and, eq, gte, inArray, isNotNull, notExists, or, sql } from "drizzle-orm";
+import { db, plans, workouts, syncOutbox, activities } from "@/db";
 import { queueWorkoutEventDeletes } from "./sync-manager";
 import { isConnected } from "./gcal-client";
 import { queueGarminWorkoutDeletes } from "./garmin-sync";
@@ -143,6 +143,53 @@ export async function retirePlanSyncArtifacts(planId: string): Promise<RetireRes
     );
 
   return queueRetireDeletes(rows);
+}
+
+/**
+ * Delete a retired plan's UPCOMING workouts.
+ *
+ * Archiving a plan set its status and pruned its calendar events and watch
+ * workouts, then left every row in place. Nothing displayed them, because
+ * every read filters on the active plan — but "nothing currently renders it"
+ * is a weaker promise than it sounds: it holds only until some future screen
+ * asks for workouts by date instead of by plan. Cancelling should mean
+ * cancelled. This is also simply a lot of rows: 23 archived plans had left
+ * 2,091 workouts behind, 680 of them still in the future.
+ *
+ * Only future, still-`planned` workouts with no activity linked to them. A
+ * completed session is training that happened, a missed one is a fact about
+ * adherence, and anything an athlete actually ran is attached to a real
+ * activity — none of that is the plan's to withdraw.
+ *
+ * MUST run after retirePlanSyncArtifacts, never before: that function reads
+ * these rows to queue the calendar and watch deletes. Doing it the other way
+ * round deletes the rows out from under the cleanup and strands the events on
+ * services this app can no longer reach. (The queued jobs themselves are safe
+ * once written — they carry the gcal/garmin ids in their own payload and never
+ * re-read the workout.)
+ */
+export async function deleteFuturePlanWorkouts(planId: string): Promise<{ deleted: number }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const removed = await db
+    .delete(workouts)
+    .where(
+      and(
+        eq(workouts.planId, planId),
+        eq(workouts.status, "planned"),
+        gte(workouts.date, today),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(activities)
+            .where(eq(activities.workoutId, workouts.id))
+        )
+      )
+    )
+    .returning({ id: workouts.id });
+
+  return { deleted: removed.length };
 }
 
 /**

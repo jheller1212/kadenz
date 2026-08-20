@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { loadSettings, saveSettings, type UserSettings } from "@/lib/settings";
 import { apiFetch } from "@/lib/api";
+import { haptic } from "@/lib/haptics";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import {
   COMPLAINT_LABELS,
@@ -68,6 +69,8 @@ export default function KraftSettingsPage() {
   const [complaints, setComplaints] = useState<Complaint[] | null>(null);
   const [hasPlan, setHasPlan] = useState<boolean | null>(null);
   const [confirmStopAchilles, setConfirmStopAchilles] = useState(false);
+  const [confirmStopPlan, setConfirmStopPlan] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [complaintError, setComplaintError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -313,8 +316,77 @@ export default function KraftSettingsPage() {
               }
             />
           </ListGroup>
+
+          {/* The only way to stop Kraft. The API has accepted `active: false`
+              since setup existed and nothing ever sent it, so a plan could be
+              started and never stopped — its sessions kept being scheduled and
+              kept being pushed to the watch, and cancelling the RUNNING plan
+              did not touch them, because Kraft is its own schedule. */}
+          <ListGroup
+            header="Stop"
+            footer="Everything you have logged stays. Only upcoming sessions are removed, along with their calendar events and watch workouts."
+          >
+            <button
+              onClick={() => {
+                haptic("medium");
+                setConfirmStopPlan(true);
+              }}
+              className="press flex w-full items-center justify-between px-4 py-3 text-left"
+            >
+              <span className="text-[15px] font-medium text-danger">Stop Kraft plan</span>
+            </button>
+          </ListGroup>
         </>
       )}
+
+      {/* Naming the watch and the calendar explicitly, because that is the part
+          the athlete cannot undo from here and the part they noticed was
+          missing: a stopped plan whose workouts were still on the Garmin. */}
+      <Sheet
+        open={confirmStopPlan}
+        onClose={() => setConfirmStopPlan(false)}
+        title="Stop Kraft plan?"
+      >
+        <div className="flex flex-col gap-4 px-4 pb-6">
+          <p className="text-[14px] leading-relaxed text-text-2">
+            Your upcoming strength sessions are removed, and so are their calendar
+            events and the workouts already sent to your watch.
+          </p>
+          <p className="text-[14px] leading-relaxed text-text-2">
+            Everything you have logged stays: completed sessions, your sets, and your
+            pain history. You can start Kraft again whenever you want.
+          </p>
+          <Button
+            variant="primary"
+            size="lg"
+            full
+            disabled={stopping}
+            onClick={async () => {
+              setStopping(true);
+              try {
+                const res = await apiFetch("/api/strength/plan-settings", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ active: false }),
+                });
+                if (!res.ok) throw new Error("stop failed");
+                setConfirmStopPlan(false);
+                // Re-read rather than patching local state: the server decides
+                // what survived (anything with logged sets stays), so guessing
+                // here would show a screen the database disagrees with.
+                window.location.reload();
+              } catch {
+                setStopping(false);
+              }
+            }}
+          >
+            {stopping ? "Stopping…" : "Stop Kraft plan"}
+          </Button>
+          <Button variant="secondary" size="lg" full onClick={() => setConfirmStopPlan(false)}>
+            Keep it
+          </Button>
+        </div>
+      </Sheet>
 
       {/* Stopping Achilles work ends a graded protocol, so it says what stops
           and what happens on re-report before the athlete commits. Accurate,

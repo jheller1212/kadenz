@@ -10,7 +10,7 @@ import { queuePlanWorkoutsSync } from "@/lib/sync/sync-manager";
 import { isConnected } from "@/lib/sync/gcal-client";
 import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
-import { retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
+import { retirePlanSyncArtifacts, deleteFuturePlanWorkouts } from "@/lib/sync/plan-retire";
 import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { pruneAutoSchedule, reconcileStrengthSchedule } from "@/lib/strength/schedule";
 import { timer } from "@/lib/timing";
@@ -151,6 +151,12 @@ export const POST = withSession(async (request: NextRequest) => {
     for (const p of archivedPlans) {
       await retirePlanSyncArtifacts(p.id).catch((err) =>
         console.error("Failed to retire old plan's sync artifacts:", err)
+      );
+      // And the rows, after the artifacts are queued from them. The superseded
+      // plan's future workouts are exactly the dead weight that accumulated
+      // one archived plan at a time.
+      await deleteFuturePlanWorkouts(p.id).catch((err: unknown) =>
+        console.error("Failed to delete superseded plan's future workouts:", err)
       );
     }
     t.mark("retireOldPlan");
