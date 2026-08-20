@@ -679,6 +679,93 @@ export async function pruneAutoSchedule(profileId: string | null, userId: string
 }
 
 /**
+ * Stop the Kraft plan: clear every upcoming session, then leave the plan
+ * inactive so nothing schedules more.
+ *
+ * Deliberately broader than pruneAutoSchedule, which only removes sessions the
+ * scheduler created and the athlete never touched. That contract is right for
+ * a settings change — rebuilding the schedule must not silently discard a
+ * session someone moved by hand. It is wrong for "stop": an athlete who taps
+ * Stop is not asking to keep the three sessions they happened to drag to a
+ * different day.
+ *
+ * What is still permanent is anything with history. A session with logged sets
+ * or a pain check-in is training that happened, and it stays, along with every
+ * completed session — stopping the plan ends the schedule, it does not edit
+ * the past.
+ *
+ * The calendar events and watch workouts are the whole point of doing this
+ * server-side. They are copies living on services the athlete cannot clean up
+ * from inside this app, so a "stopped" plan whose sessions are still sitting
+ * on the watch has not stopped in the only sense that matters to the person
+ * looking at their Garmin.
+ */
+export async function stopStrengthPlan(
+  profileId: string | null,
+  userId: string
+): Promise<{ removed: number }> {
+  const uid = asUserId(userId);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const candidates = await db
+    .select({
+      id: strengthSessions.id,
+      gcalEventId: strengthSessions.gcalEventId,
+      garminWorkoutId: strengthSessions.garminWorkoutId,
+    })
+    .from(strengthSessions)
+    .where(
+      and(
+        eq(strengthSessions.userId, userId),
+        profileId
+          ? eq(strengthSessions.profileId, profileId)
+          : isNull(strengthSessions.profileId),
+        eq(strengthSessions.status, "planned"),
+        gte(strengthSessions.date, today)
+      )
+    );
+  if (candidates.length === 0) return { removed: 0 };
+
+  // Same history guard the prune uses: a session carrying logged sets or a
+  // pain check-in is not upcoming work, it is a record.
+  const candidateIds = candidates.map((c) => c.id);
+  const idsWithData = new Set<string>();
+  const [setRows, painRows] = await Promise.all([
+    db
+      .select({ sessionId: strengthSets.sessionId })
+      .from(strengthSets)
+      .where(inArray(strengthSets.sessionId, candidateIds)),
+    db
+      .select({ sessionId: painLogs.sessionId })
+      .from(painLogs)
+      .where(inArray(painLogs.sessionId, candidateIds)),
+  ]);
+  for (const r of setRows) idsWithData.add(r.sessionId);
+  for (const r of painRows) idsWithData.add(r.sessionId);
+
+  const removable = candidates.filter((c) => !idsWithData.has(c.id));
+  if (removable.length === 0) return { removed: 0 };
+
+  for (const s of removable) {
+    if (s.gcalEventId) {
+      await queueStrengthSessionSync(s.id, "delete", uid, "gcal", {
+        gcalEventId: s.gcalEventId,
+      }).catch(() => {});
+    }
+    if (s.garminWorkoutId) {
+      await queueGarminStrengthDelete(uid, s.id, s.garminWorkoutId).catch(() => {});
+    }
+  }
+
+  await db
+    .delete(strengthSessions)
+    .where(inArray(strengthSessions.id, removable.map((s) => s.id)));
+
+  return { removed: removable.length };
+}
+
+/**
  * Sweep abandoned Kraft-picker/custom-workout ad-hoc sessions: not part of
  * the plan (never watchEligible), still "planned", nothing ever logged, and
  * their day has fully passed. These are throwaway trial starts the athlete

@@ -6,6 +6,7 @@ import {
   ensureStrengthSchedule,
   pruneAutoSchedule,
   resyncPlannedStrengthSessions,
+  stopStrengthPlan,
 } from "@/lib/strength/schedule";
 import { withSession } from "@/lib/api/with-session";
 import { currentUserId } from "@/db/with-user";
@@ -117,12 +118,19 @@ export const PUT = withSession(async (request: NextRequest) => {
       }
     }
 
+    // Saving with the plan switched off is a stop, not just "schedule
+    // nothing further": clear the upcoming sessions and take their calendar
+    // events and watch workouts with them. Leaving those behind is what made
+    // a cancelled plan look like it was still running on the athlete's Garmin.
+    if (!data.active) {
+      const { removed } = await stopStrengthPlan(profileId, currentUserId());
+      return Response.json({ ok: true, created: 0, removed });
+    }
+
     // Rebuild the upcoming auto schedule from the new preferences. Completed
     // and manually created sessions are never touched.
     await pruneAutoSchedule(profileId, currentUserId());
-    const { created } = data.active
-      ? await ensureStrengthSchedule(profileId, currentUserId())
-      : { created: 0 };
+    const { created } = await ensureStrengthSchedule(profileId, currentUserId());
 
     return Response.json({ ok: true, created });
   } catch (err) {
@@ -211,6 +219,13 @@ export const PATCH = withSession(async (request: NextRequest) => {
     // rewriting: every still-planned session already reflects the new value on
     // its next read. The calendar event and the watch workout are copies
     // though, so they have to be pushed again.
+    if (updated && !updated.active) {
+      // Switched off through a partial update — same teardown as the setup
+      // save above, so there is one meaning of "off" rather than two.
+      const { removed } = await stopStrengthPlan(profileId, currentUserId());
+      return Response.json({ ok: true, hadPlan: true, removed });
+    }
+
     if (updated?.active) {
       await ensureStrengthSchedule(profileId, currentUserId());
       // ensureStrengthSchedule only re-pushes a session whose duration

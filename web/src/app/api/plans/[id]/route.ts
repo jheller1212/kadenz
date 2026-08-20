@@ -12,7 +12,7 @@ import { queueGarminWindowSync } from "@/lib/sync/garmin-sync";
 import { isGarminWorkoutSyncEnabled } from "@/lib/sync/garmin-config";
 import { garminClient } from "@/lib/sync/garmin-client";
 import { reconcileStrengthSchedule } from "@/lib/strength/schedule";
-import { queueRetireDeletes, retirePlanSyncArtifacts } from "@/lib/sync/plan-retire";
+import { queueRetireDeletes, retirePlanSyncArtifacts, deleteFuturePlanWorkouts } from "@/lib/sync/plan-retire";
 import { drainOutboxNow } from "@/lib/sync/outbox-drain";
 import { currentUserId, withUser } from "@/db/with-user";
 import { withSession } from "@/lib/api/with-session";
@@ -446,6 +446,14 @@ export const DELETE = withSession(async (
       console.error("Failed to retire plan's sync artifacts:", err)
     );
 
+    // Then drop the upcoming rows themselves. Strictly after the line above,
+    // which reads them to queue the calendar and watch deletes. Cancelling
+    // used to archive the plan and leave every workout in the database.
+    const { deleted } = await deleteFuturePlanWorkouts(id).catch((err: unknown) => {
+      console.error("Failed to delete cancelled plan's future workouts:", err);
+      return { deleted: 0 };
+    });
+
     // Flush those deletes promptly instead of waiting for the daily cron —
     // this is what actually clears the archived plan's workouts off the
     // watch and calendar (see outbox-drain.ts). Not scheduleOutboxDrain():
@@ -459,7 +467,7 @@ export const DELETE = withSession(async (
       await withUser(ownerId, () => drainOutboxNow(ownerId));
     });
 
-    return Response.json({ id: updated.id, status: "archived" });
+    return Response.json({ id: updated.id, status: "archived", workoutsDeleted: deleted });
   } catch (err) {
     console.error("DB error archiving plan:", err);
     return Response.json({ error: "Failed to archive plan" }, { status: 500 });
