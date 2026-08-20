@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db, plans } from "@/db";
 import { ownedBy } from "@/lib/api/owned";
 import { listStrengthSessions } from "../strength/sessions/service";
+import { getPlanSettings } from "../strength/plan-settings/service";
 import { mondayOf, addDays } from "@/lib/plan-ui";
 
 // ── Shared "which plan is active" query ─────────────────────────────────────
@@ -84,6 +85,9 @@ export interface ActivePlanBundle {
   activePlan: boolean;
   plan: Awaited<ReturnType<typeof getPlanById>> | null;
   strengthSessions: Awaited<ReturnType<typeof listStrengthSessions>> | null;
+  /** The Kraft plan, independent of whether a running plan exists. Null when
+   *  the athlete has never set one up. */
+  strengthPlan: { active: boolean; sessionsPerWeek: number } | null;
 }
 
 export async function getActivePlanBundle(opts: {
@@ -91,13 +95,41 @@ export async function getActivePlanBundle(opts: {
   includeSessions: boolean;
   summary?: boolean;
 }): Promise<ActivePlanBundle> {
+  // Fetched before the early returns below, deliberately. Kraft is its own
+  // plan on its own schedule, and this function used to answer "no running
+  // plan" with strengthSessions: null — so the Plan tab reported an empty week
+  // to an athlete whose strength sessions were scheduled and already on their
+  // watch. "No running plan" is not "no plans".
+  const settings = await getPlanSettings(opts.profileId);
+  const strengthPlan = settings
+    ? { active: Boolean(settings.active), sessionsPerWeek: settings.sessionsPerWeek }
+    : null;
+
   const planId = await getActivePlanId();
-  if (!planId) return { activePlan: false, plan: null, strengthSessions: null };
+  if (!planId) {
+    return {
+      activePlan: false,
+      plan: null,
+      strengthSessions: opts.includeSessions
+        ? await listStrengthSessionsForCurrentWeeks(opts.profileId)
+        : null,
+      strengthPlan,
+    };
+  }
 
   const plan = await getPlanById(planId, { summary: opts.summary });
-  if (!plan) return { activePlan: false, plan: null, strengthSessions: null };
+  if (!plan) {
+    return {
+      activePlan: false,
+      plan: null,
+      strengthSessions: opts.includeSessions
+        ? await listStrengthSessionsForCurrentWeeks(opts.profileId)
+        : null,
+      strengthPlan,
+    };
+  }
 
-  if (!opts.includeSessions) return { activePlan: true, plan, strengthSessions: null };
+  if (!opts.includeSessions) return { activePlan: true, plan, strengthSessions: null, strengthPlan };
 
   // Same range every /plan/* screen computed client-side after its own plan
   // fetch: Monday of the plan's first workout through the Sunday of race
@@ -105,11 +137,25 @@ export async function getActivePlanBundle(opts: {
   // reason to hand its id back to the browser only to have it ask for this
   // range itself.
   const firstDate = plan.weeks[0]?.workouts[0]?.date;
-  if (!firstDate) return { activePlan: true, plan, strengthSessions: [] };
+  if (!firstDate) return { activePlan: true, plan, strengthSessions: [], strengthPlan };
   const from = mondayOf(new Date(firstDate));
   const to = addDays(mondayOf(new Date(plan.raceDate)), 6);
   to.setHours(23, 59, 59, 999);
   const strengthSessions = await listStrengthSessions(opts.profileId, { from, to });
 
-  return { activePlan: true, plan, strengthSessions };
+  return { activePlan: true, plan, strengthSessions, strengthPlan };
+}
+
+/**
+ * Strength sessions for the weeks around today, for the case where there is no
+ * running plan to take a date range from. Kraft schedules a fortnight ahead
+ * (see strength/schedule.ts HORIZON_DAYS), so a window of last week through
+ * three weeks out covers everything it can have placed.
+ */
+async function listStrengthSessionsForCurrentWeeks(profileId: string | null) {
+  const from = mondayOf(new Date());
+  from.setDate(from.getDate() - 7);
+  const to = addDays(from, 27);
+  to.setHours(23, 59, 59, 999);
+  return listStrengthSessions(profileId, { from, to });
 }

@@ -25,6 +25,8 @@ import { EmptyState, ErrorState } from "@/components/ui/feedback";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { workoutColor, STRENGTH_COLOR, strengthColor } from "@/lib/workout-colors";
 import { WeeklyStrengthPlan } from "@/components/strength/WeeklyStrengthPlan";
+import { PlansOverview } from "@/components/plan/PlansOverview";
+import { strengthPlanPresence } from "@/lib/plan-presence";
 import { apiFetch } from "@/lib/api";
 import { displayDistance, distanceUnitLabel } from "@/lib/units";
 import { completedDistanceKm } from "@/lib/training/distance";
@@ -241,11 +243,30 @@ function HubSkeleton() {
   );
 }
 
-function HubEmptyState() {
+function HubEmptyState({
+  strengthPlan,
+  onChanged,
+}: {
+  strengthPlan?: { active: boolean; sessionsPerWeek: number } | null;
+  onChanged?: () => void;
+}) {
+  // Reached whenever there is no RUNNING plan — which is not the same as
+  // having no plans. Kraft can be running here, so the overview comes first
+  // and the create-a-race-plan prompt only appears when there is genuinely
+  // nothing.
+  const kraftOn = strengthPlanPresence(strengthPlan) === "active";
+
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar title="Your Plan" large={false} centerAlways left={<ProfileAvatar />} />
-      <div className="mx-auto flex w-full max-w-md flex-col px-4 pb-tabbar">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-tabbar pt-2">
+        <PlansOverview
+          runPlan={null}
+          strengthPlan={strengthPlan ?? null}
+          onChanged={onChanged ?? (() => {})}
+        />
+
+        {!kraftOn && (
         <EmptyState
           icon={
             <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -260,6 +281,7 @@ function HubEmptyState() {
             </TransitionLink>
           }
         />
+        )}
         <section className="mt-2">
           <p className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-text-3">
             Strength
@@ -289,6 +311,9 @@ export default function PlanHubPage() {
   // which would tell the athlete their plan is gone.
   const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // Kraft's own state, captured whether or not a running plan exists — the
+  // two plans are independent and this tab has to be able to say so.
+  const [strengthPlan, setStrengthPlan] = useState<{ active: boolean; sessionsPerWeek: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,11 +335,17 @@ export default function PlanHubPage() {
           return;
         }
         const bundle = await res.json();
-        if (cancelled || !bundle.activePlan || !bundle.plan) return;
-        setPlan(bundle.plan as ApiPlanRow);
+        if (cancelled) return;
+        // Read before the running-plan guard below: "no running plan" must not
+        // mean "no plans", which is exactly what this screen used to conclude.
+        setStrengthPlan(
+          (bundle.strengthPlan as { active: boolean; sessionsPerWeek: number } | null) ?? null
+        );
         if (bundle.strengthSessions) {
           setSessions(bundle.strengthSessions as StrengthSessionRow[]);
         }
+        if (!bundle.activePlan || !bundle.plan) return;
+        setPlan(bundle.plan as ApiPlanRow);
       } catch {
         if (!cancelled) setFailed(true);
       } finally {
@@ -366,7 +397,13 @@ export default function PlanHubPage() {
 
   if (loading) return <HubSkeleton />;
   if (failed) return <ErrorState onRetry={retry} />;
-  if (!plan || !derived) return <HubEmptyState />;
+  if (!plan || !derived)
+    return (
+      <HubEmptyState
+        strengthPlan={strengthPlan}
+        onChanged={() => setReloadKey((k) => k + 1)}
+      />
+    );
 
   const raceDateLabel = new Date(plan.raceDate).toLocaleDateString("en-US", {
     weekday: "long",
@@ -436,6 +473,15 @@ export default function PlanHubPage() {
             </div>
           </div>
         </section>
+
+        {/* Both plans, named, with add/remove — the same section the
+            no-running-plan view leads with, so this tab answers "what am I
+            signed up for" in one place regardless of which plans exist. */}
+        <PlansOverview
+          runPlan={{ id: plan.id, name: plan.name, planLengthWeeks: plan.weeks.length }}
+          strengthPlan={strengthPlan}
+          onChanged={() => setReloadKey((k) => k + 1)}
+        />
 
         {/* Quick actions */}
         <div className="grid grid-cols-4 gap-2">
