@@ -14,7 +14,8 @@
     "splash:generate": "node scripts/generate-splash.mjs",
     "report:capabilities": "tsx scripts/generate-capability-report.ts",
     "test:e2e": "playwright test",
-    "test:e2e:seed": "tsx e2e/seed.ts"
+    "test:e2e:seed": "tsx e2e/seed.ts",
+    "clean:worktrees": "node scripts/clean-worktrees.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
