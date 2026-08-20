@@ -30,6 +30,7 @@ import { CalendarReconnectBanner } from "@/components/CalendarReconnectBanner";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton, EmptyState } from "@/components/ui/feedback";
+import { todayEmptyState } from "@/lib/today-empty-state";
 import { TransitionLink } from "@/components/ui/TransitionLink";
 import { apiFetch } from "@/lib/api";
 import {
@@ -1357,32 +1358,105 @@ function WeekSheet({
 
 // ── No Plan CTA ──────────────────────────────────────────────────────────────
 
-function NoPlanCTA({ error, onRetry }: { error?: boolean; onRetry?: () => void }) {
+// ── No RUNNING plan ─────────────────────────────────────────────────────────
+//
+// Three different situations used to render one screen. "Ready to train?
+// Create a personalised race plan" was shown to everybody without an active
+// running plan — including someone whose Kraft plan was switched on, with
+// strength sessions scheduled for this week and already pushed to their
+// watch. The app said "you have nothing" while the Garmin said otherwise, and
+// there was no way in from here to the plan that actually existed.
+//
+// So: say which of the two plans is missing, and offer the one that is.
+function NoPlanCTA({
+  error,
+  onRetry,
+  kraftActive,
+  weekStrength = [],
+}: {
+  error?: boolean;
+  onRetry?: () => void;
+  kraftActive?: boolean | null;
+  weekStrength?: StrengthSessionLite[];
+}) {
+  const upcoming = weekStrength
+    .filter((s) => s.status !== "completed" && s.status !== "skipped")
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // The branch itself lives in lib/today-empty-state.ts, tested there — see
+  // that file for why these are three states rather than one.
+  const state = todayEmptyState({ error, kraftActive });
+
   return (
     <main className="min-h-dvh bg-bg">
       <NavBar title="Today" large left={<ProfileAvatar />} />
-      <div className="flex min-h-[70dvh] items-center justify-center px-5 pb-tabbar">
-        <EmptyState
-          icon={<CalendarDays className="h-10 w-10" strokeWidth={1.5} />}
-          title={error ? "Couldn't load your plan" : "Ready to train?"}
-          message={
-            error
-              ? "Something went wrong reaching Kadenz. Check your connection and try again."
-              : "Create a personalised race plan to see your workouts here."
-          }
-          action={
-            error ? (
-              <Button variant="secondary" onClick={onRetry}>
-                <RefreshCw className="h-4 w-4" strokeWidth={2} />
-                Try again
-              </Button>
-            ) : (
-              <TransitionLink href="/create">
-                <Button variant="primary">Create plan</Button>
+      <div className="flex flex-col gap-4 px-5 pb-tabbar pt-2">
+        {state === "error" ? (
+          <div className="flex min-h-[70dvh] items-center justify-center">
+            <EmptyState
+              icon={<CalendarDays className="h-10 w-10" strokeWidth={1.5} />}
+              title="Couldn't load your plan"
+              message="Something went wrong reaching Kadenz. Check your connection and try again."
+              action={
+                <Button variant="secondary" onClick={onRetry}>
+                  <RefreshCw className="h-4 w-4" strokeWidth={2} />
+                  Try again
+                </Button>
+              }
+            />
+          </div>
+        ) : state === "kraft-running" ? (
+          <>
+            {/* Kraft is running. Lead with it rather than pretending the week
+                is empty, and make the missing half the secondary prompt. */}
+            <div className="k-card p-4">
+              <p className="text-[15px] font-semibold text-text-1">Kraft is running</p>
+              <p className="mt-1 text-[13px] leading-snug text-text-3">
+                {upcoming.length > 0
+                  ? `${upcoming.length} strength ${upcoming.length === 1 ? "session" : "sessions"} left this week.`
+                  : "No strength sessions left this week."}
+              </p>
+              <TransitionLink href="/strength">
+                <Button variant="secondary" size="sm" className="mt-3">
+                  Open Kraft
+                </Button>
               </TransitionLink>
-            )
-          }
-        />
+            </div>
+
+            <div className="k-card p-4">
+              <p className="text-[15px] font-semibold text-text-1">No running plan</p>
+              <p className="mt-1 text-[13px] leading-snug text-text-3">
+                Add one to get runs alongside your lifts.
+              </p>
+              <TransitionLink href="/create">
+                <Button variant="primary" size="sm" className="mt-3">
+                  Create running plan
+                </Button>
+              </TransitionLink>
+            </div>
+          </>
+        ) : (
+          <div className="flex min-h-[70dvh] items-center justify-center">
+            {/* Neither plan exists. Both are offered, because Kraft is a plan
+                in its own right and was previously reachable only by knowing
+                to go looking for it in the tab bar. */}
+            <EmptyState
+              icon={<CalendarDays className="h-10 w-10" strokeWidth={1.5} />}
+              title="Ready to train?"
+              message="Start with runs, strength, or both — you can add the other later."
+              action={
+                <div className="flex flex-col gap-2">
+                  <TransitionLink href="/create">
+                    <Button variant="primary" full>Create running plan</Button>
+                  </TransitionLink>
+                  <TransitionLink href="/strength/setup">
+                    <Button variant="secondary" full>Set up Kraft</Button>
+                  </TransitionLink>
+                </div>
+              }
+            />
+          </div>
+        )}
       </div>
       <BottomNav active="today" />
     </main>
@@ -1500,6 +1574,12 @@ export default function Home() {
   // Seeded by the mount-time /api/today/bootstrap call below (see
   // loadBootstrap) — no standalone mount fetch here any more.
   const [strengthTarget, setStrengthTarget] = useState<number | null>(null);
+  // Whether the Kraft plan is switched on, which is NOT the same question as
+  // whether a running plan exists. Today used to conflate the two and show
+  // "Ready to train?" to someone whose strength sessions were scheduled and
+  // already pushed to their watch. null = not known yet, so the empty state
+  // does not flash the wrong copy before bootstrap resolves.
+  const [kraftActive, setKraftActive] = useState<boolean | null>(null);
   // The running-plan phase strength is following this week — the same fact
   // the Kraft screen already surfaces (see /api/strength/summary), fetched
   // here too so the "why is this week short" reason agrees everywhere
@@ -1737,11 +1817,13 @@ export default function Home() {
         if (boot.strengthPlanSettings && typeof boot.strengthPlanSettings.sessionsPerWeek === "number") {
           setStrengthTarget(boot.strengthPlanSettings.sessionsPerWeek);
         }
+        setKraftActive(Boolean(boot.strengthPlanSettings?.active));
       } else {
         apiFetch("/api/strength/plan-settings")
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
             if (d && typeof d.sessionsPerWeek === "number") setStrengthTarget(d.sessionsPerWeek);
+            if (d) setKraftActive(Boolean(d.active));
           })
           .catch(() => {});
       }
@@ -2003,7 +2085,12 @@ export default function Home() {
   if (!data?.activePlan)
     return (
       <>
-        <NoPlanCTA error={loadError} onRetry={loadBootstrap} />
+        <NoPlanCTA
+          error={loadError}
+          onRetry={loadBootstrap}
+          kraftActive={kraftActive}
+          weekStrength={weekStrength}
+        />
         {onboardingOverlay}
       </>
     );
